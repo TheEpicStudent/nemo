@@ -8,13 +8,13 @@ with member as (
         user_id,
         min(first_post_on) as first_post_on,
         max(ds) as last_post_on
-    from {{ ref('mart_member_day') }}
+    from {{ ref('fct_member_day') }}
     group by 1, 2
 ),
 
 edge as (
     select max(ds) as watermark
-    from {{ ref('mart_member_day') }}
+    from {{ ref('fct_member_day') }}
 ),
 
 sized as (

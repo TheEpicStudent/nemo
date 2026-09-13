@@ -76,8 +76,8 @@ module Journey
     STAGES = [
       { key: :signed_rate, head: "signed in", num: :claimed, prev: :invited },
       { key: :posted_rate_30d, head: "posted in 30 days", num: :posted_30d, prev: :claimed },
-      { key: :funnel_30, head: "still there at day 30", num: :retained_30, prev: :posted_30d },
-      { key: :funnel_90, head: "still there at day 90", num: :retained_90, prev: :retained_30 }
+      { key: :funnel_30, head: "still posting at day 30", num: :retained_30, prev: :posted_30d },
+      { key: :funnel_90, head: "still posting at day 90", num: :retained_90, prev: :retained_30 }
     ].freeze
 
     def self.recent(limit)

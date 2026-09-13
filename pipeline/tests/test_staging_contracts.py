@@ -64,7 +64,7 @@ def test_every_mart_downstream_of_first_post_declares_a_version():
     import re
 
     marts = ("mart_channel_onboarding_scorecard", "mart_fast_reply_vs_retention",
-             "mart_cohort_retention", "mart_member_day", "mart_cohort_survival")
+             "mart_cohort_retention", "mart_cohort_survival")
     for name in marts:
         sql = (WAREHOUSE_DIR / "models" / "marts" / f"{name}.sql").read_text()
         assert re.search(r"'v\d+' as metric_version", sql), f"{name} has no metric_version"
@@ -82,12 +82,27 @@ def test_the_cohort_marts_anchor_on_the_merged_first_post():
         assert "ref('fct_first_post')" in sql, f"{name} no longer anchors on the merged first post"
 
 
-def test_the_day_grain_mart_is_archive_native():
-    sql = (WAREHOUSE_DIR / "models" / "marts" / "mart_member_day.sql").read_text()
+def test_the_day_grain_model_is_archive_native():
+    sql = (WAREHOUSE_DIR / "models" / "staging" / "fct_member_day.sql").read_text()
     assert "fct_member_message" in sql, "the day grain has to come from the archive"
     assert "fct_first_post" in sql, "a day offset needs the merged first post"
     assert "fct_member_activity" not in sql, "that is Slack's snapshot, not the archive"
     assert "dim_member" not in sql, "author_kind already excludes bots; dim_member is empty in dev"
+
+
+def test_retention_is_measured_from_the_archive_not_slacks_snapshot():
+    sql = (WAREHOUSE_DIR / "models" / "staging" / "fct_member_retention.sql").read_text()
+    assert "fct_member_day" in sql, "retention reads posting days from the archive"
+    assert "fct_member_activity" not in sql, (
+        "the member-day snapshot starts part way through the history and has gaps, "
+        "which blanked whole cohorts behind the coverage floor"
+    )
+
+
+def test_the_serving_view_does_not_copy_the_day_grain():
+    sql = (WAREHOUSE_DIR / "models" / "marts" / "mart_member_day.sql").read_text()
+    assert "materialized='view'" in sql, "a second copy of 3M rows earns nothing"
+    assert "fct_member_day" in sql
 
 
 def test_survival_marks_the_days_it_cannot_see_rather_than_calling_them_zero():

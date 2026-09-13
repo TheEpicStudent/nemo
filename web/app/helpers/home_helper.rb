@@ -252,7 +252,8 @@ module HomeHelper
     end
 
     "#{number_with_delimiter(retained)} of #{number_with_delimiter(row.invited)} created " \
-      "accounts were active in the 7 days ending on day #{day} &middot; #{held}"
+      "accounts posted in a public channel in the 8 days ending on day #{day} " \
+        "&middot; #{held}"
   end
 
   def band_split(value, bands, label)

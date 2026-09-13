@@ -361,3 +361,31 @@ models:
               values: [high, medium, none]
       - name: answered
         data_tests: [not_null]
+  - name: fct_member_day
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: user_id
+        data_type: text
+        data_tests: [not_null]
+      - name: ds
+        data_type: date
+        data_tests: [not_null]
+      - name: cohort_month
+        data_type: date
+        data_tests: [not_null]
+      - name: first_post_on
+        data_type: date
+        data_tests: [not_null]
+      - name: day_offset
+        data_type: integer
+        data_tests: [not_null]
+      - name: messages
+        data_type: integer
+      - name: replies
+        data_type: integer
+      - name: channels
+        data_type: integer
+      - name: metric_version
+        data_type: text

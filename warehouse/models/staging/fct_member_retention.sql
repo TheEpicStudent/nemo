@@ -30,14 +30,13 @@ first_post as (
 active as (
     select
         user_id,
-        window_start as active_date
-    from {{ ref('fct_member_activity') }}
-    where coalesce(days_active, 0) > 0
+        ds as active_date
+    from {{ ref('fct_member_day') }}
 ),
 
 covered as (
-    select distinct window_start as day
-    from {{ ref('fct_member_activity') }}
+    select generate_series(min(ds), max(ds), interval '1 day')::date as day
+    from {{ ref('fct_member_day') }}
 ),
 
 coverage as (
@@ -45,12 +44,12 @@ coverage as (
         w.first_post_on,
         count(*) filter (
             where c.day between w.first_post_on + 23 and w.first_post_on + 30
-        ) > 0 as day_30_covered,
+        ) = 8 as day_30_covered,
         count(*) filter (
             where c.day between w.first_post_on + 83 and w.first_post_on + 90
-        ) > 0 and count(*) filter (
+        ) = 8 and count(*) filter (
             where c.day between w.first_post_on + 23 and w.first_post_on + 30
-        ) > 0 as day_90_covered,
+        ) = 8 as day_90_covered,
         count(*) filter (
             where c.day between w.first_post_on and w.first_post_on + 14
         ) = 15 as visits_knowable

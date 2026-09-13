@@ -11,7 +11,7 @@ with edge as (
 
 watermark as (
     select max(ds) as observed_through
-    from {{ ref('mart_member_day') }}
+    from {{ ref('fct_member_day') }}
 ),
 
 member as (
@@ -73,7 +73,7 @@ returners as (
     select
         user_id,
         count(*) filter (where day_offset between 1 and {{ return_days }}) > 0 as came_back
-    from {{ ref('mart_member_day') }}
+    from {{ ref('fct_member_day') }}
     group by user_id
 ),
 
