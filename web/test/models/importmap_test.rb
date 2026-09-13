@@ -23,7 +23,12 @@ class ImportmapTest < ActiveSupport::TestCase
   test "the charts namespace is registered lazily and the rest eagerly" do
     index = Rails.root.join("app/javascript/controllers/index.js").read
     assert_includes index, %(eagerLoadControllersFrom("controllers", application))
-    assert_includes index, %(lazyLoadControllersFrom("charts", application))
+    assert_no_match(/eagerLoadControllersFrom\(\s*"charts"/, index,
+      "charts carry d3, so they must not load on pages that draw nothing")
+    assert_match(/\^charts\\\/\.\*_controller\$/, index,
+      "the lazy registration must find its candidates in the charts namespace")
+    assert_no_match(/lazyLoadControllersFrom/, index,
+      "the prefix loader tries charts/<name>_controller for every identifier on the page")
   end
 
   test "every chart identifier used in a view resolves to a pinned charts module" do
