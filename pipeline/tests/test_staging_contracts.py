@@ -70,6 +70,18 @@ def test_every_mart_downstream_of_first_post_declares_a_version():
         assert re.search(r"'v\d+' as metric_version", sql), f"{name} has no metric_version"
 
 
+def test_no_mart_reads_first_post_from_the_search_crawl():
+    offenders = [p.name for p in (WAREHOUSE_DIR / "models" / "marts").glob("*.sql")
+                 if "first_post_ts" in p.read_text() or "first_post_channel" in p.read_text()]
+    assert offenders == [], "first post comes from fct_first_post, which takes the earlier source"
+
+
+def test_the_cohort_marts_anchor_on_the_merged_first_post():
+    for name in ("mart_monthly_cohorts", "mart_newcomer_channels"):
+        sql = (WAREHOUSE_DIR / "models" / "marts" / f"{name}.sql").read_text()
+        assert "ref('fct_first_post')" in sql, f"{name} no longer anchors on the merged first post"
+
+
 def test_no_mart_reaches_around_the_staging_layer():
     marts = (WAREHOUSE_DIR / "models" / "marts").glob("*.sql")
     offenders = [p.name for p in marts if "source(" in p.read_text()]
@@ -147,7 +159,8 @@ def test_lifetime_messages_comes_from_the_archive():
 
 def test_every_repointed_mart_bumped_its_version():
     want = {"mart_participation_concentration": "v5", "mart_activity_distribution": "v18",
-            "mart_onboarding_recurrence_funnel": "v17", "mart_monthly_cohorts": "v3"}
+            "mart_onboarding_recurrence_funnel": "v17", "mart_monthly_cohorts": "v4",
+            "mart_newcomer_channels": "v3"}
     for name, version in want.items():
         sql = (WAREHOUSE_DIR / "models" / "marts" / f"{name}.sql").read_text()
         assert f"'{version}' as metric_version" in sql, f"{name} is not at {version}"

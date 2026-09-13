@@ -51,11 +51,11 @@ joined as (
 
 landed as (
     select
-        h.first_post_channel as channel_id,
+        f.channel_id,
         count(*) as newcomer_first_posts
-    from {{ ref('fct_member_history') }} h
-    join cohort c on c.user_id = h.user_id
-    where h.first_post_channel is not null
+    from {{ ref('fct_first_post') }} f
+    join cohort c on c.user_id = f.user_id
+    where f.channel_id is not null
     group by 1
 ),
 
@@ -127,7 +127,7 @@ select
     (select claimed_edge from edge) as cohort_end,
     w.window_start,
     w.window_end,
-    'v2' as metric_version
+    'v3' as metric_version
 from together t
 cross join reach r
 cross join baseline b

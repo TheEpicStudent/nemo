@@ -2,7 +2,7 @@ with reply_speed as (
     select
         r.newcomer_id,
         case
-            when r.answered and r.latency_seconds < 3600 then 'fast'
+            when r.answered and r.latency_seconds < {{ var('fast_reply_seconds') }} then 'fast'
             when r.answered then 'slow'
             when r.bot_replied then 'bot'
             else 'none'

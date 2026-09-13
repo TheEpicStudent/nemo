@@ -12,7 +12,7 @@ reply_info as (
     select
         newcomer_id,
         answered,
-        answered and latency_seconds < 3600 as fast_reply
+        answered and latency_seconds < {{ var('fast_reply_seconds') }} as fast_reply
     from {{ ref('fct_first_response') }}
 ),
 

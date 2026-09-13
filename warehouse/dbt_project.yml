@@ -14,6 +14,9 @@ clean-targets:
 
 on-run-end: "{{ analyze_built() }}"
 
+vars:
+  fast_reply_seconds: 3600
+
 models:
   mnemosyne:
     staging:
