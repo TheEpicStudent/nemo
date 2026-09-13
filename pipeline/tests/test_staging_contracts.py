@@ -177,7 +177,7 @@ def test_lifetime_messages_comes_from_the_archive():
 def test_every_repointed_mart_bumped_its_version():
     want = {"mart_participation_concentration": "v5", "mart_activity_distribution": "v18",
             "mart_onboarding_recurrence_funnel": "v17", "mart_monthly_cohorts": "v4",
-            "mart_newcomer_channels": "v4"}
+            "mart_newcomer_channels": "v5"}
     for name, version in want.items():
         sql = (WAREHOUSE_DIR / "models" / "marts" / f"{name}.sql").read_text()
         assert f"'{version}' as metric_version" in sql, f"{name} is not at {version}"

@@ -2,14 +2,42 @@ import { Controller } from "@hotwired/stimulus"
 
 const REACHABLE = "a[href], button:not([disabled]), label[tabindex], [tabindex='0']"
 
+const MARGIN = 12
+const FLOOR = 160
+
 export default class extends Controller {
   connect() {
     this.onKeys = this.onKeys.bind(this)
+    this.onToggle = this.onToggle.bind(this)
     this.element.addEventListener("keydown", this.onKeys)
+    this.element.addEventListener("toggle", this.onToggle)
   }
 
   disconnect() {
     this.element.removeEventListener("keydown", this.onKeys)
+    this.element.removeEventListener("toggle", this.onToggle)
+  }
+
+  get pop() {
+    return this.element.querySelector(".menu-pop")
+  }
+
+  onToggle() {
+    const pop = this.pop
+    if (!pop) return
+
+    if (!this.element.open) {
+      pop.style.removeProperty("--menu-room")
+      pop.classList.remove("menu-up")
+      return
+    }
+
+    const box = this.summary.getBoundingClientRect()
+    const below = window.innerHeight - box.bottom - MARGIN
+    const above = box.top - MARGIN
+    const up = below < FLOOR && above > below
+    pop.classList.toggle("menu-up", up)
+    pop.style.setProperty("--menu-room", `${Math.max(FLOOR, Math.round(up ? above : below))}px`)
   }
 
   get summary() {

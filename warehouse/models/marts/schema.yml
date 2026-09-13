@@ -258,9 +258,14 @@ models:
       contract:
         enforced: true
     columns:
+      - name: cohort_key
+        data_type: text
+        data_tests: [not_null]
+      - name: cohort_order
+        data_type: integer
       - name: channel_id
         data_type: text
-        data_tests: [not_null, unique]
+        data_tests: [not_null]
       - name: name
         data_type: text
       - name: newcomers_posting
@@ -304,6 +309,10 @@ models:
         data_type: date
       - name: cohort_end
         data_type: date
+      - name: mature
+        data_type: boolean
+      - name: return_window_days
+        data_type: integer
       - name: window_start
         data_type: date
       - name: window_end

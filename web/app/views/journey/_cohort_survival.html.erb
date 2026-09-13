@@ -25,11 +25,6 @@
         }.to_json %>"
       ></div>
     </div>
-    <p class="card-note">
-      Drawn only where every member has been observed, so
-      <%= survival.count { |c| c.partial?(offsets) } %> stop short of day <%= offsets.last %>
-      &middot; floor <%= floor %> first posters
-    </p>
   <% else %>
     <p class="card-note">
       No cohort has reached <%= floor %> first posters with a day fully observed yet.

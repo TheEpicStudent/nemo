@@ -60,7 +60,9 @@ class ChannelsController < ApplicationController
     @pages = [(@total / PER_PAGE.to_f).ceil, 1].max
 
     @momentum = Analytics::MartChannelMomentum.top
-    @opportunity = Channels::Map.opportunity
+    @newcomer_cohorts = Analytics::MartNewcomerChannels.cohorts
+    @newcomer_cohort = Analytics::MartNewcomerChannels.cohort(params[:newcomers])
+    @opportunity = @newcomer_cohort && Channels::Map.opportunity(@newcomer_cohort)
     @momentum_head = @momentum.first
     @cohorts = Analytics::MartChannelBands.cohorts
     @default_cohort = @cohorts.first

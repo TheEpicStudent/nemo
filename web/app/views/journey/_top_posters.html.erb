@@ -16,19 +16,11 @@
       <% end %>
     </div>
     <% if top_poster_months.many? %>
-      <div class="card-tools">
-        <details class="menu" data-controller="menu">
-          <summary class="btn" aria-label="month">
-            <%= top_posters_month.strftime("%b %Y") %><span class="car" aria-hidden="true">▾</span>
-          </summary>
-          <div class="menu-pop">
-            <% top_poster_months.each do |m| %>
-              <%= link_to m.strftime("%b %Y"), active_journey_path(top_posters_month: m.iso8601),
-                    class: "btn", aria: { current: ("true" if m == top_posters_month) } %>
-            <% end %>
-          </div>
-        </details>
-      </div>
+      <%= render "shared/picker", said: "month",
+            chosen: top_posters_month.strftime("%b %Y"),
+            groups: [{ options: top_poster_months.map { |m| {
+              label: m.strftime("%b %Y"), current: m == top_posters_month,
+              href: active_journey_path(top_posters_month: m.iso8601) } } }] %>
     <% end %>
   </div>
 

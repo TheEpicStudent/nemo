@@ -9,19 +9,11 @@
             <p class="card-sub"><%= window_note(@band_rows.first.window_start, @band_rows.first.window_end) %></p>
           </div>
           <% if @cohorts.many? %>
-            <div class="card-tools">
-              <details class="menu" data-controller="menu">
-                <summary class="btn" aria-label="activity month">
-                  <%= @cohort.strftime("%b %Y") %><span class="car" aria-hidden="true">&#9662;</span>
-                </summary>
-                <div class="menu-pop">
-                  <% @cohorts.each do |month| %>
-                    <%= link_to month.strftime("%b %Y"), channel_query(cohort: month.iso8601),
-                          class: "btn", aria: { current: ("true" if month == @cohort) } %>
-                  <% end %>
-                </div>
-              </details>
-            </div>
+            <%= render "shared/picker", said: "activity month",
+                  chosen: @cohort.strftime("%b %Y"),
+                  groups: [{ options: @cohorts.map { |month| {
+                    label: month.strftime("%b %Y"), current: month == @cohort,
+                    href: channel_query(cohort: month.iso8601) } } }] %>
           <% end %>
         </div>
         <div class="facets">
@@ -71,12 +63,14 @@
   <% end %>
 
   <% if @opportunity %>
-    <%= render "map", map: @opportunity,
-          title: "Where newcomers land, and where they stay",
-          x_label: "newcomers who posted here", y_label: "newcomers who posted again",
-          n_label: "newcomer messages",
-          corners: { tl: "SMALL AND STICKY", tr: "WORKING",
-                     bl: "QUIET", br: "LANDING, NOT STAYING" } %>
+    <turbo-frame id="newcomer-map" data-turbo-action="advance">
+      <%= render "map", map: @opportunity, cohorts: @newcomer_cohorts,
+            title: "Where newcomers land, and where they stay",
+            x_label: "newcomers who posted here", y_label: "newcomers who posted again",
+            n_label: "newcomer messages",
+            corners: { tl: "SMALL AND STICKY", tr: "WORKING",
+                       bl: "QUIET", br: "LANDING, NOT STAYING" } %>
+    </turbo-frame>
   <% end %>
 
   <turbo-frame id="channels" target="_top" data-turbo-action="advance">

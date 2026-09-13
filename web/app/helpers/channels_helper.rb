@@ -6,7 +6,8 @@ module ChannelsHelper
              match: (@filter.match if @filter&.any?),
              c: (@filter.to_params.values if @filter&.any?),
              measure: (@measure unless @measure == @default_measure),
-             cohort: (@cohort&.iso8601 unless @cohort == @default_cohort) }
+             cohort: (@cohort&.iso8601 unless @cohort == @default_cohort),
+             newcomers: (@newcomer_cohort&.key unless @newcomer_cohort&.default?) }
     channels_path(**base.merge(overrides).compact)
   end
 

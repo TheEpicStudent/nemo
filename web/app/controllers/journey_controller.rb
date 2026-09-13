@@ -11,7 +11,8 @@ class JourneyController < ApplicationController
     @growth_months = Analytics::MartGrowth.order(month: :desc).limit(@growth_span).to_a.reverse
 
     @lifecycle = Journey::Lifecycle.recent(LIFECYCLE_COHORTS)
-    @newcomer_reach = Analytics::MartNewcomerChannels.order(:channel_id).first
+    @newcomer_reach = Analytics::MartNewcomerChannels
+      .for_cohort(Analytics::MartNewcomerChannels::DEFAULT_COHORT).order(:channel_id).first
     @newcomer_channels = Analytics::MartNewcomerChannels
       .ranked(Analytics::MartNewcomerChannels::DEFAULT_MEASURE, floor: HomeHelper::MIN_SAMPLE)
   end

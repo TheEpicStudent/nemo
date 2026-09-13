@@ -41,6 +41,29 @@ class Channels::MapTest < ActiveSupport::TestCase
     assert_not Channels::Map::Report.new(points: [], floor: Channels::Map.floor).any?
   end
 
+  test "the default cohort is the last thirty days and it is never called mature" do
+    assert_equal "last30", Analytics::MartNewcomerChannels::DEFAULT_COHORT
+    last30 = Analytics::MartNewcomerChannels::Cohort.new(key: "last30", order: 0,
+      ends_on: Date.new(2026, 9, 12), mature: false)
+
+    assert last30.default?
+    assert_equal "Last 30 days", last30.label
+    assert_equal "30 days to 12 Sep 2026", last30.window
+  end
+
+  test "a month cohort names its month, not a rolling window" do
+    month = Analytics::MartNewcomerChannels::Cohort.new(key: "2026-07", order: 1,
+      starts_on: Date.new(2026, 7, 1), ends_on: Date.new(2026, 7, 31), mature: true)
+
+    assert_not month.default?
+    assert_equal "Jul 2026", month.label
+    assert_equal "July 2026", month.window
+  end
+
+  test "an unknown cohort falls back to the default rather than drawing nothing" do
+    assert_equal "last30", Analytics::MartNewcomerChannels.cohort("nonsense")&.key
+  end
+
   test "points carry only what the chart draws, never the channel id" do
     point = Channels::Map::Point.new(channel_id: "C1", name: "lounge", x: 1, y: 2, n: 3, ink: 2,
       phase: "working")

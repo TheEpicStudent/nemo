@@ -1866,7 +1866,7 @@
     right: 0;
     z-index: 60;
     min-width: 216px;
-    max-height: 60vh;
+    max-height: min(60vh, var(--menu-room, 60vh));
     overflow-y: auto;
     background: var(--card);
     border: 1px solid var(--line);
@@ -1879,6 +1879,7 @@
   }
   @keyframes pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
   .menu-start, .pick-pop, .mention-pop { left: 0; right: auto; }
+  .menu-up { top: auto; bottom: calc(100% + 5px); }
   .menu-pop .btn, .menu-pop > a, .menu-pop > button, .pick-opt, .picker-opt, .rooms-row {
     display: flex;
     align-items: flex-start;
@@ -1907,6 +1908,38 @@
   }
   .menu-pop [aria-current="true"] { background: var(--accent-soft); color: var(--accent-deep); }
   .menu-sep { height: 1px; background: var(--line-soft); margin: var(--s-3xs) 0; }
+  .menu-compact {
+    min-width: 190px;
+    max-height: min(320px, var(--menu-room, 320px));
+    padding-block: var(--s-2xs);
+    scroll-padding-block: var(--s-2xs);
+    overscroll-behavior: contain;
+  }
+  .menu-compact .btn {
+    align-items: center;
+    min-height: 28px;
+    padding: 5px 10px;
+    line-height: 1.35;
+    font-weight: 450;
+    font-variant-numeric: tabular-nums;
+    transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
+  }
+  .menu-compact .menu-group { padding: 8px 10px 3px; }
+  .menu-compact [aria-current="true"] {
+    background: transparent;
+    color: var(--accent-deep);
+    font-weight: 600;
+  }
+  .menu-compact [aria-current="true"]:hover { background: var(--hover); color: var(--accent-deep); }
+  .menu-compact [aria-current="true"]::after {
+    content: "";
+    margin-left: auto;
+    align-self: center;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
   .menu-group {
     font-size: var(--t-mark);
     font-weight: 600;
