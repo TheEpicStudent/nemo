@@ -159,12 +159,6 @@ models:
     data_tests:
       - unique:
           column_name: "month::text || '-' || user_id"
-  - name: fct_top_posters
-    columns:
-      - name: user_id
-        data_tests: [not_null]
-      - name: window_start
-        data_tests: [not_null]
   - name: fct_member_channel
     columns:
       - name: user_id

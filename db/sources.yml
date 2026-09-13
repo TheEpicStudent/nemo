@@ -12,19 +12,6 @@ sources:
     writes: [raw.team_stats_snapshot]
     feeds: [mart_team_stats_daily, mart_team_stats_monthly]
 
-  top_posters:
-    label: Top posters by month
-    endpoint: admin.analytics.getMemberAnalytics
-    documented: false
-    credential: internal
-    cadence: daily
-    window: 1 month
-    guard: none
-    resume: none
-    retention: keep
-    writes: [raw.top_posters_snapshot]
-    feeds: [fct_top_posters]
-
   member_days:
     unit_budget_seconds: 180
     label: Member activity, one day at a time

@@ -10,7 +10,6 @@ SYNC_WORKER = "sync_worker"
 
 STAGE_SOURCES = [
     ("team_stats", 4, 40),
-    ("top_posters", 3, 150),
     ("admin_analytics_api:member", 90, 120_000),
     ("admin_analytics_api:public_channel", 70, 40_000),
     ("admin_analytics_member_range", 120, 215_000),

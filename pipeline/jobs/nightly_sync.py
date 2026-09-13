@@ -23,7 +23,6 @@ from ingest.member_channels import read_membership as pull_channel_membership
 from ingest.prune import run as prune_rows
 from ingest.member_range_pull import run as pull_member_range
 from ingest.team_stats_pull import run as pull_team_stats
-from ingest.top_posters_pull import run as pull_top_posters
 from ingest.admin_users_pull import run as pull_admin_users
 from ingest.users_list_pull import run as pull_users_list
 from lib.db import (
@@ -187,7 +186,6 @@ def tuned(conn, key, name):
 def stages():
     return [
         ("team_stats", lambda conn: pull_team_stats(conn)),
-        ("top_posters", lambda conn: pull_top_posters(conn)),
         ("member_days", lambda conn: backfill_days(
             conn, MEMBER_DAY, "member", pull_member_day, tuned(conn, "member_days", "batch"))),
         ("channel_days", lambda conn: backfill_days(

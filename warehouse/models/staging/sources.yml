@@ -36,11 +36,6 @@ sources:
         freshness:
           warn_after: {count: 26, period: hour}
           error_after: {count: 50, period: hour}
-      - name: top_posters_snapshot
-        loaded_at_field: created_at
-        freshness:
-          warn_after: {count: 26, period: hour}
-          error_after: {count: 50, period: hour}
       - name: ingest_run
       - name: ingest_step_output
       - name: analytics_day

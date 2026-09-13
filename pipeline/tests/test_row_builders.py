@@ -8,7 +8,6 @@ from ingest import (
     member_channels,
     member_history,
     member_range_pull,
-    top_posters_pull,
     users_list_pull,
 )
 from lib import message as shaping
@@ -186,43 +185,6 @@ def test_pending_days_ignores_loaded_days_outside_the_calendar():
 
 AVAIL_START = date(2026, 5, 15)
 AVAIL_END = date(2026, 8, 2)
-
-
-def test_pending_months_repulls_a_month_clipped_by_a_stale_edge():
-    stored = {
-        date(2026, 5, 1): date(2026, 5, 31),
-        date(2026, 6, 1): date(2026, 6, 30),
-        date(2026, 7, 1): date(2026, 7, 30),
-    }
-    assert top_posters_pull.pending_months(stored, AVAIL_START, AVAIL_END) == [
-        date(2026, 7, 1),
-        date(2026, 8, 1),
-    ]
-
-
-def test_pending_months_is_empty_when_every_month_is_complete():
-    stored = {
-        date(2026, 5, 1): date(2026, 5, 31),
-        date(2026, 6, 1): date(2026, 6, 30),
-        date(2026, 7, 1): date(2026, 7, 31),
-        date(2026, 8, 1): AVAIL_END,
-    }
-    assert top_posters_pull.pending_months(stored, AVAIL_START, AVAIL_END) == []
-
-
-def test_pending_months_clamps_the_first_month_to_the_available_floor():
-    stored = {date(2026, 5, 1): date(2026, 5, 31)}
-    pending = top_posters_pull.pending_months(stored, AVAIL_START, AVAIL_END)
-    assert date(2026, 5, 1) not in pending
-
-
-def test_pending_months_returns_everything_when_nothing_is_stored():
-    assert top_posters_pull.pending_months({}, AVAIL_START, AVAIL_END) == [
-        date(2026, 5, 1),
-        date(2026, 6, 1),
-        date(2026, 7, 1),
-        date(2026, 8, 1),
-    ]
 
 
 def test_verified_date_row_carries_both_dates_from_one_record():

@@ -1,4 +1,3 @@
-import calendar
 import collections
 from datetime import date, datetime, time, timedelta, timezone
 
@@ -7,7 +6,6 @@ from lib.db import connect_admin
 from seed import SEED_SOURCE_PREFIX, SEED_USER_PREFIX
 from seed import dims as dims_module
 from seed import directory as directory_module
-from seed import hostile as hostile_module
 from seed import runs as runs_module
 from seed import spine as spine_module
 from seed.generate import COVERED_DAYS
@@ -30,13 +28,11 @@ SEEDED_TABLES = (
     "raw.member_activity_snapshot",
     "raw.channel_activity_snapshot",
     "raw.team_stats_snapshot",
-    "raw.top_posters_snapshot",
     "raw.message_activity_snapshot",
     "raw.analytics_day",
     "raw.member_message_history",
     "raw.member_channel_membership",
     "raw.member_channel_walk",
-    "raw.top_posters_snapshot",
     "raw.member_dim",
     "raw.channel_dim",
     "fd.member_identity",
@@ -278,23 +274,6 @@ def team_days(by_member, channels, members, start, days):
         )
 
 
-def top_posters(rng, by_member, end, hostile=False):
-    for month in sorted({day.replace(day=1) for _, day in by_member}):
-        if month > end:
-            continue
-        last = month.replace(day=calendar.monthrange(month.year, month.month)[1])
-        stop = min(last, end)
-        totals = collections.Counter()
-        for (user_id, day), (messages, _) in by_member.items():
-            if month <= day <= stop:
-                totals[user_id] += messages
-        for user_id, messages in totals.most_common(TOP_POSTER_LIMIT):
-            yield (
-                month, stop, user_id,
-                hostile_module.display_name(rng, user_id, hostile), messages, noon(stop),
-            )
-
-
 def analytics_days(start, days, holes):
     for offset in range(days):
         day = start + timedelta(days=offset)
@@ -428,11 +407,6 @@ def write(conn, channels, members, profile, as_of, rng, stream, scale, seed,
          "writers_count_1d", "writers_count_7d", "writers_count_28d", "readers_count_1d",
          "messages_count_1d", "chats_channels_count_1d", "channels_count"],
         team_days(by_member, channels, members, start, days),
-    )
-    counts["top_posters"] = copy_rows(
-        conn, "raw.top_posters_snapshot",
-        ["window_start", "window_end", "user_id", "display_name", "messages_posted", "pulled_at"],
-        top_posters(rng, by_member, as_of, hostile),
     )
     counts["analytics_day"] = copy_rows(
         conn, "raw.analytics_day", ["source", "ds", "loaded", "rows_in", "unavailable", "reason"],
