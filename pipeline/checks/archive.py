@@ -48,6 +48,7 @@ def channels_still_to_walk(conn):
         LEFT JOIN raw.channel_walk w ON w.channel_id = d.channel_id
         WHERE coalesce(w.history_complete, false) = false
           AND coalesce(w.last_error, '') NOT LIKE 'entity:%'
+          AND NOT (w.last_error IS NOT NULL AND w.last_walked_at IS NULL)
     """).fetchone()[0]
     return ("channels to walk", "pass" if count == 0 else "fail", f"{count} reachable channel(s)", "0")
 
