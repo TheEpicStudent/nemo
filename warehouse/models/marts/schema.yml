@@ -268,6 +268,8 @@ models:
         data_tests: [not_null]
       - name: newcomers_returning
         data_type: bigint
+      - name: newcomers_returning_anywhere
+        data_type: bigint
       - name: newcomer_messages
         data_type: bigint
       - name: newcomers_joined
@@ -286,6 +288,8 @@ models:
       - name: joined_share
         data_type: numeric
       - name: returning_share
+        data_type: numeric
+      - name: returning_anywhere_share
         data_type: numeric
       - name: newcomer_lift
         data_type: numeric

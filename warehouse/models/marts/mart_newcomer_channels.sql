@@ -29,14 +29,23 @@ reach as (
     from cohort
 ),
 
+active_days as (
+    select user_id, count(*) as days_posted
+    from {{ ref('mart_member_day') }}
+    group by user_id
+),
+
 posted as (
     select
         f.channel_id,
         count(distinct f.user_id) as newcomers_posting,
         count(distinct f.user_id) filter (where f.returned) as newcomers_returning,
+        count(distinct f.user_id) filter (where a.days_posted > 1)
+            as newcomers_returning_anywhere,
         sum(f.messages) as newcomer_messages
     from {{ ref('fct_member_channel') }} f
     join cohort c on c.user_id = f.user_id
+    left join active_days a on a.user_id = f.user_id
     group by 1
 ),
 
@@ -81,6 +90,7 @@ together as (
         coalesce(p.channel_id, j.channel_id, l.channel_id) as channel_id,
         coalesce(p.newcomers_posting, 0) as newcomers_posting,
         coalesce(p.newcomers_returning, 0) as newcomers_returning,
+        coalesce(p.newcomers_returning_anywhere, 0) as newcomers_returning_anywhere,
         coalesce(p.newcomer_messages, 0) as newcomer_messages,
         coalesce(j.newcomers_joined, 0) as newcomers_joined,
         coalesce(l.newcomer_first_posts, 0) as newcomer_first_posts
@@ -94,6 +104,7 @@ select
     c.name,
     t.newcomers_posting,
     t.newcomers_returning,
+    t.newcomers_returning_anywhere,
     t.newcomer_messages,
     t.newcomers_joined,
     t.newcomer_first_posts,
@@ -113,6 +124,10 @@ select
         then round(t.newcomers_returning::numeric / t.newcomers_posting, 4)
     end as returning_share,
     case
+        when t.newcomers_posting > 0
+        then round(t.newcomers_returning_anywhere::numeric / t.newcomers_posting, 4)
+    end as returning_anywhere_share,
+    case
         when b.newcomer_total > 0
              and b.workspace_total > 0
              and coalesce(w.messages_posted_by_members, 0) > 0
@@ -127,7 +142,7 @@ select
     (select claimed_edge from edge) as cohort_end,
     w.window_start,
     w.window_end,
-    'v3' as metric_version
+    'v4' as metric_version
 from together t
 cross join reach r
 cross join baseline b

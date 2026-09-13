@@ -33,11 +33,12 @@ module Channels
       rows = measured.order(newcomers_posting: :desc).limit(SHOWN).to_a
       whole = Analytics::MartNewcomerChannels.where(newcomers_posting: 1..)
       x_mid = median(rows.map { |r| r.newcomers_posting.to_i })
-      y_mid = share_of(whole.sum(:newcomers_returning), whole.sum(:newcomers_posting))
+      y_mid = share_of(whole.sum(:newcomers_returning_anywhere),
+        whole.sum(:newcomers_posting))
 
       points = rows.map do |row|
         x = row.newcomers_posting.to_i
-        y = share(row.returning_share)
+        y = share(row.returning_anywhere_share)
         label, ink = phase(across: x >= x_mid, above: y >= (y_mid || 0))
         Point.new(channel_id: row.channel_id, name: row.name, x: x, y: y,
           n: row.newcomer_messages.to_i, ink: ink, phase: label)
@@ -50,7 +51,7 @@ module Channels
     def self.measured
       Analytics::MartNewcomerChannels
         .where(newcomers_posting: floor..)
-        .where.not(returning_share: nil)
+        .where.not(returning_anywhere_share: nil)
     end
 
     def self.phase(across:, above:)
