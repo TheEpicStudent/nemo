@@ -632,3 +632,57 @@ models:
     data_tests:
       - unique:
           column_name: "channel_id || '-' || day_of_week || '-' || hour_of_day"
+  - name: mart_member_day
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: user_id
+        data_type: text
+        data_tests: [not_null]
+      - name: ds
+        data_type: date
+        data_tests: [not_null]
+      - name: cohort_month
+        data_type: date
+        data_tests: [not_null]
+      - name: first_post_on
+        data_type: date
+        data_tests: [not_null]
+      - name: day_offset
+        data_type: integer
+        data_tests: [not_null]
+      - name: messages
+        data_type: integer
+      - name: replies
+        data_type: integer
+      - name: channels
+        data_type: integer
+      - name: metric_version
+        data_type: text
+  - name: mart_cohort_survival
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: cohort_month
+        data_type: date
+        data_tests: [not_null]
+      - name: day_offset
+        data_type: integer
+        data_tests: [not_null]
+      - name: members
+        data_type: bigint
+        data_tests: [not_null]
+      - name: still_posting
+        data_type: bigint
+      - name: still_posting_share
+        data_type: numeric
+      - name: observable
+        data_type: boolean
+      - name: observed_through
+        data_type: date
+      - name: horizon_days
+        data_type: integer
+      - name: metric_version
+        data_type: text

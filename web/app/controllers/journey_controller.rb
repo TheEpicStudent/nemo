@@ -29,10 +29,15 @@ class JourneyController < ApplicationController
 
   RETENTION_COHORTS = 12
   RECURRENCE_COHORTS = 12
+  SURVIVAL_COHORTS = 6
 
   def retention
     @retention = Analytics::MartCohortRetention.measured
       .order(cohort_month: :desc).limit(RETENTION_COHORTS).to_a.reverse
+
+    @survival = Analytics::MartCohortSurvival.curves(cohorts: SURVIVAL_COHORTS,
+      floor: HomeHelper::MIN_SAMPLE)
+    @survival_offsets = Analytics::MartCohortSurvival.offsets
 
     @recurrence = Analytics::MartOnboardingRecurrenceFunnel
       .where(searched: 1..)

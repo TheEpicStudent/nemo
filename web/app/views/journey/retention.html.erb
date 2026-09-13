@@ -4,4 +4,7 @@
   <%= render "cohort_retention", retention: @retention %>
 </div>
 
+<%= render "cohort_survival", survival: @survival, offsets: @survival_offsets,
+      floor: HomeHelper::MIN_SAMPLE %>
+
 <%= render "recurrence_funnel", recurrence: @recurrence %>

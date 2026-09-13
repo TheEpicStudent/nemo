@@ -64,7 +64,7 @@ def test_every_mart_downstream_of_first_post_declares_a_version():
     import re
 
     marts = ("mart_channel_onboarding_scorecard", "mart_fast_reply_vs_retention",
-             "mart_cohort_retention")
+             "mart_cohort_retention", "mart_member_day", "mart_cohort_survival")
     for name in marts:
         sql = (WAREHOUSE_DIR / "models" / "marts" / f"{name}.sql").read_text()
         assert re.search(r"'v\d+' as metric_version", sql), f"{name} has no metric_version"
@@ -80,6 +80,23 @@ def test_the_cohort_marts_anchor_on_the_merged_first_post():
     for name in ("mart_monthly_cohorts", "mart_newcomer_channels"):
         sql = (WAREHOUSE_DIR / "models" / "marts" / f"{name}.sql").read_text()
         assert "ref('fct_first_post')" in sql, f"{name} no longer anchors on the merged first post"
+
+
+def test_the_day_grain_mart_is_archive_native():
+    sql = (WAREHOUSE_DIR / "models" / "marts" / "mart_member_day.sql").read_text()
+    assert "fct_member_message" in sql, "the day grain has to come from the archive"
+    assert "fct_first_post" in sql, "a day offset needs the merged first post"
+    assert "fct_member_activity" not in sql, "that is Slack's snapshot, not the archive"
+    assert "dim_member" not in sql, "author_kind already excludes bots; dim_member is empty in dev"
+
+
+def test_survival_marks_the_days_it_cannot_see_rather_than_calling_them_zero():
+    sql = (WAREHOUSE_DIR / "models" / "marts" / "mart_cohort_survival.sql").read_text()
+    assert "as observable" in sql, "a cohort that has not aged must say so, not read zero"
+    assert "newest_first_post" in sql, (
+        "a day is observable only once every member of the cohort has lived through it"
+    )
+    assert "observed_through" in sql
 
 
 def test_no_mart_reaches_around_the_staging_layer():

@@ -2,6 +2,7 @@ import collections
 from datetime import date, datetime, time, timedelta, timezone
 
 from ingest.channel_range_pull import MONTH_SOURCE as CHANNEL_MONTH_SOURCE
+from lib import db
 from lib.db import connect_admin
 from seed import SEED_SOURCE_PREFIX, SEED_USER_PREFIX
 from seed import dims as dims_module
@@ -10,8 +11,8 @@ from seed import runs as runs_module
 from seed import spine as spine_module
 from seed.generate import COVERED_DAYS
 
-MEMBER_DAY_SOURCE = f"{SEED_SOURCE_PREFIX}member_day"
-CHANNEL_DAY_SOURCE = f"{SEED_SOURCE_PREFIX}channel_day"
+MEMBER_DAY_SOURCE = db.MEMBER_DAY
+CHANNEL_DAY_SOURCE = db.CHANNEL_DAY
 MEMBER_RANGE_SOURCE = "admin_analytics_member_range"
 CHANNEL_RANGE_SOURCE = "admin_analytics_channel_range"
 TEAM_SOURCE = f"{SEED_SOURCE_PREFIX}team_stats"
@@ -21,6 +22,8 @@ UNAVAILABLE_OFFSET = 2
 IDLE_ROWS_PER_DAY = 25
 
 SEEDED_TABLES = (
+    "archive.observation",
+    "archive.message",
     "raw.member_dim_snapshot",
     "raw.channel_dim_snapshot",
     "raw.thread",
@@ -29,7 +32,6 @@ SEEDED_TABLES = (
     "raw.channel_activity_snapshot",
     "raw.team_stats_snapshot",
     "raw.message_activity_snapshot",
-    "raw.analytics_day",
     "raw.member_message_history",
     "raw.member_channel_membership",
     "raw.member_channel_walk",
@@ -43,6 +45,8 @@ LOG_TABLES = (
     "raw.ingest_step_output",
     "raw.ingest_run",
     "raw.dead_letter",
+    "ingest.slice_coverage",
+    "raw.analytics_day",
 )
 
 UNSTAMP_SQL = """
