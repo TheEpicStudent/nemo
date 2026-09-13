@@ -41,6 +41,11 @@ def test_backoff_doubles_and_caps():
     assert 1.0 <= lease.backoff(0, jitter=0.5) <= 1.5
 
 
+def test_backoff_survives_an_attempt_count_that_ran_away():
+    assert lease.backoff(5168, base=30.0, cap=6 * 3600) == 6 * 3600
+    assert lease.backoff(10**6, base=30.0, cap=60.0) == 60.0
+
+
 def test_a_floor_of_zero_is_refused_so_the_guard_is_never_disabled_by_accident():
     with pytest.raises(ValueError, match="no floor"):
         check_walk("member analytics", 1, 216_540, 500, short_at=0)

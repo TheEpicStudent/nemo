@@ -7,8 +7,11 @@ class FencedOut(RuntimeError):
     pass
 
 
+DOUBLINGS = 64
+
+
 def backoff(attempt, base=1.0, cap=60.0, jitter=0.0, spread=0.0):
-    wait = min(cap, base * (2 ** max(0, attempt)))
+    wait = min(cap, base * (2 ** min(max(0, attempt), DOUBLINGS)))
     if spread:
         wait += random.uniform(0, wait * spread)
     if jitter:
