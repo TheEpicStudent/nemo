@@ -1,4 +1,8 @@
 <% totals = archive.totals %>
+<% live = archive.live %>
+<% held = live&.messages_held&.to_i || totals.messages_held %>
+<% parents = live&.parents_held&.to_i || totals.parents_held %>
+<% replies = live&.replies_held&.to_i || totals.replies_held %>
 
 <div class="card card-flush">
   <div class="card-head">
@@ -8,33 +12,34 @@
         <% if totals.held_days %>
           <%= totals.oldest_held.to_date.strftime("%-d %b %Y") %>
           to <%= totals.newest_held.to_date.strftime("%-d %b %Y") %>
-          &middot; <%= pluralize(totals.held_days, "day") %> spanned
+          &middot; <%= number_with_delimiter(totals.held_days) %> days
         <% else %>
           nothing has landed yet
         <% end %>
         <% if archive.beat %>
-          &middot; walker beat <%= short_age(archive.beat.beat_at) %> ago
-          <% if archive.beat.note.present? %>&middot; <%= archive.beat.note %><% end %>
+          &middot; beat <%= short_age(archive.beat.beat_at) %> ago
         <% end %>
       </p>
     </div>
     <% if archive.beat %>
-      <div class="card-tools"><%= worker_state(archive.beat) %></div>
+      <div class="card-tools">
+        <span title="<%= archive.beat.note %>"><%= worker_state(archive.beat) %></span>
+      </div>
     <% end %>
   </div>
 
   <dl class="facts-strip facts-wrap">
     <div class="fact">
       <dt>Messages held</dt>
-      <dd><%= number_with_delimiter(totals.messages_held) %></dd>
+      <dd><%= number_with_delimiter(held) %></dd>
     </div>
     <div class="fact">
       <dt>Parents</dt>
-      <dd><%= number_with_delimiter(totals.parents_held) %></dd>
+      <dd><%= number_with_delimiter(parents) %></dd>
     </div>
     <div class="fact">
       <dt>Replies</dt>
-      <dd><%= number_with_delimiter(totals.replies_held) %></dd>
+      <dd><%= number_with_delimiter(replies) %></dd>
     </div>
     <div class="fact">
       <dt>Channels holding</dt>
@@ -70,8 +75,8 @@
     <% archive.stages.each do |stage| %>
       <div class="arcrow">
         <div class="arcn"><b><%= stage.name %></b></div>
-        <div class="arcpct <%= "is-none" if stage.share.nil? %>">
-          <%= stage.share ? number_to_percentage(stage.share, precision: 1) : "nothing to measure it against yet" %>
+        <div class="arcpct <%= "is-none" if stage.shown_share.nil? %>">
+          <%= stage.shown_share ? number_to_percentage(stage.shown_share, precision: 1) : "nothing to measure it against yet" %>
         </div>
         <div class="arcnum">
           <%= number_with_delimiter(stage.done.to_i) %>
@@ -168,8 +173,8 @@
     <div>
       <h2 class="card-title">Channels the archive covers least</h2>
       <p class="card-sub">
-        against Slack's own count, channels holding
-        <%= number_with_delimiter(Engine::Archive::WORST_FLOOR) %> messages or more
+        member messages we hold against the number Slack counted on the same days,
+        channels where Slack counted <%= number_with_delimiter(Engine::Archive::WORST_FLOOR) %> or more
       </p>
     </div>
   </div>
@@ -179,9 +184,9 @@
         <thead>
           <tr>
             <th>channel</th>
-            <th class="col-num">held</th>
-            <th class="col-num">Slack says</th>
-            <th class="col-num">share held</th>
+            <th class="col-num">members held</th>
+            <th class="col-num">Slack counted</th>
+            <th class="col-num">share</th>
             <th class="col-num">threads</th>
             <th class="col-num">replies</th>
             <th class="col-num">oldest held</th>
@@ -192,9 +197,9 @@
           <% archive.worst.each do |row| %>
             <tr>
               <td><%= render "channel_cell", row: row %></td>
-              <td class="col-num"><%= number_with_delimiter(row.messages_held.to_i) %></td>
-              <td class="col-num"><%= number_with_delimiter(row.slack_messages) %></td>
-              <td class="col-num mono"><%= number_to_percentage(row.held_share, precision: 1) %></td>
+              <td class="col-num"><%= number_with_delimiter(row.member_messages_held.to_i) %></td>
+              <td class="col-num"><%= number_with_delimiter(row.slack_member_messages) %></td>
+              <td class="col-num mono"><%= number_to_percentage(row.member_share, precision: 1) %></td>
               <td class="col-num">
                 <%= number_with_delimiter(row.threads_fetched) %> <span class="sub">of <%= number_with_delimiter(row.threads_known) %></span>
               </td>

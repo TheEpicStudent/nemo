@@ -4,7 +4,7 @@ module Engine
     ERRORS_SHOWN = 10
     ERROR_WIDTH = 90
     WORST_SHOWN = 12
-    WORST_FLOOR = 500
+    WORST_FLOOR = 250
     WAITING_SHOWN = 12
     DAYS_SHOWN = 90
     QUEUES = %w[channel_tail channel_replies].freeze
@@ -14,9 +14,11 @@ module Engine
              count(*) FILTER (WHERE unreachable_reason IS NOT NULL)          AS unreachable,
              count(*) FILTER (WHERE unreachable_reason IS NULL)              AS reachable,
              count(*) FILTER (WHERE walked)                                  AS walked,
-             count(*) FILTER (WHERE history_complete)                        AS complete,
+             count(*) FILTER (WHERE history_complete
+                              AND unreachable_reason IS NULL)               AS complete,
              count(*) FILTER (WHERE unreachable_reason IS NULL AND NOT walked) AS untouched,
-             count(*) FILTER (WHERE messages_held > 0)                       AS holding,
+             count(*) FILTER (WHERE messages_held > 0
+                              AND unreachable_reason IS NULL)               AS holding,
              coalesce(sum(messages_held), 0)                                 AS messages_held,
              coalesce(sum(parents_held), 0)                                  AS parents_held,
              coalesce(sum(replies_held), 0)                                  AS replies_held,
@@ -64,15 +66,49 @@ module Engine
 
         done.to_f / total * 100
       end
+
+      def shown_share
+        return nil if share.nil?
+        return [share, 99.9].min if outstanding.positive?
+
+        [share, 100.0].min
+      end
     end
 
-    Report = Struct.new(:totals, :stages, :worst, :waiting, :errors, :beat, :days, :queues,
-      keyword_init: true)
+    Report = Struct.new(:totals, :live, :stages, :worst, :waiting, :errors, :beat, :days,
+      :queues, keyword_init: true)
 
     def self.report
       totals = Totals.new(ApplicationRecord.connection.select_one(TOTALS_SQL))
-      Report.new(totals: totals, stages: stages(totals), worst: worst, waiting: waiting,
-        errors: errors, beat: beat, days: days, queues: queues)
+      Report.new(totals: totals, live: live(totals), stages: stages(totals), worst: worst,
+        waiting: waiting, errors: errors, beat: beat, days: days, queues: queues)
+    end
+
+    WATERMARK_SQL = "SELECT max(observed_through) FROM analytics.fct_message_hour".freeze
+
+    LANDED_SINCE_SQL = <<~SQL.freeze
+      SELECT count(*)                         AS messages,
+             count(*) FILTER (WHERE is_reply) AS replies
+      FROM   analytics.fct_archive_landing
+      WHERE  deleted_at IS NULL AND first_seen_at > :since
+    SQL
+
+    Live = Struct.new(:messages_held, :parents_held, :replies_held, :landed_since,
+      keyword_init: true)
+
+    def self.live(totals)
+      return nil unless Analytics::FctArchiveLanding.table_exists?
+
+      through = ApplicationRecord.connection.select_value(WATERMARK_SQL)
+      return nil if through.nil?
+
+      row = ApplicationRecord.connection.select_one(
+        ApplicationRecord.sanitize_sql([LANDED_SINCE_SQL, since: through])
+      )
+      landed = row["messages"].to_i
+      replies = totals.replies_held + row["replies"].to_i
+      Live.new(messages_held: totals.messages_held + landed, replies_held: replies,
+        parents_held: totals.messages_held + landed - replies, landed_since: landed)
     end
 
     def self.stages(totals)
@@ -82,19 +118,23 @@ module Engine
         Stage.new(name: "threads fetched", done: totals.threads_fetched,
                   total: totals.threads_known, at: nil),
         Stage.new(name: "replies held", done: totals.replies_held,
-                  total: totals.replies_declared, at: nil),
-        Stage.new(name: "messages held", done: totals.messages_held,
-                  total: totals.slack_messages.positive? ? totals.slack_messages : nil, at: nil)
+                  total: totals.replies_declared, at: nil)
       ]
     end
 
     def self.worst
+      return Analytics::MartArchiveChannelCoverage.none unless ranks_by_member?
+
       Analytics::MartArchiveChannelCoverage
         .reachable
-        .where("slack_messages >= ?", WORST_FLOOR)
-        .where("held_share is not null")
-        .order(held_share: :asc, slack_messages: :desc)
+        .where("slack_member_messages >= ?", WORST_FLOOR)
+        .where("member_share is not null")
+        .order(member_share: :asc, slack_member_messages: :desc)
         .limit(WORST_SHOWN)
+    end
+
+    def self.ranks_by_member?
+      Analytics::MartArchiveChannelCoverage.column_names.include?("member_share")
     end
 
     def self.waiting

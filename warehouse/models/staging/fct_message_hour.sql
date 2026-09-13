@@ -3,7 +3,8 @@
     unique_key=['channel_id', 'ds', 'hour_of_day'],
     incremental_strategy='delete+insert',
     indexes=[{'columns': ['channel_id', 'ds', 'hour_of_day'], 'unique': True},
-             {'columns': ['ds']}]
+             {'columns': ['ds']},
+             {'columns': ['observed_through']}]
 ) }}
 
 {% set lookback_hours = 2 %}

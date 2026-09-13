@@ -22,6 +22,15 @@ def test_a_killed_worker_costs_a_lapse_not_an_attempt():
     assert work.MAX_LAPSES > work.MAX_ATTEMPTS
 
 
+def test_a_thread_that_never_reaches_its_declared_count_stops_being_revived():
+    assert work.revivable(0)
+    assert work.revivable(work.MAX_REVIVALS - 1)
+    assert not work.revivable(work.MAX_REVIVALS)
+    assert not work.revivable(4742)
+    assert "attempts < %(max_revivals)s" in work.CONFLICT_GROWN
+    assert work.MAX_REVIVALS > work.MAX_ATTEMPTS
+
+
 def test_reclaim_gives_the_attempt_back_and_counts_a_lapse():
     assert "attempts = greatest(attempts - 1, 0)" in work.RECLAIM_SQL
     assert "lapses = lapses + 1" in work.RECLAIM_SQL

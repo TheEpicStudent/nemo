@@ -8,6 +8,7 @@ WHERE_ID = "work_item_id = %(id)s"
 LEASE_SECONDS = 600
 MAX_ATTEMPTS = 5
 MAX_LAPSES = 10
+MAX_REVIVALS = 20
 RETRY_SPREAD = 0.25
 LAPSE_BASE_SECONDS = 15.0
 LAPSE_CAP_SECONDS = 30 * 60
@@ -32,7 +33,8 @@ CONFLICT_GROWN = """DO UPDATE SET
     expected = EXCLUDED.expected, state = 'pending', next_attempt_at = NULL, updated_at = now()
 WHERE ingest.work_item.state <> 'claimed'
   AND EXCLUDED.expected > coalesce(ingest.work_item.fetched, 0)
-  AND ingest.work_item.state <> 'pending'"""
+  AND ingest.work_item.state <> 'pending'
+  AND ingest.work_item.attempts < %(max_revivals)s"""
 
 CONFLICT_SETTLED_AGO = """DO UPDATE SET
     state = 'pending', next_attempt_at = NULL, priority = EXCLUDED.priority, updated_at = now()
@@ -134,7 +136,7 @@ def enqueue_select(conn, kind, select_sql, params=(), requested_by=None, requeue
     sql = ENQUEUE_SQL.format(select=select_sql, conflict=conflict)
     with conn.cursor() as cur:
         cur.execute(sql, {"kind": kind, "requested_by": requested_by, "requeue_after": requeue_settled_after,
-                          **_positional(params)})
+                          "max_revivals": MAX_REVIVALS, **_positional(params)})
         queued = cur.rowcount
     conn.commit()
     return queued
@@ -248,6 +250,10 @@ def depth(conn, kind):
 
 def outcome_after_failure(attempts, max_attempts=MAX_ATTEMPTS):
     return "dead" if attempts >= max_attempts else "pending"
+
+
+def revivable(attempts, max_revivals=MAX_REVIVALS):
+    return attempts < max_revivals
 
 
 def outcome_after_lapse(lapses, max_lapses=MAX_LAPSES):
