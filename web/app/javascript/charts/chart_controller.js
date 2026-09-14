@@ -15,6 +15,7 @@ const LABEL_ROOM = 64
 const TILT = -32
 const LEAN = Math.abs(TILT) * Math.PI / 180
 const AX_LINE = 12
+const AX_MOST = 14
 
 const RULER = typeof document === "undefined"
   ? null
@@ -203,7 +204,9 @@ export default class extends Controller {
   get pad() {
     if (this.sparkValue) return { l: 1, r: 1, t: 3, b: 3 }
 
-    return this.tilt ? { ...PAD, b: PAD.b + Math.round(this.tiltRoom || 22) } : PAD
+    if (!this.tilt) return PAD
+
+    return { ...PAD, r: PAD.r + (this.tiltEdge || 0), b: PAD.b + Math.round(this.tiltRoom || 22) }
   }
 
   get stack() {
@@ -254,33 +257,30 @@ export default class extends Controller {
     const band = (wide - PAD.l - PAD.r) / rows.length
     const widest = rows.reduce((mx, r) => Math.max(mx, axWide(r.label)), 0)
     if (widest + 6 <= band) {
-      return { show: this.everyNth(rows.length, 1), tilt: false, room: 0, cap: 0 }
+      return { show: this.everyNth(rows.length, 1), tilt: false, room: 0, cap: 0, edge: 0 }
     }
 
     const cap = (PAD.l * 2 + band - 8) / Math.cos(LEAN)
-    const every = Math.max(1, Math.ceil(AX_LINE / (band * Math.sin(LEAN))))
-    const long = Math.min(widest, cap)
-    const half = long / 2 * Math.sin(LEAN)
-    const drop = band < long * Math.cos(LEAN) ? long * Math.sin(LEAN) : half
-    const lift = Math.max(14, Math.round(half) + 4)
+    const every = Math.max(1, Math.ceil(AX_LINE / (band * Math.sin(LEAN))),
+      Math.ceil(rows.length / AX_MOST))
+    const show = this.everyNth(rows.length, every)
+    const drop = Math.min(widest, cap) / 2 * Math.sin(LEAN)
+    const lift = Math.round(drop + 8 * Math.cos(LEAN)) + 4
+    const end = Math.max(...show)
+    const lead = axWide(axClip(rows[end].label, cap)) / 2 * Math.cos(LEAN) + 2
     return {
-      show: this.everyNth(rows.length, every),
+      show,
       tilt: true,
-      room: Math.max(0, Math.ceil(lift + drop + 3 - PAD.b)),
+      room: Math.max(0, Math.ceil(lift + drop + 4 - PAD.b)),
+      edge: Math.max(0, Math.ceil(lead - (wide - PAD.l - (end + 0.5) * band))),
       cap,
       lift
     }
   }
 
   everyNth(count, every) {
-    const last = count - 1
     const show = new Set()
-    for (let i = 0; i <= last; i += every) show.add(i)
-    if (every === 1 || last < 0) return show
-
-    const top = Math.max(...show)
-    if (last - top <= Math.ceil(every / 2)) show.delete(top)
-    show.add(last)
+    for (let i = 0; i < count; i += every) show.add(i)
     return show
   }
 
@@ -292,6 +292,7 @@ export default class extends Controller {
       : this.shownLabels(rows, wide)
     this.tilt = labels.tilt
     this.tiltRoom = labels.room
+    this.tiltEdge = labels.edge
     const { x, y, lo, line, high, pad, pinned } = this.scales(rows, series, wide)
     const mid = (i) => x(i) + x.bandwidth() / 2
     const span = y.domain()[1] - y.domain()[0]
@@ -357,12 +358,10 @@ export default class extends Controller {
 
       const at = mid(i)
       if (labels.tilt) {
-        const said = axClip(r.label, labels.cap)
         const ty = high - pad.b + labels.lift
-        const lead = axWide(said) / 2 * Math.cos(LEAN)
-        return `<text class="ax" x="${at.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="${
-          right - at < lead ? "end" : "middle"}"
-          transform="rotate(${TILT} ${at.toFixed(1)} ${ty.toFixed(1)})">${esc(said)}</text>`
+        return `<text class="ax" x="${at.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle"
+          transform="rotate(${TILT} ${at.toFixed(1)} ${ty.toFixed(1)})">${
+          esc(axClip(r.label, labels.cap))}</text>`
       }
 
       const anchor = at - pad.l < LABEL_ROOM / 2
