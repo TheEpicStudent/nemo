@@ -100,6 +100,13 @@ module ApplicationHelper
 
   CACHET_FACES = "https://cachet.hackclub.com/users".freeze
 
+  def menu_dots
+    tag.svg(width: 13, height: 13, viewBox: "0 0 24 24", fill: "currentColor",
+      aria: { hidden: true }) do
+      safe_join([5, 12, 19].map { |cx| tag.circle(cx: cx, cy: 12, r: 1.7) })
+    end
+  end
+
   def cachet_face_url(user_id)
     "#{CACHET_FACES}/#{ERB::Util.url_encode(user_id)}/r"
   end

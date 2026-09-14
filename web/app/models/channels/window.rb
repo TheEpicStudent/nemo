@@ -9,8 +9,15 @@ module Channels
 
     def self.from(params)
       lo, hi = pulled_bounds
-      new(days: params[:days], pulled_start: lo, pulled_end: hi,
+      new(days: params[:days], start_on: on(params[:start]), end_on: on(params[:end]),
+          pulled_start: lo, pulled_end: hi,
           edge: Analytics::MartChannelActivity.maximum(:window_start))
+    end
+
+    def self.on(value)
+      Date.iso8601(value.to_s)
+    rescue ArgumentError
+      nil
     end
 
     def self.pulled_bounds
@@ -19,13 +26,31 @@ module Channels
       [row&.lo, row&.hi]
     end
 
-    def initialize(days:, pulled_start:, pulled_end:, edge:)
+    def initialize(days:, pulled_start:, pulled_end:, edge:, start_on: nil, end_on: nil)
       @pulled_start = pulled_start
       @pulled_end = pulled_end
       @edge = edge
+      @custom = settle_custom(start_on, end_on)
+      if @custom
+        @days = (@end_date - @start_date).to_i + 1
+        return
+      end
+
       @days = settle(days)
       @end_date = pulled? ? @pulled_end : @edge
       @start_date = pulled? ? @pulled_start : (@edge && @edge - (@days - 1))
+    end
+
+    def custom?
+      @custom
+    end
+
+    def floor
+      [@pulled_start, @edge && (@edge - 400)].compact.max
+    end
+
+    def ceiling
+      [@edge, @pulled_end].compact.max
     end
 
     def pulled_days
@@ -39,6 +64,8 @@ module Channels
     end
 
     def pulled?
+      return false if @custom
+
       @edge.nil? || @days == pulled_days
     end
 
@@ -70,10 +97,29 @@ module Channels
     end
 
     def asked
-      @days unless pulled?
+      @days unless pulled? || @custom
+    end
+
+    def asked_start
+      @start_date if @custom
+    end
+
+    def asked_end
+      @end_date if @custom
     end
 
     private
+
+    def settle_custom(start_on, end_on)
+      return false if start_on.nil? && end_on.nil?
+
+      low, high = floor, ceiling
+      return false if low.nil? || high.nil?
+
+      @end_date = (end_on || high).clamp(low, high)
+      @start_date = (start_on || @end_date).clamp(low, @end_date)
+      true
+    end
 
     def settle(asked)
       wanted = asked.to_i

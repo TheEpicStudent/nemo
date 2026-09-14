@@ -1,7 +1,6 @@
 <% if may_community?("analytics.channel.share") %>
-  <details class="menu" data-controller="menu">
-    <summary class="btn btn-only" aria-label="Set who may read #<%= channel.name %>">&hellip;</summary>
-    <div class="menu-pop">
+  <%= render layout: "shared/dropdown", locals: {
+        label: "Set who may read ##{channel.name}", trigger: "\u2026" } do %>
       <% Channels::Audience::KINDS.each do |wanted| %>
         <%= button_to admin_channel_path(channel.channel_id), method: :patch,
               params: { audience: wanted, q: @q.presence }, class: "btn",
@@ -44,6 +43,5 @@
           </span>
         <% end %>
       <% end %>
-    </div>
-  </details>
+  <% end %>
 <% end %>

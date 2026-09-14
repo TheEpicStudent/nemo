@@ -2,7 +2,6 @@ import { Controller } from "@hotwired/stimulus"
 import { squarify } from "charts/squarify"
 
 const GAP = 2
-const CLAMP = 100
 const RULER = typeof document === "undefined"
   ? null
   : document.createElement("canvas").getContext("2d")
@@ -17,13 +16,13 @@ function fit(text, size, mono) {
   return RULER.measureText(text).width
 }
 
-function clip(text, size, room) {
+function clip(text, size, room, mono) {
   if (room <= 0) return null
-  if (fit(text, size) <= room) return text
+  if (fit(text, size, mono) <= room) return text
 
   for (let n = text.length - 1; n >= 2; n--) {
     const cut = `${text.slice(0, n)}…`
-    if (fit(cut, size) <= room) return cut
+    if (fit(cut, size, mono) <= room) return cut
   }
   return null
 }
@@ -33,15 +32,14 @@ const esc = (s) =>
 
 const N = (v) => v == null ? "n/a" : Number(v).toLocaleString("en-US")
 const PC = (v, d = 1) => v == null ? "n/a" : `${Number(v).toFixed(d)}%`
-const signed = (v) => `${v >= 0 ? "+" : ""}${Number(v).toFixed(0)}%`
 
 export default class extends Controller {
-  static values = { tiles: Array, height: Number, total: Number, floor: Number }
+  static values = { tiles: Array, height: Number, said: String }
 
   connect() {
     this.at = null
-    this.element.innerHTML = `<div class="tree tipped" tabindex="0"
-      data-action="mousemove->treemap#track mouseleave->treemap#clear keydown->treemap#key"
+    this.element.innerHTML = `<div class="tree parts tipped" tabindex="0"
+      data-action="mousemove->parts#track mouseleave->parts#clear keydown->parts#key"
       ><div class="tip"></div><span class="chart-say" aria-live="polite"></span></div>`
     const box = this.element.querySelector(".tree")
     this.watcher = new ResizeObserver(() => this.measure())
@@ -55,7 +53,18 @@ export default class extends Controller {
   }
 
   get high() {
-    return this.hasHeightValue && this.heightValue > 0 ? this.heightValue : 400
+    return this.hasHeightValue && this.heightValue > 0 ? this.heightValue : 200
+  }
+
+  get parts() {
+    return this.tilesValue
+      .filter((t) => Number(t.value) > 0)
+      .slice()
+      .sort((a, b) => b.value - a.value)
+  }
+
+  get total() {
+    return this.tilesValue.reduce((at, t) => at + Number(t.value || 0), 0)
   }
 
   measure() {
@@ -67,25 +76,13 @@ export default class extends Controller {
     this.draw(box, wide)
   }
 
-  step(row) {
-    if (row.thin || row.pct == null) return "na"
-
-    const v = Math.max(-CLAMP, Math.min(CLAMP, row.pct))
-    if (v <= -45) return "d3"
-    if (v <= -18) return "d2"
-    if (v <= -4) return "d1"
-    if (v < 4) return "z"
-    if (v < 18) return "u1"
-    if (v < 45) return "u2"
-    return "u3"
-  }
-
   draw(box, wide) {
-    const rows = this.tilesValue
+    const rows = this.parts
     if (!rows.length) return
 
     const high = this.high
-    const laid = squarify(rows.map((r) => ({ ...r, v: r.messages })), 0, 0, wide, high, [])
+    const total = this.total
+    const laid = squarify(rows.map((r) => ({ ...r, v: Number(r.value) })), 0, 0, wide, high, [])
 
     let cells = ""
     this.zones = []
@@ -95,69 +92,63 @@ export default class extends Controller {
       const h = Math.max(0, r.h - GAP)
       if (!(w > 1 && h > 1)) return
 
-      const tone = this.step(r)
       const x = r.x + GAP / 2
       const y = r.y + GAP / 2
-
-      let text = ""
-      const label = `#${r.name}`
-      const value = r.thin || r.pct == null ? "new" : signed(r.pct)
+      const share = PC(r.v / total * 100)
+      const room = w - 10
       const cx = x + w / 2
 
-      // both lines always; shrink toward the floor until the pair fits the tile
-      let nameSize = Math.max(8, Math.min(20, Math.round(Math.min(w, h) / 3.4)))
-      let valSize = Math.max(8, Math.round(nameSize * 0.82))
-      while (nameSize > 8 && nameSize + valSize + 4 > h - 6) {
-        nameSize -= 1
-        valSize = Math.max(8, Math.round(nameSize * 0.82))
-      }
+      let pcSize = Math.max(10, Math.min(16, Math.round(Math.min(w / 4.2, h / 3.6))))
+      while (pcSize > 10 && fit(share, pcSize, true) > room) pcSize -= 1
+      const shownPc = clip(share, pcSize, room, true)
 
-      const pair = nameSize + valSize + 4
-      const first = y + h / 2 - pair / 2 + nameSize
-      const room = w - 8
-      const shownName = clip(label, nameSize, room)
-      const shownValue = clip(value, valSize, room)
+      let nameSize = Math.max(9, Math.round(pcSize * 0.9))
+      while (nameSize > 9 && fit(r.label, nameSize) > room) nameSize -= 1
+      let shownName = clip(r.label, nameSize, room)
+      const pair = nameSize + pcSize + 4
+      if (pair > h - 8) shownName = null
 
-      if (shownName) {
+      let text = ""
+      if (shownName && shownPc) {
+        const first = y + h / 2 - pair / 2 + nameSize
         text += `<text class="t-n" x="${cx.toFixed(1)}" y="${first.toFixed(1)}"
-          text-anchor="middle" font-size="${nameSize}">${esc(shownName)}</text>`
-      }
-      if (shownValue) {
+          text-anchor="middle" font-size="${nameSize}"
+          style="fill: var(--parts-ink)">${esc(shownName)}</text>`
         text += `<text class="t-v" x="${cx.toFixed(1)}" y="${
-          (first + valSize + 4).toFixed(1)}" text-anchor="middle"
-          font-size="${valSize}">${esc(shownValue)}</text>`
+          (first + pcSize + 4).toFixed(1)}" text-anchor="middle" font-size="${pcSize}"
+          style="fill: var(--parts-ink)">${esc(shownPc)}</text>`
+      } else if (shownPc) {
+        text += `<text class="t-v" x="${cx.toFixed(1)}" y="${
+          (y + h / 2 + pcSize / 3).toFixed(1)}" text-anchor="middle" font-size="${pcSize}"
+          style="fill: var(--parts-ink)">${esc(shownPc)}</text>`
       }
 
-      cells += `<g class="cell ${tone}" data-i="${i}"><rect class="${tone}"
+      const tone = `p-${r.tone == null ? i : r.tone}`
+      cells += `<g class="cell" data-i="${i}"><rect class="${tone}"
         x="${x.toFixed(1)}" y="${y.toFixed(1)}"
         width="${w.toFixed(1)}" height="${h.toFixed(1)}"/>${text}</g>`
 
-      this.zones.push({ i, cx: r.x + r.w / 2, cy: r.y + r.h / 2, row: r, tone,
+      this.zones.push({ i, row: r, tone, share,
+        cx: r.x + r.w / 2, cy: r.y + r.h / 2,
         x0: r.x, y0: r.y, x1: r.x + r.w, y1: r.y + r.h })
     })
 
     box.querySelector("svg")?.remove()
     box.insertAdjacentHTML("afterbegin",
       `<svg width="${wide}" height="${high}" viewBox="0 0 ${wide} ${high}" role="img"
-        aria-label="${esc(this.summary(rows))}">${cells}</svg>`)
+        aria-label="${esc(this.summary(rows, total))}">${cells}</svg>`)
 
     this.geom = { wide, high }
     if (this.at != null) this.show(Math.min(this.at, this.zones.length - 1))
   }
 
-  summary(rows) {
-    const named = rows
-    const top = named[0]
-    const total = this.hasTotalValue ? this.totalValue : 0
-    const bits = [`Treemap of ${rows.length} tiles, area is member messages, colour is change against the previous window`]
-    if (top && total) {
-      bits.push(`largest ${top.name} at ${N(top.messages)} messages, ${
-        PC(top.messages / total * 100)} of ${N(total)}`)
-    }
-    const grew = named.filter((r) => r.pct != null && r.pct > 0).length
-    const shrank = named.filter((r) => r.pct != null && r.pct < 0).length
-    bits.push(`${grew} grew, ${shrank} shrank`)
-    return bits.join(", ")
+  summary(rows, total) {
+    const said = this.hasSaidValue && this.saidValue ? this.saidValue : "parts of the whole"
+    const bits = [`Treemap of ${said}, area is each part's share of ${N(total)}`]
+    rows.forEach((r) => {
+      bits.push(`${r.label} ${N(r.value)}, ${PC(r.value / total * 100)}`)
+    })
+    return bits.join(". ")
   }
 
   track(event) {
@@ -197,34 +188,18 @@ export default class extends Controller {
 
     const box = this.element.querySelector(".tree")
     const r = zone.row
+    const total = this.total
     this.at = i
 
-    const floor = this.hasFloorValue ? this.floorValue : 0
-    const total = this.hasTotalValue ? this.totalValue : 0
-    const swatch = (t) => `<i style="background: var(--dv-${t})"></i>`
-    const rows = [
-      `<div class="row">${swatch(zone.tone)}member messages<b>${N(r.messages)}</b></div>`
-    ]
-    if (r.prior != null) {
-      rows.push(`<div class="row">${swatch("na")}window before<b>${N(r.prior)}</b></div>`)
-    }
-    if (r.pct != null && !r.thin) {
-      rows.push(`<div class="row">${swatch(zone.tone)}change<b>${signed(r.pct)}</b></div>`)
-    } else {
-      rows.push(`<div class="row">${swatch("na")}change<b>n/a</b></div>`)
-      rows.push(`<div class="row row-note"><i></i>base under ${N(floor)} messages</div>`)
-    }
-    if (total) {
-      rows.push(`<div class="row"><i></i>share of all channels<b>${
-        PC(r.messages / total * 100, 2)}</b></div>`)
-    }
-
     const tip = box.querySelector(".tip")
-    tip.innerHTML = `<div class="t">#${esc(r.name)}</div>${rows.join("")}`
+    tip.innerHTML = `<div class="t">${esc(r.label)}</div>` +
+      `<div class="row"><i class="${zone.tone}"></i>members<b>${N(r.value)}</b></div>` +
+      `<div class="row"><i></i>share<b>${zone.share}</b></div>` +
+      `<div class="row"><i></i>of<b>${N(total)}</b></div>`
     tip.classList.add("on")
 
-    const tipWide = tip.offsetWidth || 190
-    const tipHigh = tip.offsetHeight || 90
+    const tipWide = tip.offsetWidth || 186
+    const tipHigh = tip.offsetHeight || 84
     const scale = box.clientWidth / this.geom.wide
     let left = zone.x1 * scale + 10
     if (left + tipWide > box.clientWidth) left = zone.x0 * scale - 10 - tipWide
@@ -239,9 +214,8 @@ export default class extends Controller {
     box.classList.add("lit")
     box.querySelectorAll(".cell").forEach((cell) =>
       cell.classList.toggle("on", +cell.dataset.i === i))
-
-    box.querySelector(".chart-say").textContent = `${r.name}, ${N(r.messages)} messages${
-      r.pct != null && !r.thin ? `, ${signed(r.pct)}` : ""}`
+    box.querySelector(".chart-say").textContent =
+      `${r.label}, ${N(r.value)}, ${zone.share}`
   }
 
   clear() {

@@ -1,0 +1,169 @@
+<div class="kpis">
+  <div class="card">
+    <p class="kpi-label">Messages</p>
+    <p class="kpi-val"><%= number_with_delimiter(pulse.member_messages) %></p>
+    <div class="kpi-micro">
+      <% if pulse.any? %>
+        <div
+          data-controller="chart"
+          data-chart-kind-value="line"
+          data-chart-spark-value="true"
+          data-chart-days-value="true"
+          data-chart-height-value="34"
+          data-chart-data-value="<%= {
+            labels: pulse.labels,
+            datasets: [{ label: "member messages", data: pulse.series.map(&:member_messages) }]
+          }.to_json %>"
+        ></div>
+      <% end %>
+    </div>
+    <p class="delta"><%= pulse_delta(pulse.change(:member_messages), "vs the window before") %></p>
+  </div>
+
+  <div class="card">
+    <p class="kpi-label">Posting</p>
+    <p class="kpi-val">
+      <%= pulse.posters_per_day ? number_with_delimiter(pulse.posters_per_day) : "n/a" %>
+    </p>
+    <div class="kpi-micro">
+      <% if pulse.any? %>
+        <div
+          data-controller="chart"
+          data-chart-kind-value="line"
+          data-chart-spark-value="true"
+          data-chart-days-value="true"
+          data-chart-height-value="34"
+          data-chart-data-value="<%= {
+            labels: pulse.labels,
+            datasets: [{ label: "people posting", data: pulse.series.map(&:authors) }]
+          }.to_json %>"
+        ></div>
+      <% end %>
+    </div>
+    <p class="delta"><%= pulse_delta(pulse.posters_change, "vs the window before") %></p>
+  </div>
+
+  <div class="card">
+    <p class="kpi-label">Reactions</p>
+    <p class="kpi-val"><%= number_with_delimiter(pulse.reactions) %></p>
+    <div class="kpi-micro">
+      <% if pulse.any? %>
+        <div
+          data-controller="chart"
+          data-chart-kind-value="line"
+          data-chart-spark-value="true"
+          data-chart-days-value="true"
+          data-chart-height-value="34"
+          data-chart-data-value="<%= {
+            labels: pulse.labels,
+            datasets: [{ label: "reactions", data: pulse.series.map(&:reactions) }]
+          }.to_json %>"
+        ></div>
+      <% end %>
+    </div>
+    <p class="delta"><%= pulse_delta(pulse.change(:reactions), "vs the window before") %></p>
+  </div>
+
+  <div class="card">
+    <p class="kpi-label">Threads</p>
+    <p class="kpi-val"><%= number_with_delimiter(pulse.thread_roots) %></p>
+    <div class="kpi-micro">
+      <% if pulse.any? %>
+        <div
+          data-controller="chart"
+          data-chart-kind-value="line"
+          data-chart-spark-value="true"
+          data-chart-days-value="true"
+          data-chart-height-value="34"
+          data-chart-data-value="<%= {
+            labels: pulse.labels,
+            datasets: [{ label: "threads started", data: pulse.series.map(&:thread_roots) }]
+          }.to_json %>"
+        ></div>
+      <% end %>
+    </div>
+    <p class="delta">
+      <%= number_with_delimiter(pulse.thread_replies) %> replies
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h2 class="card-title">Traffic</h2>
+      <p class="card-sub"><%= window_note(start_date, end_date) %></p>
+    </div>
+  </div>
+
+  <% if pulse.any? %>
+    <div
+      data-controller="chart"
+      data-chart-kind-value="bars"
+      data-chart-stacked-value="true"
+      data-chart-days-value="true"
+      data-chart-height-value="230"
+      data-chart-data-value="<%= {
+        labels: pulse.labels,
+        datasets: [
+          { label: "member messages", data: pulse.series.map(&:member_messages) },
+          ({ label: "bot messages", data: pulse.series.map(&:bot_messages) } if pulse.bot_messages.positive?)
+        ].compact
+      }.to_json %>"
+    ></div>
+    <div class="substrip">
+      <span class="substrip-k">people posting</span>
+      <div
+        data-controller="chart"
+        data-chart-kind-value="line"
+        data-chart-spark-value="true"
+        data-chart-days-value="true"
+        data-chart-height-value="46"
+        data-chart-data-value="<%= {
+          labels: pulse.labels,
+          datasets: [{ label: "people posting", data: pulse.series.map(&:authors) }]
+        }.to_json %>"
+      ></div>
+      <span class="substrip-v"><%= number_with_delimiter(pulse.posters_per_day.to_i) %> avg</span>
+    </div>
+  <% else %>
+    <p class="card-note">no message landed in this range</p>
+  <% end %>
+</div>
+
+<%= render "shared/clock", clock: clock, title: "Clock" %>
+
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h2 class="card-title">Slack analytics</h2>
+      <p class="card-sub"><%= window_note(start_date, end_date) %></p>
+    </div>
+  </div>
+  <% if range&.stats %>
+    <div class="stat-row">
+      <% [["unique posters", "unique_posters"], ["unique viewers", "unique_viewers"],
+          ["unique reactors", "unique_reactors"], ["messages", "messages_count"],
+          ["reactions", "reactions_count"], ["huddles", "huddles_count"]].each do |label, key| %>
+        <div>
+          <p class="kpi-label"><%= label %></p>
+          <p class="kpi-val"><%= number_with_delimiter(range.stats[key] || 0) %></p>
+        </div>
+      <% end %>
+    </div>
+  <% else %>
+    <p class="card-note">
+      <% if range&.error == :not_configured %>
+        Analytics proxy is not configured on this deployment. Set INTERNAL_PROXY_URL and PROXY_TOKEN_WEB.
+      <% elsif range&.error == :reauth %>
+        Analytics service needs re-authentication, refresh the Slack session cookie.
+      <% elsif range&.error == :not_found %>
+        No analytics for this channel in the selected range.
+      <% elsif range&.error == :truncated %>
+        Too many channels share this name to find this one. Try a narrower range.
+      <% else %>
+        Couldn&rsquo;t load ranged analytics right now.
+      <% end %>
+    </p>
+  <% end %>
+</div>

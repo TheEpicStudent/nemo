@@ -1,8 +1,5 @@
-<details class="menu" data-controller="menu">
-  <summary class="btn btn-only" aria-label="More for this thread">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
-  </summary>
-  <div class="menu-pop">
+<%= render layout: "shared/dropdown", locals: {
+      label: "More for this thread", trigger: menu_dots } do %>
     <% if row %>
       <%= link_to menu_item("external", "Open in Slack"),
             slack_thread_url(row.channel_id, row.thread_ts), class: "btn",
@@ -18,5 +15,4 @@
             form: { class: "contents", data: { turbo_frame: "_top",
             turbo_confirm: "Detach this thread?" } } %>
     <% end %>
-  </div>
-</details>
+<% end %>

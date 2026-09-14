@@ -1,12 +1,11 @@
 <% shown = Fd::Names.for([staff.user_id]) %>
-<details class="menu you-menu" data-controller="menu">
-  <summary class="you-face" aria-haspopup="menu" aria-label="<%= shown[staff.user_id] %>, and your account">
-    <%= tag.img(src: cachet_face_url(staff.user_id), class: "avatar", alt: "", width: 24, height: 24,
-          data: { cachet_face: staff.user_id, cachet_initial: shown.initial(staff.user_id),
-                  cachet_tone: avatar_tone(staff.user_id) }) %>
-  </summary>
-
-  <div class="menu-pop you-pop">
+<%= render layout: "shared/dropdown", locals: {
+      css: "you-menu", trigger_css: "you-face", pop_css: "you-pop",
+      label: "#{shown[staff.user_id]}, and your account",
+      trigger: tag.img(src: cachet_face_url(staff.user_id), class: "avatar", alt: "",
+        width: 24, height: 24,
+        data: { cachet_face: staff.user_id, cachet_initial: shown.initial(staff.user_id),
+                cachet_tone: avatar_tone(staff.user_id) }) } do %>
     <div class="you-head">
       <%= tag.img(src: cachet_face_url(staff.user_id), class: "avatar av-lg", alt: "", width: 28, height: 28,
             data: { cachet_face: staff.user_id, cachet_initial: shown.initial(staff.user_id),
@@ -29,5 +28,4 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
       <span>Sign out</span>
     <% end %>
-  </div>
-</details>
+<% end %>

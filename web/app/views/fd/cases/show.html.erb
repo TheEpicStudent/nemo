@@ -24,11 +24,8 @@
     <span class="faces"><%= safe_join(@case.assignee_user_ids.map { |id| slack_face(id) }) %></span>
   <% end %>
 
-  <details class="menu" data-controller="menu">
-    <summary class="btn btn-only" aria-label="More actions">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
-    </summary>
-    <div class="menu-pop">
+  <%= render layout: "shared/dropdown", locals: {
+        label: "More actions", trigger: menu_dots } do %>
       <% unless @case.resolved? %>
         <%= opens_modal "case.people", menu_item("category", "Set the violation"),
               opens: "set-category", on: @case %>
@@ -66,8 +63,7 @@
               form: { class: "contents", data: { turbo_confirm:
                 "Reopen case #{@case.id}? It goes back in the queue." } } %>
       <% end %>
-    </div>
-  </details>
+  <% end %>
 <% end %>
 
 <% content_for :page_controls do %>
@@ -346,7 +342,7 @@
     <div class="modal-body">
       <div class="field-label">
         <span>What kind of thing it is</span>
-        <details class="picker" data-controller="picker" data-action="change->picker#choose">
+        <details class="picker" data-controller="picker menu" data-action="change->picker#choose">
           <summary class="select">
             <span data-picker-target="label"><%= category_label(Fd::Case::CATEGORIES.first) %></span>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>

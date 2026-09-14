@@ -4,8 +4,6 @@ module Appearance
   THEMES = [
     Theme.new(key: "light", label: "Light", band: "light",
       swatch: ["oklch(96.6% 0.005 253)", "oklch(99.3% 0.003 253)", "oklch(22.5% 0.020 253)"]),
-    Theme.new(key: "dark", label: "Dark", band: "dark",
-      swatch: ["oklch(18.2% 0.006 75)", "oklch(22.2% 0.007 75)", "oklch(94.5% 0.008 82)"]),
     Theme.new(key: "lightsout", label: "Lights out", band: "dark",
       swatch: ["oklch(0% 0 0)", "oklch(17% 0.006 75)", "oklch(74% 0.148 48)"]),
     Theme.new(key: "contrast", label: "Contrast", band: "dark",
@@ -14,9 +12,10 @@ module Appearance
 
   BANDS = { "light" => "Light", "dark" => "Dark" }.freeze
   KEYS = THEMES.map(&:key).freeze
+  RETIRED = %w[dark].freeze
   BAND_OF = THEMES.to_h { |theme| [theme.key, theme.band] }.freeze
   DEFAULT_LIGHT = "light".freeze
-  DEFAULT_DARK = "dark".freeze
+  DEFAULT_DARK = "lightsout".freeze
 
   def self.find(key)
     THEMES.find { |theme| theme.key == key }

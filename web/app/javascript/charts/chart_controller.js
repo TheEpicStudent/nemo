@@ -12,6 +12,31 @@ const BAR_CAP = 72
 const BAR_R = 3
 const SEG_GAP = 2
 const LABEL_ROOM = 64
+const TILT = -32
+const LEAN = Math.abs(TILT) * Math.PI / 180
+const AX_LINE = 12
+
+const RULER = typeof document === "undefined"
+  ? null
+  : document.createElement("canvas").getContext("2d")
+
+function axWide(text) {
+  if (!RULER) return String(text).length * 6
+
+  RULER.font = '10px "Geist Mono", ui-monospace, monospace'
+  return RULER.measureText(String(text)).width
+}
+
+function axClip(text, room) {
+  const said = String(text)
+  if (!(room > 0) || axWide(said) <= room) return said
+
+  for (let n = said.length - 1; n >= 2; n--) {
+    const cut = `${said.slice(0, n)}…`
+    if (axWide(cut) <= room) return cut
+  }
+  return said
+}
 
 const F = (n) => (n == null ? "n/a" : Number(n).toLocaleString("en-US"))
 
@@ -26,7 +51,7 @@ const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
 function topBar(x, y, w, h, r) {
   if (!(h > 0) || !(w > 0)) return ""
 
-  const k = Math.min(r, w / 2, h)
+  const k = Math.min(r, w / 2, h / 2)
   return `M${x},${y + h}V${y + k}a${k},${k} 0 0 1 ${k},${-k}h${w - 2 * k}a${k},${k} 0 0 1 ${k},${k}V${y + h}Z`
 }
 
@@ -51,7 +76,7 @@ function dayName(iso) {
 
 export default class extends Controller {
   static values = {
-    kind: String, data: Object, height: Number, pct: Boolean,
+    kind: String, data: Object, height: Number, pct: Boolean, pctFit: Boolean,
     stacked: Boolean, days: Boolean, spark: Boolean, rule: Object, splits: Array,
     voids: Array, partial: Array, partialNote: String, notes: Array, caps: Array, nokey: Boolean
   }
@@ -165,7 +190,9 @@ export default class extends Controller {
   }
 
   tick(v) {
-    return this.pctValue ? `${Math.round(v)}%` : axl(v)
+    if (!this.pctValue) return axl(v)
+
+    return this.fineTicks ? `${Number(v).toFixed(1)}%` : `${Math.round(v)}%`
   }
 
   said(v) {
@@ -174,7 +201,9 @@ export default class extends Controller {
   }
 
   get pad() {
-    return this.sparkValue ? { l: 1, r: 1, t: 3, b: 3 } : PAD
+    if (this.sparkValue) return { l: 1, r: 1, t: 3, b: 3 }
+
+    return this.tilt ? { ...PAD, b: PAD.b + Math.round(this.tiltRoom || 22) } : PAD
   }
 
   get stack() {
@@ -201,7 +230,8 @@ export default class extends Controller {
     let lo = 0
     let hi = seen.length ? Math.max(...seen) : 0
 
-    if (this.pctValue) {
+    const pinned = this.pctValue && !this.pctFitValue
+    if (pinned) {
       lo = 0
       hi = 100
     } else if (line && seen.length) {
@@ -209,25 +239,45 @@ export default class extends Controller {
       if (this.sparkValue) lo = least
       else if (least > 0 && hi > 0 && (hi - least) / hi < 0.6) lo = least
     }
-    if (this.hasRuleValue && this.ruleValue.at != null && !this.pctValue) {
+    if (this.hasRuleValue && this.ruleValue.at != null && !pinned) {
       hi = Math.max(hi, Number(this.ruleValue.at))
     }
     if (hi <= lo) hi = lo + 1
 
     const y = scaleLinear().domain([lo, hi]).range([high - pad.b, pad.t])
-    if (!this.pctValue && !this.sparkValue) y.nice(4)
+    if (!pinned && !this.sparkValue) y.nice(4)
 
-    return { x, y, lo: y.domain()[0], line, high, pad }
+    return { x, y, lo: y.domain()[0], line, high, pad, pinned }
   }
 
   shownLabels(rows, wide) {
-    const room = Math.max(2, Math.floor((wide - PAD.l - PAD.r) / LABEL_ROOM))
-    const every = Math.max(1, Math.ceil(rows.length / room))
-    const last = rows.length - 1
-    if (every === 1) return new Set(rows.map((_, i) => i))
+    const band = (wide - PAD.l - PAD.r) / rows.length
+    const widest = rows.reduce((mx, r) => Math.max(mx, axWide(r.label)), 0)
+    if (widest + 6 <= band) {
+      return { show: this.everyNth(rows.length, 1), tilt: false, room: 0, cap: 0 }
+    }
 
+    const cap = (PAD.l * 2 + band - 8) / Math.cos(LEAN)
+    const every = Math.max(1, Math.ceil(AX_LINE / (band * Math.sin(LEAN))))
+    const long = Math.min(widest, cap)
+    const half = long / 2 * Math.sin(LEAN)
+    const drop = band < long * Math.cos(LEAN) ? long * Math.sin(LEAN) : half
+    const lift = Math.max(14, Math.round(half) + 4)
+    return {
+      show: this.everyNth(rows.length, every),
+      tilt: true,
+      room: Math.max(0, Math.ceil(lift + drop + 3 - PAD.b)),
+      cap,
+      lift
+    }
+  }
+
+  everyNth(count, every) {
+    const last = count - 1
     const show = new Set()
     for (let i = 0; i <= last; i += every) show.add(i)
+    if (every === 1 || last < 0) return show
+
     const top = Math.max(...show)
     if (last - top <= Math.ceil(every / 2)) show.delete(top)
     show.add(last)
@@ -237,9 +287,16 @@ export default class extends Controller {
   draw(chart, wide) {
     const rows = this.rows
     const series = this.series
-    const { x, y, lo, line, high, pad } = this.scales(rows, series, wide)
+    const labels = this.sparkValue
+      ? { show: new Set(), tilt: false }
+      : this.shownLabels(rows, wide)
+    this.tilt = labels.tilt
+    this.tiltRoom = labels.room
+    const { x, y, lo, line, high, pad, pinned } = this.scales(rows, series, wide)
     const mid = (i) => x(i) + x.bandwidth() / 2
-    const ticks = this.pctValue ? [0, 50, 100] : y.ticks(high < 160 ? 3 : 4)
+    const span = y.domain()[1] - y.domain()[0]
+    this.fineTicks = !pinned && this.pctValue && span < 5
+    const ticks = pinned ? [0, 50, 100] : y.ticks(high < 160 ? 3 : 4)
     const right = wide - pad.r
     const floor = y(lo)
 
@@ -295,11 +352,25 @@ export default class extends Controller {
         width="${(bw + 3).toFixed(1)}" height="${(floor - top + 1.5).toFixed(1)}" rx="3"/>`
     }).join("")
 
-    const shown = this.sparkValue ? new Set() : this.shownLabels(rows, wide)
-    const names = rows.map((r, i) => shown.has(i)
-      ? `<text class="ax" x="${mid(i).toFixed(1)}" y="${high - pad.b + 16}" text-anchor="middle">${
-        esc(r.label)}</text>`
-      : "").join("")
+    const names = rows.map((r, i) => {
+      if (!labels.show.has(i)) return ""
+
+      const at = mid(i)
+      if (labels.tilt) {
+        const said = axClip(r.label, labels.cap)
+        const ty = high - pad.b + labels.lift
+        const lead = axWide(said) / 2 * Math.cos(LEAN)
+        return `<text class="ax" x="${at.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="${
+          right - at < lead ? "end" : "middle"}"
+          transform="rotate(${TILT} ${at.toFixed(1)} ${ty.toFixed(1)})">${esc(said)}</text>`
+      }
+
+      const anchor = at - pad.l < LABEL_ROOM / 2
+        ? "start" : right - at < LABEL_ROOM / 2 ? "end" : "middle"
+      const x = anchor === "start" ? pad.l : anchor === "end" ? right : at
+      return `<text class="ax" x="${x.toFixed(1)}" y="${high - pad.b + 16}" text-anchor="${
+        anchor}">${esc(r.label)}</text>`
+    }).join("")
 
     const body = line
       ? this.drawLine(rows, series, { x, y, mid, lo, floor })
@@ -356,9 +427,14 @@ export default class extends Controller {
           at += (wide - BAR_CAP) / 2
           wide = BAR_CAP
         }
-        const top = y(v)
+        if (Number(v) === 0) {
+          return `<rect class="${this.paint(s)}"${this.tint(s)} fill="currentColor" opacity="0.45"
+            x="${at.toFixed(1)}" y="${(floor - 2).toFixed(1)}"
+            width="${wide.toFixed(1)}" height="2" rx="1"/>`
+        }
+        const tall = Math.max(floor - y(v), 2)
         return `<path class="${this.paint(s)}"${this.tint(s)} fill="currentColor" d="${
-          topBar(at, top, wide, floor - top, BAR_R)}"/>`
+          topBar(at, floor - tall, wide, tall, BAR_R)}"/>`
       }).join("")
 
       return `<g class="mark" data-i="${i}">${bars}</g>`

@@ -23,7 +23,7 @@
 
           <div class="field-label">
             <span>Category</span>
-            <details class="picker" data-controller="picker" data-action="change->picker#choose">
+            <details class="picker" data-controller="picker menu" data-action="change->picker#choose">
               <summary class="select">
                 <span data-picker-target="label" data-blank="Not sure yet"><%=
                   params[:category_key].present? ? category_label(params[:category_key]) : "Not sure yet"

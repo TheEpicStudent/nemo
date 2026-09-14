@@ -671,3 +671,245 @@ models:
         data_type: integer
       - name: metric_version
         data_type: text
+  - name: mart_channel_day
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: channel_id
+        data_type: text
+        data_tests: [not_null]
+      - name: ds
+        data_type: date
+        data_tests: [not_null]
+      - name: messages
+        data_type: integer
+        data_tests: [not_null]
+      - name: member_messages
+        data_type: integer
+      - name: bot_messages
+        data_type: integer
+      - name: authors
+        data_type: integer
+      - name: member_authors
+        data_type: integer
+      - name: thread_replies
+        data_type: integer
+      - name: thread_roots
+        data_type: integer
+      - name: replies_on_roots
+        data_type: integer
+      - name: questions
+        data_type: integer
+      - name: questions_with_replies
+        data_type: integer
+      - name: with_link
+        data_type: integer
+      - name: with_file
+        data_type: integer
+      - name: emoji_only
+        data_type: integer
+      - name: substantive
+        data_type: integer
+      - name: with_mention
+        data_type: integer
+      - name: reactions
+        data_type: bigint
+      - name: unreacted
+        data_type: integer
+      - name: text_length_total
+        data_type: bigint
+      - name: metric_version
+        data_type: text
+    data_tests:
+      - unique:
+          column_name: "channel_id || '-' || ds"
+  - name: mart_channel_person
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: channel_id
+        data_type: text
+        data_tests: [not_null]
+      - name: month
+        data_type: date
+        data_tests: [not_null]
+      - name: user_id
+        data_type: text
+        data_tests: [not_null]
+      - name: messages
+        data_type: integer
+        data_tests: [not_null]
+      - name: replies
+        data_type: integer
+      - name: questions
+        data_type: integer
+      - name: days_posted
+        data_type: integer
+      - name: first_at
+        data_type: timestamptz
+      - name: last_at
+        data_type: timestamptz
+      - name: tenure_days
+        data_type: integer
+      - name: tenure_band
+        data_type: text
+        data_tests:
+          - accepted_values:
+              values: [under_90d, under_1y, under_3y, over_3y, unknown]
+      - name: channel_rank
+        data_type: integer
+        data_tests: [not_null]
+      - name: share_of_channel
+        data_type: numeric
+      - name: channel_messages
+        data_type: bigint
+      - name: channel_posters
+        data_type: integer
+      - name: month_end
+        data_type: date
+      - name: metric_version
+        data_type: text
+    data_tests:
+      - unique:
+          column_name: "channel_id || '-' || month || '-' || user_id"
+  - name: mart_channel_concentration
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: channel_id
+        data_type: text
+        data_tests: [not_null]
+      - name: month
+        data_type: date
+        data_tests: [not_null]
+      - name: poster_pct
+        data_type: integer
+        data_tests: [not_null]
+      - name: message_pct
+        data_type: numeric
+      - name: posters
+        data_type: integer
+      - name: messages
+        data_type: bigint
+      - name: gini
+        data_type: numeric
+      - name: top_10_messages
+        data_type: bigint
+      - name: top_10_pct
+        data_type: numeric
+      - name: people_for_half
+        data_type: integer
+      - name: metric_version
+        data_type: text
+    data_tests:
+      - unique:
+          column_name: "channel_id || '-' || month || '-' || poster_pct"
+  - name: mart_channel_newcomers
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: channel_id
+        data_type: text
+        data_tests: [not_null, unique]
+      - name: channel_name
+        data_type: text
+      - name: newcomers
+        data_type: integer
+        data_tests: [not_null]
+      - name: answered_by_member
+        data_type: integer
+      - name: answered_fast
+        data_type: integer
+      - name: answered_by_bot
+        data_type: integer
+      - name: unanswered
+        data_type: integer
+      - name: measured_day_30
+        data_type: integer
+      - name: returned_day_30
+        data_type: integer
+      - name: answered_share
+        data_type: numeric
+      - name: fast_share
+        data_type: numeric
+      - name: returned_share
+        data_type: numeric
+      - name: median_latency_seconds
+        data_type: integer
+      - name: fast_reply_seconds
+        data_type: integer
+      - name: window_start
+        data_type: date
+      - name: window_end
+        data_type: date
+      - name: metric_version
+        data_type: text
+  - name: mart_channel_reply_latency
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: channel_id
+        data_type: text
+        data_tests: [not_null]
+      - name: bucket_order
+        data_type: integer
+        data_tests: [not_null]
+      - name: bucket
+        data_type: text
+      - name: answered
+        data_type: boolean
+      - name: newcomers
+        data_type: integer
+      - name: checked
+        data_type: integer
+      - name: share_pct
+        data_type: numeric
+      - name: window_start
+        data_type: date
+      - name: window_end
+        data_type: date
+      - name: metric_version
+        data_type: text
+    data_tests:
+      - unique:
+          column_name: "channel_id || '-' || bucket_order"
+  - name: mart_channel_neighbours
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: channel_id
+        data_type: text
+        data_tests: [not_null]
+      - name: neighbour_id
+        data_type: text
+        data_tests: [not_null]
+      - name: neighbour_name
+        data_type: text
+      - name: neighbour_archived
+        data_type: boolean
+      - name: neighbour_rank
+        data_type: integer
+        data_tests: [not_null]
+      - name: shared_posters
+        data_type: integer
+      - name: posters
+        data_type: integer
+      - name: neighbour_posters
+        data_type: integer
+      - name: jaccard
+        data_type: numeric
+      - name: window_start
+        data_type: date
+      - name: window_end
+        data_type: date
+      - name: metric_version
+        data_type: text
+    data_tests:
+      - unique:
+          column_name: "channel_id || '-' || neighbour_id"

@@ -5,9 +5,10 @@ class Channels::WindowTest < ActiveSupport::TestCase
   PULLED_END = Date.new(2026, 9, 5)
   EDGE = Date.new(2026, 9, 5)
 
-  def build(days, pulled_start: PULLED_START, pulled_end: PULLED_END, edge: EDGE)
+  def build(days, pulled_start: PULLED_START, pulled_end: PULLED_END, edge: EDGE,
+            start_on: nil, end_on: nil)
     Channels::Window.new(days: days, pulled_start: pulled_start,
-      pulled_end: pulled_end, edge: edge)
+      pulled_end: pulled_end, edge: edge, start_on: start_on, end_on: end_on)
   end
 
   test "the pulled window is measured inclusively and offered as a choice" do
@@ -91,5 +92,52 @@ class Channels::WindowTest < ActiveSupport::TestCase
   test "the selected column carries the alias the rows partial reads" do
     assert_equal "r.messages_posted_by_members AS range_messages", build(nil).column
     assert_equal "a.range_messages", build("7").column
+  end
+
+  test "a custom range wins over any preset and rolls up over its own dates" do
+    w = build("7", start_on: Date.new(2026, 8, 20), end_on: Date.new(2026, 8, 29))
+
+    assert w.custom?
+    assert_not w.pulled?
+    assert_equal Date.new(2026, 8, 20), w.start_date
+    assert_equal Date.new(2026, 8, 29), w.end_date
+    assert_equal 10, w.days
+    assert_includes w.join, "BETWEEN '2026-08-20' AND '2026-08-29'"
+  end
+
+  test "a custom range is carried in the query rather than a preset" do
+    w = build(nil, start_on: Date.new(2026, 8, 20), end_on: Date.new(2026, 8, 29))
+
+    assert_nil w.asked
+    assert_equal Date.new(2026, 8, 20), w.asked_start
+    assert_equal Date.new(2026, 8, 29), w.asked_end
+  end
+
+  test "a preset carries no custom dates" do
+    w = build("7")
+
+    assert_not w.custom?
+    assert_nil w.asked_start
+    assert_nil w.asked_end
+  end
+
+  test "a custom range past the measured edge is pulled back to it" do
+    w = build(nil, start_on: Date.new(2020, 1, 1), end_on: Date.new(2030, 1, 1))
+
+    assert_equal w.ceiling, w.end_date
+    assert_equal w.floor, w.start_date
+  end
+
+  test "a custom range given backwards never ends before it starts" do
+    w = build(nil, start_on: Date.new(2026, 9, 4), end_on: Date.new(2026, 8, 20))
+
+    assert_operator w.start_date, :<=, w.end_date
+  end
+
+  test "only one end of a custom range is enough" do
+    w = build(nil, end_on: Date.new(2026, 8, 29))
+
+    assert w.custom?
+    assert_equal Date.new(2026, 8, 29), w.end_date
   end
 end

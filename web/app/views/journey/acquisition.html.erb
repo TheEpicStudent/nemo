@@ -1,13 +1,14 @@
 <% content_for :page_title, "Joining" %>
 
-<% content_for :page_controls do %>
-  <div class="segmented" role="group" aria-label="months of growth">
-    <% HomeHelper::GROWTH_SPANS.each do |span| %>
-      <%= link_to "#{span}m", joining_journey_path(growth_months: span),
-            aria: { current: ("true" if span == @growth_span) } %>
-    <% end %>
-  </div>
+<% content_for :head_actions do %>
+  <%= render "shared/range_button", id: "joining-range",
+        label: "Last #{@growth_span} months" %>
 <% end %>
+
+<%= render "shared/range_modal", id: "joining-range", title: "Months of growth", dates: false,
+      presets: HomeHelper::GROWTH_SPANS.map { |span| {
+        label: "Last #{span} months", current: span == @growth_span,
+        href: joining_journey_path(growth_months: span) } } %>
 
 <div id="acquisition">
   <%= render "growth", growth_months: @growth_months, growth_span: @growth_span %>

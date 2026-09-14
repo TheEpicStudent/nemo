@@ -5,6 +5,16 @@ class ChannelsController < ApplicationController
   RANGE_PRESETS = [7, 28, 90].freeze
   DEFAULT_RANGE_DAYS = 28
 
+  VIEWS = {
+    "overview" => "Overview",
+    "activity" => "Activity",
+    "newcomers" => "Newcomers",
+    "messages" => "Messages",
+    "neighbours" => "Neighbours"
+  }.freeze
+  DEFAULT_VIEW = "overview".freeze
+  RANGED_VIEWS = %w[overview messages].freeze
+
   SORT_SQL = {
     "name" => "#{Channels::Joins::SPINE}.name",
     "members" => "#{Channels::Joins::RANGE}.total_members",
@@ -78,39 +88,41 @@ class ChannelsController < ApplicationController
     @channel = Channels::Audience.for(current_account).find_by(channel_id: params[:id])
     return refuse_channel if @channel.nil?
 
-    @backfill = ChannelBackfill.find_by(channel_id: @channel.channel_id)
-    @activity_trend = Analytics::MartChannelActivity.where(channel_id: @channel.channel_id).order(:window_start)
-    @scorecard_rows = Analytics::MartChannelOnboardingScorecard
-      .where(channel_id: @channel.channel_id, newcomer_volume: HomeHelper::MIN_SAMPLE..)
-      .order(:post_month)
-    @clock = Community::Clock.for_channel(@channel.channel_id)
+    id = @channel.channel_id
+    @view = VIEWS.key?(params[:view]) ? params[:view] : DEFAULT_VIEW
+    @backfill = ChannelBackfill.find_by(channel_id: id)
+    @snapshot = Analytics::MartChannelRange.find_by(channel_id: id)
+    @standing = Analytics::MartChannelMomentum.find_by(channel_id: id)
 
     coverage = Slack::Analytics.coverage
-    last_available = coverage ? Date.iso8601(coverage["end_date"]) : (Date.current - 2)
-    custom_start = parse_range_date(params[:start])
-    custom_end = parse_range_date(params[:end])
+    proxy_edge = coverage ? Date.iso8601(coverage["end_date"]) : (Date.current - 2)
+    last_available = Channels::Pulse.edge || proxy_edge
+    settle_range(last_available)
 
-    floor = [@channel.date_created&.to_date, last_available - 400].compact.max
-    if custom_start || custom_end
-      @range_preset = nil
-      @end_date = (custom_end || last_available).clamp(floor, last_available)
-      @start_date = (custom_start || (@end_date - (DEFAULT_RANGE_DAYS - 1)))
-        .clamp(floor, last_available)
-      @start_date = @end_date if @start_date > @end_date
-    else
-      @range_preset = RANGE_PRESETS.include?(params[:days].to_i) ? params[:days].to_i : DEFAULT_RANGE_DAYS
-      @end_date = last_available
-      @start_date = @end_date - (@range_preset - 1)
+    @crowd = Channels::Crowd.for(id, month: parse_range_date(params[:month]))
+    @member_count = @snapshot&.total_members
+
+    case @view
+    when "overview"
+      @pulse = Channels::Pulse.for(id, from: @start_date, to: @end_date)
+      @clock = Community::Clock.for_channel(id)
+      @range = Slack::Analytics.channel_activity(
+        channel_id: id, name: @channel.name, privacy: @channel.visibility,
+        from: @start_date.clamp(@proxy_min, proxy_edge),
+        to: @end_date.clamp(@proxy_min, proxy_edge)
+      )
+    when "newcomers"
+      @welcome = Channels::Welcome.for(id)
+      @scorecard_rows = Analytics::MartChannelOnboardingScorecard
+        .where(channel_id: id, newcomer_volume: HomeHelper::MIN_SAMPLE..)
+        .order(:post_month)
+    when "messages"
+      @pulse = Channels::Pulse.for(id, from: @start_date, to: @end_date)
+    when "neighbours"
+      @neighbours = Analytics::MartChannelNeighbours
+        .where(channel_id: id, neighbour_archived: false)
+        .order(:neighbour_rank).to_a
     end
-
-    @range_max = last_available
-    @range_min = floor
-    all_time_start = @channel.date_created&.to_date || (last_available - 400)
-    @range, @all_time = Slack::Analytics.channel_windows(
-      channel_id: @channel.channel_id, name: @channel.name, privacy: @channel.visibility,
-      windows: [[@start_date, @end_date], [all_time_start, last_available]]
-    )
-    @member_count = @all_time.stats&.dig("total_members_count")
   end
 
   def opt_in_replies
@@ -173,6 +185,29 @@ class ChannelsController < ApplicationController
   def refuse_spend(channel, estimate)
     redirect_to channel_path(channel.channel_id),
       alert: "#{helpers.number_with_delimiter(estimate)} requests needs engine.manage"
+  end
+
+  def settle_range(last_available)
+    floor = [@channel.date_created&.to_date, last_available - 400].compact.max
+    floor = [floor, last_available].min
+    custom_start = parse_range_date(params[:start])
+    custom_end = parse_range_date(params[:end])
+
+    if custom_start || custom_end
+      @range_preset = nil
+      @end_date = (custom_end || last_available).clamp(floor, last_available)
+      @start_date = (custom_start || (@end_date - (DEFAULT_RANGE_DAYS - 1)))
+        .clamp(floor, last_available)
+      @start_date = @end_date if @start_date > @end_date
+    else
+      @range_preset = RANGE_PRESETS.include?(params[:days].to_i) ? params[:days].to_i : DEFAULT_RANGE_DAYS
+      @end_date = last_available
+      @start_date = [@end_date - (@range_preset - 1), floor].max
+    end
+
+    @range_max = last_available
+    @range_min = floor
+    @proxy_min = floor
   end
 
   def parse_range_date(value)

@@ -38,14 +38,14 @@
   </div>
 <% end %>
 
-<% content_for :page_controls do %>
-  <div class="segmented" role="group" aria-label="range">
-    <% HomeHelper::OVERVIEW_SPANS.each do |key, span| %>
-      <%= link_to span[:label], root_path(span: key),
-            aria: { current: ("true" if key == @span_key) } %>
-    <% end %>
-  </div>
+<% content_for :head_actions do %>
+  <%= render "shared/range_button", id: "home-range", label: "Last #{@span[:label]}" %>
 <% end %>
+
+<%= render "shared/range_modal", id: "home-range", title: "Range", dates: false,
+      presets: HomeHelper::OVERVIEW_SPANS.map { |key, span| {
+        label: "Last #{span[:label]}", current: key == @span_key,
+        href: root_path(span: key) } } %>
 
 <%= render "active_people", activity_trend: @trend, prior_trend: @trend_prior,
       granularity: @span[:granularity] %>

@@ -3,7 +3,7 @@
   <%= form_with url: channels_path, method: :get, class: "filter-form",
         data: { controller: "conditions", turbo_frame: "channels", turbo_action: "advance" } do %>
     <% { q: @q.presence, sort: @sort, direction: @direction, view: @view,
-         days: @window.asked }.compact
+         days: @window.asked, start: @window.asked_start, end: @window.asked_end }.compact
          .each { |key, value| concat hidden_field_tag(key, value, id: nil) } %>
 
     <div class="filter-match">
