@@ -1,12 +1,15 @@
 import logging
 
 from bot.engine import intake, session
+from bot.engine import files as store
 from bot.shroud import consent, files
 from bot.shroud.reply import GOT_IT, receipt
 
 log = logging.getLogger("bot.shroud")
 
 CARRIES_CONTENT = (None, "file_share", "me_message", "thread_broadcast")
+
+DECLINED_BY = "shroud:reporter declined"
 
 STANDING = """
 SELECT c.handed_off_at IS NOT NULL,
@@ -105,19 +108,22 @@ def register(app, on_taken=None):
             "shroud: took message %s in %s thread %s", message_id, event["channel"], thread_ts
         )
 
-        if event.get("files"):
-            try:
-                files.drain(client.token)
-            except Exception:
-                log.exception("shroud: could not keep the files, they stay pending")
-
         if handed_off:
+            if event.get("files"):
+                keep_files(client)
             nod(client, event["channel"], event["ts"])
             if on_taken:
                 on_taken(conversation_id, message_id)
             return
 
         ask(client, event["channel"], thread_ts, prompt_ts, asking)
+
+    def keep_files(client):
+        try:
+            return files.drain(client.token)
+        except Exception:
+            log.exception("shroud: could not keep the files, they stay pending")
+            return 0
 
     def ask(client, channel_id, thread_ts, prompt_ts, blocks):
         if prompt_ts:
@@ -218,6 +224,14 @@ def register(app, on_taken=None):
 
         with session() as conn:
             conn.execute(RETIRE_PROMPT, (consent.DONE, channel_id, prompt_ts))
+            row = conn.execute(CONVERSATION_OF, (channel_id, prompt_ts)).fetchone()
+            if row:
+                dropped, blobs = store.purge_conversation(conn, row[0], DECLINED_BY)
+                if dropped:
+                    log.info(
+                        "shroud: conversation %s was declined, %s file(s) purged, "
+                        "%s blob(s) removed", row[0], dropped, blobs,
+                    )
 
         client.chat_update(
             channel=channel_id, ts=prompt_ts, text=consent.DROPPED, blocks=[]

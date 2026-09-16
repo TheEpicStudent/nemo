@@ -6,6 +6,7 @@ from bot.engine.whoami import bot_user_id
 from bot.nemo import channel, who
 from bot.nemo import files as carry
 from bot.nemo.cards import report as cards
+from bot.shroud import files as intake_files
 
 log = logging.getLogger("bot.relay")
 
@@ -54,6 +55,7 @@ class Relay:
             if already:
                 woke = case.wake(conn, case_id, opener)
         log.info("relay: conversation %s is case %s", conversation_id, case_id)
+        self.keep_attachments(conversation_id)
         if brought["threads"] or brought["messages"]:
             log.info(
                 "relay: case %s came with %s thread(s) and %s message(s)",
@@ -76,6 +78,22 @@ class Relay:
                 channel.post_report(self.nemo_client, conn, case_id)
 
         return case_id
+
+    def keep_attachments(self, conversation_id):
+        if self.shroud_client is None:
+            log.warning(
+                "relay: shroud is not running, conversation %s keeps its files pending",
+                conversation_id,
+            )
+            return 0
+        try:
+            return intake_files.drain(self.shroud_client.token)
+        except Exception:
+            log.exception(
+                "relay: could not keep the files of conversation %s, they stay pending",
+                conversation_id,
+            )
+            return 0
 
     def redraw(self, case_id):
         if self.nemo_client is None:

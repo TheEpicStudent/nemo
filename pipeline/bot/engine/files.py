@@ -17,11 +17,22 @@ def slack_url(url):
         host == "slack.com" or host.endswith(SLACK_HOSTS)
     )
 
-PENDING = """
-SELECT id, slack_file_id, url_private, size_bytes, mimetype
-FROM fd.intake_files
-WHERE fetch_state = 'pending' AND url_private IS NOT NULL
-ORDER BY first_seen_at, id
+HANDED_OVER = """
+EXISTS (
+    SELECT 1
+    FROM fd.intake_message_files mf
+    JOIN fd.intake_messages m ON m.id = mf.message_id
+    JOIN fd.intake_conversations c ON c.id = m.conversation_id
+    WHERE mf.file_id = f.id AND c.handed_off_at IS NOT NULL
+)
+"""
+
+PENDING = f"""
+SELECT f.id, f.slack_file_id, f.url_private, f.size_bytes, f.mimetype
+FROM fd.intake_files f
+WHERE f.fetch_state = 'pending' AND f.url_private IS NOT NULL
+  AND {HANDED_OVER}
+ORDER BY f.first_seen_at, f.id
 LIMIT %s
 """
 
@@ -85,6 +96,16 @@ def give_up(conn, file_id, state, error):
     )
 
 
+ORPHAN_BLOBS = """
+DELETE FROM fd.intake_file_blobs b
+WHERE NOT EXISTS (SELECT 1 FROM fd.intake_files f WHERE f.stored_key = b.sha256)
+"""
+
+
+def forget_orphans(conn):
+    return conn.execute(ORPHAN_BLOBS).rowcount
+
+
 def purge(conn, file_id, purged_by):
     conn.execute(
         "UPDATE fd.intake_files SET fetch_state = 'purged', stored_key = NULL, "
@@ -92,11 +113,29 @@ def purge(conn, file_id, purged_by):
         "WHERE id = %s AND purged_at IS NULL",
         (purged_by, file_id),
     )
-    return conn.execute(
-        "DELETE FROM fd.intake_file_blobs b WHERE NOT EXISTS ("
-        "  SELECT 1 FROM fd.intake_files f WHERE f.stored_key = b.sha256"
-        ") RETURNING sha256"
+    return forget_orphans(conn)
+
+
+DROP_CONVERSATION_FILES = f"""
+UPDATE fd.intake_files f
+SET fetch_state = 'purged', stored_key = NULL, stored_bytes = NULL,
+    purged_at = now(), purged_by = %(by)s
+WHERE f.purged_at IS NULL
+  AND EXISTS (
+      SELECT 1
+      FROM fd.intake_message_files mf
+      JOIN fd.intake_messages m ON m.id = mf.message_id
+      WHERE mf.file_id = f.id AND m.conversation_id = %(conversation)s
+  )
+  AND NOT {HANDED_OVER}
+"""
+
+
+def purge_conversation(conn, conversation_id, purged_by):
+    dropped = conn.execute(
+        DROP_CONVERSATION_FILES, {"by": purged_by, "conversation": conversation_id}
     ).rowcount
+    return dropped, forget_orphans(conn)
 
 
 def body_of(conn, sha):
