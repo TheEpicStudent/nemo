@@ -59,7 +59,7 @@ module Admin
       @role_channels = @roles.index_with { |role|
         Channels::Audience::Grant.live.where(role: role).pluck(:channel_id)
       }
-      @appointments = ::Prometheus::Appointment.for_person(@user_id).order(:channel_id).to_a
+      @appointments = ::Prometheus::Appointment.managing.for_person(@user_id).order(:channel_id).to_a
       named = (@channel_rows.map(&:channel_id) + @role_channels.values.flatten +
         @appointments.map(&:channel_id)).uniq
       @channel_names = Analytics::DimChannel.where(channel_id: named).index_by(&:channel_id)

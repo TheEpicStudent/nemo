@@ -11,7 +11,7 @@
     <% end %>
   </div>
 
-  <% if @roles.include?("promethean") && @appointments.none? { |one| one.role == "manager" } %>
+  <% if @roles.include?("promethean") && @appointments.empty? %>
     <div class="warnbar">A promethean with no channel reads nothing but public ones.</div>
   <% end %>
 
@@ -22,7 +22,9 @@
           <% @channel_rows.each do |row| %>
             <tr>
               <td>
-                <b>#<%= @channel_names[row.channel_id]&.name || row.channel_id %></b>
+                <%= link_to channel_path(row.channel_id) do %>
+                  <b>#<%= @channel_names[row.channel_id]&.name || row.channel_id %></b>
+                <% end %>
                 <span class="mono sub2"><%= row.channel_id %></span>
               </td>
               <td><span class="chip chip-good">named to them</span></td>
@@ -39,15 +41,13 @@
           <% @appointments.each do |one| %>
             <tr>
               <td>
-                <b>#<%= @channel_names[one.channel_id]&.name || one.channel_id %></b>
+                <%= link_to channel_path(one.channel_id) do %>
+                  <b>#<%= @channel_names[one.channel_id]&.name || one.channel_id %></b>
+                <% end %>
                 <span class="mono sub2"><%= one.channel_id %></span>
               </td>
-              <td>
-                <span class="chip <%= one.role == "manager" ? "chip-good" : "chip-off" %>">
-                  Prometheus <%= one.role %>
-                </span>
-              </td>
-              <td class="said-cell">Prometheus holds this, Mnemosyne only mirrors it</td>
+              <td>Promethean</td>
+              <td></td>
               <td></td>
             </tr>
           <% end %>
@@ -55,7 +55,9 @@
             <% ids.each do |id| %>
               <tr>
                 <td>
-                  <b>#<%= @channel_names[id]&.name || id %></b>
+                  <%= link_to channel_path(id) do %>
+                    <b>#<%= @channel_names[id]&.name || id %></b>
+                  <% end %>
                   <span class="mono sub2"><%= id %></span>
                 </td>
                 <td><span class="chip"><%= Authz.role_label(role).downcase %> set</span></td>
