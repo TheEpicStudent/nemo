@@ -16,6 +16,7 @@ class SessionsController < ApplicationController
     end
 
     staff = Account.find_or_create_by!(user_id: slack_id)
+    Prometheus::Mirror.refresh(staff.user_id)
     reset_session
     session[:user_id] = staff.user_id
     flash[:said] = "Everything you do from here is recorded against #{staff.user_id}."

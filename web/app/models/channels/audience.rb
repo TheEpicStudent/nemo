@@ -27,7 +27,13 @@ module Channels
       return everything if everywhere?(staff)
       return open_to_all unless Authz.holds?(staff, "channel.read")
 
-      open_to_all.or(everything.where(channel_id: granted_ids_for(staff)))
+      open_to_all
+        .or(everything.where(channel_id: granted_ids_for(staff)))
+        .or(everything.where(channel_id: appointed_ids_for(staff)))
+    end
+
+    def self.appointed_ids_for(staff)
+      ::Prometheus::Appointment.managing.for_person(staff.user_id).select(:channel_id)
     end
 
     def self.everywhere?(staff)
