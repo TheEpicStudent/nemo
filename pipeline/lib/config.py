@@ -50,6 +50,7 @@ ROLES = {
     "sync": {
         "required": DATABASE + ["INTERNAL_PROXY_URL", "INTERNAL_PROXY_TOKEN"],
         "optional": PIPELINE_ROLE + DBT_ROLE + [
+            "PROMETHEUS_BASE_URL",
             "SLACK_BOT_TOKEN",
             "SLACK_TEAM_ID",
             "NIGHTLY_AT",

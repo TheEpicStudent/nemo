@@ -50,7 +50,7 @@ from jobs import invariants, reconcile
 from lib import breaker
 from lib import settings, sources
 from lib.heartbeat import beating
-from lib.paths import ENV_FILE, WAREHOUSE_DIR
+from lib.paths import ENV_FILE, WAREHOUSE_DIR, WEB_DIR
 from lib.proxy_client import InternalAuthError, ProxyClient, ProxyError, ProxyUnavailableError
 from lib.slack_client import bot_client
 
@@ -96,6 +96,21 @@ def dbt(*args):
     for line in proc.stdout:
         print(line, end="")
     return proc.wait()
+
+
+def reconcile_prometheans():
+    proc = subprocess.Popen(
+        ["bin/rails", "prometheus:reconcile"],
+        cwd=WEB_DIR,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    for line in proc.stdout:
+        print(line, end="")
+    code = proc.wait()
+    if code != 0:
+        raise RuntimeError(f"prometheus:reconcile exited {code}")
 
 
 def dbt_outcomes(results):
@@ -205,6 +220,7 @@ def stages():
             tuned(conn, "channel_membership", "batch"),
             tuned(conn, "channel_membership", "cohort_days"))),
         ("prune", lambda conn: prune_rows(conn)),
+        ("prometheans", lambda conn: reconcile_prometheans()),
         (TRANSFORM, lambda conn: run_dbt(conn)),
     ]
 

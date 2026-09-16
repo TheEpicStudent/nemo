@@ -129,6 +129,18 @@ sources:
     limits:
       batch: {default: 500, min: 50, max: 5000}
 
+  prometheans:
+    label: Who Prometheus says runs each channel
+    endpoint: /api/public/v1/appointments
+    credential: none
+    cadence: daily
+    window: n/a
+    guard: none
+    resume: none
+    retention: replace
+    writes: [app.prometheus_appointment]
+    feeds: []
+
   dim_snapshot:
     label: Daily member and channel state, append only
     endpoint: none

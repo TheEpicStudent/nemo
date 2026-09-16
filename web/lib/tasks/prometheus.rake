@@ -2,7 +2,8 @@ namespace :prometheus do
   desc "replace the appointment mirror with what Prometheus holds right now"
   task reconcile: :environment do
     unless Prometheus::Roster.configured?
-      abort "PROMETHEUS_BASE_URL is not set, so there is nothing to reconcile against"
+      puts "prometheus: PROMETHEUS_BASE_URL is not set, so there is nothing to mirror"
+      next
     end
 
     held = Prometheus::Mirror.reconcile_all
