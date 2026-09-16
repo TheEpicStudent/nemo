@@ -29,7 +29,7 @@ roles:
   promethean:
     label: Promethean
     capabilities: [channel.read]
-    grantable: true
+    grantable: false
 
   gardener:
     label: Gardener

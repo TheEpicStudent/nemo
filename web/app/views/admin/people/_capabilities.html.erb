@@ -11,11 +11,11 @@
     <% end %>
   </div>
 
-  <% if @roles.include?("promethean") && @channel_rows.empty? %>
+  <% if @roles.include?("promethean") && @appointments.none? { |one| one.role == "manager" } %>
     <div class="warnbar">A promethean with no channel reads nothing but public ones.</div>
   <% end %>
 
-  <% if @channel_rows.any? || @role_channels.values.flatten.any? %>
+  <% if @channel_rows.any? || @role_channels.values.flatten.any? || @appointments.any? %>
     <div class="scroll">
       <table class="data-table">
         <tbody>
@@ -34,6 +34,21 @@
                         method: :delete, class: "btn" %>
                 <% end %>
               </td>
+            </tr>
+          <% end %>
+          <% @appointments.each do |one| %>
+            <tr>
+              <td>
+                <b>#<%= @channel_names[one.channel_id]&.name || one.channel_id %></b>
+                <span class="mono sub2"><%= one.channel_id %></span>
+              </td>
+              <td>
+                <span class="chip <%= one.role == "manager" ? "chip-good" : "chip-off" %>">
+                  Prometheus <%= one.role %>
+                </span>
+              </td>
+              <td class="said-cell">Prometheus holds this, Mnemosyne only mirrors it</td>
+              <td></td>
             </tr>
           <% end %>
           <% @role_channels.each do |role, ids| %>

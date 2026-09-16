@@ -10,6 +10,8 @@ module Prometheus
     READ_TIMEOUT = 3
 
     CHANNELS = "/api/public/v1/users/%s/channels".freeze
+    APPOINTMENTS = "/api/public/v1/appointments".freeze
+    PAGE_SIZE = 500
 
     def self.configured?
       ENV["PROMETHEUS_BASE_URL"].present?
@@ -20,6 +22,26 @@ module Prometheus
       return [] unless body["ok"]
 
       Array(body["channels"])
+    end
+
+    def self.every_appointment
+      return enum_for(:every_appointment) unless block_given?
+
+      cursor = nil
+      loop do
+        body = get(appointments_path(cursor))
+        raise Unavailable, "prometheus answered ok:false" unless body["ok"]
+
+        Array(body["appointments"]).each { |one| yield one }
+        cursor = body["next_cursor"]
+        break if cursor.blank?
+      end
+    end
+
+    def self.appointments_path(cursor)
+      asked = { limit: PAGE_SIZE }
+      asked[:cursor] = cursor if cursor.present?
+      "#{APPOINTMENTS}?#{asked.to_query}"
     end
 
     def self.get(path)

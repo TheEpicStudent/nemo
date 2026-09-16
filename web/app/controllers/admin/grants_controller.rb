@@ -122,7 +122,6 @@ module Admin
           granted_by: current_account.user_id, granted_at: Time.current,
           reason: params[:reason].presence)
       end
-      Admin::ChannelGrantsController.make_readable(user_id, by: current_account.user_id)
       known.size
     end
 

@@ -1,7 +1,5 @@
 module Admin
   class ChannelGrantsController < BaseController
-    READS = "channel.read".freeze
-
     def create
       return refuse unless may_grant?
 
@@ -13,7 +11,7 @@ module Admin
         held = Channels::Audience::Grant.create!(user_id: who, channel_id: channel_id,
           granted_by: current_account.user_id, granted_at: Time.current,
           reason: params[:reason].presence)
-        make_sure_they_can_read
+        Account.find_or_create_by!(user_id: who)
         audit(held, "granted", entity_id: channel_id,
           after: { "user_id" => who, "channel_id" => channel_id })
       end
@@ -50,29 +48,6 @@ module Admin
 
     def known?(channel_id)
       Analytics::DimChannel.where(channel_id: channel_id, archived: false).exists?
-    end
-
-    NAMED_ROLE = "promethean".freeze
-
-    # a channel row does nothing on its own. Somebody with no role becomes a promethean;
-    # somebody who already holds one keeps it and gains channel.read on top.
-    def self.make_readable(user_id, by:)
-      Account.find_or_create_by!(user_id: user_id)
-      Current.forget_roles
-      account = Account.find_by(user_id: user_id)
-
-      if Authz.roles_held(user_id).empty?
-        Authz::Grant.give!(user_id, kind: "role", name: NAMED_ROLE,
-          by: by, reason: "named on a channel")
-      elsif !Authz.may?(account, READS)
-        Authz::Grant.give!(user_id, kind: "capability", name: READS,
-          by: by, reason: "named on a channel")
-      end
-      Current.forget_roles
-    end
-
-    def make_sure_they_can_read
-      self.class.make_readable(who, by: current_account.user_id)
     end
 
     def refuse(why = nil)

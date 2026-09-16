@@ -29,6 +29,7 @@ nemo <role> [args]
   transform      dbt build
   seed           generate synthetic data, transform, then verify
   provision      schemas, roles, grants and both migration sets
+  prometheans    replace the appointment mirror from the Prometheus API
   doctor <role>  report the env this role needs and what is missing
 
 the role may also come from NEMO_ROLE when no argument is given.
@@ -71,6 +72,10 @@ case "$ROLE" in
   provision)
     export NEMO_LOCK_TIMEOUT="${NEMO_LOCK_TIMEOUT:-60000}"
     py -m jobs.provision "$@"
+    ;;
+  prometheans)
+    cd "$WEB" || exit 1
+    exec ./bin/rails prometheus:reconcile "$@"
     ;;
   doctor)
     py -m lib.config "${1:-serve}"

@@ -2,6 +2,8 @@ ENV["RAILS_ENV"] ||= "test"
 require_relative "../config/environment"
 require "rails/test_help"
 
+ENV.delete("PROMETHEUS_BASE_URL")
+
 connected_to = ActiveRecord::Base.connection.current_database
 unless connected_to.end_with?("_test")
   abort <<~MESSAGE

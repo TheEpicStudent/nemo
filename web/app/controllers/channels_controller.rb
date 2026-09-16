@@ -1,5 +1,6 @@
 class ChannelsController < ApplicationController
   before_action { needs(:analytics) }
+  before_action :freshen_appointments, only: :show
 
   PER_PAGE = 50
   RANGE_PRESETS = [7, 28, 90].freeze
@@ -223,6 +224,10 @@ class ChannelsController < ApplicationController
     wanted if wanted && @cohorts.include?(wanted)
   end
 
+  def freshen_appointments
+    ::Prometheus::Mirror.freshen(current_account&.user_id)
+  end
+
   def unmeasured_tail
     return [] if @has_more
 
@@ -233,8 +238,11 @@ class ChannelsController < ApplicationController
   end
 
   def may_see_unmeasured?
-    !Analytics::DimChannel.exists?(channel_id: params[:id]) &&
-      Channels::Audience.may_see?(current_account, params[:id])
+    return false if current_account.nil?
+    return false if Analytics::DimChannel.exists?(channel_id: params[:id])
+
+    ::Prometheus::Appointment.managing.for_person(current_account.user_id)
+      .exists?(channel_id: params[:id])
   end
 
   def unmeasured_channel

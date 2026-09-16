@@ -6,7 +6,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   PERSONAS = {
     "member" => { role: nil },
     "scoped" => { role: nil, scopes: %w[member.read channel.backfill] },
-    "promethean" => { role: "promethean", channels: 1 },
+    "promethean" => { appointed: 1 },
     "gardener" => { role: "gardener" },
     "analytics" => { role: "analytics" },
     "firefighter" => { role: "firefighter" },
@@ -42,6 +42,11 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
     if one[:channels]
       Channels::Audience::Grant.create!(user_id: id, channel_id: @mine,
         granted_by: @boss.user_id, granted_at: Time.current)
+    end
+    if one[:appointed]
+      Prometheus::Appointment.insert_all!([
+        { user_id: id, channel_id: @mine, role: "manager", seen_at: Time.current }
+      ])
     end
     Current.forget_roles
     sign_in_as(Account.find(id))

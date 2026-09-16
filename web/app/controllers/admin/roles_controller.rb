@@ -1,7 +1,7 @@
 module Admin
   class RolesController < BaseController
     def show
-      @roles = Authz.grantable_roles.reject { |role| Authz.superadmin?(role) }
+      @roles = Authz.role_names.reject { |role| Authz.superadmin?(role) }
       @keys = Authz.by_area
       @holders = holders
       @overrides = Authz::Override.all.index_by { |row| [row.role, row.capability] }

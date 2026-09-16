@@ -2,7 +2,7 @@ import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
   static targets = ["role", "scope", "channels", "area", "empty", "note", "scopes"]
-  static values = { baselines: Object, channelRole: { type: String, default: "promethean" } }
+  static values = { baselines: Object }
 
   connect() {
     this.settle()
@@ -12,7 +12,7 @@ export default class extends Controller {
     const role = this.picked()
     const carried = new Set(this.baselinesValue[role] || [])
 
-    this.channelsTarget.hidden = role !== this.channelRoleValue
+    this.channelsTarget.hidden = role === ""
 
     let left = 0
     for (const row of this.scopeTargets) {

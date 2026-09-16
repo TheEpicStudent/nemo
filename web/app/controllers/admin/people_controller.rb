@@ -59,7 +59,9 @@ module Admin
       @role_channels = @roles.index_with { |role|
         Channels::Audience::Grant.live.where(role: role).pluck(:channel_id)
       }
-      named = (@channel_rows.map(&:channel_id) + @role_channels.values.flatten).uniq
+      @appointments = ::Prometheus::Appointment.for_person(@user_id).order(:channel_id).to_a
+      named = (@channel_rows.map(&:channel_id) + @role_channels.values.flatten +
+        @appointments.map(&:channel_id)).uniq
       @channel_names = Analytics::DimChannel.where(channel_id: named).index_by(&:channel_id)
       @grant_rows = Authz::Grant.for_person(@user_id).newest_first.to_a
     end
@@ -78,8 +80,8 @@ module Admin
     # anyone the new model knows, plus whoever is still only in the old tables
     def everyone
       (Authz::Grant.live.pluck(:user_id) +
-        Channels::Audience::Grant.live.where.not(user_id: nil)
-          .pluck(:user_id)).compact.uniq
+        Channels::Audience::Grant.live.where.not(user_id: nil).pluck(:user_id) +
+        ::Prometheus::Appointment.managing.distinct.pluck(:user_id)).compact.uniq
     end
 
     ROLES_OF = "SELECT user_id, role FROM app.effective_role " \

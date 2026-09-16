@@ -74,11 +74,11 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
   end
 
   test "a role and an extra scope are held independently" do
-    staff = hold_role!("UCABOTH", "promethean")
+    staff = hold_role!("UCABOTH", "gardener")
     Authz::Grant.give!(staff.user_id, kind: "capability", name: "channel.backfill", by: "test")
     Current.forget_roles
 
-    assert_equal %w[promethean], Authz.roles_held(staff.user_id)
+    assert_equal %w[gardener], Authz.roles_held(staff.user_id)
     assert Community::Access.allow?(staff, "ops.channel.backfill"), "the extra scope stands alone"
     assert_not Community::Access.allow?(staff, "analytics.member.read"),
       "the scope did not drag anything else in"
@@ -105,18 +105,20 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
     assert_not_includes ids, hidden.channel_id, "granted is named people only"
   end
 
-  test "a promethean sees the channels named to them, and nothing else" do
-    public_one, granted, other = some_channels
+  test "a promethean sees the channels Prometheus appointed them to, and nothing else" do
+    public_one, appointed, other = some_channels
     open_up(public_one, "everyone")
     staff = Account.create!(user_id: "UCAPROM")
-    Authz::Grant.give!(staff.user_id, kind: "role", name: "promethean", by: @boss.user_id)
-    Channels::Audience::Grant.create!(user_id: staff.user_id, channel_id: granted.channel_id,
-      granted_by: @boss.user_id, granted_at: Time.current)
+    Prometheus::Appointment.insert_all!([
+      { user_id: staff.user_id, channel_id: appointed.channel_id, role: "manager",
+        seen_at: Time.current }
+    ])
     Current.forget_roles
 
     ids = Channels::Audience.for(staff).pluck(:channel_id)
 
-    assert_includes ids, granted.channel_id, "the channel named to them"
+    assert_equal %w[promethean], Authz.roles_held(staff.user_id), "the role comes with the appointment"
+    assert_includes ids, appointed.channel_id, "the channel they were appointed to"
     assert_includes ids, public_one.channel_id, "and anything public"
     assert_not_includes ids, other.channel_id
   end
@@ -180,7 +182,7 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
   test "somebody who only reads a channel cannot queue a backfill on it" do
     channel = some_channels(1).first
     open_up(channel, "everyone")
-    sign_in_as(hold_role!("UCAREADER", "promethean"))
+    sign_in_as(hold_role!("UCAREADER", "gardener"))
 
     assert_no_difference -> { ChannelBackfill.count } do
       post opt_in_channel_path(channel.channel_id)
@@ -249,7 +251,7 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
   end
 
   test "a new role retires the old one and leaves the extra scopes alone" do
-    staff = hold_role!("UCASWAP", "promethean")
+    staff = hold_role!("UCASWAP", "firefighter")
     Authz::Grant.give!(staff.user_id, kind: "capability", name: "channel.backfill", by: "test")
     hold_role!("UCASWAP", "gardener")
     Current.forget_roles

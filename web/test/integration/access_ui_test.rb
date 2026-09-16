@@ -62,7 +62,7 @@ class AccessUiTest < ActionDispatch::IntegrationTest
     assert Channels::Audience.may_see?(@them, channel)
   end
 
-  test "naming somebody with no role on a channel makes them a promethean" do
+  test "naming somebody with no role on a channel lets them read it without a role" do
     channel = Analytics::DimChannel.where(archived: false).first
     bare = Account.create!(user_id: "UAUIBARE2")
 
@@ -70,7 +70,7 @@ class AccessUiTest < ActionDispatch::IntegrationTest
       params: { channel_id: channel.channel_id }
     Current.forget_roles
 
-    assert_equal ["promethean"], Authz.roles_held(bare.user_id)
+    assert_empty Authz.roles_held(bare.user_id), "naming a channel hands out no role"
     assert Channels::Audience.may_see?(bare, channel)
   end
 

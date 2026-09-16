@@ -135,29 +135,32 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
     assert_nil held.reason
   end
 
-  test "naming a channel on somebody with no role gives them channel.read" do
+  test "naming a channel on somebody with no role hands out no role" do
     channel = Analytics::DimChannel.where(archived: false).first
 
     post admin_grants_path, params: { user_id: "U0AFF1", role: "",
       channels: [channel.channel_id] }
     Current.forget_roles
 
-    assert_equal ["promethean"], Authz.roles_held("U0AFF1")
-    assert_equal "baseline", Authz.held("U0AFF1")["channel.read"]
+    assert_empty Authz.roles_held("U0AFF1")
+    assert Authz.holds?(Account.find("U0AFF1"), "channel.read"),
+      "channel.read is everyone's, so the channel row is enough on its own"
+    assert Channels::Audience::Grant.live
+      .exists?(user_id: "U0AFF1", channel_id: channel.channel_id)
   end
 
   test "granting a role, a scope and a channel is one act" do
     channel = Analytics::DimChannel.where(archived: false).first
 
-    post admin_grants_path, params: { user_id: "U0AFF1", role: "promethean",
+    post admin_grants_path, params: { user_id: "U0AFF1", role: "gardener",
       scopes: ["channel.backfill"], channels: [channel.channel_id], reason: "the sync rota" }
     Current.forget_roles
 
-    assert_equal "promethean", held.name
+    assert_equal "gardener", held.name
     got = Authz.held("U0AFF1")
     assert_equal "added", got["channel.backfill"]
     assert_equal "baseline", got["channel.read"],
-      "promethean already carries channel.read, so it is not granted twice"
+      "gardener already carries channel.read, so it is not granted twice"
     assert Channels::Audience::Grant.live
       .exists?(user_id: "U0AFF1", channel_id: channel.channel_id)
   end

@@ -7,7 +7,7 @@ namespace :dev do
     { id: "UDEVFFR02", name: "Dev Firefighter (no acting)", handle: "dev.firefighter.cut",
       role: "firefighter", denied: %w[case.act case.resolve] },
     { id: "UDEVPRO01", name: "Dev Promethean", handle: "dev.promethean",
-      role: "promethean", channels: 2 },
+      appointed: 2 },
     { id: "UDEVGAR01", name: "Dev Gardener", handle: "dev.gardener",
       role: "gardener" },
     { id: "UDEVANA01", name: "Dev Analytics", handle: "dev.analytics",
@@ -27,7 +27,7 @@ namespace :dev do
     channels = Analytics::DimChannel.where(archived: false)
       .joins(Admin::ChannelsController::SPAN)
       .order(Arel.sql("s.total_members DESC NULLS LAST, dim_channel.name"))
-      .limit(PEOPLE.sum { |one| one[:channels].to_i } + GARDENER_SET)
+      .limit(PEOPLE.sum { |one| one[:channels].to_i + one[:appointed].to_i } + GARDENER_SET)
       .pluck(:channel_id, :name)
 
     remember_members(PEOPLE)
@@ -54,6 +54,7 @@ namespace :dev do
     end
     Channels::Audience::Grant.live.where(role: "gardener", granted_by: "dev:people")
       .find_each { |row| row.update!(revoked_by: "dev:people", revoked_at: Time.current) }
+    Prometheus::Appointment.where(user_id: ids).delete_all
     puts "took back every dev grant, the #{ids.size} accounts still exist"
   end
 
@@ -68,6 +69,7 @@ namespace :dev do
         reason: "dev seed")
     end
     name_channels(one, pool, by)
+    appoint_channels(one, pool)
   end
 
   def settle_role(one, by)
@@ -86,6 +88,16 @@ namespace :dev do
     end
   end
 
+  def appoint_channels(one, pool)
+    rows = pool.shift(one[:appointed].to_i).map do |channel_id, _name|
+      { user_id: one[:id], channel_id: channel_id, role: "manager", seen_at: Time.current }
+    end
+    return if rows.empty?
+
+    Prometheus::Appointment.for_person(one[:id]).delete_all
+    Prometheus::Appointment.insert_all!(rows)
+  end
+
   def settle_gardener_set(channels, by)
     channels.each do |channel_id, _name|
       next if Channels::Audience::Grant.live
@@ -97,10 +109,11 @@ namespace :dev do
   end
 
   def said(one)
-    parts = [one[:role] || "no role"]
+    parts = [one[:role] || (one[:appointed] ? "promethean" : "no role")]
     parts << "+#{one[:added].join(' +')}" if one[:added]
     parts << "-#{one[:denied].join(' -')}" if one[:denied]
     parts << "#{one[:channels]} named channels" if one[:channels]
+    parts << "#{one[:appointed]} prometheus channels" if one[:appointed]
     parts.join("  ")
   end
 
