@@ -68,6 +68,7 @@ class ChannelsController < ApplicationController
       .to_a
     @has_more = (@page + 1) * PER_PAGE < @total
     @pages = [(@total / PER_PAGE.to_f).ceil, 1].max
+    @unmeasured = unmeasured_tail
 
     @momentum = Analytics::MartChannelMomentum.top
     @newcomer_cohorts = Analytics::MartNewcomerChannels.cohorts
@@ -86,6 +87,7 @@ class ChannelsController < ApplicationController
 
   def show
     @channel = Channels::Audience.for(current_account).find_by(channel_id: params[:id])
+    return unmeasured_channel if @channel.nil? && may_see_unmeasured?
     return refuse_channel if @channel.nil?
 
     id = @channel.channel_id
@@ -219,6 +221,25 @@ class ChannelsController < ApplicationController
   def asked_cohort
     wanted = parse_range_date(params[:cohort])
     wanted if wanted && @cohorts.include?(wanted)
+  end
+
+  def unmeasured_tail
+    return [] if @has_more
+
+    held = Channels::Audience.unmeasured_for(current_account)
+    return held if @q.blank?
+
+    held.select { |channel_id| channel_id.downcase.include?(@q.downcase) }
+  end
+
+  def may_see_unmeasured?
+    !Analytics::DimChannel.exists?(channel_id: params[:id]) &&
+      Channels::Audience.may_see?(current_account, params[:id])
+  end
+
+  def unmeasured_channel
+    @channel_id = params[:id]
+    render :unmeasured
   end
 
   def refuse_channel

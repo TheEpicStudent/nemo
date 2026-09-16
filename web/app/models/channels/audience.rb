@@ -36,6 +36,15 @@ module Channels
       ::Prometheus::Appointment.managing.for_person(staff.user_id).select(:channel_id)
     end
 
+    def self.unmeasured_for(staff)
+      return [] if staff.nil?
+
+      ::Prometheus::Appointment.managing.for_person(staff.user_id)
+        .where.not(channel_id: Analytics::DimChannel.select(:channel_id))
+        .order(:channel_id)
+        .pluck(:channel_id)
+    end
+
     def self.everywhere?(staff)
       Fd::Access.manager?(staff) || Authz.holds?(staff, "channel.all")
     end
@@ -59,7 +68,7 @@ module Channels
     def self.may_see?(staff, channel)
       id = channel.respond_to?(:channel_id) ? channel.channel_id : channel.to_s
       return false if staff.nil? || id.blank?
-      return false unless Analytics::DimChannel.where(channel_id: id, archived: false).exists?
+      return false if Analytics::DimChannel.where(channel_id: id, archived: true).exists?
 
       ApplicationRecord.connection.select_value(
         ApplicationRecord.sanitize_sql(["SELECT app.may_see_channel(?, ?)", staff.user_id, id])

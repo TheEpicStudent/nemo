@@ -1,0 +1,21 @@
+<% content_for :page_title, @channel_id %>
+<% content_for :page_face do %>
+  <span class="crumb"><%= link_to "Channels", channels_path %> /</span>
+<% end %>
+
+<% content_for :head_actions do %>
+  <%= link_to "Open in Slack", slack_channel_url(@channel_id), class: "btn",
+        target: "_blank", rel: "noopener" %>
+<% end %>
+
+<div class="stack">
+  <div class="panel">
+    <div class="empty">
+      <p class="empty-title">Analytics isn't available for this channel yet</p>
+      <p class="card-note">
+        Make sure Mnemosyne is in <span class="mono"><%= @channel_id %></span>,
+        then wait for the next run to pick it up.
+      </p>
+    </div>
+  </div>
+</div>

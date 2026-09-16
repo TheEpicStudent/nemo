@@ -141,13 +141,16 @@
         </div>
       <% end %>
 
-      <% if @channels.empty? %>
+      <% if @channels.empty? && @unmeasured.blank? %>
         <div class="empty">
           <p class="empty-title"><%= channels_empty_title %></p>
         </div>
       <% elsif @view == "grid" %>
         <div class="tiles">
           <%= render "tiles", channels: @channels, peak_messages: @peak_messages %>
+          <% if @unmeasured.present? %>
+            <%= render "unmeasured_tiles", channels: @unmeasured %>
+          <% end %>
         </div>
       <% else %>
         <div class="scroll">
@@ -174,6 +177,9 @@
             </thead>
             <tbody>
               <%= render "rows", channels: @channels, peak_messages: @peak_messages %>
+              <% if @unmeasured.present? %>
+                <%= render "unmeasured_rows", channels: @unmeasured %>
+              <% end %>
             </tbody>
           </table>
         </div>
