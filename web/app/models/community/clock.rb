@@ -8,8 +8,6 @@ module Community
       #7dff56 #c1f334 #f1ca3a #fe922a #ea4f0d #7a0403
     ].freeze
 
-    EMPTY = "transparent".freeze
-
     Cell = Struct.new(:day, :hour, :messages, :share, :tone, keyword_init: true)
 
     attr_reader :rows, :peak, :total, :window_start, :window_end
@@ -56,12 +54,10 @@ module Community
       messages = @counts.fetch([dow, hour], 0)
       share = @peak.positive? ? messages.to_f / @peak : 0.0
       Cell.new(day: DAYS[dow - 1], hour: hour, messages: messages, share: share,
-        tone: tone(messages, share))
+        tone: tone(share))
     end
 
-    def tone(messages, share)
-      return EMPTY if messages.zero?
-
+    def tone(share)
       RAMP[(share * (RAMP.size - 1)).round]
     end
   end

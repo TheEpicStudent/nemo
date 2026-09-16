@@ -493,10 +493,33 @@ export default class extends Controller {
       const fill = wash && !s.ghost
         ? `<path class="wash" fill="url(#${this.gid})" d="${under(seen)}"/>` : ""
       const dash = s.ghost ? ' stroke-dasharray="5 4"' : ""
-      return `${fill}<path class="${this.paint(s)}"${this.tint(s)} fill="none" stroke="currentColor"
+      return `${fill}${this.bridge(seen, s, mid, y)}<path class="${this.paint(s)}"${this.tint(s)}
+        fill="none" stroke="currentColor"
         stroke-width="${s.ghost ? 1.5 : 2}"${dash} stroke-linejoin="round" stroke-linecap="round"
-        d="${path(seen)}"/>`
+        d="${path(seen)}"/>${this.alone(seen, s, mid, y)}`
     }).join("")
+  }
+
+  bridge(seen, s, mid, y) {
+    const at = seen.filter((d) => d.v != null)
+    const spans = at.slice(1)
+      .map((d, k) => [at[k], d])
+      .filter(([a, b]) => b.i - a.i > 1)
+      .map(([a, b]) => `M${mid(a.i)},${y(a.v)}L${mid(b.i)},${y(b.v)}`)
+    if (!spans.length) return ""
+
+    return `<path class="${this.paint(s)}"${this.tint(s)} fill="none" stroke="currentColor"
+      stroke-width="${s.ghost ? 1.5 : 2}" stroke-dasharray="2 3" stroke-linecap="round"
+      opacity="0.5" d="${spans.join("")}"/>`
+  }
+
+  alone(seen, s, mid, y) {
+    return seen.filter((d, i) =>
+      d.v != null && seen[i - 1]?.v == null && seen[i + 1]?.v == null
+    ).map((d) =>
+      `<circle class="${this.paint(s)}"${this.tint(s)} fill="currentColor" stroke="none"
+        cx="${mid(d.i)}" cy="${y(d.v)}" r="${s.ghost ? 1.5 : 2}"/>`
+    ).join("")
   }
 
   summary(rows, series) {
