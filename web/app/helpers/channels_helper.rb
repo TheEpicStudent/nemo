@@ -82,6 +82,13 @@ module ChannelsHelper
              "#{number_with_delimiter(channel.prior_messages)} in the window before")
   end
 
+  def slack_window_said(range, from, to)
+    stats = range&.stats || {}
+    lo = Channels::Window.on(stats["start_date"]) || from
+    hi = Channels::Window.on(stats["end_date"]) || to
+    window_note(lo, hi)
+  end
+
   def channel_voice_tone(channel)
     return "" if channel.range_posters.nil? || channel.range_members.to_i.zero?
 

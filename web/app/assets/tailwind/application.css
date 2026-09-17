@@ -1321,7 +1321,12 @@
   .role-matrix .tog-off { min-width: 44px; justify-content: center; }
   .panel-head .sub { font-size: var(--t-small); color: var(--ink-3); }
   .facts-strip.facts-wrap { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
-  .card > .facts-strip:last-child { border-bottom: 0; }
+  .card > .facts-strip:last-child {
+    border-bottom: 0;
+    border-end-start-radius: var(--r-card);
+    border-end-end-radius: var(--r-card);
+    overflow: hidden;
+  }
   .opt-band {
     display: block;
     margin: var(--s-2xs) 0 0;
