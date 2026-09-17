@@ -33,12 +33,6 @@ MARK_UNREACHABLE_SQL = """
 UPDATE raw.channel_dim SET name_unavailable = true, updated_at = now() WHERE channel_id = %s
 """
 
-ARCHIVE_UNSEEN_SQL = """
-UPDATE raw.channel_dim
-SET archived = true, updated_at = now()
-WHERE coalesce(archived, false) = false AND channel_id <> ALL(%s)
-"""
-
 
 def resolve_team_id():
     configured = os.environ.get("SLACK_TEAM_ID", "").strip()
@@ -50,7 +44,7 @@ def resolve_team_id():
 def list_public_channels(client, team_id, cursor):
     try:
         return client.conversations_list(
-            types="public_channel", exclude_archived=True, limit=200,
+            types="public_channel", exclude_archived=False, limit=200,
             team_id=team_id, cursor=cursor,
         )
     except SlackApiError as exc:
@@ -66,27 +60,21 @@ def record_channel_names(conn, client):
     team_id = resolve_team_id()
     with ingest_run(conn, SOURCE) as counts:
         cursor = get_cursor(conn, SOURCE)
-        started_fresh = not cursor
-        seen = []
+        archived = 0
         while True:
             page = list_public_channels(client, team_id, cursor)
             for channel in page.get("channels", []):
                 counts.rows_in += 1
-                seen.append(channel["id"])
+                is_archived = bool(channel.get("is_archived", False))
+                archived += is_archived
                 with conn.cursor() as cur:
-                    cur.execute(CHANNEL_NAME_SQL, (channel["id"], channel.get("name"), channel.get("is_archived", False)))
+                    cur.execute(CHANNEL_NAME_SQL, (channel["id"], channel.get("name"), is_archived))
             cursor = page.get("response_metadata", {}).get("next_cursor") or ""
             save_cursor(conn, SOURCE, cursor)
             conn.commit()
             if not cursor:
                 break
-        newly_archived = 0
-        if started_fresh and seen:
-            with conn.cursor() as cur:
-                cur.execute(ARCHIVE_UNSEEN_SQL, (seen,))
-                newly_archived = cur.rowcount
-            conn.commit()
-    print(f"{SOURCE}: {counts.rows_in} channels named, {newly_archived} marked archived, "
+    print(f"{SOURCE}: {counts.rows_in} channels named, {archived} archived, "
           f"{counts.rows_rejected} failed")
 
 
