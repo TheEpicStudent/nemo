@@ -10,7 +10,45 @@ module Community
       #7dff56 #c1f334 #f1ca3a #fe922a #ea4f0d #7a0403
     ].freeze
 
-    GRID = <<~SQL.freeze
+    FOLD = <<~SQL.freeze
+      select
+          extract(isodow from at_local)::integer as day_of_week,
+          extract(hour from at_local)::integer as hour_of_day,
+          sum(messages)::bigint as messages,
+          window_start,
+          window_end
+      from local_at
+      where at_local::date between window_start and window_end
+      group by 1, 2, 4, 5
+      order by 1, 2
+    SQL
+
+    WORKSPACE = (<<~SQL + FOLD).freeze
+      with edge as (
+          select max(ds) as last_day
+          from analytics.mart_workspace_hour
+      ),
+
+      span as (
+          select (last_day - ?)::date as window_start, last_day as window_end
+          from edge
+      ),
+
+      local_at as (
+          select
+              ((w.ds + w.hour_of_day * interval '1 hour') at time zone 'UTC')
+                  at time zone ? as at_local,
+              w.messages,
+              s.window_start,
+              s.window_end
+          from analytics.mart_workspace_hour w
+          cross join span s
+          where w.ds between s.window_start - 1 and s.window_end + 1
+      )
+
+    SQL
+
+    CHANNEL = (<<~SQL + FOLD).freeze
       with edge as (
           select max(ds) as last_day
           from analytics.fct_message_hour
@@ -31,26 +69,16 @@ module Community
           select
               ((h.ds + h.hour_of_day * interval '1 hour') at time zone 'UTC')
                   at time zone ? as at_local,
-              h.member_messages,
+              h.member_messages as messages,
               s.window_start,
               s.window_end
           from analytics.fct_message_hour h
           cross join span s
           inner join walked c on c.channel_id = h.channel_id
           where h.ds between s.window_start - 1 and s.window_end + 1
-            and (? is null or h.channel_id = ?)
+            and h.channel_id = ?
       )
 
-      select
-          extract(isodow from at_local)::integer as day_of_week,
-          extract(hour from at_local)::integer as hour_of_day,
-          sum(member_messages)::bigint as messages,
-          window_start,
-          window_end
-      from local_at
-      where at_local::date between window_start and window_end
-      group by 1, 2, 4, 5
-      order by 1, 2
     SQL
 
     Cell = Struct.new(:day, :hour, :messages, :share, :tone, keyword_init: true)
@@ -77,7 +105,8 @@ module Community
     def self.build(zone, channel_id)
       zone = known_zone(zone)
       sql = ApplicationRecord.sanitize_sql_array(
-        [GRID, WINDOW_DAYS - 1, zone, channel_id, channel_id]
+        channel_id ? [CHANNEL, WINDOW_DAYS - 1, zone, channel_id]
+                   : [WORKSPACE, WINDOW_DAYS - 1, zone]
       )
       rows = ApplicationRecord.connection.select_all(sql, "Community::Clock").to_a
       head = rows.first

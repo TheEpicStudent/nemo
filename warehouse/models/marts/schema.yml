@@ -595,6 +595,24 @@ models:
       - name: metric_version
         data_type: text
 
+  - name: mart_workspace_hour
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: ds
+        data_type: date
+        data_tests: [not_null]
+      - name: hour_of_day
+        data_type: integer
+        data_tests: [not_null]
+      - name: messages
+        data_type: bigint
+        data_tests: [not_null]
+    data_tests:
+      - unique:
+          column_name: "ds::text || '-' || hour_of_day"
+
   - name: mart_activity_clock
     config:
       contract:
