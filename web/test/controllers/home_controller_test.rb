@@ -15,6 +15,28 @@ class HomeControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "the clock follows the timezone the browser wrote" do
+    staff = hold_role!("UTESTTZ1", "community_manager")
+    sign_in_as(staff)
+
+    cookies[:mn_tz] = "Asia/Kolkata"
+    get root_path
+
+    assert_response :success
+    assert_equal "Asia/Kolkata", @controller.send(:viewer_zone)
+  end
+
+  test "a timezone nobody has heard of falls back to UTC" do
+    staff = hold_role!("UTESTTZ2", "community_manager")
+    sign_in_as(staff)
+
+    cookies[:mn_tz] = "Moon/Sea_of_Tranquility"
+    get root_path
+
+    assert_response :success
+    assert_equal "UTC", @controller.send(:viewer_zone)
+  end
+
   test "unauthenticated visitor is redirected to login" do
     get root_path
 

@@ -78,4 +78,14 @@
       }
     } catch (e) {}
   })();
+
+  (function () {
+    try {
+      var zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (!zone) return;
+      var pair = "mn_tz=" + zone;
+      if (document.cookie.split("; ").indexOf(pair) >= 0) return;
+      document.cookie = pair + ";path=/;max-age=31536000;samesite=lax";
+    } catch (e) {}
+  })();
 <% end %>

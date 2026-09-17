@@ -108,7 +108,7 @@ class ChannelsController < ApplicationController
     case @view
     when "overview"
       @pulse = Channels::Pulse.for(id, from: @start_date, to: @end_date)
-      @clock = Community::Clock.for_channel(id)
+      @clock = Community::Clock.for_channel(id, zone: viewer_zone)
       @range = Slack::Analytics.channel_activity(
         channel_id: id, name: @channel.name, privacy: @channel.visibility,
         from: @start_date.clamp(@proxy_min, proxy_edge),

@@ -4,9 +4,13 @@ class ApplicationController < ActionController::Base
 
   before_action :require_account
 
-  helper_method :current_account, :page_section
+  helper_method :current_account, :page_section, :viewer_zone
 
   private
+
+  def viewer_zone
+    @viewer_zone ||= Community::Clock.known_zone(cookies[:mn_tz])
+  end
 
   def page_section
     return "admin" if controller_path.start_with?("admin/")

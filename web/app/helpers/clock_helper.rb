@@ -2,12 +2,13 @@ module ClockHelper
   def clock_note(clock)
     said = [window_note(clock.window_start, clock.window_end)]
     said << "#{number_with_delimiter(clock.total)} messages"
+    said << clock.label
     said.compact.join(" · ")
   end
 
   def clock_tip(cell, clock)
     {
-      title: "#{cell.day} at #{format('%02d:00', cell.hour)} UTC",
+      title: "#{cell.day} at #{format('%02d:00', cell.hour)} #{clock.label}",
       rows: [
         { label: "messages", value: number_with_delimiter(cell.messages), tone: cell.tone },
         { label: "of the busiest hour",
