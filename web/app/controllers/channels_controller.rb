@@ -3,8 +3,8 @@ class ChannelsController < ApplicationController
   before_action :freshen_appointments, only: :show
 
   PER_PAGE = 50
-  RANGE_PRESETS = [7, 28, 90].freeze
-  DEFAULT_RANGE_DAYS = 28
+  RANGE_PRESETS = [7, 30, 90].freeze
+  DEFAULT_RANGE_DAYS = 30
 
   VIEWS = {
     "overview" => "Overview",
