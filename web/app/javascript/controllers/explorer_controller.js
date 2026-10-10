@@ -45,6 +45,7 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 const IMAGE_TYPES = { png: "image/png", svg: "image/svg+xml" }
 const DELTA_PATHS = { up: "m18 15-6-6-6 6", down: "m6 9 6 6 6-6", flat: "M5 12h14" }
 const DELTA_WORDS = { up: "up", down: "down", flat: "no change" }
+const APPLIED_KEY = "mn-explore-applied"
 
 function csvField(value) {
   if (value == null) return ""
@@ -67,6 +68,36 @@ function capturePointer(target, pointerId) {
   return true
 }
 
+function parseKeys(text) {
+  if (!text) return null
+
+  try {
+    const keys = JSON.parse(text)
+    return Array.isArray(keys) ? keys : null
+  } catch {
+    return null
+  }
+}
+
+function rememberApplied(key, message) {
+  try {
+    sessionStorage.setItem(APPLIED_KEY, JSON.stringify({ key, message }))
+  } catch {
+    return false
+  }
+  return true
+}
+
+function takeApplied(key) {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(APPLIED_KEY) || "null")
+    sessionStorage.removeItem(APPLIED_KEY)
+    return saved?.key === key ? saved.message : null
+  } catch {
+    return null
+  }
+}
+
 function element(tag, className, text) {
   const node = document.createElement(tag)
   if (className) node.className = className
@@ -82,7 +113,7 @@ export default class extends Controller {
     "inspector", "inspectorButton", "point", "pinButton", "pinLabel", "announcer", "stats", "statsRange",
     "pointHeading", "statsHeading",
     "viewButton", "splitHandle", "table", "menu", "toastTemplate", "warningTemplate", "imageAction",
-    "presentAction", "presentSeparator", "presentLabel", "toastRegion"
+    "presentAction", "presentSeparator", "presentLabel", "toastRegion", "applyButton"
   ]
 
   connect() {
@@ -93,6 +124,7 @@ export default class extends Controller {
     this.onPointerdown = this.onPointerdown.bind(this)
     this.onKeyup = this.onKeyup.bind(this)
     this.onFullscreenChange = this.onFullscreenChange.bind(this)
+    this.onFrameLoad = this.onFrameLoad.bind(this)
     this.tool = "select"
     this.overview = new Overview(this.overviewTarget, {
       onWindow: (window, { animate }) => this.moveWindow(window, { animate }),
@@ -104,6 +136,7 @@ export default class extends Controller {
     document.addEventListener("keydown", this.onKeydown)
     document.addEventListener("keyup", this.onKeyup)
     document.addEventListener("fullscreenchange", this.onFullscreenChange)
+    document.addEventListener("turbo:frame-load", this.onFrameLoad)
     this.dialog.addEventListener("pointerdown", this.onPointerdown)
     this.presentActionTarget.hidden = !document.fullscreenEnabled
     this.presentSeparatorTarget.hidden = !document.fullscreenEnabled
@@ -115,6 +148,7 @@ export default class extends Controller {
     document.removeEventListener("keydown", this.onKeydown)
     document.removeEventListener("keyup", this.onKeyup)
     document.removeEventListener("fullscreenchange", this.onFullscreenChange)
+    document.removeEventListener("turbo:frame-load", this.onFrameLoad)
     this.dialog.removeEventListener("pointerdown", this.onPointerdown)
     clearTimeout(this.urlTimer)
     this.resizeObserver.disconnect()
@@ -132,6 +166,9 @@ export default class extends Controller {
 
     this.card = card
     this.key = trigger?.dataset.explore || null
+    this.pageRange = trigger?.dataset.exploreRange
+      ? { href: trigger.dataset.exploreRange, keys: parseKeys(trigger.dataset.exploreRangeKeys) }
+      : null
     this.opener = trigger || document.activeElement
     this.fillHeader(card, trigger)
     this.dialog.hidden = false
@@ -154,6 +191,41 @@ export default class extends Controller {
     const to = params.get(URL_PARAMS.to)
     this.pendingRange = from && to ? [from, to] : null
     this.open(trigger.closest(CARD), trigger, { animate: false })
+    const applied = takeApplied(key)
+    if (applied) this.showToast(applied)
+  }
+
+  onFrameLoad() {
+    if (!this.isOpen && !this.closing) this.restoreFromUrl()
+  }
+
+  pageRangeFor(window) {
+    const range = this.pageRange && window ? this.chart?.rangeOf?.(window) : null
+    if (!range) return null
+
+    const keys = this.pageRange.keys
+    const keyAt = (index, side) => (Array.isArray(keys?.[index]) ? keys[index][side] : keys?.[index])
+    const start = keys ? keyAt(range.first, 0) : range.from
+    const end = keys ? keyAt(range.last, 1) : range.to
+    if (!start || !end) return null
+    if (!keys && !(ISO_DAY.test(start) && ISO_DAY.test(end))) return null
+
+    return { start, end, label: this.rangeLabel(range) }
+  }
+
+  applyToPage() {
+    const target = this.pageRangeFor(this.zoomWindow)
+    if (!target) return
+
+    const url = new URL(this.pageRange.href, window.location.href)
+    url.searchParams.set("start", target.start)
+    url.searchParams.set("end", target.end)
+    url.searchParams.set(URL_PARAMS.chart, this.key)
+    rememberApplied(this.key, `Page range set to ${target.label}`)
+    this.panelTarget.classList.add("is-applying")
+    this.applyButtonTarget.disabled = true
+    if (window.Turbo) window.Turbo.visit(url.toString(), { action: "advance" })
+    else window.location.assign(url.toString())
   }
 
   writeUrl() {
@@ -447,6 +519,10 @@ export default class extends Controller {
     this.overview?.clear()
     this.overviewTarget.hidden = true
     this.rangeTarget.hidden = true
+    this.applyButtonTarget.hidden = true
+    this.applyButtonTarget.disabled = false
+    this.panelTarget.classList.remove("is-applying")
+    this.pageRange = null
     this.pendingRange = null
     this.pin = null
     this.hoverIndex = null
@@ -842,8 +918,10 @@ export default class extends Controller {
 
   exportSubtitle() {
     const range = this.chart.rangeOf?.(this.zoomWindow)
-    if (!range) return this.subtitleTarget.textContent
+    return range ? this.rangeLabel(range) : this.subtitleTarget.textContent
+  }
 
+  rangeLabel(range) {
     const describe = (key, label) => (range.daily && ISO_DAY.test(key)
       ? new Date(`${key}T00:00:00Z`).toLocaleDateString("en-US", {
         month: "short", day: "numeric", year: "numeric", timeZone: "UTC"
@@ -1231,6 +1309,7 @@ export default class extends Controller {
 
     this.rangeLabelTarget.textContent = summary.label
     this.rangeCountTarget.textContent = summary.detail || ""
+    this.applyButtonTarget.hidden = !this.pageRangeFor(this.zoomWindow)
   }
 
   renderZoom() {

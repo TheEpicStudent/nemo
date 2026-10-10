@@ -9,7 +9,10 @@
         <span><i class="ser-5"></i>reactions given</span>
       </div>
     </div>
-    <%= explore_button "profile.weekly-volume" %>
+    <%= explore_button "profile.weekly-volume", range: {
+          href: profile_path_with(profile, span: nil, start: nil, end: nil),
+          keys: profile.weeks.map { |w| [[w[:on], profile.window_start].max.iso8601,
+                                         [w[:on] + 6, profile.window_end].min.iso8601] } } %>
   </div>
   <div
     data-controller="chart"

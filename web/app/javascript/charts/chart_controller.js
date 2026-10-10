@@ -275,7 +275,7 @@ export default class extends Controller {
     const [first, final] = this.rowSpan(window, rows.length)
     return {
       from: String(rows[first].key), to: String(rows[final].key),
-      fromLabel: rows[first].label, toLabel: rows[final].label,
+      fromLabel: rows[first].label, toLabel: rows[final].label, first, last: final,
       count: final - first + 1, total: rows.length, daily: this.daysValue
     }
   }

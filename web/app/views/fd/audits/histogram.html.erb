@@ -2,7 +2,8 @@
   <% if @days.any? %>
     <% hourly = @query.hourly? %>
     <div class="card">
-      <%= explore_button "audit.events", title: "Events", floating: true %>
+      <%= explore_button "audit.events", title: "Events", floating: true, range: {
+            href: fd_audit_path(@query.to_params), keys: @days.map { |bin, _| @query.bin_key(bin) } } %>
       <div data-controller="chart"
            data-chart-kind-value="bars"
            data-chart-days-value="<%= !hourly %>"

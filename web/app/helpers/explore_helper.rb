@@ -33,10 +33,12 @@ module ExploreHelper
     ]]
   ].freeze
 
-  def explore_button(key, title: nil, floating: false)
+  def explore_button(key, title: nil, floating: false, range: nil)
+    range = { href: range } if range.is_a?(String)
     tag.button(type: "button",
       class: ["btn btn-ghost btn-sm btn-only card-expand", ("card-expand-floating" if floating)].compact.join(" "),
-      data: { explore: key, explore_title: title }.compact,
+      data: { explore: key, explore_title: title, explore_range: range&.dig(:href),
+              explore_range_keys: range&.dig(:keys) }.compact,
       aria: { label: title ? "Expand #{title}" : "Expand chart", keyshortcuts: "v" }) do
       explore_icon
     end

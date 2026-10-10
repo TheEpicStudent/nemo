@@ -6,7 +6,10 @@ module Fd
 
     def show
       @query = AuditQuery.new(params, actor: current_account)
-      return redirect_to(fd_audit_path(@query.range_params(params[:start], params[:end]))) if params[:start].present?
+      if params[:start].present?
+        return redirect_to(fd_audit_path(@query.range_params(params[:start], params[:end])
+          .merge({ "explore" => params[:explore].presence }.compact)))
+      end
 
       @groups = @query.group ? @query.groups : []
       @rows = @query.group ? [] : @query.rows
