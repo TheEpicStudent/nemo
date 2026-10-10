@@ -107,7 +107,7 @@ function element(tag, className, text) {
 
 export default class extends Controller {
   static targets = [
-    "dialog", "panel", "title", "subtitle", "body", "legend", "plot", "displayButton", "display",
+    "panel", "title", "subtitle", "body", "legend", "plot", "displayButton", "display",
     "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton", "overview",
     "range", "rangeLabel", "rangeCount",
     "inspector", "inspectorButton", "point", "pinButton", "pinLabel", "announcer", "stats", "statsRange",
@@ -117,7 +117,7 @@ export default class extends Controller {
   ]
 
   connect() {
-    this.dialog = this.dialogTarget
+    this.dialog = this.element
     this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)")
     this.onClick = this.onClick.bind(this)
     this.onKeydown = this.onKeydown.bind(this)
@@ -133,7 +133,7 @@ export default class extends Controller {
     })
     this.resizeObserver = new ResizeObserver(() => this.renderOverview())
     this.resizeObserver.observe(this.overviewTarget)
-    this.element.addEventListener("click", this.onClick)
+    document.addEventListener("click", this.onClick)
     document.addEventListener("keydown", this.onKeydown)
     document.addEventListener("keyup", this.onKeyup)
     document.addEventListener("fullscreenchange", this.onFullscreenChange)
@@ -146,7 +146,7 @@ export default class extends Controller {
   }
 
   disconnect() {
-    this.element.removeEventListener("click", this.onClick)
+    document.removeEventListener("click", this.onClick)
     document.removeEventListener("keydown", this.onKeydown)
     document.removeEventListener("keyup", this.onKeyup)
     document.removeEventListener("fullscreenchange", this.onFullscreenChange)
@@ -187,7 +187,7 @@ export default class extends Controller {
     const key = params.get(URL_PARAMS.chart)
     if (!key) return
 
-    const trigger = [...this.element.querySelectorAll("[data-explore]")].find((element) => element.dataset.explore === key)
+    const trigger = [...document.querySelectorAll("[data-explore]")].find((element) => element.dataset.explore === key)
     if (!trigger) return
 
     const from = params.get(URL_PARAMS.from)
@@ -214,7 +214,7 @@ export default class extends Controller {
   syncWithPage() {
     if (!this.isOpen || this.closing || !this.key) return
 
-    const trigger = [...this.element.querySelectorAll("[data-explore]")]
+    const trigger = [...document.querySelectorAll("[data-explore]")]
       .find((element) => element.dataset.explore === this.key && !this.dialog.contains(element))
     if (!trigger) {
       this.finishClose()
@@ -553,8 +553,8 @@ export default class extends Controller {
   openFocusedCard(event) {
     if (this.layerAbove()) return
 
-    const trigger = this.element.querySelector("[data-explore-scope]:hover [data-explore]") ||
-      this.element.querySelector(":is(.card, .foldcard):hover [data-explore]") ||
+    const trigger = document.querySelector("[data-explore-scope]:hover [data-explore]") ||
+      document.querySelector(":is(.card, .foldcard):hover [data-explore]") ||
       document.activeElement?.closest?.(CARD)?.querySelector("[data-explore]")
     if (!trigger) return
 

@@ -30,7 +30,7 @@
     <% nav_partial = (fire_engine && page_section == "fd" ? "layouts/fd_pane" : section_pane) || "layouts/plain_pane" %>
     <% pane = content_for?(:pane) %>
 
-    <div class="shell" data-controller="cachet dismiss sidebar lightbox explorer hint<%= " palette" if fire_engine %>"
+    <div class="shell" data-controller="cachet dismiss sidebar lightbox hint<%= " palette" if fire_engine %>"
          data-palette-url-value="<%= fd_search_path(format: :json) %>"
          data-palette-on-value="<%= content_for(:palette_on) %>"
          data-action="keydown@document->palette#key">
