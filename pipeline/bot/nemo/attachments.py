@@ -55,7 +55,7 @@ def gather(conn, message_id):
 
 
 def share(client, conn, message_id, channel_id, thread_ts, wearing=None, body=None,
-          unfurled=None):
+          unfurl=True):
     inline, on_their_own = gather(conn, message_id)
     text = (body or "").strip()
     if not inline and not on_their_own and not text:
@@ -63,7 +63,7 @@ def share(client, conn, message_id, channel_id, thread_ts, wearing=None, body=No
 
     ts = post(
         client, conn, message_id, channel_id, thread_ts, inline, text, on_their_own,
-        wearing or {}, unfurled or [],
+        wearing or {}, unfurl,
     )
 
     for file_id, name, _, body in on_their_own:
@@ -79,7 +79,7 @@ def share(client, conn, message_id, channel_id, thread_ts, wearing=None, body=No
 
 
 def post(client, conn, message_id, channel_id, thread_ts, inline, text, alongside, wearing,
-         unfurled=()):
+         unfurl=True):
     kept = []
     for file_id, name, kind, body in inline:
         try:
@@ -96,13 +96,12 @@ def post(client, conn, message_id, channel_id, thread_ts, inline, text, alongsid
     if kept:
         time.sleep(FILE_INDEX_DELAY)
 
-    if text and not kept and not alongside and not unfurled:
-        return post_text(client, channel_id, thread_ts, text, wearing)
+    if text and not kept and not alongside:
+        return post_text(client, channel_id, thread_ts, text, wearing, unfurl)
 
     blocks = []
     if text:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
-    blocks.extend(unfurled)
     for _, name, kind, uploaded in kept:
         blocks.append({
             "type": "image",
@@ -132,13 +131,13 @@ def post(client, conn, message_id, channel_id, thread_ts, inline, text, alongsid
     return ts
 
 
-def post_text(client, channel_id, thread_ts, text, wearing):
+def post_text(client, channel_id, thread_ts, text, wearing, unfurl=True):
     sent = client.chat_postMessage(
         channel=channel_id,
         thread_ts=thread_ts,
         text=text,
-        unfurl_links=True,
-        unfurl_media=True,
+        unfurl_links=unfurl,
+        unfurl_media=unfurl,
         **wearing,
     )
     return sent["ts"]

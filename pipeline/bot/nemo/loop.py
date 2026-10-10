@@ -161,6 +161,8 @@ def once(case_channel, channel_id=None):
          channel.carry_files, client, channel_id)
     each(following, "has a follow-up still waiting",
          channel.carry_follow_ups, client, channel_id)
+    each(standing, "has links that would not unfurl",
+         channel.carry_unfurls, client, channel_id)
     each(woke, "was reopened without saying so",
          channel.post_reopen_notice, client, channel_id)
     case_channel.echo_queued()

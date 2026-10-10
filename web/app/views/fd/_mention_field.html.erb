@@ -1,8 +1,8 @@
 <div class="mention-field" data-controller="mention"
      data-mention-url-value="<%= local_assigns[:url] || fd_member_search_path %>">
   <%= text_area_tag name, value, rows: rows, class: "textarea", id: nil,
-        maxlength: Fd::NotesController::MAX_LENGTH,
-        placeholder: placeholder,
+        maxlength: local_assigns[:maxlength] || Fd::NotesController::MAX_LENGTH,
+        placeholder: placeholder, required: local_assigns[:required],
         data: { mention_target: "field", action: "input->mention#type keydown->mention#keys" } %>
   <div class="combo-pop menu-start" popover="manual" data-mention-target="pop">
     <div class="combo-list" data-mention-target="list"></div>

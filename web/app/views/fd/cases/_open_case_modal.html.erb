@@ -23,7 +23,8 @@
           <label class="field-label">
             What happened
             <%= render "fd/mention_field", name: :body, value: params[:body], rows: 4,
-                  placeholder: "type @ to name somebody" %>
+                  placeholder: "type @ to name somebody", required: true,
+                  maxlength: Fd::CaseChat::MAX_LENGTH %>
           </label>
 
           <label class="opt">

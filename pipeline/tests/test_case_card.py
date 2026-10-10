@@ -42,11 +42,19 @@ def internal_log(monkeypatch):
     monkeypatch.setattr(case_queue, "internal_log_channel", lambda conn=None: INTERNAL_LOG)
 
 
-def opened(card_ts=None, reported=False):
+@pytest.fixture(autouse=True)
+def faces(monkeypatch):
+    monkeypatch.setattr(
+        case_queue, "only_the_face", lambda client, anonymous, user_id: {"username": user_id}
+    )
+
+
+def opened(card_ts=None, reported=False, opening=None):
     return {
-        "SELECT id, category_key": (41, None, None, None, card_ts, None),
+        "SELECT id, category_key": (41, None, None, None, card_ts, None, "UOPENER"),
         "FOR UPDATE": (card_ts,),
         "NOT EXISTS (SELECT 1 FROM fd.case_reports": None if reported or card_ts else (1,),
+        "mirrored_as = 'card'": opening,
     }
 
 
@@ -99,3 +107,25 @@ def test_a_thread_card_still_goes_into_its_thread():
 
     assert slack.posted[0]["thread_ts"] == THREAD
     assert conn.did("UPDATE fd.cases SET card_channel_id")[0][:3] == ("C1", THREAD, "9.9")
+
+
+def test_what_happened_is_quoted_on_the_card_in_the_openers_name():
+    conn, slack = Conn(opened(opening=(7, "kept posting invite links"))), Slack()
+
+    case_queue.card(slack, conn, 41)
+
+    sent = slack.posted[0]
+    assert sent["username"] == "UOPENER"
+    assert [b["type"] for b in sent["blocks"]] == ["section", "rich_text", "actions"]
+    assert "kept posting invite links" in str(sent["blocks"][1])
+    assert conn.did("UPDATE fd.case_chat SET mirrored_ts") == [("9.9", 7)]
+
+
+def test_a_card_with_nothing_said_goes_up_as_nemo():
+    conn, slack = Conn(opened()), Slack()
+
+    case_queue.card(slack, conn, 41)
+
+    assert "username" not in slack.posted[0]
+    assert [b["type"] for b in slack.posted[0]["blocks"]] == ["section", "actions"]
+    assert conn.did("UPDATE fd.case_chat SET mirrored_ts") == []

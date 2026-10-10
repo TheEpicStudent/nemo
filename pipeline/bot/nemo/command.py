@@ -17,7 +17,8 @@ SHUSH = "shush"
 CHANNEL_BAN = "channelban"
 OPEN_RECORD = "open_record"
 
-ABOUT_SOMEBODY = (LOOKUP, NOTE, OPEN, SHUSH, CHANNEL_BAN)
+ABOUT_SOMEBODY = (LOOKUP, NOTE, SHUSH, CHANNEL_BAN)
+VERBS = (*ABOUT_SOMEBODY, OPEN)
 NEEDS_WORDS = (NOTE, OPEN, SHUSH, CHANNEL_BAN)
 
 WHO = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
@@ -32,14 +33,13 @@ LONGEST_DAYS = 365
 ASK_FOR_SOMEBODY = {
     LOOKUP: "Name somebody: */nemo lookup @them*",
     NOTE: "Name somebody: */nemo note @them what you found*",
-    OPEN: "Name somebody: */nemo open @them what happened*",
     SHUSH: "Name somebody: */nemo shush @them 3d why*",
     CHANNEL_BAN: "Name somebody: */nemo channelban @them #channel 3d why*",
 }
 
 ASK_FOR_WORDS = {
     NOTE: "Say what you found: */nemo note @them what you found*",
-    OPEN: "Say what happened: */nemo open @them what happened*",
+    OPEN: "Say what happened: */nemo open what happened*",
     SHUSH: "Say how long and why: */nemo shush @them 3d why*",
     CHANNEL_BAN: "Say how long and why: */nemo channelban @them #channel 3d why*",
 }
@@ -68,12 +68,12 @@ def asked(text):
         return "case", int(number.group(1)), None
 
     verb = first.lower()
-    if verb not in ABOUT_SOMEBODY:
+    if verb not in VERBS:
         return None, None, None
 
     found = WHO.search(rest)
     if not found:
-        return verb, None, None
+        return verb, None, re.sub(r"\s+", " ", rest).strip() or None
 
     who = found.group(1)
     body = re.sub(r"\s+", " ", rest[: found.start()] + " " + rest[found.end() :]).strip()
@@ -241,9 +241,9 @@ def already_banned(user_id, channel_id):
     )
 
 
-def opened(case_id, user_id, noted):
-    text = f"*case {case_id}* opened about <@{user_id}>"
-    return text if noted else f"{text}, with nothing written on it yet"
+def opened(case_id, user_id):
+    text = f"*case {case_id}* opened"
+    return f"{text} about <@{user_id}>" if user_id else text
 
 
 def helped(user_id):
@@ -320,12 +320,12 @@ def register(app):
                         else already_banned(wanted, where)
                     )
             elif verb == OPEN:
-                held = case_actions.open_about(conn, wanted)
+                held = case_actions.open_about(conn, wanted) if wanted else []
                 if held:
                     answer = message_only(already_open(wanted, held))
                 else:
                     case_id = case_actions.open_case(conn, wanted, body, user_id)
-                    answer = message_only(opened(case_id, wanted, body))
+                    answer = message_only(opened(case_id, wanted))
             else:
                 case = channel.gather(conn, wanted)
                 answer = (

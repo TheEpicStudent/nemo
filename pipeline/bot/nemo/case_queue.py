@@ -2,13 +2,30 @@ import logging
 
 from bot.core import parse
 from bot.nemo import views
-from bot.nemo.channel import ASSIGNEES, SUBJECTS, case_url, internal_log_channel
+from bot.nemo.channel import (
+    ASSIGNEES,
+    SUBJECTS,
+    case_url,
+    internal_log_channel,
+    only_the_face,
+)
 
 log = logging.getLogger("bot.nemo")
 
 CASE = """
-SELECT id, category_key, resolved_at, card_channel_id, card_ts, card_digest
+SELECT id, category_key, resolved_at, card_channel_id, card_ts, card_digest, opened_by
 FROM fd.cases WHERE id = %s
+"""
+
+OPENING = """
+SELECT id, body FROM fd.case_chat
+WHERE case_id = %s AND mirrored_as = 'card' AND deleted_at IS NULL
+ORDER BY id LIMIT 1
+"""
+
+OPENING_CARRIED = """
+UPDATE fd.case_chat SET mirrored_ts = %s, mirrored_at = now(), last_seen_at = now()
+WHERE id = %s AND mirrored_ts IS NULL
 """
 
 ON_THREAD = """
@@ -61,11 +78,20 @@ def gather(conn, case_id):
         "card_channel_id": row[3],
         "card_ts": row[4],
         "card_digest": row[5],
+        "opened_by": row[6],
         "url": case_url(row[0]),
     }
     case["subjects"] = [one[0] for one in conn.execute(SUBJECTS, (case_id,)).fetchall()]
     case["assignees"] = [one[0] for one in conn.execute(ASSIGNEES, (case_id,)).fetchall()]
+    opening = conn.execute(OPENING, (case_id,)).fetchone()
+    case["opening_id"], case["body"] = opening if opening else (None, None)
     return case
+
+
+def face(client, case):
+    if not case["opening_id"] or not case["opened_by"]:
+        return {}
+    return only_the_face(client, False, case["opened_by"])
 
 
 def post(client, conn, case_id, channel_id, thread_ts=None):
@@ -87,8 +113,11 @@ def post(client, conn, case_id, channel_id, thread_ts=None):
         metadata=views.queued.metadata(case),
         unfurl_links=False,
         unfurl_media=False,
+        **face(client, case),
     )
     conn.execute(KEPT, (channel_id, thread_ts, sent["ts"], digest_of(built), case_id))
+    if case["opening_id"]:
+        conn.execute(OPENING_CARRIED, (sent["ts"], case["opening_id"]))
     log.info("nemo: case %s has a card in %s", case_id, channel_id)
     return sent["ts"]
 

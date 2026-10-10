@@ -144,7 +144,7 @@ module Fd
         if params[:assign_to_me] == "1"
           audit(kase.assign!(current_account.user_id), "claimed", entity_id: kase.id)
         end
-        write_first_note(kase)
+        write_opening(kase)
       end
 
       redirect_to fd_case_path(kase), notice: opened_notice(kase, subjects)
@@ -205,6 +205,10 @@ module Fd
       if params[:category_key].present? && !Case::CATEGORIES.include?(params[:category_key])
         return "pick a category from the list"
       end
+      return "say what happened" if params[:body].to_s.strip.blank?
+      if params[:body].to_s.strip.length > CaseChat::MAX_LENGTH
+        return "that is too long, keep it under #{CaseChat::MAX_LENGTH}"
+      end
 
       nil
     end
@@ -215,12 +219,14 @@ module Fd
       "case #{kase.id} opened, about #{subjects.size} people"
     end
 
-    def write_first_note(kase)
-      body = Mentions.normalise(params[:body].to_s.strip)
-      return if body.blank?
-
-      note = Note.create!(case_id: kase.id, body: body, author: current_account.user_id)
-      audit(note, "noted")
+    def write_opening(kase)
+      CaseChat.create!(
+        case_id: kase.id,
+        author_user_id: current_account.user_id,
+        body: Mentions.normalise(params[:body].to_s.strip),
+        source_app: Audit::SOURCE_APP,
+        mirrored_as: "card"
+      )
     end
 
     def refuse(message)

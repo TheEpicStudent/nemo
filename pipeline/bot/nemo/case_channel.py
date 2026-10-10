@@ -36,6 +36,7 @@ class CaseChannel:
             ("case card", channel.refresh_card),
             ("wake", channel.post_reopen_notice),
             ("follow-ups", channel.carry_follow_ups),
+            ("unfurls", channel.carry_unfurls),
             ("files", channel.carry_files),
             ("queue card", case_queue.card),
             ("thread card", case_queue.refresh_card),

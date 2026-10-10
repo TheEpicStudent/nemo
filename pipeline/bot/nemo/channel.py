@@ -36,11 +36,59 @@ SELECT user_id FROM fd.case_assignees WHERE case_id = %s ORDER BY assigned_at
 
 
 FIRST_MESSAGE = """
-SELECT id, body, mirrored_ts, blocks
-FROM fd.intake_messages
-WHERE conversation_id = %s AND direction = 'inbound'
-ORDER BY posted_at, id
+SELECT m.id, m.body, m.mirrored_ts, m.blocks, coalesce(o.body, m.body)
+FROM fd.intake_messages m
+LEFT JOIN fd.intake_revisions o ON o.message_id = m.id AND o.seq = 0
+WHERE m.conversation_id = %s AND m.direction = 'inbound'
+ORDER BY m.posted_at, m.id
 LIMIT 1
+"""
+
+
+SHOWN = """
+SELECT m.id, coalesce(o.body, m.body), m.posted_at, m.mirrored_ts, m.deleted_at,
+       c.handed_off_at
+FROM fd.intake_messages m
+JOIN fd.intake_conversations c ON c.id = m.conversation_id
+LEFT JOIN fd.intake_revisions o ON o.message_id = m.id AND o.seq = 0
+WHERE m.conversation_id = %s AND m.direction = 'inbound'
+ORDER BY m.posted_at, m.id
+"""
+
+
+CONVERSATION_SHARES = """
+SELECT s.message_id, s.kind, s.source_channel_id, s.source_ts, s.permalink
+FROM fd.intake_shares s
+JOIN fd.intake_messages m ON m.id = s.message_id
+WHERE m.conversation_id = %s
+ORDER BY s.id
+"""
+
+
+UNFURL_OF = """
+SELECT conversation_id, unfurl_ts, unfurl_digest, unfurled_at
+FROM fd.intake_messages WHERE id = %s
+FOR UPDATE
+"""
+
+
+UNFURLED = """
+UPDATE fd.intake_messages
+SET unfurl_ts = coalesce(%s, unfurl_ts), unfurl_digest = %s,
+    unfurled_at = coalesce(unfurled_at, now())
+WHERE id = %s
+"""
+
+
+UNFURLS_ON_CASE = """
+SELECT m.id, r.forwarded_ts
+FROM fd.intake_messages m
+JOIN fd.intake_conversations c ON c.id = m.conversation_id
+JOIN fd.case_reports r ON r.id = c.report_id
+WHERE r.case_id = %s AND r.forwarded_ts IS NOT NULL AND m.direction = 'inbound'
+  AND m.mirrored_ts IS NOT NULL AND m.deleted_at IS NULL
+  AND (m.unfurled_at IS NULL OR m.unfurl_ts IS NOT NULL)
+ORDER BY m.posted_at, m.id
 """
 
 
@@ -194,6 +242,8 @@ def gather(conn, case_id):
             case["body"] = first[1]
 
     case["shares"] = shares_for(conn, case["message_id"])
+    if first:
+        case["numbering"] = views.linked.numbering(first[4], case["shares"], 1)
     return case
 
 
@@ -214,14 +264,77 @@ def shares_for(conn, message_id):
     ]
 
 
-def unfurled(conn, message_id):
-    built = []
-    for share in views.report.evidence_blocks(shares_for(conn, message_id)):
-        built.append(views.report.context([views.report.whose(share)]))
-        quoted = views.report.quote(share["source_body"])
-        if quoted:
-            built.append(quoted)
-    return built
+def numbers(conn, conversation_id):
+    shares = {}
+    for message_id, kind, channel_id, ts, permalink in conn.execute(
+        CONVERSATION_SHARES, (conversation_id,)
+    ).fetchall():
+        shares.setdefault(message_id, []).append({
+            "kind": kind, "source_channel_id": channel_id, "source_ts": ts, "permalink": permalink,
+        })
+
+    found = {}
+    start = 1
+    rows = conn.execute(SHOWN, (conversation_id,)).fetchall()
+    for at, (message_id, text, posted_at, mirrored, deleted, handed_off) in enumerate(rows):
+        if at and not (handed_off and posted_at > handed_off):
+            continue
+        if at and deleted and not mirrored:
+            continue
+        found[message_id] = views.linked.numbering(text, shares.get(message_id), start)
+        start += views.linked.size(found[message_id])
+    return found
+
+
+def unfurl(client, conn, message_id, channel_id, thread_ts):
+    row = conn.execute(UNFURL_OF, (message_id,)).fetchone()
+    if row is None:
+        return None
+    conversation_id, posted, digest, handled = row
+    if handled and not posted:
+        return None
+
+    found = views.linked.items(
+        numbers(conn, conversation_id).get(message_id), shares_for(conn, message_id)
+    )
+    blocks = views.linked.reply_blocks(found)
+
+    if not blocks:
+        if not posted:
+            conn.execute(UNFURLED, (None, None, message_id))
+        return posted
+
+    fingerprint = digest_of(blocks)
+    if posted:
+        if fingerprint != digest:
+            client.chat_update(
+                channel=channel_id, ts=posted, text=views.linked.fallback(found), blocks=blocks
+            )
+            conn.execute(UNFURLED, (None, fingerprint, message_id))
+        return posted
+
+    sent = client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        text=views.linked.fallback(found),
+        blocks=blocks,
+        unfurl_links=False,
+        unfurl_media=False,
+    )
+    conn.execute(UNFURLED, (sent["ts"], fingerprint, message_id))
+    log.info("nemo: message %s has its links unfurled at %s", message_id, sent["ts"])
+    return sent["ts"]
+
+
+def carry_unfurls(client, conn, case_id, channel_id=None):
+    carried = 0
+    for message_id, thread_ts in conn.execute(UNFURLS_ON_CASE, (case_id,)).fetchall():
+        try:
+            if unfurl(client, conn, message_id, channel_id or internal_log_channel(conn), thread_ts):
+                carried += 1
+        except Exception as failure:
+            log.warning("nemo: message %s's links would not unfurl: %s", message_id, failure)
+    return carried
 
 
 def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
@@ -263,6 +376,10 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
             "WHERE id = %s",
             (ts, case["message_id"]),
         )
+        try:
+            unfurl(client, conn, case["message_id"], room, ts)
+        except Exception as failure:
+            log.warning("nemo: case %s's links would not unfurl: %s", case_id, failure)
     if case["message_id"]:
         attachments.share(
             client, conn, case["message_id"], room, ts,
@@ -313,18 +430,22 @@ def post_follow_up(client, conn, message_id, channel_id=None):
     row = conn.execute(FOLLOW_UP, (message_id,)).fetchone()
     if not row:
         return None
-    body, mirrored, forwarded, _, anonymous, reporter = row
+    body, mirrored, forwarded, conversation_id, anonymous, reporter = row
     if mirrored:
         return mirrored
     if not forwarded:
         log.warning("nemo: message %s has no card to hang under", message_id)
         return None
 
+    room = channel_id or internal_log_channel(conn)
+    numbered = numbers(conn, conversation_id).get(message_id)
     ts = attachments.share(
-        client, conn, message_id, channel_id or internal_log_channel(conn), forwarded,
+        client, conn, message_id, room, forwarded,
         wearing=as_reporter(client, anonymous, reporter),
-        body=views.report.escape_but_mentions(quote_text(body)),
-        unfurled=unfurled(conn, message_id),
+        body=views.linked.numbered_text(
+            views.report.escape_but_mentions(quote_text(body)), numbered
+        ),
+        unfurl=not (numbered and numbered["links"]),
     )
     if ts is None:
         log.info("nemo: message %s had nothing to carry", message_id)
@@ -335,6 +456,10 @@ def post_follow_up(client, conn, message_id, channel_id=None):
         "WHERE id = %s AND mirrored_ts IS NULL",
         (ts, message_id),
     )
+    try:
+        unfurl(client, conn, message_id, room, forwarded)
+    except Exception as failure:
+        log.warning("nemo: message %s's links would not unfurl: %s", message_id, failure)
     log.info("nemo: message %s carried into the internal_log at %s", message_id, ts)
     return ts
 
@@ -421,6 +546,8 @@ coalesce(btrim(m.body), '') <> '' OR EXISTS (
     JOIN fd.intake_files f ON f.id = mf.file_id
     WHERE mf.message_id = m.id AND mf.mirrored_at IS NULL
       AND f.fetch_state IN ('pending', 'stored')
+) OR EXISTS (
+    SELECT 1 FROM fd.intake_shares s WHERE s.message_id = m.id AND s.kind = 'forward'
 )
 """
 

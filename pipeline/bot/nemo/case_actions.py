@@ -43,6 +43,12 @@ RETURNING id
 """
 
 
+OPENING = """
+INSERT INTO fd.case_chat (case_id, author_user_id, body, source_app, mirrored_as)
+VALUES (%s, %s, %s, %s, 'card')
+"""
+
+
 OPEN_ABOUT = """
 SELECT c.id FROM fd.cases c
 JOIN fd.case_participants p ON p.case_id = c.id AND p.role = 'subject'
@@ -267,7 +273,7 @@ def open_case(conn, subject, body, by):
     if subject:
         add_participants(conn, case_id, [subject], "subject", by)
     if body:
-        keep_note(conn, case_id, body, by)
+        conn.execute(OPENING, (case_id, by, body, audit.SOURCE_APP))
     return case_id
 
 

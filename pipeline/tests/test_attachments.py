@@ -48,7 +48,7 @@ def test_a_bodyless_report_has_no_empty_quote_to_reject():
     built = report.build_blocks({"case_id": 1, "body": "", "files": [], "shares": []})
     kinds = [block["type"] for block in built]
     assert "rich_text" not in kinds, "an empty quote is invalid blocks"
-    assert kinds[0] == "header"
+    assert kinds[0] == "section"
 
 
 def test_a_picture_goes_up_wearing_the_reporters_face(monkeypatch):
@@ -145,12 +145,6 @@ def test_an_anonymous_reporter_is_worn_like_any_other_face(monkeypatch):
     assert worn["icon_url"] == "https://fire.example/anonymous.png"
 
 
-def card_case():
-    return {"case_id": 6, "is_anonymous": True, "reporter_user_id": None, "subjects": [],
-            "assignees": [], "category_key": None,
-            "body": "", "shares": []}
-
-
 CASE_URL = "https://fire.example/fd/cases/2"
 
 
@@ -169,14 +163,32 @@ def lines(built):
     ]
 
 
-def test_the_card_names_the_reporter_above_the_words():
-    built = card()
-    assert built[0]["type"] == "header"
-    assert built[1]["type"] == "context", "who raised it sits under the header"
+def title(built):
+    return built[0]["text"]["text"]
 
-    top = lines(built)[0]
-    assert "<@UALICE> reported it" in top
-    assert "about <@UBOB>" in top
+
+def test_the_title_holds_the_case_the_violation_and_who_it_is_about():
+    built = card()
+    assert built[0]["type"] == "section"
+    assert title(built) == "*Case 2 · Bullying · about <@UBOB>*"
+
+
+def test_the_card_never_names_who_reported_it():
+    for anonymous in (True, False):
+        built = card(is_anonymous=anonymous)
+        assert lines(built) == [], "the card wears the reporter's face instead"
+        assert "UALICE" not in title(built)
+
+
+def test_the_title_drops_what_it_does_not_know():
+    assert title(card(category_key=None, subjects=[])) == "*Case 2*"
+    assert title(card(category_key=None)) == "*Case 2 · about <@UBOB>*"
+    assert title(card(subjects=[])) == "*Case 2 · Bullying*"
+
+
+def test_a_report_with_no_violation_yet_reads_as_where_it_happened():
+    built = card(category_key=None, subjects=[], shares=[linked()])
+    assert title(built) == "*Case 2 · in <#C0BNYU3JK3Q>*"
 
 
 def test_fire_engine_is_a_button_not_a_footer():
@@ -222,11 +234,6 @@ def test_no_blocks_at_all_still_quotes_the_plain_body():
     assert quote["elements"][0]["elements"] == [
         {"type": "text", "text": "he keeps following me"}
     ]
-
-
-def test_an_anonymous_card_says_so_where_the_name_would_be():
-    top = lines(card(is_anonymous=True, reporter_user_id=None))[0]
-    assert "reported anonymously" in top
 
 
 def test_the_card_wears_the_reporters_face_but_keeps_its_metadata(monkeypatch):
@@ -310,17 +317,10 @@ def test_a_reply_with_a_picture_still_uses_blocks(monkeypatch):
     assert [b["type"] for b in slack.posted[0]["blocks"]] == ["section", "image"]
 
 
-def test_nemo_cites_every_reachable_source_itself():
-    for kind in ("unfurl", "forward", "link"):
-        case = dict(card_case(), shares=[linked(kind=kind)])
-        built = report.report_body_text(case)
-        assert built, f"nemo is not in the source channel, so slack draws nothing for {kind}"
-        assert built[0]["elements"][0]["text"].startswith("<@U092KBRD5SB> in <#C0BNYU3JK3Q>")
-
-
-def test_a_source_with_no_words_is_not_cited_as_an_empty_quote():
-    case = dict(card_case(), shares=[linked(source_body="", is_reachable=False)])
-    assert report.report_body_text(case) == []
+def test_the_card_quotes_no_linked_message_itself():
+    built = card(shares=[linked()])
+    assert [b["type"] for b in built] == ["section", "rich_text", "actions"]
+    assert "mmm" not in str(built), "linked messages go in the thread, not on the card"
 
 
 def test_the_card_menu_holds_every_choice_slack_allows():
@@ -360,22 +360,9 @@ def test_the_card_row_is_claimed_before_slack_is_asked():
     assert "forwarded_ts" in channel.CLAIM_CARD
 
 
-def test_a_bodyless_report_names_nobody_rather_than_saying_so():
+def test_a_report_about_nobody_says_nothing_about_anybody():
     built = report.build_blocks({"case_id": 1, "body": "x", "shares": [],
                            "subjects": [], "is_anonymous": True, "reporter_user_id": None,
                            "assignees": []})
-    line = " ".join(
-        e["text"] for b in built if b["type"] == "context" for e in b["elements"]
-    )
-    assert "nobody named yet" not in line
-    assert "reported anonymously" in line
-
-
-def test_a_report_with_subjects_still_names_them():
-    built = report.build_blocks({"case_id": 1, "body": "x", "shares": [],
-                           "subjects": ["UBOB"], "is_anonymous": True,
-                           "reporter_user_id": None, "assignees": []})
-    line = " ".join(
-        e["text"] for b in built if b["type"] == "context" for e in b["elements"]
-    )
-    assert "about <@UBOB>" in line
+    assert title(built) == "*Case 1*"
+    assert lines(built) == []

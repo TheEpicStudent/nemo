@@ -22,11 +22,12 @@ class FdMentionsTest < ActionDispatch::IntegrationTest
     get fd_member_path("UPRIOR")
   end
 
-  test "the first note on a new case mentions too" do
+  test "what happened on a new case mentions too" do
     post fd_cases_path, params: { subject_user_ids: ["USUBJ01"],
                                   body: "reported by @#{@named.user_id}" }
 
     opened = Fd::Case.order(:id).last
-    assert_equal "reported by <@#{@named.user_id}>", opened.notes.sole.body
+    assert_equal "reported by <@#{@named.user_id}>",
+      Fd::CaseChat.where(case_id: opened.id).sole.body
   end
 end

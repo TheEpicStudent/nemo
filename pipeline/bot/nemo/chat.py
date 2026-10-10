@@ -161,6 +161,7 @@ WAITING = f"""
 SELECT c.id, c.author_user_id, c.body, {UNDER}
 FROM fd.case_chat c
 WHERE c.case_id = %s AND c.ts IS NULL AND c.mirrored_ts IS NULL
+  AND c.mirrored_as IS DISTINCT FROM 'card'
   AND (c.mirrored_as IS NULL OR c.posted_at < now() - interval '2 minutes')
   AND {UNDER} IS NOT NULL
 ORDER BY c.posted_at, c.id
@@ -171,6 +172,7 @@ WAITING_ANYWHERE = f"""
 SELECT DISTINCT c.case_id
 FROM fd.case_chat c
 WHERE c.ts IS NULL AND c.mirrored_ts IS NULL
+  AND c.mirrored_as IS DISTINCT FROM 'card'
   AND (c.mirrored_as IS NULL OR c.posted_at < now() - interval '2 minutes')
   AND {UNDER} IS NOT NULL
 LIMIT 50

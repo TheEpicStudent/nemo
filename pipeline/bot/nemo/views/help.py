@@ -33,7 +33,8 @@ WRITING = (
     (
         ("member.note", "/nemo note @somebody what you found",
          "a standing note that follows them to every case"),
-        ("case.open", "/nemo open @somebody what happened", "open a case about them"),
+        ("case.open", "/nemo open @somebody what happened",
+         "open a case, naming somebody is optional"),
     ),
 )
 

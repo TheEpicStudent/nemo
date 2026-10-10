@@ -7,7 +7,7 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
   end
 
   def open_case(**params)
-    post fd_cases_path, params: { subject_user_id: "USUB" }.merge(params)
+    post fd_cases_path, params: { subject_user_id: "USUB", body: "saw it live" }.merge(params)
   end
 
   def opened
@@ -77,13 +77,23 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_nil opened.category_key
   end
 
-  test "what happened is filed as the first note" do
+  test "what happened is the case's first message, not a note" do
     sign_in_as(@me)
     open_case(body: "saw this live in the lounge")
 
-    note = opened.notes.sole
-    assert_equal "saw this live in the lounge", note.body
-    assert_equal "UME", note.author
+    first = Fd::CaseChat.where(case_id: opened.id).sole
+    assert_equal "saw this live in the lounge", first.body
+    assert_equal "UME", first.author_user_id
+    assert_equal "card", first.mirrored_as
+    assert_equal 0, opened.notes.count
+  end
+
+  test "a case with nothing said about what happened is refused" do
+    sign_in_as(@me)
+    open_case(body: "  ")
+
+    assert_nil opened
+    assert_match(/say what happened/, flash[:alert])
   end
 
   test "a posted thread link is ignored" do
@@ -94,7 +104,7 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_equal 0, opened.threads.count, "the form does not take a thread, so none is attached"
   end
 
-  test "a case opens with nothing but a subject" do
+  test "a case opens with a subject and what happened" do
     sign_in_as(@me)
     open_case
 
@@ -103,32 +113,18 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_equal 0, opened.notes.count
   end
 
-  test "the case and its note share one request in the trail" do
-    sign_in_as(@me)
-    open_case(body: "context")
-
-    kase = opened
-    ids = Fd::AuditEntry.where(
-      "(entity_type = 'case' AND entity_id = ?) OR (entity_type = 'note' AND entity_id IN (?))",
-      kase.id, kase.notes.ids
-    ).pluck(:request_id).uniq
-
-    assert_equal 1, ids.size
-    assert_not_nil ids.first
-  end
-
-  test "the note text is summarised in the trail, never copied" do
+  test "what happened stays out of the trail" do
     sign_in_as(@me)
     open_case(body: "he mentioned self harm")
 
-    entry = Fd::AuditEntry.where(entity_type: "note", entity_id: opened.notes.ids, verb: "noted").sole
-    assert_equal "redacted, 22 chars", entry.after["body"]
-    assert_no_match(/self harm/, entry.after.to_json)
+    entries = Fd::AuditEntry.where(request_id: Fd::AuditEntry
+      .where(entity_type: "case", entity_id: opened.id, verb: "opened").select(:request_id))
+    assert_no_match(/self harm/, entries.map { |entry| entry.after.to_json }.join)
   end
 
   test "a case can be opened about several people at once" do
     sign_in_as(@me)
-    post fd_cases_path, params: { subject_user_ids: %w[UONE UTWO UTHREE] }
+    post fd_cases_path, params: { subject_user_ids: %w[UONE UTWO UTHREE], body: "saw it live" }
 
     kase = Fd::Case.order(:id).last
     assert_equal %w[UONE UTHREE UTWO], kase.subject_user_ids
@@ -137,7 +133,7 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
 
   test "each subject gets its own trail entry, under the one request" do
     sign_in_as(@me)
-    post fd_cases_path, params: { subject_user_ids: %w[UONE UTWO] }
+    post fd_cases_path, params: { subject_user_ids: %w[UONE UTWO], body: "saw it live" }
 
     kase = Fd::Case.order(:id).last
     rows = Fd::AuditEntry.where(entity_type: "participant", entity_id: kase.id, verb: "attached")
@@ -149,7 +145,7 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
   test "one bad id refuses the whole case rather than opening a half one" do
     sign_in_as(@me)
     before = Fd::Case.count
-    post fd_cases_path, params: { subject_user_ids: %w[UONE bob] }
+    post fd_cases_path, params: { subject_user_ids: %w[UONE bob], body: "saw it live" }
 
     assert_equal before, Fd::Case.count
     assert_match(/does not look like a Slack member id/, flash[:alert])
@@ -157,7 +153,7 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
 
   test "the same person named twice is one subject, not two" do
     sign_in_as(@me)
-    post fd_cases_path, params: { subject_user_ids: %w[UONE UONE] }
+    post fd_cases_path, params: { subject_user_ids: %w[UONE UONE], body: "saw it live" }
 
     assert_equal ["UONE"], Fd::Case.order(:id).last.subject_user_ids
   end
@@ -165,7 +161,7 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
   test "an open case for any of the people named does not stop the submit" do
     make_case(subject: "UTWO", opened_at: 3.days.ago)
     sign_in_as(@me)
-    post fd_cases_path, params: { subject_user_ids: %w[UONE UTWO] }
+    post fd_cases_path, params: { subject_user_ids: %w[UONE UTWO], body: "saw it live" }
 
     assert_not_nil opened
     assert_nil flash[:alert]

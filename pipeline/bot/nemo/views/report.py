@@ -7,7 +7,7 @@ from bot.core.formatting import (
     escape,
     quote_text,
 )
-from bot.nemo.views import edit
+from bot.nemo.views import edit, linked
 from lib.paths import CATEGORIES_FILE
 
 MENTION = re.compile(r"(<[@#][A-Z0-9][A-Z0-9]*(?:\|[^>]*)?>)")
@@ -17,7 +17,6 @@ SLACK_BIT = re.compile(
 
 SECTION_LIMIT = 3000
 CONTEXT_ELEMENTS = 10
-HEADER_LIMIT = 150
 
 CLAIM = "case_claim"
 LOG_ACTION = "case_log_action"
@@ -75,29 +74,34 @@ def where(case):
     return None
 
 
-def category_text(case):
+def place(case):
+    for share in case.get("shares") or []:
+        found = linked.channel_ref(share)
+        if found:
+            return found
+    return None
+
+
+def category_text(case, channel=None):
     label = category_label(case.get("category_key"))
-    channel = where(case)
     if label and channel:
         return f"{label} in {channel}"
     if label:
         return label
     if channel:
-        return f"a report about {channel}"
+        return f"in {channel}"
     return None
 
 
 def headline(case):
     name = f"Case {case['case_id']}"
-    what = category_text(case)
+    what = category_text(case, where(case))
     return f"{name} · {what}" if what else name
 
 
 def title(case):
-    return {
-        "type": "header",
-        "text": {"type": "plain_text", "text": headline(case)[:HEADER_LIMIT]},
-    }
+    parts = [f"Case {case['case_id']}", category_text(case, place(case)), subjects_line(case)]
+    return section("*" + escape_but_slack(" · ".join(part for part in parts if part)) + "*")
 
 
 def subjects_line(case):
@@ -105,28 +109,6 @@ def subjects_line(case):
     if not subjects:
         return None
     return "about " + ", ".join(f"<@{user_id}>" for user_id in subjects)
-
-
-def link(case):
-    url = case.get("url")
-    return f"<{url}|open in fire engine>" if url else None
-
-
-def reporter(case):
-    if case.get("is_anonymous", True) or not case.get("reporter_user_id"):
-        return "Anonymous"
-    return f"<@{case['reporter_user_id']}>"
-
-
-def reported(case):
-    if case.get("is_anonymous", True) or not case.get("reporter_user_id"):
-        return "reported anonymously"
-    return f"{reporter(case)} reported it"
-
-
-def subject_summary_text(case):
-    parts = [reported(case), subjects_line(case)]
-    return context([" · ".join(part for part in parts if part)])
 
 
 def button(action_id, label, case_id, style=None):
@@ -190,56 +172,12 @@ def buttons(case):
     }
 
 
-SHOWN_SHARES = 3
-
-
-def evidence_blocks(shares):
-    return [
-        share
-        for share in shares
-        if share.get("is_reachable") and (share.get("source_body") or "").strip()
-    ][:SHOWN_SHARES]
-
-
-def channel_ref(share):
-    held = share.get("source_channel_id")
-    if held:
-        return f"<#{held}>"
-    named = share.get("source_channel_name")
-    return f"#{named}" if named else None
-
-
-def whose(share):
-    who = share.get("source_author_user_id")
-    where = channel_ref(share)
-    text = f"<@{who}>" if who else "somebody"
-    if where:
-        text += f" in {where}"
-    permalink = share.get("permalink")
-    return f"{text} · <{permalink}|open it>" if permalink else text
-
-
-def report_body_text(case):
-    built = []
-    for share in evidence_blocks(case.get("shares") or []):
-        built.append(context([whose(share)]))
-        words = quote(share["source_body"])
-        if words:
-            built.append(words)
-    return built
+def body(case):
+    return linked.numbered_quote(quote(case.get("body"), case.get("blocks")), case.get("numbering"))
 
 
 def build_blocks(case):
-    built = [part for part in [
-        title(case), subject_summary_text(case), quote(case.get("body"), case.get("blocks")),
-    ] if part]
-    built += report_body_text(case)
-
-    acting = buttons(case)
-    if acting:
-        built.append(acting)
-
-    return built
+    return [part for part in [title(case), body(case), buttons(case)] if part]
 
 
 def fallback(case):
