@@ -66,41 +66,14 @@ def context(parts):
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": part} for part in kept]}
 
 
-def where(case):
-    for share in case.get("shares") or []:
-        named = share.get("source_channel_name")
-        if named:
-            return f"#{named}"
-    return None
-
-
-def place(case):
-    for share in case.get("shares") or []:
-        found = linked.channel_ref(share)
-        if found:
-            return found
-    return None
-
-
-def category_text(case, channel=None):
-    label = category_label(case.get("category_key"))
-    if label and channel:
-        return f"{label} in {channel}"
-    if label:
-        return label
-    if channel:
-        return f"in {channel}"
-    return None
-
-
 def headline(case):
     name = f"Case {case['case_id']}"
-    what = category_text(case, where(case))
-    return f"{name} · {what}" if what else name
+    label = category_label(case.get("category_key"))
+    return f"{name} · {label}" if label else name
 
 
 def title(case):
-    parts = [f"Case {case['case_id']}", category_text(case, place(case)), subjects_line(case)]
+    parts = [headline(case), subjects_line(case)]
     return section("*" + escape_but_slack(" · ".join(part for part in parts if part)) + "*")
 
 
@@ -181,7 +154,7 @@ def build_blocks(case):
 
 
 def fallback(case):
-    return f"Case {case['case_id']}: {headline(case).lower()}"
+    return headline(case)
 
 
 def metadata(case):

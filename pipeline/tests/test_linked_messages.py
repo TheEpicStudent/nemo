@@ -53,15 +53,30 @@ def test_numbers_sit_right_after_their_link():
     assert kinds == [("text", "test "), ("link", None), ("text", " (1)"), ("text", " test")]
 
 
+def mention():
+    return {"type": "message_mention", "url": LINK, "text": LINK, "author_id": "UDRACULA",
+            "channel_id": "C0BNYU3JK3Q", "message_ts": "1786970526.885769"}
+
+
 def test_slacks_own_rich_text_is_numbered_too():
     blocks = [{"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [
         {"type": "text", "text": "test "},
-        {"type": "link", "url": LINK},
+        mention(),
         {"type": "text", "text": " test "},
         {"type": "link", "url": LINK},
     ]}]}]
-    built = card(f"test <{LINK}> test <{LINK}>", blocks=blocks)
+    built = card(f"test <{LINK}|{LINK}> test <{LINK}>", blocks=blocks)
     assert numbers_in(built[1]) == [" (1)", " (2)"]
+
+
+def test_a_link_slack_labels_with_itself_counts_once():
+    text = f"test <{LINK}|{LINK}> test <{LINK}|{LINK}> test <{LINK}|{LINK}>"
+    numbered = linked.numbering(text, [share()], 1)
+
+    assert linked.size(numbered) == 3
+    assert [one["url"] for one in numbered["links"]] == [LINK] * 3
+    assert linked.numbered_text(f"<{LINK}|{LINK}>", linked.numbering(f"<{LINK}|{LINK}>", [], 7)) \
+        == f"<{LINK}|{LINK}> (7)"
 
 
 def test_a_link_to_anywhere_but_slack_is_left_alone():

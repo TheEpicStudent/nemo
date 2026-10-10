@@ -186,9 +186,9 @@ def test_the_title_drops_what_it_does_not_know():
     assert title(card(subjects=[])) == "*Case 2 · Bullying*"
 
 
-def test_a_report_with_no_violation_yet_reads_as_where_it_happened():
-    built = card(category_key=None, subjects=[], shares=[linked()])
-    assert title(built) == "*Case 2 · in <#C0BNYU3JK3Q>*"
+def test_the_title_never_names_the_channel():
+    assert title(card(category_key=None, subjects=[], shares=[linked()])) == "*Case 2*"
+    assert title(card(shares=[linked()])) == "*Case 2 · Bullying · about <@UBOB>*"
 
 
 def test_fire_engine_is_a_button_not_a_footer():

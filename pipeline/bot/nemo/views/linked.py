@@ -5,18 +5,30 @@ from bot.core.formatting import quote_text
 
 LINK_TOKEN = re.compile(r"(<https?://[^\s<>]+?(?:\|[^>]*)?>)")
 
+MESSAGE_RUNS = ("link", "message_mention")
+
 SHOWN_ITEMS = 24
 
 
+def target(token):
+    return token[1:-1].split("|", 1)[0]
+
+
+def message_link(token):
+    return parse.ARCHIVE_LINK.match(target(token))
+
+
 def occurrences(text):
-    return [
-        {
-            "url": found.group(0),
-            "channel_id": found.group(1),
-            "ts": f"{found.group(2)}.{found.group(3)}",
-        }
-        for found in parse.ARCHIVE_LINK.finditer(text or "")
-    ]
+    found = []
+    for token in LINK_TOKEN.findall(text or ""):
+        matched = message_link(token)
+        if matched:
+            found.append({
+                "url": target(token),
+                "channel_id": matched.group(1),
+                "ts": f"{matched.group(2)}.{matched.group(3)}",
+            })
+    return found
 
 
 def numbering(text, shares, start):
@@ -53,8 +65,8 @@ def numbered_quote(block, numbered):
         runs.append(element)
         if (
             seen < count
-            and element.get("type") == "link"
-            and parse.ARCHIVE_LINK.search(element.get("url") or "")
+            and element.get("type") in MESSAGE_RUNS
+            and parse.ARCHIVE_LINK.match(element.get("url") or "")
         ):
             runs.append({"type": "text", "text": f" ({numbered['start'] + seen})"})
             seen += 1
@@ -76,7 +88,7 @@ def numbered_text(text, numbered):
     seen = 0
     for part in LINK_TOKEN.split(text or ""):
         parts.append(part)
-        if seen < count and LINK_TOKEN.fullmatch(part) and parse.ARCHIVE_LINK.search(part):
+        if seen < count and LINK_TOKEN.fullmatch(part) and message_link(part):
             parts.append(f" ({numbered['start'] + seen})")
             seen += 1
 
