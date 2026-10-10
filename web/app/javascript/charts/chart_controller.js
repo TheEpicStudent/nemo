@@ -1,6 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 import { scaleBand, scaleLinear, scaleLog } from "d3-scale"
 import { line as lineOf, area as areaOf, curveMonotoneX, curveLinear } from "d3-shape"
+import { clampWindow, isFullWindow, MIN_WINDOW_ROWS } from "charts/frame"
 
 let seq = 0
 
@@ -64,6 +65,9 @@ const esc = (s) =>
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
 
+const withoutWindow = ({ window: _window, ...rest }) => JSON.stringify(rest)
+const sameExceptWindow = (value, previous) => withoutWindow(value) === withoutWindow(previous)
+
 function topBar(x, y, w, h, r) {
   if (!(h > 0) || !(w > 0)) return ""
 
@@ -115,11 +119,48 @@ export default class extends Controller {
     this.watcher?.disconnect()
   }
 
-  viewValueChanged() {
+  viewValueChanged(value, previous) {
     if (!this.ready) return
+    if (previous && sameExceptWindow(value, previous)) {
+      this.redraw()
+      return
+    }
 
     this.build({ animate: false })
     this.dispatch("update")
+  }
+
+  redraw() {
+    const chart = this.element.querySelector(".chart")
+    if (!chart || !this.wide) {
+      this.build({ animate: false })
+      return
+    }
+    this.draw(chart, this.wide)
+  }
+
+  rowCount() {
+    return this.rows.length
+  }
+
+  zoomable() {
+    return !this.sparkValue && this.rowCount() > MIN_WINDOW_ROWS
+  }
+
+  windowFor(count) {
+    const window = this.viewValue.window
+    if (!Array.isArray(window) || count < 2) return null
+
+    const clamped = clampWindow(window.map(Number), count, 1)
+    return isFullWindow(clamped, count) ? null : clamped
+  }
+
+  visibleRange(count) {
+    const window = this.windowFor(count)
+    if (!window) return [0, count - 1]
+
+    const first = clamp(Math.floor(window[0]), 0, count - 1)
+    return [first, clamp(Math.ceil(window[1]) - 1, first, count - 1)]
   }
 
   get rows() {
@@ -345,14 +386,21 @@ export default class extends Controller {
     const line = this.line
     const pad = this.pad
 
+    const padding = line ? 0 : 0.26
+    const window = this.windowFor(rows.length)
+    const [from, to] = window || [0, rows.length]
+    const step = (wide - pad.r - pad.l) / (to - from + padding)
+    const start = pad.l - from * step
     const x = scaleBand()
       .domain(rows.map((_, i) => i))
-      .range([pad.l, wide - pad.r])
-      .padding(line ? 0 : 0.26)
+      .range([start, start + step * (rows.length + padding)])
+      .padding(padding)
 
+    const [first, last] = this.visibleRange(rows.length)
+    const visible = rows.slice(first, last + 1)
     const seen = this.stack
-      ? rows.map((r) => this.sum(r, series))
-      : rows.flatMap((r) => series.map((s) => r[s.k])).filter((v) => v != null)
+      ? visible.map((r) => this.sum(r, series))
+      : visible.flatMap((r) => series.map((s) => r[s.k])).filter((v) => v != null)
     let lo = 0
     let hi = seen.length ? Math.max(...seen) : 0
 
@@ -378,11 +426,10 @@ export default class extends Controller {
     const y = (log ? scaleLog() : scaleLinear()).domain([lo, hi]).range([high - pad.b, pad.t])
     if (!log && !pinned && !this.sparkValue) y.nice(4)
 
-    return { x, y, lo: y.domain()[0], line, high, pad, pinned, log }
+    return { x, y, lo: y.domain()[0], line, high, pad, pinned, log, first, last, windowed: !!window }
   }
 
-  shownLabels(rows, wide) {
-    const band = (wide - PAD.l - PAD.r) / rows.length
+  shownLabels(rows, band) {
     const widest = rows.reduce((mx, r) => Math.max(mx, axWide(r.label)), 0)
     if (widest + 12 <= band) return { show: this.everyNth(rows.length, 1) }
 
@@ -406,8 +453,9 @@ export default class extends Controller {
     const all = this.series
     const overs = this.overs
     const series = overs.length ? all.filter((s) => !s.over) : all
-    const labels = this.sparkValue ? { show: new Set() } : this.shownLabels(rows, wide)
-    const { x, y, lo, line, high, pad, pinned, log } = this.scales(rows, series, wide)
+    const { x, y, lo, line, high, pad, pinned, log, first, last, windowed } = this.scales(rows, series, wide)
+    const band = windowed ? x.step() : (wide - PAD.l - PAD.r) / rows.length
+    const labels = this.sparkValue ? { show: new Set() } : this.shownLabels(rows, band)
     const mid = (i) => x(i) + x.bandwidth() / 2
     const span = y.domain()[1] - y.domain()[0]
     this.fineTicks = !pinned && this.pctValue && span < 5
@@ -483,6 +531,7 @@ export default class extends Controller {
       if (!labels.show.has(i)) return ""
 
       const at = mid(i)
+      if (windowed && (at < pad.l - 1 || at > right + 1)) return ""
       const text = labels.names ? labels.names[i] : r.label
 
       const wideness = axWide(text)
@@ -505,7 +554,7 @@ export default class extends Controller {
         (floor - pad.t).toFixed(1)}" opacity="0"/>`
       : ""
 
-    const seenOver = rows.flatMap((r) => overs.map((s) => r[s.k])).filter((v) => v != null)
+    const seenOver = rows.slice(first, last + 1).flatMap((r) => overs.map((s) => r[s.k])).filter((v) => v != null)
     const y2 = overs.length
       ? scaleLinear().domain([0, Math.max(1, ...seenOver.map(Number))]).range([floor, pad.t]).nice(3)
       : null
@@ -535,7 +584,13 @@ export default class extends Controller {
         <stop class="bot ${this.paint(s)}"${this.tint(s)} offset="1"/></linearGradient>`).join("")
     const hatch = `<pattern id="${this.gid}-hatch" width="6" height="6" patternUnits="userSpaceOnUse"
         patternTransform="rotate(45)"><line class="hatch" x1="0" y1="0" x2="0" y2="6"/></pattern>`
-    const defs = wash + edge + overWash + hatch
+    const clipId = `${this.gid}-clip`
+    const clipPath = windowed
+      ? `<clipPath id="${clipId}"><rect x="${pad.l}" y="0" width="${(right - pad.l).toFixed(1)}" height="${
+        (floor + 1).toFixed(1)}"/></clipPath>`
+      : ""
+    const clipped = (content) => (windowed ? `<g clip-path="url(#${clipId})">${content}</g>` : content)
+    const defs = wash + edge + overWash + hatch + clipPath
 
     const cursor = (this.sparkValue && !line) ? "" :
       `<line class="cur" x1="0" y1="${pad.t}" x2="0" y2="${floor}" opacity="0"/>` +
@@ -570,9 +625,9 @@ export default class extends Controller {
     chart.querySelector("svg")?.remove()
     chart.insertAdjacentHTML("afterbegin",
       `<svg width="${wide}" height="${high}" viewBox="0 0 ${wide} ${high}" role="img"
-        aria-label="${esc(this.summary(rows, series))}"><defs>${defs}</defs>${weekends}${marks}${gaps}${
+        aria-label="${esc(this.summary(rows, series))}"><defs>${defs}</defs>${clipped(weekends + marks + gaps)}${
         grid}` +
-      `${base}${rule}${brushed}${cursor}${body}${over}${overDots}${splits}${names}${rightAxis}${says}${
+      `${base}${rule}${brushed}${cursor}${clipped(body + over + splits)}${overDots}${names}${rightAxis}${says}${
         pill}</svg>`)
 
     if (this.fresh) {
@@ -583,12 +638,12 @@ export default class extends Controller {
     }
 
     this.geom = {
-      x, y, y2, mid, lo, line, log, wide, high, rows, series: all, bars: series, floor, pad,
+      x, y, y2, mid, lo, line, log, wide, high, rows, series: all, bars: series, floor, pad, first, last,
       tops: rows.map((r) => this.stack
         ? y(this.sum(r, series))
         : Math.min(...series.map((s) => r[s.k] == null || (log && r[s.k] <= 0) ? high : y(r[s.k]))))
     }
-    if (this.at != null) this.show(clamp(this.at, 0, rows.length - 1))
+    if (this.at != null) this.show(clamp(this.at, first, last))
   }
 
   drawBars(rows, series, { x, y, floor }) {
@@ -752,7 +807,7 @@ export default class extends Controller {
     const my = event.clientY - box.top
     if (!loose && (mx < g.pad.l || mx > g.wide - g.pad.r || my > g.high - g.pad.b)) return null
 
-    return clamp(Math.floor((mx - g.pad.l) / g.x.step()), 0, g.rows.length - 1)
+    return clamp(Math.floor((mx - g.x.range()[0]) / g.x.step()), g.first, g.last)
   }
 
   track(event) {
@@ -835,12 +890,12 @@ export default class extends Controller {
     const g = this.geom
     if (!g) return
 
-    const last = g.rows.length - 1
+    const { first, last } = g
     const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key]
     let next = this.at
 
-    if (step) next = this.at == null ? (step > 0 ? 0 : last) : clamp(this.at + step, 0, last)
-    else if (event.key === "Home") next = 0
+    if (step) next = this.at == null ? (step > 0 ? first : last) : clamp(this.at + step, first, last)
+    else if (event.key === "Home") next = first
     else if (event.key === "End") next = last
     else if (event.key === "Escape") return this.clear()
     else if (event.key === "Enter" && this.brushValue && this.at != null) {

@@ -52,6 +52,14 @@
     @apply ml-auto flex flex-none items-center gap-1.5;
   }
 
+  .explorer-tool-group {
+    @apply flex items-center gap-0.5;
+  }
+
+  .explorer-tool-group[hidden] {
+    display: none;
+  }
+
   .explorer-separator {
     @apply mx-1 h-4.5 w-px bg-border;
   }

@@ -1,9 +1,12 @@
 import { Controller } from "@hotwired/stimulus"
 import { modalsOpen, aboveOpen, popupOpen, drawerOpen } from "lib/layers"
+import { zoomWindow, isFullWindow, interpolateWindow, minimumSpan } from "charts/frame"
 
 const OPEN_DURATION = 340
 const CLOSE_DURATION = 220
 const FADE_DURATION = 160
+const ZOOM_DURATION = 260
+const ZOOM_STEP = 0.6
 const OPEN_EASING = "cubic-bezier(0.16, 1, 0.3, 1)"
 const CLOSE_EASING = "cubic-bezier(0.4, 0, 0.2, 1)"
 const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable='false'])"
@@ -13,7 +16,10 @@ const DISPLAY_KEYS = ["kind", "stacked", "yScale", "zero", "fit", "format", "gri
 const STORAGE_PREFIX = "mn-explore-"
 
 export default class extends Controller {
-  static targets = ["dialog", "panel", "title", "subtitle", "body", "legend", "plot", "displayButton", "display"]
+  static targets = [
+    "dialog", "panel", "title", "subtitle", "body", "legend", "plot", "displayButton", "display",
+    "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton"
+  ]
 
   connect() {
     this.dialog = this.dialogTarget
@@ -143,6 +149,9 @@ export default class extends Controller {
     if (event.metaKey || event.ctrlKey || event.altKey || event.target.closest?.(EDITABLE)) return null
 
     switch (event.key.toLowerCase()) {
+      case "+": case "=": return () => this.zoomIn()
+      case "-": case "_": return () => this.zoomOut()
+      case "0": return () => this.resetZoom()
       case "d": return () => this.toggleDisplay()
       case "g": return () => this.toggleSettingIfShown("grid")
       case "a": return () => this.toggleSettingIfShown("notes")
@@ -179,6 +188,9 @@ export default class extends Controller {
     this.chartMount = null
     this.hiddenSeries = new Set()
     this.displayOverrides = {}
+    cancelAnimationFrame(this.zoomFrame)
+    this.zoomWindow = null
+    this.zoomControlsTarget.hidden = true
     this.card = null
     this.key = null
     this.opener = null
@@ -205,7 +217,7 @@ export default class extends Controller {
   get view() {
     return {
       fill: true, title: this.titleTarget.textContent, legend: false, hidden: [...this.hiddenSeries],
-      ...this.displayOverrides
+      ...this.displayOverrides, ...(this.zoomWindow ? { window: this.zoomWindow } : {})
     }
   }
 
@@ -221,6 +233,66 @@ export default class extends Controller {
     this.chart = this.application.getControllerForElementAndIdentifier(event.target, "chart")
     this.renderLegend()
     this.renderDisplay()
+    this.renderZoom()
+  }
+
+  zoomIn() {
+    this.zoomBy(ZOOM_STEP)
+  }
+
+  zoomOut() {
+    this.zoomBy(1 / ZOOM_STEP)
+  }
+
+  resetZoom() {
+    if (this.zoomWindow) this.animateWindow(null)
+  }
+
+  zoomBy(factor) {
+    if (!this.chart?.zoomable()) return
+
+    const count = this.chart.rowCount()
+    this.animateWindow(zoomWindow(this.zoomWindow || [0, count], count, factor))
+  }
+
+  animateWindow(target) {
+    const count = this.chart.rowCount()
+    const from = this.zoomWindow || [0, count]
+    const to = target || [0, count]
+    cancelAnimationFrame(this.zoomFrame)
+    if (this.reducedMotion.matches) {
+      this.applyWindow(to)
+      return
+    }
+
+    const startedAt = performance.now()
+    const tick = (now) => {
+      const progress = Math.min(1, (now - startedAt) / ZOOM_DURATION)
+      const eased = 1 - (1 - progress) ** 3
+      this.applyWindow(progress < 1 ? interpolateWindow(from, to, eased) : to)
+      if (progress < 1) this.zoomFrame = requestAnimationFrame(tick)
+    }
+    this.zoomFrame = requestAnimationFrame(tick)
+  }
+
+  applyWindow(window) {
+    if (!this.chart) return
+
+    this.zoomWindow = isFullWindow(window, this.chart.rowCount()) ? null : window
+    this.writeView()
+    this.renderZoom()
+  }
+
+  renderZoom() {
+    const zoomable = !!this.chart?.zoomable()
+    this.zoomControlsTarget.hidden = !zoomable
+    if (!zoomable) return
+
+    const count = this.chart.rowCount()
+    const [start, end] = this.zoomWindow || [0, count]
+    this.zoomInButtonTarget.disabled = end - start <= minimumSpan(count) + 0.001
+    this.zoomOutButtonTarget.disabled = !this.zoomWindow
+    this.zoomResetButtonTarget.disabled = !this.zoomWindow
   }
 
   renderLegend() {
