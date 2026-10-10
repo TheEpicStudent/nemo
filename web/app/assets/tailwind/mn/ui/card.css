@@ -74,7 +74,7 @@
   }
 
   .foldcard {
-    @apply overflow-hidden rounded-xl bg-card text-card-foreground ring-1 ring-foreground/10;
+    @apply relative overflow-hidden rounded-xl bg-card text-card-foreground ring-1 ring-foreground/10;
   }
 
   .foldcard > summary {

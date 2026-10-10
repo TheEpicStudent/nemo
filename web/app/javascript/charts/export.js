@@ -11,6 +11,8 @@ const SUBTITLE_SIZE = 12.5
 const LEGEND_SIZE = 12
 const LEGEND_GAP = 18
 const LEGEND_KEY = 10
+const SCALE_GAP = 6
+const SCALE_STEP_GAP = 2
 const FONT_STACK = "Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
 const PNG_SCALE = 2
 
@@ -81,7 +83,42 @@ function legendMarkup(entries, { top, foreground }) {
   }).join("")
 }
 
-export async function exportSvg(chartElement, { title, subtitle, legend = [], fontUrl, colors }) {
+function scaleMarkup({ low, high, steps, extras = [], note }, { top, muted, width }) {
+  let x = PADDING
+  const label = (text, fill) => {
+    const markup = `<text x="${x}" y="${top}" font-size="${LEGEND_SIZE}" fill="${fill}">${escapeXml(text)}</text>`
+    x += textWidth(text, LEGEND_SIZE)
+    return markup
+  }
+  const swatch = (color, outline) => {
+    const markup = `<rect x="${x}" y="${top - LEGEND_KEY + 1}" width="${LEGEND_KEY}" height="${LEGEND_KEY}" rx="2" fill="${
+      color}"${outline ? ` stroke="${muted}" stroke-opacity="0.35"` : ""}/>`
+    x += LEGEND_KEY
+    return markup
+  }
+
+  let markup = label(low, muted)
+  x += SCALE_GAP
+  markup += steps.map((color, index) => {
+    if (index) x += SCALE_STEP_GAP
+    return swatch(color)
+  }).join("")
+  x += SCALE_GAP
+  markup += label(high, muted)
+  extras.forEach((extra) => {
+    x += LEGEND_GAP
+    markup += swatch(extra.color, true)
+    x += SCALE_GAP
+    markup += label(extra.label, muted)
+  })
+  if (note) {
+    markup += `<text x="${width - PADDING}" y="${top}" font-size="${LEGEND_SIZE}" fill="${muted}" text-anchor="end">${
+      escapeXml(note)}</text>`
+  }
+  return markup
+}
+
+export async function exportSvg(chartElement, { title, subtitle, legend = [], scale = null, fontUrl, colors }) {
   const source = chartElement.querySelector("svg")
   if (!source) return null
 
@@ -96,7 +133,8 @@ export async function exportSvg(chartElement, { title, subtitle, legend = [], fo
   const chartWidth = Number(source.getAttribute("width"))
   const chartHeight = Number(source.getAttribute("height"))
   const legendTop = subtitle ? 84 : 66
-  const chartTop = legend.length > 1 ? legendTop + 16 : legendTop - 12
+  const keyed = !!scale || legend.length > 1
+  const chartTop = keyed ? legendTop + 16 : legendTop - 12
   const width = Math.ceil(chartWidth + PADDING * 2)
   const height = Math.ceil(chartTop + chartHeight + PADDING)
   clone.setAttribute("x", String(PADDING))
@@ -109,7 +147,9 @@ export async function exportSvg(chartElement, { title, subtitle, legend = [], fo
       ? `<text x="${PADDING}" y="${PADDING + TITLE_SIZE + 22}" font-size="${SUBTITLE_SIZE}" fill="${colors.muted}">${
         escapeXml(subtitle)}</text>`
       : "")
-  const keys = legend.length > 1 ? legendMarkup(legend, { top: legendTop, foreground: colors.foreground }) : ""
+  const keys = scale
+    ? scaleMarkup(scale, { top: legendTop, muted: colors.muted, width })
+    : legend.length > 1 ? legendMarkup(legend, { top: legendTop, foreground: colors.foreground }) : ""
 
   return `<svg xmlns="${SVG_NS}" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
     `font-family="${escapeXml(FONT_STACK)}">` +

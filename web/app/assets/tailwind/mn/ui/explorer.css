@@ -7,8 +7,13 @@
     @apply ml-0;
   }
 
-  .card:hover .card-expand, .card:focus-within .card-expand {
+  .card:hover .card-expand, .card:focus-within .card-expand,
+  .foldcard:hover .card-expand, .foldcard:focus-within .card-expand {
     @apply opacity-100;
+  }
+
+  .fold-body > .card-expand {
+    @apply absolute top-3.25 right-2.5 m-0;
   }
 
   @media (hover: none) {
@@ -476,6 +481,26 @@
     border-top: 2px dashed currentColor;
   }
 
+  .explorer-legend-key.is-outlined {
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  .explorer-legend-scale {
+    @apply inline-flex h-7 items-center gap-[3px] px-2 text-[0.8125rem] text-muted-foreground;
+  }
+
+  .explorer-legend-scale > span {
+    @apply mx-1;
+  }
+
+  .explorer-legend-scale + .explorer-legend-scale {
+    @apply pl-1;
+  }
+
+  .explorer-legend-note {
+    @apply ml-auto px-2 text-xs text-muted-foreground tabular-nums;
+  }
+
   .explorer-legend-item[aria-pressed="false"] .explorer-legend-key:not(.is-dashed) {
     background: none;
     box-shadow: inset 0 0 0 1.5px currentColor;
@@ -548,8 +573,24 @@
     @apply px-1.5;
   }
 
-  .explorer-plot [data-highlight] .chart svg [data-series] {
+  .explorer-plot [data-highlight] :is(.chart, .tree) svg [data-series] {
     transition: opacity 150ms ease;
+  }
+
+  .explorer-plot [data-highlight="p0"] .tree svg [data-series]:not([data-series="p0"]),
+  .explorer-plot [data-highlight="p1"] .tree svg [data-series]:not([data-series="p1"]),
+  .explorer-plot [data-highlight="p2"] .tree svg [data-series]:not([data-series="p2"]),
+  .explorer-plot [data-highlight="p3"] .tree svg [data-series]:not([data-series="p3"]),
+  .explorer-plot [data-highlight="p4"] .tree svg [data-series]:not([data-series="p4"]),
+  .explorer-plot [data-highlight="p5"] .tree svg [data-series]:not([data-series="p5"]),
+  .explorer-plot [data-highlight="p6"] .tree svg [data-series]:not([data-series="p6"]),
+  .explorer-plot [data-highlight="p7"] .tree svg [data-series]:not([data-series="p7"]) {
+    opacity: 0.2;
+  }
+
+  .explorer-plot .tree .pin-ring {
+    stroke-width: 2;
+    stroke-dasharray: none;
   }
 
   .explorer-plot [data-highlight="s0"] .chart svg [data-series]:not([data-series="s0"]),
@@ -571,7 +612,7 @@
     @apply flex min-h-0 min-w-0 flex-auto flex-col px-6 pt-5 pb-5 max-sm:px-3;
   }
 
-  .explorer-plot > [data-controller] > .chart {
+  .explorer-plot > [data-controller] > :is(.chart, .tree) {
     @apply min-h-0 flex-[1_1_0];
   }
 

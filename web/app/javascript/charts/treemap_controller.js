@@ -1,258 +1,242 @@
-import { Controller } from "@hotwired/stimulus"
-import { squarify } from "charts/squarify"
+import { TileChart, clip, esc, N, PC } from "charts/tiles"
 
-const GAP = 3
 const CLAMP = 100
-const RULER = typeof document === "undefined"
-  ? null
-  : document.createElement("canvas").getContext("2d")
-
-const SANS = '"Geist", ui-sans-serif, system-ui, sans-serif'
-const MONO = SANS
-
-function fit(text, size, mono) {
-  if (!RULER) return text.length * size * 0.6
-
-  RULER.font = `${mono ? 500 : 600} ${size}px ${mono ? MONO : SANS}`
-  return RULER.measureText(text).width
+const TONES = ["d3", "d2", "d1", "z", "u1", "u2", "u3"]
+const TONE_NAMES = {
+  d3: "shrank a lot", d2: "shrank", d1: "shrank a little", z: "flat",
+  u1: "grew a little", u2: "grew", u3: "grew a lot", na: "new"
 }
+const FLAT_BAND = 4
+const SIZES = { messages: "member messages", prior: "window before" }
 
-function clip(text, size, room) {
-  if (room <= 0) return null
-  if (fit(text, size) <= room) return text
-
-  for (let n = text.length - 1; n >= 2; n--) {
-    const cut = `${text.slice(0, n)}…`
-    if (fit(cut, size) <= room) return cut
-  }
-  return null
-}
-
-const esc = (s) =>
-  String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;")
-
-const N = (v) => v == null ? "n/a" : Number(v).toLocaleString("en-US")
-const PC = (v, d = 1) => v == null ? "n/a" : `${Number(v).toFixed(d)}%`
 const signed = (v) => `${v >= 0 ? "+" : ""}${Number(v).toFixed(0)}%`
+const toneColor = (tone) => `var(--dv-${tone})`
+const changeOf = (row) => (row.thin || row.pct == null ? null : Number(row.pct))
 
-export default class extends Controller {
-  static values = { tiles: Array, height: Number, total: Number, floor: Number }
+export default class extends TileChart {
+  static values = { total: Number, floor: Number }
 
-  connect() {
-    this.at = null
-    this.element.innerHTML = `<div class="tree tipped" tabindex="0"
-      data-action="mousemove->treemap#track mouseleave->treemap#clear keydown->treemap#key"
-      ><div class="tip"></div><span class="chart-caption" aria-live="polite"></span></div>`
-    const box = this.element.querySelector(".tree")
-    this.watcher = new ResizeObserver(() => this.measure())
-    this.watcher.observe(box)
-    this.wide = 0
-    this.measure()
+  get sizeBy() {
+    return this.viewValue.sizeBy === "prior" ? "prior" : "messages"
   }
 
-  disconnect() {
-    this.watcher?.disconnect()
+  get total() {
+    return this.hasTotalValue ? this.totalValue : 0
   }
 
-  get high() {
-    return this.hasHeightValue && this.heightValue > 0 ? this.heightValue : 400
+  get floor() {
+    return this.hasFloorValue ? this.floorValue : 0
   }
 
-  measure() {
-    const box = this.element.querySelector(".tree")
-    const wide = box ? box.clientWidth : 0
-    if (!wide || wide === this.wide) return
-
-    this.wide = wide
-    this.draw(box, wide)
+  items() {
+    const by = this.sizeBy
+    return this.tilesValue
+      .map((row, i) => ({ i, row, v: Number(row[by]) || 0 }))
+      .filter((item) => item.v > 0)
+      .sort((a, b) => b.v - a.v)
   }
 
   step(row) {
-    if (row.thin || row.pct == null) return "na"
+    const pct = changeOf(row)
+    if (pct == null) return "na"
 
-    const v = Math.max(-CLAMP, Math.min(CLAMP, row.pct))
+    const v = Math.max(-CLAMP, Math.min(CLAMP, pct))
     if (v <= -45) return "d3"
     if (v <= -18) return "d2"
-    if (v <= -4) return "d1"
-    if (v < 4) return "z"
+    if (v <= -FLAT_BAND) return "d1"
+    if (v < FLAT_BAND) return "z"
     if (v < 18) return "u1"
     if (v < 45) return "u2"
     return "u3"
   }
 
-  draw(box, wide) {
-    const rows = this.tilesValue
-    if (!rows.length) return
-
-    const high = this.high
-    const laid = squarify(rows.map((r) => ({ ...r, v: r.messages })), 0, 0, wide, high, [])
-
-    let cells = ""
-    this.zones = []
-
-    laid.forEach((r, i) => {
-      const w = Math.max(0, r.w - GAP)
-      const h = Math.max(0, r.h - GAP)
-      if (!(w > 1 && h > 1)) return
-
-      const tone = this.step(r)
-      const x = r.x + GAP / 2
-      const y = r.y + GAP / 2
-
-      let text = ""
-      const label = `#${r.name}`
-      const value = r.thin || r.pct == null ? "new" : signed(r.pct)
-      const cx = x + w / 2
-
-      // both lines always; shrink toward the floor until the pair fits the tile
-      let nameSize = Math.max(8, Math.min(20, Math.round(Math.min(w, h) / 3.4)))
-      let valSize = Math.max(8, Math.round(nameSize * 0.82))
-      while (nameSize > 8 && nameSize + valSize + 4 > h - 6) {
-        nameSize -= 1
-        valSize = Math.max(8, Math.round(nameSize * 0.82))
-      }
-
-      const pair = nameSize + valSize + 4
-      const first = y + h / 2 - pair / 2 + nameSize
-      const room = w - 8
-      const shownName = clip(label, nameSize, room)
-      const shownValue = clip(value, valSize, room)
-
-      if (shownName) {
-        text += `<text class="t-n" x="${cx.toFixed(1)}" y="${first.toFixed(1)}"
-          text-anchor="middle" font-size="${nameSize}">${esc(shownName)}</text>`
-      }
-      if (shownValue) {
-        text += `<text class="t-v" x="${cx.toFixed(1)}" y="${
-          (first + valSize + 4).toFixed(1)}" text-anchor="middle"
-          font-size="${valSize}">${esc(shownValue)}</text>`
-      }
-
-      cells += `<g class="cell ${tone}" data-i="${i}"><rect class="${tone}"
-        x="${x.toFixed(1)}" y="${y.toFixed(1)}"
-        width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="${Math.min(6, w / 4, h / 4).toFixed(1)}"/>${text}</g>`
-
-      this.zones.push({ i, cx: r.x + r.w / 2, cy: r.y + r.h / 2, row: r, tone,
-        x0: r.x, y0: r.y, x1: r.x + r.w, y1: r.y + r.h })
-    })
-
-    box.querySelector("svg")?.remove()
-    box.insertAdjacentHTML("afterbegin",
-      `<svg width="${wide}" height="${high}" viewBox="0 0 ${wide} ${high}" role="img"
-        aria-label="${esc(this.summary(rows))}">${cells}</svg>`)
-
-    this.geom = { wide, high }
-    if (this.at != null) this.show(Math.min(this.at, this.zones.length - 1))
+  toneOf(item) {
+    return this.step(item.row)
   }
 
-  summary(rows) {
-    const named = rows
-    const top = named[0]
-    const total = this.hasTotalValue ? this.totalValue : 0
-    const bits = [`Treemap of ${rows.length} tiles, area is member messages, colour is change against the previous window`]
-    if (top && total) {
-      bits.push(`largest ${top.name} at ${N(top.messages)} messages, ${
-        PC(top.messages / total * 100)} of ${N(total)}`)
+  seriesOf(item) {
+    return this.step(item.row)
+  }
+
+  labelMarkup({ row, x, y, w, h }) {
+    const label = `#${row.name}`
+    const pct = changeOf(row)
+    const value = pct == null ? "new" : signed(pct)
+    const cx = x + w / 2
+    const cap = this.fill ? 22 : 20
+
+    // both lines always; shrink toward the floor until the pair fits the tile
+    let nameSize = Math.max(8, Math.min(cap, Math.round(Math.min(w, h) / 3.4)))
+    let valSize = Math.max(8, Math.round(nameSize * 0.82))
+    while (nameSize > 8 && nameSize + valSize + 4 > h - 6) {
+      nameSize -= 1
+      valSize = Math.max(8, Math.round(nameSize * 0.82))
     }
-    const grew = named.filter((r) => r.pct != null && r.pct > 0).length
-    const shrank = named.filter((r) => r.pct != null && r.pct < 0).length
+
+    const pair = nameSize + valSize + 4
+    const first = y + h / 2 - pair / 2 + nameSize
+    const room = w - 8
+    const shownName = clip(label, nameSize, room)
+    const shownValue = clip(value, valSize, room, 500)
+
+    let text = ""
+    if (shownName) {
+      text += `<text class="t-n" x="${cx.toFixed(1)}" y="${first.toFixed(1)}"
+        text-anchor="middle" font-size="${nameSize}">${esc(shownName)}</text>`
+    }
+    if (shownValue) {
+      text += `<text class="t-v" x="${cx.toFixed(1)}" y="${
+        (first + valSize + 4).toFixed(1)}" text-anchor="middle"
+        font-size="${valSize}">${esc(shownValue)}</text>`
+    }
+    return text
+  }
+
+  summary() {
+    const rows = this.tilesValue
+    const top = rows[0]
+    const bits = [`Treemap of ${rows.length} tiles, area is ${SIZES[this.sizeBy]}, colour is change against the previous window`]
+    if (top && this.total) {
+      bits.push(`largest ${top.name} at ${N(top.messages)} messages, ${
+        PC(top.messages / this.total * 100)} of ${N(this.total)}`)
+    }
+    const grew = rows.filter((r) => r.pct != null && r.pct > 0).length
+    const shrank = rows.filter((r) => r.pct != null && r.pct < 0).length
     bits.push(`${grew} grew, ${shrank} shrank`)
     return bits.join(", ")
   }
 
-  track(event) {
-    if (!this.zones) return
-
-    const box = this.element.querySelector(".tree").getBoundingClientRect()
-    const mx = (event.clientX - box.left) / box.width * this.geom.wide
-    const my = (event.clientY - box.top) / box.height * this.geom.high
-    const hit = this.zones.findIndex((z) =>
-      mx >= z.x0 && mx <= z.x1 && my >= z.y0 && my <= z.y1)
-    if (hit < 0) return this.clear()
-
-    this.show(hit)
-  }
-
-  key(event) {
-    if (!this.zones) return
-
-    const last = this.zones.length - 1
-    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key]
-    let next = this.at
-
-    if (step) {
-      next = this.at == null ? (step > 0 ? 0 : last) : Math.min(last, Math.max(0, this.at + step))
-    } else if (event.key === "Home") next = 0
-    else if (event.key === "End") next = last
-    else if (event.key === "Escape") return this.clear()
-    else return
-
-    event.preventDefault()
-    this.show(next)
-  }
-
-  show(i) {
-    const zone = this.zones[i]
-    if (!zone) return
-
-    const box = this.element.querySelector(".tree")
-    const r = zone.row
-    this.at = i
-
-    const floor = this.hasFloorValue ? this.floorValue : 0
-    const total = this.hasTotalValue ? this.totalValue : 0
+  tipMarkup({ row: r, tone }) {
     const swatch = (t) => `<i style="background: var(--dv-${t})"></i>`
-    const rows = [
-      `<div class="row">${swatch(zone.tone)}member messages<b>${N(r.messages)}</b></div>`
-    ]
-    if (r.prior != null) {
-      rows.push(`<div class="row">${swatch("na")}window before<b>${N(r.prior)}</b></div>`)
-    }
-    if (r.pct != null && !r.thin) {
-      rows.push(`<div class="row">${swatch(zone.tone)}change<b>${signed(r.pct)}</b></div>`)
+    const rows = [`<div class="row">${swatch(tone)}member messages<b>${N(r.messages)}</b></div>`]
+    if (r.prior != null) rows.push(`<div class="row">${swatch("na")}window before<b>${N(r.prior)}</b></div>`)
+    const pct = changeOf(r)
+    if (pct != null) {
+      rows.push(`<div class="row">${swatch(tone)}change<b>${signed(pct)}</b></div>`)
     } else {
       rows.push(`<div class="row">${swatch("na")}change<b>n/a</b></div>`)
-      rows.push(`<div class="row row-note"><i></i>base under ${N(floor)} messages</div>`)
+      rows.push(`<div class="row row-note"><i></i>base under ${N(this.floor)} messages</div>`)
     }
-    if (total) {
-      rows.push(`<div class="row"><i></i>share of all channels<b>${
-        PC(r.messages / total * 100, 2)}</b></div>`)
-    }
-
-    const tip = box.querySelector(".tip")
-    tip.innerHTML = `<div class="t">#${esc(r.name)}</div>${rows.join("")}`
-    tip.classList.add("on")
-
-    const tipWide = tip.offsetWidth || 190
-    const tipHigh = tip.offsetHeight || 90
-    const scale = box.clientWidth / this.geom.wide
-    let left = zone.x1 * scale + 10
-    if (left + tipWide > box.clientWidth) left = zone.x0 * scale - 10 - tipWide
-    if (left < 0) left = Math.max(0, Math.min(zone.cx * scale - tipWide / 2,
-      box.clientWidth - tipWide))
-    let top = zone.cy * scale - tipHigh / 2
-    top = Math.max(0, Math.min(top, box.clientHeight - tipHigh))
-
-    tip.style.left = `${left}px`
-    tip.style.top = `${top}px`
-
-    box.classList.add("lit")
-    box.querySelectorAll(".cell").forEach((cell) =>
-      cell.classList.toggle("on", +cell.dataset.i === i))
-
-    box.querySelector(".chart-caption").textContent = `${r.name}, ${N(r.messages)} messages${
-      r.pct != null && !r.thin ? `, ${signed(r.pct)}` : ""}`
+    if (this.total) rows.push(`<div class="row"><i></i>share of all channels<b>${PC(r.messages / this.total * 100, 2)}</b></div>`)
+    return `<div class="t">#${esc(r.name)}</div>${rows.join("")}`
   }
 
-  clear() {
-    const box = this.element.querySelector(".tree")
-    if (!box) return
+  captionFor({ row: r }) {
+    const pct = changeOf(r)
+    return `${r.name}, ${N(r.messages)} messages${pct != null ? `, ${signed(pct)}` : ""}`
+  }
 
-    this.at = null
-    box.querySelector(".tip")?.classList.remove("on")
-    box.classList.remove("lit")
-    box.querySelectorAll(".cell").forEach((cell) => cell.classList.remove("on"))
-    const say = box.querySelector(".chart-caption")
-    if (say) say.textContent = ""
+  displayDefaults() {
+    return { labels: true, sizeBy: "messages" }
+  }
+
+  displayOptions() {
+    return { labels: true, sizeBy: this.tilesValue.some((row) => Number(row.prior) > 0) }
+  }
+
+  legendEntries() {
+    return []
+  }
+
+  legendScale() {
+    return {
+      low: "shrank", high: "grew", steps: TONES.map(toneColor),
+      extras: [{ label: `under ${N(this.floor)} before`, color: toneColor("na") }],
+      note: `Size: ${SIZES[this.sizeBy]}`
+    }
+  }
+
+  inspectorLabels() {
+    return { point: "Tile", stats: "All tiles" }
+  }
+
+  rank(i) {
+    return this.items().findIndex((item) => item.i === i) + 1
+  }
+
+  pointDetails(i) {
+    const r = this.tilesValue[i]
+    if (!r) return null
+
+    const tone = this.step(r)
+    const color = toneColor(tone)
+    const pct = changeOf(r)
+    const rank = this.rank(i)
+    const value = (label, text, extra = {}) => ({
+      label, colorClass: "", color, shape: "box", value: text, change: null, share: null, ...extra
+    })
+    return {
+      title: `#${r.name}`,
+      qualifier: TONE_NAMES[tone],
+      tags: [],
+      note: pct == null ? `Base under ${N(this.floor)} messages` : null,
+      total: null,
+      values: [
+        value("member messages", N(r.messages), {
+          change: pct == null ? null : { value: pct, unit: "%" }, comparison: "from the window before"
+        }),
+        r.prior != null && value("window before", N(r.prior), { color: null, shape: "none" }),
+        this.total && value("share of all channels", PC(r.messages / this.total * 100, 2), { color: null, shape: "none" }),
+        rank > 0 && value("rank", `${rank} of ${this.items().length}`, { color: null, shape: "none" })
+      ].filter(Boolean)
+    }
+  }
+
+  rangeStats() {
+    const rows = this.tilesValue
+    const count = (test) => rows.filter((r) => {
+      const pct = changeOf(r)
+      return pct != null && test(pct)
+    }).length
+    return {
+      summary: [
+        { label: "channels", value: N(rows.length) },
+        { label: "member messages", value: N(rows.reduce((at, r) => at + (Number(r.messages) || 0), 0)) },
+        { label: "grew", value: N(count((pct) => pct >= FLAT_BAND)) },
+        { label: "flat", value: N(count((pct) => Math.abs(pct) < FLAT_BAND)) },
+        { label: "shrank", value: N(count((pct) => pct <= -FLAT_BAND)) },
+        { label: "new", value: N(rows.filter((r) => changeOf(r) == null).length) }
+      ]
+    }
+  }
+
+  tableData() {
+    const rows = this.tilesValue
+    const share = (r) => (this.total ? r.messages / this.total * 100 : null)
+    const columns = [
+      { key: "label", label: "Channel", numeric: false },
+      { key: "messages", label: "member messages", numeric: true },
+      { key: "prior", label: "window before", numeric: true },
+      { key: "change", label: "change", numeric: true },
+      this.total && { key: "share", label: "share of all channels", numeric: true }
+    ].filter(Boolean)
+    const order = [...rows.keys()].sort((a, b) => (Number(rows[b][this.sizeBy]) || 0) - (Number(rows[a][this.sizeBy]) || 0))
+    const body = order.map((index) => {
+      const r = rows[index]
+      const pct = changeOf(r)
+      const part = share(r)
+      return {
+        index,
+        values: {
+          label: r.name, messages: Number(r.messages), prior: r.prior == null ? null : Number(r.prior),
+          change: pct, share: part == null ? null : Number(part.toFixed(3))
+        },
+        display: {
+          label: `#${r.name}`, messages: N(r.messages), prior: N(r.prior),
+          change: pct == null ? "n/a" : signed(pct), share: PC(part, 2)
+        },
+        note: pct == null ? "new" : null
+      }
+    })
+    const sum = rows.reduce((at, r) => at + (Number(r.messages) || 0), 0)
+    const prior = rows.reduce((at, r) => at + (Number(r.prior) || 0), 0)
+    return {
+      columns,
+      rows: body,
+      footer: {
+        label: "Total",
+        values: { messages: N(sum), prior: N(prior), share: this.total ? PC(sum / this.total * 100, 2) : "" }
+      }
+    }
   }
 }

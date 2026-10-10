@@ -44,9 +44,6 @@
   .tree .cell {
     cursor: pointer;
   }
-  .tree rect {
-    rx: 2px;
-  }
   .tree .cell, .tree .cell rect {
     transition: opacity var(--dur-2) var(--ease);
   }
@@ -63,7 +60,17 @@
   .tree .u1 { fill: var(--dv-u1); }
   .tree .u2 { fill: var(--dv-u2); }
   .tree .u3 { fill: var(--dv-u3); }
-  .tree .na { fill: var(--dv-na); }
+  .tree .na {
+    fill: var(--dv-na);
+    stroke: var(--border);
+    stroke-width: 1;
+  }
+  .tree .pin-ring {
+    fill: none;
+    stroke: var(--primary);
+    stroke-width: 2;
+    pointer-events: none;
+  }
   .tree .t-n {
     fill: var(--ink);
     font-family: var(--font-sans);
@@ -81,35 +88,35 @@
   }
   .card > .tree.parts, .card > [data-controller~="parts"] { @apply px-4 pt-3; }
   .card > .parts-key { @apply mb-0 px-4 pt-3 pb-4; }
-  .tree.parts .part-0, .parts-key .part-0 { fill: var(--series-0); background: var(--series-0); }
-  .tree.parts .part-1, .parts-key .part-1 { fill: var(--series-1); background: var(--series-1); }
-  .tree.parts .part-2, .parts-key .part-2 { fill: var(--series-2); background: var(--series-2); }
-  .tree.parts .part-3, .parts-key .part-3 { fill: var(--series-3); background: var(--series-3); }
-  .tree.parts .part-4, .parts-key .part-4 { fill: var(--series-4); background: var(--series-4); }
-  .tree.parts .part-5, .parts-key .part-5 { fill: var(--series-5); background: var(--series-5); }
-  .tree.parts .part-6, .parts-key .part-6 {
-    fill: color-mix(in oklab, var(--series-1) 55%, var(--card));
-    background: color-mix(in oklab, var(--series-1) 55%, var(--card));
-  }
-  .tree.parts .part-7, .parts-key .part-7 {
-    fill: color-mix(in oklab, var(--series-2) 55%, var(--card));
-    background: color-mix(in oklab, var(--series-2) 55%, var(--card));
-  }
+  .part-0 { color: var(--series-0); }
+  .part-1 { color: var(--series-1); }
+  .part-2 { color: var(--series-2); }
+  .part-3 { color: var(--series-3); }
+  .part-4 { color: var(--series-4); }
+  .part-5 { color: var(--series-5); }
+  .part-6 { color: color-mix(in oklab, var(--series-1) 55%, var(--card)); }
+  .part-7 { color: color-mix(in oklab, var(--series-2) 55%, var(--card)); }
+  .tree.parts .cell rect { fill: currentColor; }
 
   .tree-key {
     display: flex;
     align-items: center;
+    justify-content: center;
     flex-wrap: wrap;
     gap: 6px;
     padding-top: var(--s-xs);
+    font-variant-numeric: tabular-nums;
     color: var(--ink-4);
     font-size: var(--t-fine);
   }
-  .tree-key .divider {
-    width: 1px;
-    height: 12px;
-    margin: 0 4px;
-    background: var(--line-soft);
+  .tree-key > i {
+    margin-left: 10px;
+    width: 11px;
+    height: 11px;
+    flex: none;
+    border-radius: 2px;
+    background: var(--dv-na);
+    box-shadow: inset 0 0 0 1px var(--border);
   }
 
   .card:has(> .facets) { container-type: inline-size; }

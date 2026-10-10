@@ -13,20 +13,24 @@ const OPEN_EASING = "cubic-bezier(0.16, 1, 0.3, 1)"
 const CLOSE_EASING = "cubic-bezier(0.4, 0, 0.2, 1)"
 const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable='false'])"
 const INTERACTIVE = "button, a, [role='switch'], [role='separator'], input, textarea, select"
+const CARD = ".card, .foldcard"
 const CHART_SOURCES = [
   {
     identifier: "chart",
     selector: "[data-controller~='chart']:not([data-chart-spark-value='true'])",
     detached: ["brush", "brush-href", "brush-keys"]
   },
-  { identifier: "scatter", selector: "[data-controller~='scatter']", detached: [] }
+  { identifier: "scatter", selector: "[data-controller~='scatter']", detached: [] },
+  { identifier: "treemap", selector: "[data-controller~='treemap']", detached: [] },
+  { identifier: "parts", selector: "[data-controller~='parts']", detached: [] }
 ]
-const DISPLAY_KEYS = ["kind", "stacked", "yScale", "zero", "fit", "format", "grid", "notes", "overview", "labels", "xScale"]
+const DISPLAY_KEYS = ["kind", "stacked", "yScale", "zero", "fit", "format", "grid", "notes", "overview", "labels", "xScale", "sizeBy"]
 const STORAGE_PREFIX = "mn-explore-"
 const URL_PARAMS = { chart: "explore", from: "xfrom", to: "xto" }
 const URL_WRITE_DELAY = 150
 const INSPECTOR_MIN_WIDTH = 900
 const VIEW_MODES = ["chart", "split", "table"]
+const INSPECTOR_LABELS = { point: "Point", stats: "In view" }
 const DEFAULT_SPLIT = 0.4
 const SPLIT_MIN = 0.2
 const SPLIT_MAX = 0.75
@@ -74,6 +78,7 @@ export default class extends Controller {
     "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton", "overview",
     "range", "rangeLabel", "rangeCount",
     "inspector", "inspectorButton", "point", "pinButton", "pinLabel", "announcer", "stats", "statsRange",
+    "pointHeading", "statsHeading",
     "viewButton", "splitHandle", "table", "menu", "toastTemplate", "warningTemplate", "imageAction",
     "presentAction", "presentSeparator", "presentLabel", "toastRegion"
   ]
@@ -146,7 +151,7 @@ export default class extends Controller {
     const from = params.get(URL_PARAMS.from)
     const to = params.get(URL_PARAMS.to)
     this.pendingRange = from && to ? [from, to] : null
-    this.open(trigger.closest(".card"), trigger, { animate: false })
+    this.open(trigger.closest(CARD), trigger, { animate: false })
   }
 
   writeUrl() {
@@ -238,7 +243,7 @@ export default class extends Controller {
     if (!trigger || this.dialog.contains(trigger)) return
 
     event.preventDefault()
-    this.open(trigger.closest(".card"), trigger)
+    this.open(trigger.closest(CARD), trigger)
   }
 
   onPointerdown(event) {
@@ -404,12 +409,12 @@ export default class extends Controller {
   openFocusedCard(event) {
     if (this.layerAbove()) return
 
-    const trigger = this.element.querySelector(".card:hover [data-explore]") ||
-      document.activeElement?.closest?.(".card")?.querySelector("[data-explore]")
+    const trigger = this.element.querySelector(":is(.card, .foldcard):hover [data-explore]") ||
+      document.activeElement?.closest?.(CARD)?.querySelector("[data-explore]")
     if (!trigger) return
 
     event.preventDefault()
-    this.open(trigger.closest(".card"), trigger)
+    this.open(trigger.closest(CARD), trigger)
   }
 
   reset() {
@@ -512,6 +517,9 @@ export default class extends Controller {
       this.pendingRange = null
       if (restored && this.chart.zoomable()) this.applyWindow(restored)
     }
+    this.labels = { ...INSPECTOR_LABELS, ...this.chart.inspectorLabels?.() }
+    this.pointHeadingTarget.textContent = this.labels.point
+    this.statsHeadingTarget.textContent = this.labels.stats
     this.renderLegend()
     this.renderDisplay()
     this.renderZoom()
@@ -768,14 +776,14 @@ export default class extends Controller {
   }
 
   exportMarkup() {
-    const chartElement = this.chartMount?.querySelector(".chart")
+    const chartElement = this.chartMount?.querySelector(":scope > :is(.chart, .tree)")
     if (!this.chart || !chartElement || this.viewMode === "table") return null
 
     this.chart.clear()
     return exportSvg(chartElement, {
       title: this.titleTarget.textContent,
       subtitle: this.exportSubtitle(),
-      legend: this.exportLegend(),
+      ...this.exportLegend(),
       fontUrl: this.dialog.dataset.exportFont,
       colors: {
         background: getComputedStyle(this.panelTarget).backgroundColor,
@@ -788,15 +796,27 @@ export default class extends Controller {
   exportLegend() {
     const probe = element("span")
     this.panelTarget.append(probe)
-    const entries = this.chart.legendEntries()
-      .filter((entry) => !this.hiddenSeries.has(entry.key))
-      .map((entry) => {
-        probe.className = entry.colorClass
-        probe.style.color = entry.color || ""
-        return { label: entry.label, shape: entry.shape, color: getComputedStyle(probe).color }
-      })
+    const resolve = (colorClass, color) => {
+      probe.className = colorClass || ""
+      probe.style.color = color || ""
+      return getComputedStyle(probe).color
+    }
+    const scale = this.chart.legendScale?.()
+    const legend = scale
+      ? {
+        scale: {
+          low: scale.low, high: scale.high, note: scale.note,
+          steps: scale.steps.map((color) => resolve(null, color)),
+          extras: (scale.extras || []).map((extra) => ({ label: extra.label, color: resolve(null, extra.color) }))
+        }
+      }
+      : {
+        legend: this.chart.legendEntries()
+          .filter((entry) => !this.hiddenSeries.has(entry.key))
+          .map((entry) => ({ label: entry.label, shape: entry.shape, color: resolve(entry.colorClass, entry.color) }))
+      }
     probe.remove()
-    return entries
+    return legend
   }
 
   exportSubtitle() {
@@ -1056,7 +1076,8 @@ export default class extends Controller {
     this.pinButtonTarget.hidden = !details
     this.pinButtonTarget.setAttribute("aria-pressed", String(pinned))
     this.pinLabelTarget.textContent = pinned ? "Pinned" : "Pin"
-    this.pointTarget.replaceChildren(details ? this.pointView(details) : element("p", "explorer-point-empty", "No point selected"))
+    this.pointTarget.replaceChildren(details ? this.pointView(details) : element("p", "explorer-point-empty",
+      `No ${(this.labels?.point || INSPECTOR_LABELS.point).toLowerCase()} selected`))
   }
 
   pointView(details) {
@@ -1091,7 +1112,7 @@ export default class extends Controller {
     row.append(key, element("span", "explorer-point-label", value.label), element("b", "explorer-point-value", value.value))
 
     const meta = element("div", "explorer-point-meta")
-    if (value.change) meta.append(this.deltaView(value.change, "from the previous point"))
+    if (value.change) meta.append(this.deltaView(value.change, value.comparison || "from the previous point"))
     if (value.share) meta.append(element("span", "explorer-point-share", `${value.share} of total`))
     if (meta.childElementCount) row.append(meta)
     return row
@@ -1202,11 +1223,39 @@ export default class extends Controller {
   }
 
   renderLegend() {
+    const scale = this.chart?.legendScale?.()
+    if (scale) {
+      this.legendTarget.hidden = false
+      this.legendTarget.replaceChildren(...this.legendScaleView(scale))
+      return
+    }
+
     const entries = this.chart?.legendEntries() || []
     const focused = this.legendTarget.contains(document.activeElement) ? document.activeElement.dataset.series : null
     this.legendTarget.hidden = entries.length < 2
     this.legendTarget.replaceChildren(...(entries.length < 2 ? [] : entries.map((entry) => this.legendItem(entry))))
     if (focused) this.legendTarget.querySelector(`[data-series="${focused}"]`)?.focus({ preventScroll: true })
+  }
+
+  legendScaleView({ low, high, steps, extras = [], note }) {
+    const ramp = element("span", "explorer-legend-scale")
+    ramp.append(element("span", null, low))
+    steps.forEach((color) => {
+      const swatch = element("i", "explorer-legend-key is-box")
+      swatch.style.color = color
+      ramp.append(swatch)
+    })
+    ramp.append(element("span", null, high))
+    const nodes = [ramp]
+    extras.forEach((extra) => {
+      const item = element("span", "explorer-legend-scale")
+      const swatch = element("i", "explorer-legend-key is-box is-outlined")
+      swatch.style.color = extra.color
+      item.append(swatch, element("span", null, extra.label))
+      nodes.push(item)
+    })
+    if (note) nodes.push(element("span", "explorer-legend-note", note))
+    return nodes
   }
 
   legendItem(entry) {
@@ -1369,7 +1418,7 @@ export default class extends Controller {
   }
 
   fillHeader(card, trigger) {
-    const title = trigger?.dataset.exploreTitle || card.querySelector(".card-title")?.textContent.trim() || ""
+    const title = trigger?.dataset.exploreTitle || card.querySelector(".card-title, .fold-title")?.textContent.trim() || ""
     const subtitle = card.querySelector(".card-sub")?.textContent.trim() || ""
     this.titleTarget.textContent = title
     this.subtitleTarget.textContent = subtitle

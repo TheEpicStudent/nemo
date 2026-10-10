@@ -22,6 +22,9 @@ module ExploreHelper
     ["Numbers", [
       { key: "format", label: "Format", choices: [["full", "1,204", "Full"], ["compact", "1.2k", "Compact"]] }
     ]],
+    ["Tiles", [
+      { key: "sizeBy", label: "Size by", choices: [["messages", "This window"], ["prior", "Before"]] }
+    ]],
     ["Show", [
       { key: "grid", label: "Gridlines", shortcut: "G" },
       { key: "notes", label: "Annotations", shortcut: "A" },
