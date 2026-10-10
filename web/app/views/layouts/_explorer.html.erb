@@ -1,0 +1,23 @@
+<dialog id="chart-explorer" class="explorer" aria-labelledby="chart-explorer-title"
+        data-explorer-target="dialog" data-turbo-permanent>
+  <div class="explorer-panel" data-explorer-target="panel" tabindex="-1">
+    <header class="explorer-header">
+      <div class="explorer-heading">
+        <h2 class="explorer-title" id="chart-explorer-title" data-explorer-target="title"></h2>
+        <span class="explorer-subtitle" data-explorer-target="subtitle" hidden></span>
+      </div>
+      <div class="explorer-toolbar" role="toolbar" aria-label="Chart tools">
+        <button type="button" class="btn btn-ghost btn-sm btn-only" data-action="explorer#close"
+                aria-label="Close" aria-keyshortcuts="Escape">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+    <div class="explorer-body" data-explorer-target="body">
+      <div class="explorer-plot" data-explorer-target="plot"></div>
+    </div>
+  </div>
+</dialog>

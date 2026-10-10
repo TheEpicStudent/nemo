@@ -1,0 +1,48 @@
+@layer base {
+  html:has(.explorer[open]) {
+    overflow: hidden;
+  }
+
+  .explorer {
+    @apply fixed inset-0 m-0 h-full max-h-none w-full max-w-none border-0 bg-transparent p-3 text-foreground outline-none max-sm:p-0;
+  }
+
+  .explorer::backdrop {
+    background: var(--veil);
+    animation: fade-in var(--dur-3) var(--ease-out);
+  }
+
+  .explorer-panel {
+    @apply relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-card text-card-foreground ring-1 ring-foreground/10 outline-none max-sm:rounded-none;
+    box-shadow: 0 30px 60px -16px oklch(0 0 0 / 0.35);
+    container-type: inline-size;
+  }
+
+  .explorer-header {
+    @apply flex min-h-13 flex-none items-center gap-3 border-b border-border py-2 pr-2.5 pl-4.5;
+  }
+
+  .explorer-heading {
+    @apply flex min-w-0 flex-auto items-center gap-2.5;
+  }
+
+  .explorer-title {
+    @apply m-0 min-w-10 truncate text-sm leading-snug font-semibold tracking-tight text-card-foreground;
+  }
+
+  .explorer-subtitle {
+    @apply truncate text-[0.8125rem] text-muted-foreground;
+  }
+
+  .explorer-toolbar {
+    @apply ml-auto flex flex-none items-center gap-1.5;
+  }
+
+  .explorer-body {
+    @apply relative flex min-h-0 flex-auto flex-col;
+  }
+
+  .explorer-plot {
+    @apply relative min-h-0 flex-auto;
+  }
+}
