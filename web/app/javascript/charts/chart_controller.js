@@ -280,6 +280,15 @@ export default class extends Controller {
     }
   }
 
+  pointKey(index) {
+    const row = this.rows[index]
+    return row ? String(row.key) : null
+  }
+
+  indexOfKey(key) {
+    return this.rows.findIndex((row) => String(row.key) === key)
+  }
+
   windowForKeys(from, to) {
     const rows = this.rows
     const start = rows.findIndex((r) => String(r.key) === from)

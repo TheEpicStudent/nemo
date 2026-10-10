@@ -125,6 +125,7 @@ export default class extends Controller {
     this.onKeyup = this.onKeyup.bind(this)
     this.onFullscreenChange = this.onFullscreenChange.bind(this)
     this.onFrameLoad = this.onFrameLoad.bind(this)
+    this.onMorph = this.onMorph.bind(this)
     this.tool = "select"
     this.overview = new Overview(this.overviewTarget, {
       onWindow: (window, { animate }) => this.moveWindow(window, { animate }),
@@ -137,6 +138,7 @@ export default class extends Controller {
     document.addEventListener("keyup", this.onKeyup)
     document.addEventListener("fullscreenchange", this.onFullscreenChange)
     document.addEventListener("turbo:frame-load", this.onFrameLoad)
+    document.addEventListener("turbo:morph", this.onMorph)
     this.dialog.addEventListener("pointerdown", this.onPointerdown)
     this.presentActionTarget.hidden = !document.fullscreenEnabled
     this.presentSeparatorTarget.hidden = !document.fullscreenEnabled
@@ -149,6 +151,7 @@ export default class extends Controller {
     document.removeEventListener("keyup", this.onKeyup)
     document.removeEventListener("fullscreenchange", this.onFullscreenChange)
     document.removeEventListener("turbo:frame-load", this.onFrameLoad)
+    document.removeEventListener("turbo:morph", this.onMorph)
     this.dialog.removeEventListener("pointerdown", this.onPointerdown)
     clearTimeout(this.urlTimer)
     this.resizeObserver.disconnect()
@@ -196,7 +199,72 @@ export default class extends Controller {
   }
 
   onFrameLoad() {
-    if (!this.isOpen && !this.closing) this.restoreFromUrl()
+    if (this.isOpen) this.syncWithPage()
+    else if (!this.closing) this.restoreFromUrl()
+  }
+
+  onMorph() {
+    if (!this.isOpen || this.closing) return
+
+    this.uncoverPage()
+    this.coverPage()
+    this.syncWithPage()
+  }
+
+  syncWithPage() {
+    if (!this.isOpen || this.closing || !this.key) return
+
+    const trigger = [...this.element.querySelectorAll("[data-explore]")]
+      .find((element) => element.dataset.explore === this.key && !this.dialog.contains(element))
+    if (!trigger) {
+      this.finishClose()
+      return
+    }
+
+    const card = trigger.closest(CARD)
+    const scope = trigger.closest("[data-explore-scope]") || card
+    this.card = card
+    if (!this.opener?.isConnected) this.opener = trigger
+    this.pageRange = trigger.dataset.exploreRange
+      ? { href: trigger.dataset.exploreRange, keys: parseKeys(trigger.dataset.exploreRangeKeys) }
+      : null
+    this.fillHeader(card, trigger)
+    if (this.sourceSignature(scope) !== this.mountSignature) this.remount(scope)
+  }
+
+  sourceSignature(scope) {
+    const kind = CHART_SOURCES.find((entry) => scope.querySelector(entry.selector))
+    const source = kind && scope.querySelector(kind.selector)
+    if (!source) return null
+
+    const prefix = `data-${kind.identifier}-`
+    const skipped = new Set([...kind.detached, "view"].map((name) => `${prefix}${name}-value`))
+    return [kind.identifier, ...[...source.attributes]
+      .filter(({ name }) => name.startsWith(prefix) && !skipped.has(name))
+      .map(({ name, value }) => `${name}=${value}`)
+      .sort()].join("\n")
+  }
+
+  remount(scope) {
+    const range = this.zoomWindow ? this.chart?.rangeOf?.(this.zoomWindow) : null
+    this.pendingRange = range ? [range.from, range.to] : null
+    this.pendingWindow = !range && this.zoomWindow ? this.zoomWindow : null
+    this.pendingPin = this.pin != null ? this.chart?.pointKey?.(this.pin) ?? null : null
+    const hidden = [...this.hiddenSeries]
+    cancelAnimationFrame(this.zoomFrame)
+    this.chart = null
+    this.zoomWindow = null
+    this.pin = null
+    this.hoverIndex = null
+    this.mountChart(scope, { hidden })
+    this.renderZoom()
+    this.renderRange()
+    this.renderOverview()
+    this.scheduleUrl()
+    if (!this.chartMount) {
+      this.tableTarget.replaceChildren()
+      this.statsTarget.replaceChildren()
+    }
   }
 
   pageRangeFor(window) {
@@ -524,6 +592,9 @@ export default class extends Controller {
     this.panelTarget.classList.remove("is-applying")
     this.pageRange = null
     this.pendingRange = null
+    this.pendingWindow = null
+    this.pendingPin = null
+    this.mountSignature = null
     this.pin = null
     this.hoverIndex = null
     this.pinBeforeClick = null
@@ -546,12 +617,18 @@ export default class extends Controller {
     this.opener = null
   }
 
-  mountChart(card) {
+  mountChart(card, { hidden = [] } = {}) {
     const kind = CHART_SOURCES.find((entry) => card.querySelector(entry.selector))
     const source = kind && card.querySelector(kind.selector)
+    this.mountSignature = this.sourceSignature(card)
     if (!source) {
       const empty = card.querySelector(".empty")
+      this.chartMount = null
+      this.gestures?.destroy()
+      this.gestures = null
       this.plotTarget.replaceChildren(empty ? empty.cloneNode(true) : this.emptyState())
+      this.renderLegend()
+      this.renderInspector()
       return
     }
 
@@ -560,7 +637,7 @@ export default class extends Controller {
     kind.detached.forEach((name) => mount.removeAttribute(`data-${kind.identifier}-${name}-value`))
     this.chartIdentifier = kind.identifier
     this.chartMount = mount
-    this.hiddenSeries = new Set()
+    this.hiddenSeries = new Set(hidden)
     this.displayOverrides = this.loadDisplay()
     const saved = this.readPreferences()
     this.inspectorOpen = typeof saved.inspector === "boolean"
@@ -609,10 +686,16 @@ export default class extends Controller {
   chartReady(event) {
     this.chart = this.application.getControllerForElementAndIdentifier(event.target, this.chartIdentifier)
     if (!this.chart) return
-    if (this.pendingRange) {
-      const restored = this.chart.windowForKeys?.(...this.pendingRange)
+    if (this.pendingRange || this.pendingWindow) {
+      const restored = this.pendingRange ? this.chart.windowForKeys?.(...this.pendingRange) : this.pendingWindow
       this.pendingRange = null
+      this.pendingWindow = null
       if (restored && this.canZoom) this.applyWindow(restored)
+    }
+    if (this.pendingPin != null) {
+      const index = this.chart.indexOfKey?.(this.pendingPin)
+      this.pendingPin = null
+      if (index != null && index >= 0) this.setPin(index)
     }
     this.labels = { ...INSPECTOR_LABELS, ...this.chart.inspectorLabels?.() }
     this.pointHeadingTarget.textContent = this.labels.point

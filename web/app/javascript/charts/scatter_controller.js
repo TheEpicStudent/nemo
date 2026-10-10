@@ -309,6 +309,15 @@ export default class extends Controller {
       .map(({ index }) => index)
   }
 
+  pointKey(index) {
+    const point = this.pointsValue[index]
+    return point ? String(point.name) : null
+  }
+
+  indexOfKey(key) {
+    return this.pointsValue.findIndex((point) => String(point.name) === key)
+  }
+
   windowLabel(window) {
     const shown = this.visibleIndices(window).length
     return { label: "Zoomed", detail: `${shown} of ${this.pointsValue.length}` }

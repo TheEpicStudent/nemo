@@ -298,6 +298,15 @@ export default class extends Controller {
     if (say) say.textContent = ""
   }
 
+  pointKey(index) {
+    const stage = this.stages[index]
+    return stage ? String(stage.label) : null
+  }
+
+  indexOfKey(key) {
+    return this.stages.findIndex((stage) => String(stage.label) === key)
+  }
+
   displayDefaults() {
     return { labels: true }
   }

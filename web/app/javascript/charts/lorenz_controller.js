@@ -261,6 +261,15 @@ export default class extends Controller {
     if (say) say.textContent = ""
   }
 
+  pointKey(index) {
+    const point = this.points[index]
+    return point ? String(point[0]) : null
+  }
+
+  indexOfKey(key) {
+    return this.points.findIndex((point) => String(point[0]) === key)
+  }
+
   holdingAt(posters) {
     const point = this.points.find((p) => p[0] === posters)
     return point ? point[1] : null

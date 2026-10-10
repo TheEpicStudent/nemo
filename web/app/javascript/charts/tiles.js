@@ -162,6 +162,15 @@ export class TileChart extends Controller {
       rx="${(tile.rx + PIN_INSET).toFixed(1)}"/>`
   }
 
+  pointKey(index) {
+    const row = this.tilesValue[index]
+    return row ? String(row.name ?? row.label) : null
+  }
+
+  indexOfKey(key) {
+    return this.tilesValue.findIndex((row) => String(row.name ?? row.label) === key)
+  }
+
   zoneFor(i) {
     return this.zones?.find((zone) => zone.i === i) || null
   }

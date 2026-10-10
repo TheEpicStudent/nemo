@@ -50,6 +50,7 @@ const chartNames = new Set(chartPaths.map((path) =>
 document.addEventListener("turbo:morph", () => {
   application.controllers
     .filter((controller) => chartNames.has(controller.identifier))
+    .filter((controller) => !controller.element.closest("[data-turbo-permanent]"))
     .forEach((controller) => {
       controller.disconnect?.()
       controller.connect?.()
