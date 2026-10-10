@@ -111,7 +111,6 @@ export async function exportSvg(chartElement, { title, subtitle, legend = [], fo
 
 export function svgToPng(markup, { scale = PNG_SCALE } = {}) {
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(new Blob([markup], { type: "image/svg+xml" }))
     const image = new Image()
     image.onload = () => {
       const canvas = document.createElement("canvas")
@@ -120,13 +119,9 @@ export function svgToPng(markup, { scale = PNG_SCALE } = {}) {
       const context = canvas.getContext("2d")
       context.scale(scale, scale)
       context.drawImage(image, 0, 0)
-      URL.revokeObjectURL(url)
       canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("png encoding failed"))), "image/png")
     }
-    image.onerror = () => {
-      URL.revokeObjectURL(url)
-      reject(new Error("svg rendering failed"))
-    }
-    image.src = url
+    image.onerror = () => reject(new Error("svg rendering failed"))
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`
   })
 }

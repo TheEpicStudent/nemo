@@ -359,6 +359,10 @@
     @apply ml-2 text-xs text-muted-foreground;
   }
 
+  .explorer-menu-shortcut {
+    @apply ml-auto;
+  }
+
   .explorer-menu .menu-pop button:disabled {
     @apply pointer-events-none opacity-50;
   }

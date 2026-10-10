@@ -276,6 +276,7 @@ export default class extends Controller {
       case "a": return () => this.toggleSettingIfShown("notes")
       case "n": return () => this.toggleSettingIfShown("overview")
       case "i": return () => this.toggleInspector()
+      case "c": return () => this.copyImage()
       case "1": return () => this.chooseView({ params: { view: "chart" } })
       case "2": return () => this.chooseView({ params: { view: "split" } })
       case "3": return () => this.chooseView({ params: { view: "table" } })
@@ -728,6 +729,27 @@ export default class extends Controller {
     } catch {
       this.showToast("Export failed", { warning: true })
     }
+  }
+
+  copyImage() {
+    this.closeMenu()
+    if (!this.chart || this.viewMode === "table") return
+    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+      this.showToast("Clipboard unavailable", { warning: true })
+      return
+    }
+
+    let renderFailed = false
+    const png = Promise.resolve(this.exportMarkup()).then((markup) => {
+      if (!markup) throw new Error("nothing to export")
+      return svgToPng(markup)
+    }).catch((error) => {
+      renderFailed = true
+      throw error
+    })
+    navigator.clipboard.write([new ClipboardItem({ [IMAGE_TYPES.png]: png })])
+      .then(() => this.showToast("Copied image"))
+      .catch(() => this.showToast(renderFailed ? "Export failed" : "Clipboard unavailable", { warning: true }))
   }
 
   exportMarkup() {
