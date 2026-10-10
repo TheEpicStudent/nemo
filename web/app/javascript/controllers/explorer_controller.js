@@ -1,6 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 import { modalsOpen, aboveOpen, popupOpen, drawerOpen } from "lib/layers"
-import { zoomWindow, isFullWindow, interpolateWindow, minimumSpan } from "charts/frame"
+import { zoomWindow, windowAround, shiftWindow, isFullWindow, interpolateWindow, minimumSpan } from "charts/frame"
+import { PlotGestures } from "charts/gesture"
 
 const OPEN_DURATION = 340
 const CLOSE_DURATION = 220
@@ -10,6 +11,8 @@ const ZOOM_STEP = 0.6
 const OPEN_EASING = "cubic-bezier(0.16, 1, 0.3, 1)"
 const CLOSE_EASING = "cubic-bezier(0.4, 0, 0.2, 1)"
 const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable='false'])"
+const INTERACTIVE = "button, a, [role='switch'], [role='separator'], input, textarea, select"
+const MIN_BRUSH_ROWS = 2
 const CHART_SOURCE = "[data-controller~='chart']:not([data-chart-spark-value='true'])"
 const DETACHED_VALUES = ["brush", "brush-href", "brush-keys"]
 const DISPLAY_KEYS = ["kind", "stacked", "yScale", "zero", "fit", "format", "grid", "notes"]
@@ -18,7 +21,7 @@ const STORAGE_PREFIX = "mn-explore-"
 export default class extends Controller {
   static targets = [
     "dialog", "panel", "title", "subtitle", "body", "legend", "plot", "displayButton", "display",
-    "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton"
+    "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton"
   ]
 
   connect() {
@@ -27,14 +30,18 @@ export default class extends Controller {
     this.onClick = this.onClick.bind(this)
     this.onKeydown = this.onKeydown.bind(this)
     this.onPointerdown = this.onPointerdown.bind(this)
+    this.onKeyup = this.onKeyup.bind(this)
+    this.tool = "select"
     this.element.addEventListener("click", this.onClick)
     document.addEventListener("keydown", this.onKeydown)
+    document.addEventListener("keyup", this.onKeyup)
     this.dialog.addEventListener("pointerdown", this.onPointerdown)
   }
 
   disconnect() {
     this.element.removeEventListener("click", this.onClick)
     document.removeEventListener("keydown", this.onKeydown)
+    document.removeEventListener("keyup", this.onKeyup)
     this.dialog.removeEventListener("pointerdown", this.onPointerdown)
     this.hide()
     this.reset()
@@ -99,6 +106,10 @@ export default class extends Controller {
       this.closeDisplay({ restoreFocus: true })
       return
     }
+    if (this.gestures?.active) {
+      this.gestures.cancel()
+      return
+    }
     this.close()
   }
 
@@ -137,6 +148,11 @@ export default class extends Controller {
       this.dismiss()
       return
     }
+    if (event.key === " " && !event.target.closest?.(INTERACTIVE)) {
+      event.preventDefault()
+      this.setSpaceHeld(true)
+      return
+    }
 
     const shortcut = this.shortcutFor(event)
     if (!shortcut) return
@@ -152,11 +168,108 @@ export default class extends Controller {
       case "+": case "=": return () => this.zoomIn()
       case "-": case "_": return () => this.zoomOut()
       case "0": return () => this.resetZoom()
+      case "b": return () => this.chooseTool({ params: { tool: "select" } })
+      case "h": return () => this.chooseTool({ params: { tool: "pan" } })
       case "d": return () => this.toggleDisplay()
       case "g": return () => this.toggleSettingIfShown("grid")
       case "a": return () => this.toggleSettingIfShown("notes")
       default: return null
     }
+  }
+
+  onKeyup(event) {
+    if (event.key === " ") this.setSpaceHeld(false)
+  }
+
+  setSpaceHeld(held) {
+    if (this.spaceHeld === held) return
+
+    this.spaceHeld = held
+    this.renderTool()
+  }
+
+  chooseTool({ params: { tool } }) {
+    if (!this.chart?.zoomable()) return
+
+    this.tool = tool === "pan" ? "pan" : "select"
+    this.renderTool()
+  }
+
+  get panMode() {
+    return this.tool === "pan" || !!this.spaceHeld
+  }
+
+  renderTool() {
+    this.toolButtonTargets.forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.explorerToolParam === this.tool))
+    })
+    this.plotTarget.classList.toggle("is-pannable", this.panMode && !!this.zoomWindow)
+  }
+
+  startGestures() {
+    this.gestures?.destroy()
+    this.gestures = new PlotGestures(this.plotTarget, {
+      panMode: () => this.panMode,
+      hover: (event) => this.chart?.track(event),
+      leave: () => this.chart?.clear(),
+      tap: (event) => { if (event.pointerType === "touch") this.chart?.track(event) },
+      brushStart: () => {
+        if (!this.chart?.zoomable()) return false
+        this.chart.clear()
+        return true
+      },
+      brushMove: (start, event) => this.chart.selectUnits(this.chart.unitAt(start), this.chart.unitAt(event)),
+      brushEnd: (start, event) => this.zoomToSelection(this.chart.unitAt(start), this.chart.unitAt(event)),
+      pan: (dx) => this.panBy(dx),
+      panEnd: () => this.plotTarget.classList.remove("is-panning"),
+      zoom: (factor, event) => this.zoomAround(factor, this.chart?.unitAt(event)),
+      pinchStart: (center) => {
+        this.pinchOrigin = { window: this.currentWindow(), anchor: this.chart?.unitAt(center) }
+      },
+      pinch: (scale) => this.zoomFromOrigin(scale),
+      doubleClick: () => this.resetZoom(),
+      cancel: () => {
+        this.chart?.clear()
+        this.plotTarget.classList.remove("is-panning")
+      }
+    })
+  }
+
+  currentWindow() {
+    return this.zoomWindow || [0, this.chart?.rowCount() || 0]
+  }
+
+  zoomToSelection(from, to) {
+    this.chart.clear()
+    if (from == null || to == null) return
+
+    const start = Math.floor(Math.min(from, to))
+    const end = Math.ceil(Math.max(from, to))
+    if (end - start < MIN_BRUSH_ROWS) return
+
+    this.animateWindow(windowAround(start, end, this.chart.rowCount()))
+  }
+
+  panBy(dx) {
+    if (!this.chart || !this.zoomWindow) return
+
+    cancelAnimationFrame(this.zoomFrame)
+    this.plotTarget.classList.add("is-panning")
+    this.applyWindow(shiftWindow(this.zoomWindow, this.chart.rowCount(), -dx * this.chart.rowsPerPixel()))
+  }
+
+  zoomAround(factor, anchor) {
+    if (!this.chart?.zoomable() || anchor == null) return
+
+    cancelAnimationFrame(this.zoomFrame)
+    this.applyWindow(zoomWindow(this.currentWindow(), this.chart.rowCount(), factor, anchor))
+  }
+
+  zoomFromOrigin(scale) {
+    const origin = this.pinchOrigin
+    if (!this.chart?.zoomable() || !origin || origin.anchor == null) return
+
+    this.applyWindow(zoomWindow(origin.window, this.chart.rowCount(), scale, origin.anchor))
   }
 
   isExpandShortcut(event) {
@@ -189,7 +302,13 @@ export default class extends Controller {
     this.hiddenSeries = new Set()
     this.displayOverrides = {}
     cancelAnimationFrame(this.zoomFrame)
+    this.gestures?.destroy()
+    this.gestures = null
+    this.pinchOrigin = null
     this.zoomWindow = null
+    this.tool = "select"
+    this.spaceHeld = false
+    this.plotTarget.classList.remove("is-pannable", "is-panning")
     this.zoomControlsTarget.hidden = true
     this.card = null
     this.key = null
@@ -212,11 +331,12 @@ export default class extends Controller {
     this.displayOverrides = this.loadDisplay()
     this.writeView()
     this.plotTarget.replaceChildren(mount)
+    this.startGestures()
   }
 
   get view() {
     return {
-      fill: true, title: this.titleTarget.textContent, legend: false, hidden: [...this.hiddenSeries],
+      fill: true, title: this.titleTarget.textContent, legend: false, pointer: "external", hidden: [...this.hiddenSeries],
       ...this.displayOverrides, ...(this.zoomWindow ? { window: this.zoomWindow } : {})
     }
   }
@@ -234,6 +354,7 @@ export default class extends Controller {
     this.renderLegend()
     this.renderDisplay()
     this.renderZoom()
+    this.renderTool()
   }
 
   zoomIn() {
@@ -281,6 +402,7 @@ export default class extends Controller {
     this.zoomWindow = isFullWindow(window, this.chart.rowCount()) ? null : window
     this.writeView()
     this.renderZoom()
+    this.renderTool()
   }
 
   renderZoom() {

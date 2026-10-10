@@ -154,7 +154,27 @@
   }
 
   .explorer-plot {
-    @apply relative flex min-h-0 flex-auto flex-col;
+    @apply relative flex min-h-0 flex-auto cursor-crosshair touch-none flex-col select-none;
+  }
+
+  .explorer-plot .mark {
+    cursor: inherit;
+  }
+
+  .explorer-plot.is-pannable {
+    @apply cursor-grab;
+  }
+
+  .explorer-plot.is-panning {
+    @apply cursor-grabbing;
+  }
+
+  .explorer-tools {
+    @apply h-7;
+  }
+
+  .explorer-tools > button {
+    @apply px-1.5;
   }
 
   .explorer-plot [data-highlight] .chart svg [data-series] {

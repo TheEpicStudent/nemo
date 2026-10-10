@@ -139,8 +139,35 @@ export default class extends Controller {
     this.draw(chart, this.wide)
   }
 
+  get externalPointer() {
+    return this.viewValue.pointer === "external"
+  }
+
   rowCount() {
     return this.rows.length
+  }
+
+  unitAt(event) {
+    const g = this.geom
+    if (!g) return null
+
+    const box = this.element.querySelector(".chart").getBoundingClientRect()
+    const offset = (event.clientX - box.left - g.x.range()[0]) / g.x.step() - g.x.paddingOuter() / 2
+    return clamp(offset, 0, g.rows.length)
+  }
+
+  rowsPerPixel() {
+    return this.geom ? 1 / this.geom.x.step() : 0
+  }
+
+  selectUnits(from, to) {
+    const g = this.geom
+    if (!g) return
+
+    const last = g.rows.length - 1
+    const lo = clamp(Math.floor(Math.min(from, to)), 0, last)
+    const hi = clamp(Math.ceil(Math.max(from, to)) - 1, lo, last)
+    this.highlightRows(lo, hi)
   }
 
   zoomable() {
@@ -302,9 +329,10 @@ export default class extends Controller {
     const brush = this.brushValue
       ? " pointerdown->chart#press pointermove->chart#drag pointerup->chart#release pointercancel->chart#release"
       : ""
+    const hover = this.externalPointer ? "" : "mousemove->chart#track mouseleave->chart#clear "
     this.element.innerHTML = `${this.head(series)}<div class="chart tipped${
       this.brushValue ? " is-brush" : ""}" tabindex="0"
-      data-action="mousemove->chart#track mouseleave->chart#clear keydown->chart#key${brush}"
+      data-action="${hover}keydown->chart#key${brush}"
       ><div class="tip"></div><span class="chart-caption" aria-live="polite"></span></div>`
     this.wide = 0
     this.watcher.disconnect()
@@ -549,7 +577,7 @@ export default class extends Controller {
     const body = line
       ? this.drawLine(rows, series, { x, y, mid, lo, floor, log })
       : this.drawBars(rows, series, { x, y, floor })
-    const brushed = this.brushValue
+    const brushed = this.brushValue || this.externalPointer
       ? `<rect class="brush-area" x="0" y="${pad.t}" width="0" height="${
         (floor - pad.t).toFixed(1)}" opacity="0"/>`
       : ""
@@ -849,10 +877,12 @@ export default class extends Controller {
   }
 
   span() {
+    this.highlightRows(Math.min(this.held.from, this.held.to), Math.max(this.held.from, this.held.to))
+  }
+
+  highlightRows(lo, hi) {
     const g = this.geom
     const chart = this.element.querySelector(".chart")
-    const lo = Math.min(this.held.from, this.held.to)
-    const hi = Math.max(this.held.from, this.held.to)
 
     chart.querySelector(".tip")?.classList.remove("on")
     chart.querySelector(".cur")?.setAttribute("opacity", "0")
@@ -860,8 +890,8 @@ export default class extends Controller {
       mark.classList.toggle("fade", +mark.dataset.i < lo || +mark.dataset.i > hi))
 
     const lip = (g.x.step() - g.x.bandwidth()) / 2
-    const left = g.x(lo) - lip
-    const right = g.x(hi) + g.x.bandwidth() + lip
+    const left = Math.max(g.pad.l, g.x(lo) - lip)
+    const right = Math.min(g.wide - g.pad.r, g.x(hi) + g.x.bandwidth() + lip)
     const area = chart.querySelector(".brush-area")
     area?.setAttribute("x", left.toFixed(1))
     area?.setAttribute("width", (right - left).toFixed(1))

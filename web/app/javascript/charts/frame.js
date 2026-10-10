@@ -18,6 +18,16 @@ export function zoomWindow(window, count, factor, anchor = (window[0] + window[1
   return clampWindow([nextStart, nextStart + nextSpan], count)
 }
 
+export function windowAround(start, end, count) {
+  const span = Math.max(end - start, minimumSpan(count))
+  const center = (start + end) / 2
+  return clampWindow([center - span / 2, center + span / 2], count)
+}
+
+export function shiftWindow([start, end], count, offset) {
+  return clampWindow([start + offset, end + offset], count)
+}
+
 export function isFullWindow(window, count) {
   return !window || (window[0] <= 0.001 && window[1] >= count - 0.001)
 }

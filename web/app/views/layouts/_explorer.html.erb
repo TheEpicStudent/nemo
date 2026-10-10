@@ -8,6 +8,19 @@
       </div>
       <div class="explorer-toolbar" role="toolbar" aria-label="Chart tools">
         <div class="explorer-tool-group" data-explorer-target="zoomControls" hidden>
+          <span class="segmented explorer-tools" role="group" aria-label="Pointer">
+            <button type="button" aria-pressed="true" aria-label="Select" aria-keyshortcuts="b"
+                    data-explorer-target="toolButton" data-explorer-tool-param="select" data-action="explorer#chooseTool">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.034 12.681a.498.498 0 0 1 .647-.647l9 3.5a.5.5 0 0 1-.033.943l-3.444 1.068a1 1 0 0 0-.66.66l-1.067 3.443a.5.5 0 0 1-.943.033z"/><path d="M5 3a2 2 0 0 0-2 2M19 3a2 2 0 0 1 2 2M5 21a2 2 0 0 1-2-2M9 3h1M9 21h2M14 3h1M3 9v1M21 9v2M3 14v1"/></svg>
+            </button>
+            <button type="button" aria-pressed="false" aria-label="Pan" aria-keyshortcuts="h"
+                    data-explorer-target="toolButton" data-explorer-tool-param="pan" data-action="explorer#chooseTool">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
+            </button>
+          </span>
+          <span class="explorer-separator" aria-hidden="true"></span>
           <button type="button" class="btn btn-ghost btn-sm btn-only" data-explorer-target="zoomOutButton"
                   data-action="explorer#zoomOut" aria-label="Zoom out" aria-keyshortcuts="-">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
