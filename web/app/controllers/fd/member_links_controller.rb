@@ -7,8 +7,12 @@ module Fd
     DEFAULT_VIEW = "review".freeze
 
     def index
-      @view = VIEWS.key?(params[:view]) ? params[:view] : DEFAULT_VIEW
-      ids = send("#{@view}_ids")
+      @view = VIEWS.keys.find { |key| key == params[:view] } || DEFAULT_VIEW
+      ids = case @view
+            when "clusters" then clusters_ids
+            when "pairs" then pairs_ids
+            else review_ids
+            end
       @names = Names.for(ids + @verdicts.values.map(&:decided_by))
     end
 
