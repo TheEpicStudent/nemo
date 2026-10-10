@@ -156,6 +156,30 @@ export default class extends Controller {
     return clamp(offset, 0, g.rows.length)
   }
 
+  rangeOf(window) {
+    const rows = this.rows
+    if (!rows.length) return null
+
+    const last = rows.length - 1
+    const [start, end] = window || [0, rows.length]
+    const first = clamp(Math.floor(start), 0, last)
+    const final = clamp(Math.ceil(end) - 1, first, last)
+    return {
+      from: String(rows[first].key), to: String(rows[final].key),
+      fromLabel: rows[first].label, toLabel: rows[final].label,
+      count: final - first + 1, total: rows.length, daily: this.daysValue
+    }
+  }
+
+  windowForKeys(from, to) {
+    const rows = this.rows
+    const start = rows.findIndex((r) => String(r.key) === from)
+    const end = rows.findIndex((r) => String(r.key) === to)
+    if (start < 0 || end < start) return null
+
+    return [start, end + 1]
+  }
+
   plotBounds() {
     const g = this.geom
     if (!g) return null

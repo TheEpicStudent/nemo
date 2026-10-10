@@ -18,11 +18,14 @@ const CHART_SOURCE = "[data-controller~='chart']:not([data-chart-spark-value='tr
 const DETACHED_VALUES = ["brush", "brush-href", "brush-keys"]
 const DISPLAY_KEYS = ["kind", "stacked", "yScale", "zero", "fit", "format", "grid", "notes", "overview"]
 const STORAGE_PREFIX = "mn-explore-"
+const URL_PARAMS = { chart: "explore", from: "xfrom", to: "xto" }
+const URL_WRITE_DELAY = 150
 
 export default class extends Controller {
   static targets = [
     "dialog", "panel", "title", "subtitle", "body", "legend", "plot", "displayButton", "display",
-    "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton", "overview"
+    "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton", "overview",
+    "range", "rangeLabel", "rangeCount"
   ]
 
   connect() {
@@ -43,6 +46,7 @@ export default class extends Controller {
     document.addEventListener("keydown", this.onKeydown)
     document.addEventListener("keyup", this.onKeyup)
     this.dialog.addEventListener("pointerdown", this.onPointerdown)
+    this.restoreFromUrl()
   }
 
   disconnect() {
@@ -50,6 +54,7 @@ export default class extends Controller {
     document.removeEventListener("keydown", this.onKeydown)
     document.removeEventListener("keyup", this.onKeyup)
     this.dialog.removeEventListener("pointerdown", this.onPointerdown)
+    clearTimeout(this.urlTimer)
     this.resizeObserver.disconnect()
     this.overview.destroy()
     this.hide()
@@ -60,7 +65,7 @@ export default class extends Controller {
     return !this.dialog.hidden
   }
 
-  open(card, trigger = null) {
+  open(card, trigger = null, { animate = true } = {}) {
     if (!card || this.isOpen) return
 
     this.card = card
@@ -70,8 +75,44 @@ export default class extends Controller {
     this.dialog.hidden = false
     this.coverPage()
     this.mountChart(card)
-    this.animateOpen()
+    if (animate) this.animateOpen()
     this.panelTarget.focus({ preventScroll: true })
+    this.writeUrl()
+  }
+
+  restoreFromUrl() {
+    const params = new URL(window.location.href).searchParams
+    const key = params.get(URL_PARAMS.chart)
+    if (!key) return
+
+    const trigger = [...this.element.querySelectorAll("[data-explore]")].find((element) => element.dataset.explore === key)
+    if (!trigger) return
+
+    const from = params.get(URL_PARAMS.from)
+    const to = params.get(URL_PARAMS.to)
+    this.pendingRange = from && to ? [from, to] : null
+    this.open(trigger.closest(".card"), trigger, { animate: false })
+  }
+
+  writeUrl() {
+    clearTimeout(this.urlTimer)
+    const url = new URL(window.location.href)
+    const range = this.isOpen && this.zoomWindow && this.chart ? this.chart.rangeOf(this.zoomWindow) : null
+    if (this.isOpen && this.key) url.searchParams.set(URL_PARAMS.chart, this.key)
+    else url.searchParams.delete(URL_PARAMS.chart)
+    if (range) {
+      url.searchParams.set(URL_PARAMS.from, range.from)
+      url.searchParams.set(URL_PARAMS.to, range.to)
+    } else {
+      url.searchParams.delete(URL_PARAMS.from)
+      url.searchParams.delete(URL_PARAMS.to)
+    }
+    if (url.href !== window.location.href) window.history.replaceState(window.history.state, "", url)
+  }
+
+  scheduleUrl() {
+    clearTimeout(this.urlTimer)
+    this.urlTimer = setTimeout(() => this.writeUrl(), URL_WRITE_DELAY)
   }
 
   close() {
@@ -128,6 +169,7 @@ export default class extends Controller {
     const opener = this.opener
     this.hide()
     this.reset()
+    this.writeUrl()
     if (opener?.isConnected && typeof opener.focus === "function") opener.focus({ preventScroll: true })
   }
 
@@ -322,6 +364,8 @@ export default class extends Controller {
     this.zoomControlsTarget.hidden = true
     this.overview?.clear()
     this.overviewTarget.hidden = true
+    this.rangeTarget.hidden = true
+    this.pendingRange = null
     this.card = null
     this.key = null
     this.opener = null
@@ -363,6 +407,11 @@ export default class extends Controller {
 
   chartReady(event) {
     this.chart = this.application.getControllerForElementAndIdentifier(event.target, "chart")
+    if (this.pendingRange) {
+      const restored = this.chart.windowForKeys(...this.pendingRange)
+      this.pendingRange = null
+      if (restored && this.chart.zoomable()) this.applyWindow(restored)
+    }
     this.renderLegend()
     this.renderDisplay()
     this.renderZoom()
@@ -439,6 +488,19 @@ export default class extends Controller {
     this.renderZoom()
     this.renderTool()
     this.renderOverview()
+    this.renderRange()
+    this.scheduleUrl()
+  }
+
+  renderRange() {
+    const range = this.zoomWindow && this.chart ? this.chart.rangeOf(this.zoomWindow) : null
+    this.rangeTarget.hidden = !range
+    if (!range) return
+
+    this.rangeLabelTarget.textContent = range.from === range.to ? range.fromLabel : `${range.fromLabel} to ${range.toLabel}`
+    this.rangeCountTarget.textContent = range.daily
+      ? `${range.count} ${range.count === 1 ? "day" : "days"}`
+      : `${range.count} of ${range.total}`
   }
 
   renderZoom() {

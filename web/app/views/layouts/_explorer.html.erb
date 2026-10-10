@@ -5,6 +5,17 @@
       <div class="explorer-heading">
         <h2 class="explorer-title" id="chart-explorer-title" data-explorer-target="title"></h2>
         <span class="explorer-subtitle" data-explorer-target="subtitle" hidden></span>
+        <span class="explorer-range" data-explorer-target="range" hidden>
+          <span data-explorer-target="rangeLabel"></span>
+          <span class="explorer-range-count" data-explorer-target="rangeCount"></span>
+          <button type="button" class="explorer-range-reset" data-action="explorer#resetZoom"
+                  aria-label="Reset zoom" aria-keyshortcuts="0">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+            </svg>
+          </button>
+        </span>
       </div>
       <div class="explorer-toolbar" role="toolbar" aria-label="Chart tools">
         <div class="explorer-tool-group" data-explorer-target="zoomControls" hidden>
