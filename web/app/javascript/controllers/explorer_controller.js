@@ -22,7 +22,9 @@ const CHART_SOURCES = [
   },
   { identifier: "scatter", selector: "[data-controller~='scatter']", detached: [] },
   { identifier: "treemap", selector: "[data-controller~='treemap']", detached: [] },
-  { identifier: "parts", selector: "[data-controller~='parts']", detached: [] }
+  { identifier: "parts", selector: "[data-controller~='parts']", detached: [] },
+  { identifier: "funnel", selector: "[data-controller~='funnel']", detached: [] },
+  { identifier: "lorenz", selector: "[data-controller~='lorenz']", detached: [] }
 ]
 const DISPLAY_KEYS = ["kind", "stacked", "yScale", "zero", "fit", "format", "grid", "notes", "overview", "labels", "xScale", "sizeBy"]
 const STORAGE_PREFIX = "mn-explore-"
@@ -314,7 +316,7 @@ export default class extends Controller {
   }
 
   chooseTool({ params: { tool } }) {
-    if (!this.chart?.zoomable()) return
+    if (!this.canZoom) return
 
     this.tool = tool === "pan" ? "pan" : "select"
     this.renderTool()
@@ -342,7 +344,7 @@ export default class extends Controller {
         this.togglePinAt(event)
       },
       brushStart: () => {
-        if (!this.chart?.zoomable()) return false
+        if (!this.canZoom) return false
         this.chart.clear()
         return true
       },
@@ -350,9 +352,11 @@ export default class extends Controller {
       brushEnd: (start, event) => this.zoomToSelection(this.chart.anchorAt(start), this.chart.anchorAt(event)),
       pan: (dx, dy) => this.panBy(dx, dy),
       panEnd: () => this.plotTarget.classList.remove("is-panning"),
-      zoom: (factor, event) => this.zoomAround(factor, this.chart?.anchorAt(event)),
+      zoom: (factor, event) => {
+        if (this.canZoom) this.zoomAround(factor, this.chart.anchorAt(event))
+      },
       pinchStart: (center) => {
-        this.pinchOrigin = { window: this.currentWindow(), anchor: this.chart?.anchorAt(center) }
+        this.pinchOrigin = this.canZoom ? { window: this.currentWindow(), anchor: this.chart.anchorAt(center) } : null
       },
       pinch: (scale) => this.zoomFromOrigin(scale),
       doubleClick: () => {
@@ -367,7 +371,7 @@ export default class extends Controller {
   }
 
   currentWindow() {
-    return this.zoomWindow || this.chart?.fullWindow() || null
+    return this.zoomWindow || this.chart?.fullWindow?.() || null
   }
 
   zoomToSelection(from, to) {
@@ -387,7 +391,7 @@ export default class extends Controller {
   }
 
   zoomAround(factor, anchor) {
-    if (!this.chart?.zoomable() || anchor == null) return
+    if (!this.canZoom || anchor == null) return
 
     cancelAnimationFrame(this.zoomFrame)
     this.applyWindow(this.chart.zoomWindowAt(this.currentWindow(), factor, anchor))
@@ -395,7 +399,7 @@ export default class extends Controller {
 
   zoomFromOrigin(scale) {
     const origin = this.pinchOrigin
-    if (!this.chart?.zoomable() || !origin || origin.anchor == null) return
+    if (!this.canZoom || !origin || origin.anchor == null) return
 
     this.applyWindow(this.chart.zoomWindowAt(origin.window, scale, origin.anchor))
   }
@@ -502,7 +506,23 @@ export default class extends Controller {
   }
 
   get display() {
-    return { ...this.chart?.displayDefaults(), ...this.displayOverrides }
+    return { ...this.displayDefaults(), ...this.displayOverrides }
+  }
+
+  get canZoom() {
+    return !!this.chart?.zoomable?.()
+  }
+
+  legendEntries() {
+    return this.chart?.legendEntries?.() || []
+  }
+
+  displayDefaults() {
+    return this.chart?.displayDefaults?.() || {}
+  }
+
+  displayOptions() {
+    return this.chart?.displayOptions?.() || {}
   }
 
   writeView() {
@@ -515,7 +535,7 @@ export default class extends Controller {
     if (this.pendingRange) {
       const restored = this.chart.windowForKeys?.(...this.pendingRange)
       this.pendingRange = null
-      if (restored && this.chart.zoomable()) this.applyWindow(restored)
+      if (restored && this.canZoom) this.applyWindow(restored)
     }
     this.labels = { ...INSPECTOR_LABELS, ...this.chart.inspectorLabels?.() }
     this.pointHeadingTarget.textContent = this.labels.point
@@ -811,7 +831,7 @@ export default class extends Controller {
         }
       }
       : {
-        legend: this.chart.legendEntries()
+        legend: this.legendEntries()
           .filter((entry) => !this.hiddenSeries.has(entry.key))
           .map((entry) => ({ label: entry.label, shape: entry.shape, color: resolve(entry.colorClass, entry.color) }))
       }
@@ -1139,7 +1159,7 @@ export default class extends Controller {
   }
 
   renderOverview() {
-    const shown = !!this.chart?.zoomable() && typeof this.chart.overviewSeries === "function" &&
+    const shown = this.canZoom && typeof this.chart.overviewSeries === "function" &&
       this.display.overview !== false && this.isOpen &&
       this.viewMode !== "table"
     this.overviewTarget.hidden = !shown
@@ -1166,7 +1186,7 @@ export default class extends Controller {
   }
 
   zoomBy(factor) {
-    if (!this.chart?.zoomable()) return
+    if (!this.canZoom) return
 
     this.animateWindow(this.chart.zoomWindowAt(this.currentWindow(), factor))
   }
@@ -1213,7 +1233,7 @@ export default class extends Controller {
   }
 
   renderZoom() {
-    const zoomable = !!this.chart?.zoomable()
+    const zoomable = this.canZoom
     this.zoomControlsTarget.hidden = !zoomable
     if (!zoomable) return
 
@@ -1230,7 +1250,7 @@ export default class extends Controller {
       return
     }
 
-    const entries = this.chart?.legendEntries() || []
+    const entries = this.legendEntries()
     const focused = this.legendTarget.contains(document.activeElement) ? document.activeElement.dataset.series : null
     this.legendTarget.hidden = entries.length < 2
     this.legendTarget.replaceChildren(...(entries.length < 2 ? [] : entries.map((entry) => this.legendItem(entry))))
@@ -1277,7 +1297,7 @@ export default class extends Controller {
 
   toggleSeries(event) {
     const key = event.currentTarget.dataset.series
-    const keys = this.chart.legendEntries().map((entry) => entry.key)
+    const keys = this.legendEntries().map((entry) => entry.key)
     if (event.altKey || event.metaKey) {
       const isolated = keys.every((other) => (other === key) !== this.hiddenSeries.has(other))
       this.hiddenSeries = new Set(isolated ? [] : keys.filter((other) => other !== key))
@@ -1334,7 +1354,7 @@ export default class extends Controller {
   }
 
   toggleSettingIfShown(setting) {
-    if (this.chart?.displayOptions()[setting]) this.setDisplay(setting, !this.display[setting])
+    if (this.displayOptions()[setting]) this.setDisplay(setting, !this.display[setting])
   }
 
   resetDisplay() {
@@ -1347,7 +1367,7 @@ export default class extends Controller {
   setDisplay(key, value) {
     if (!this.chart || !DISPLAY_KEYS.includes(key)) return
 
-    if (value === this.chart.displayDefaults()[key]) delete this.displayOverrides[key]
+    if (value === this.displayDefaults()[key]) delete this.displayOverrides[key]
     else this.displayOverrides[key] = value
     if (key === "xScale") this.zoomWindow = null
     this.savePreferences()
@@ -1358,7 +1378,7 @@ export default class extends Controller {
   renderDisplay() {
     if (!this.chart) return
 
-    const options = this.chart.displayOptions()
+    const options = this.displayOptions()
     const display = this.display
     const line = display.kind === "line"
     const shown = (key) => options[key] && !(key === "zero" && !line) && !(key === "stacked" && line)

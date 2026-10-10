@@ -5,6 +5,7 @@ const LAYERS = 3
 const TOP = 30
 const FOOT = 30
 const PILL_H = 22
+const PIN_INSET = 3
 
 const esc = (s) =>
   String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;")
@@ -43,42 +44,88 @@ function band(norm0, norm1, x, w, my, h, scale) {
     ` L ${x + w} ${my + h1} C ${x + w - cx} ${my + h1}, ${x + cx} ${my + h0}, ${x} ${my + h0} Z`
 }
 
+const withoutPin = ({ pin: _pin, ...rest }) => JSON.stringify(rest)
+
 export default class extends Controller {
-  static values = { stages: Array, height: Number, ink: Number, label: String }
+  static values = { stages: Array, height: Number, ink: Number, label: String, view: Object }
 
   connect() {
     this.at = null
     this.fresh = true
+    this.wide = 0
+    this.fillHeight = 0
+    const hover = this.externalPointer ? "" : "mousemove->funnel#track mouseleave->funnel#clear "
     this.element.innerHTML = `<div class="chart funnel tipped" tabindex="0"
-      data-action="mousemove->funnel#track mouseleave->funnel#clear keydown->funnel#key"
+      data-action="${hover}keydown->funnel#key"
       ><div class="tip"></div><span class="chart-caption" aria-live="polite"></span></div>`
     const box = this.element.querySelector(".chart")
     this.watcher = new ResizeObserver(() => this.measure())
     this.watcher.observe(box)
-    this.wide = 0
     this.measure()
+    this.ready = true
+    if (this.hasViewValue) this.dispatch("ready", { prefix: "chart" })
   }
 
   disconnect() {
+    this.ready = false
     this.watcher?.disconnect()
     clearTimeout(this.entered)
+  }
+
+  viewValueChanged(value, previous) {
+    if (!this.ready) return
+
+    this.redraw()
+    if (!previous || withoutPin(value) !== withoutPin(previous)) this.dispatch("update", { prefix: "chart" })
   }
 
   get stages() {
     return (this.stagesValue || []).filter((s) => s && s.value != null)
   }
 
+  get fill() {
+    return !!this.viewValue.fill
+  }
+
+  get externalPointer() {
+    return this.viewValue.pointer === "external"
+  }
+
+  get showLabels() {
+    return this.viewValue.labels !== false
+  }
+
+  get pinned() {
+    return Number.isInteger(this.viewValue.pin) ? this.viewValue.pin : null
+  }
+
+  get ink() {
+    return this.hasInkValue ? this.inkValue : 1
+  }
+
+  get unit() {
+    return this.hasLabelValue && this.labelValue ? this.labelValue : "count"
+  }
+
   get high() {
+    if (this.fill && this.fillHeight > 0) return this.fillHeight
     return this.hasHeightValue && this.heightValue > 0 ? this.heightValue : 260
   }
 
   measure() {
     const box = this.element.querySelector(".chart")
     const wide = box ? box.clientWidth : 0
-    if (!wide || wide === this.wide) return
+    const height = this.fill && box ? box.clientHeight : 0
+    if (!wide || (wide === this.wide && height === this.fillHeight)) return
 
     this.wide = wide
+    this.fillHeight = height
     this.draw(box, wide)
+  }
+
+  redraw() {
+    const box = this.element.querySelector(".chart")
+    if (box && this.wide) this.draw(box, this.wide)
   }
 
   draw(box, wide) {
@@ -92,7 +139,8 @@ export default class extends Controller {
     const segW = (wide - GAP * (n - 1)) / n
     const first = Number(stages[0].value) || 0
     const norms = stages.map((s) => (first > 0 ? Math.max(Number(s.value) || 0, 0) / first : 0))
-    const ink = this.hasInkValue ? this.inkValue : 1
+    const ink = this.ink
+    const labels = this.showLabels
 
     const segs = stages.map((stage, i) => {
       const x = i * (segW + GAP)
@@ -108,16 +156,24 @@ export default class extends Controller {
       const pct = share(Number(stage.value) || 0, first) || "n/a"
       const pillW = wideAs(pct) + 24
       const cx = x + segW / 2
-      return `<g class="funnel-seg ser-${ink}" data-i="${i}" style="--i:${i}">${rings}</g>` +
-        `<g class="funnel-says" data-i="${i}" style="--i:${i}">` +
-        `<text class="funnel-value" x="${cx.toFixed(1)}" y="${TOP - 10}" text-anchor="middle">${
+      const says = labels
+        ? `<text class="funnel-value" x="${cx.toFixed(1)}" y="${TOP - 10}" text-anchor="middle">${
           esc(compact(stage.value))}</text>` +
-        `<g class="funnel-pill"><rect x="${(cx - pillW / 2).toFixed(1)}" y="${(my - PILL_H / 2).toFixed(1)}"
+          `<g class="funnel-pill"><rect x="${(cx - pillW / 2).toFixed(1)}" y="${(my - PILL_H / 2).toFixed(1)}"
           width="${pillW.toFixed(1)}" height="${PILL_H}" rx="6"/><text x="${cx.toFixed(1)}"
-          y="${(my + 4).toFixed(1)}" text-anchor="middle">${esc(pct)}</text></g>` +
+          y="${(my + 4).toFixed(1)}" text-anchor="middle">${esc(pct)}</text></g>`
+        : ""
+      return `<g class="funnel-seg ser-${ink}" data-i="${i}" style="--i:${i}">${rings}</g>` +
+        `<g class="funnel-says" data-i="${i}" style="--i:${i}">${says}` +
         `<text class="ax funnel-stage" x="${cx.toFixed(1)}" y="${high - 10}" text-anchor="middle">${
           esc(stage.label)}</text></g>`
     }).join("")
+
+    const pin = this.pinned
+    const ring = pin != null && pin < n
+      ? `<rect class="pin-ring" x="${(pin * (segW + GAP) - PIN_INSET).toFixed(1)}" y="${TOP - PIN_INSET}"
+          width="${(segW + PIN_INSET * 2).toFixed(1)}" height="${(h + PIN_INSET * 2).toFixed(1)}" rx="8"/>`
+      : ""
 
     const seams = stages.slice(1).map((_, i) => {
       const at = (i + 1) * (segW + GAP) - GAP / 2
@@ -128,7 +184,7 @@ export default class extends Controller {
     box.querySelector("svg")?.remove()
     box.insertAdjacentHTML("afterbegin",
       `<svg width="${wide}" height="${high}" viewBox="0 0 ${wide} ${high}" role="img"
-        aria-label="${esc(this.summary(stages))}">${seams}${segs}</svg>`)
+        aria-label="${esc(this.summary(stages))}">${seams}${segs}${ring}</svg>`)
 
     this.geom = { wide, high, segW, n, first, my }
     if (this.fresh) {
@@ -137,7 +193,7 @@ export default class extends Controller {
       clearTimeout(this.entered)
       this.entered = setTimeout(() => box.classList.remove("is-entering"), 1600)
     }
-    if (this.at != null) this.show(Math.min(this.at, n - 1))
+    if (this.at != null) this.show(Math.min(this.at, n - 1), { silent: true })
   }
 
   summary(stages) {
@@ -147,13 +203,19 @@ export default class extends Controller {
       `${s.label} ${F(s.value)} (${share(Number(s.value) || 0, first) || "n/a"})`).join(", ")}`
   }
 
-  track(event) {
+  spot(event) {
     const g = this.geom
-    if (!g) return
+    if (!g) return null
 
     const box = this.element.querySelector(".chart").getBoundingClientRect()
     const mx = event.clientX - box.left
-    const i = Math.min(g.n - 1, Math.max(0, Math.floor(mx / (g.segW + GAP))))
+    if (mx < 0 || mx > g.wide) return null
+    return Math.min(g.n - 1, Math.max(0, Math.floor(mx / (g.segW + GAP))))
+  }
+
+  track(event) {
+    const i = this.spot(event)
+    if (i == null) return this.clear()
     if (i !== this.at) this.show(i)
   }
 
@@ -170,20 +232,36 @@ export default class extends Controller {
     else return
 
     event.preventDefault()
-    this.show(next)
+    this.show(next, { source: "keyboard" })
   }
 
-  show(i) {
+  showIndex(index) {
+    if (!this.geom) {
+      this.announcePoint(index, "table")
+      return
+    }
+    this.show(index, { source: "table" })
+  }
+
+  announcePoint(index, source) {
+    if (!this.hasViewValue || index === this.announcedIndex) return
+
+    this.announcedIndex = index
+    this.dispatch("point", { prefix: "chart", detail: { index, source } })
+  }
+
+  show(i, { source = "pointer", silent = false } = {}) {
     const g = this.geom
     const stages = this.stages
     const stage = stages[i]
     if (!g || !stage) return
 
     this.at = i
+    if (!silent) this.announcePoint(i, source)
     const box = this.element.querySelector(".chart")
     const value = Number(stage.value) || 0
     const prev = i > 0 ? Number(stages[i - 1].value) || 0 : null
-    const ink = this.hasInkValue ? this.inkValue : 1
+    const ink = this.ink
 
     const tip = box.querySelector(".tip")
     tip.innerHTML = `<div class="t">${esc(stage.label)}</div>` +
@@ -212,10 +290,104 @@ export default class extends Controller {
     if (!box) return
 
     this.at = null
+    this.announcePoint(null, "pointer")
     box.querySelector(".tip")?.classList.remove("on")
     box.classList.remove("lit")
     box.querySelectorAll(".funnel-seg.on, .funnel-says.on").forEach((seg) => seg.classList.remove("on"))
     const say = box.querySelector(".chart-caption")
     if (say) say.textContent = ""
+  }
+
+  displayDefaults() {
+    return { labels: true }
+  }
+
+  displayOptions() {
+    return { labels: true }
+  }
+
+  inspectorLabels() {
+    return { point: "Step", stats: "All steps" }
+  }
+
+  pointDetails(i) {
+    const stages = this.stages
+    const stage = stages[i]
+    if (!stage) return null
+
+    const value = Number(stage.value) || 0
+    const first = Number(stages[0].value) || 0
+    const prev = i > 0 ? Number(stages[i - 1].value) || 0 : null
+    const row = (label, text, extra = {}) => ({
+      label, colorClass: "", color: null, shape: "none", value: text, change: null, share: null, ...extra
+    })
+    return {
+      title: stage.label,
+      qualifier: `step ${i + 1} of ${stages.length}`,
+      tags: [],
+      note: stage.note || null,
+      total: null,
+      values: [
+        row(this.unit, F(value), { colorClass: `ser-${this.ink}`, shape: "box" }),
+        i > 0 && row(`of ${stages[0].label}`, share(value, first) || "n/a"),
+        prev != null && row("of the step before", share(value, prev) || "n/a"),
+        prev != null && row("lost from the step before", F(Math.max(prev - value, 0)))
+      ].filter(Boolean)
+    }
+  }
+
+  rangeStats() {
+    const stages = this.stages
+    if (!stages.length) return null
+
+    const values = stages.map((stage) => Number(stage.value) || 0)
+    const first = values[0]
+    const last = values[values.length - 1]
+    const drops = values.slice(1).map((value, k) => ({
+      label: stages[k + 1].label, kept: values[k] > 0 ? value / values[k] : null
+    })).filter((drop) => drop.kept != null)
+    const worst = drops.reduce((low, drop) => (low && low.kept <= drop.kept ? low : drop), null)
+    return {
+      summary: [
+        { label: stages[0].label, value: F(first) },
+        stages.length > 1 && { label: stages[stages.length - 1].label, value: F(last) },
+        stages.length > 1 && { label: "conversion", value: share(last, first) || "n/a" },
+        worst && { label: `largest drop, to ${worst.label}`, value: share(1 - worst.kept, 1) || "n/a" }
+      ].filter(Boolean)
+    }
+  }
+
+  tableData() {
+    const stages = this.stages
+    const values = stages.map((stage) => Number(stage.value) || 0)
+    const first = values[0]
+    const ratio = (part, whole) => (whole > 0 ? Number(((part / whole) * 100).toFixed(3)) : null)
+    return {
+      columns: [
+        { key: "label", label: "Step", numeric: false },
+        { key: "value", label: this.unit, numeric: true },
+        { key: "first", label: stages.length ? `of ${stages[0].label}` : "of first", numeric: true },
+        { key: "before", label: "of the step before", numeric: true },
+        { key: "lost", label: "lost", numeric: true }
+      ],
+      rows: stages.map((stage, index) => {
+        const value = values[index]
+        const prev = index > 0 ? values[index - 1] : null
+        const lost = prev == null ? null : Math.max(prev - value, 0)
+        return {
+          index,
+          values: {
+            label: stage.label, value, first: ratio(value, first),
+            before: prev == null ? null : ratio(value, prev), lost
+          },
+          display: {
+            label: stage.label, value: F(value), first: share(value, first) || "n/a",
+            before: prev == null ? "" : share(value, prev) || "n/a", lost: lost == null ? "" : F(lost)
+          },
+          note: null
+        }
+      }),
+      footer: null
+    }
   }
 }

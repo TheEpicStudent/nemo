@@ -66,6 +66,7 @@
         <div>
           <h2 class="card-title">Share of messages by share of posters</h2>
         </div>
+        <% if curve.any? %><%= explore_button "journey.message-concentration" %><% end %>
       </div>
       <% if curve.any? %>
         <div

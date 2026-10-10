@@ -134,10 +134,6 @@ export default class extends TileChart {
     return { labels: true, sizeBy: this.tilesValue.some((row) => Number(row.prior) > 0) }
   }
 
-  legendEntries() {
-    return []
-  }
-
   legendScale() {
     return {
       low: "shrank", high: "grew", steps: TONES.map(toneColor),

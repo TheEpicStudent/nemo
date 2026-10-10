@@ -7,6 +7,7 @@
       <div class="card-tools">
         <span class="card-sub"><%= window_note(welcome.window_start, welcome.window_end) %></span>
       </div>
+      <% if welcome.any? %><%= explore_button "channel.first-posts" %><% end %>
     </div>
     <% if welcome.any? %>
       <% steps = welcome.funnel + [welcome.returned].compact %>

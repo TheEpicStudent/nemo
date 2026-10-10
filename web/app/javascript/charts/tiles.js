@@ -166,30 +166,6 @@ export class TileChart extends Controller {
     return this.zones?.find((zone) => zone.i === i) || null
   }
 
-  zoomable() {
-    return false
-  }
-
-  fullWindow() {
-    return null
-  }
-
-  isFullWindow() {
-    return true
-  }
-
-  canZoomIn() {
-    return false
-  }
-
-  anchorAt() {
-    return null
-  }
-
-  windowLabel() {
-    return null
-  }
-
   displayDefaults() {
     return { labels: true }
   }
