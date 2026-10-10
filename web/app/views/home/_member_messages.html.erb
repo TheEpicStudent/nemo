@@ -5,7 +5,10 @@
 
   <div class="grid g-2">
     <div class="card">
-      <div class="card-head"><h2 class="card-title">Channel messages</h2></div>
+      <div class="card-head">
+        <h2 class="card-title">Channel messages</h2>
+        <%= explore_button "community.channel-messages" %>
+      </div>
       <div class="card-body">
         <div
           data-controller="chart"
@@ -24,6 +27,7 @@
     <div class="card">
       <div class="card-head">
         <h2 class="card-title">Public share</h2>
+        <%= explore_button "community.public-share" %>
       </div>
       <div class="card-body">
         <div

@@ -8,7 +8,10 @@
 
   <div class="grid g-2">
     <div class="card">
-      <div class="card-head"><h2 class="card-title">Accounts created</h2></div>
+      <div class="card-head">
+        <h2 class="card-title">Accounts created</h2>
+        <%= explore_button "journey.accounts-created" %>
+      </div>
       <div class="card-body">
         <div
           data-controller="chart"
@@ -27,7 +30,10 @@
     </div>
 
     <div class="card">
-      <div class="card-head"><h2 class="card-title">Signed in within 30 days</h2></div>
+      <div class="card-head">
+        <h2 class="card-title">Signed in within 30 days</h2>
+        <%= explore_button "journey.signed-in-30-days" %>
+      </div>
       <div class="card-body">
         <% voids = growth_months.each_with_index.filter_map do |m, i|
              next if m.claim_dates_complete

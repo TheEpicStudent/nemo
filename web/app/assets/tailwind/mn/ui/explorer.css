@@ -1,4 +1,22 @@
 @layer base {
+  .card-expand {
+    @apply -my-1.5 -mr-1.5 ml-auto text-muted-foreground opacity-0 focus-visible:opacity-100;
+  }
+
+  .card:hover .card-expand, .card:focus-within .card-expand {
+    @apply opacity-100;
+  }
+
+  @media (hover: none) {
+    .card-expand {
+      @apply opacity-100;
+    }
+  }
+
+  .card-expand-floating {
+    @apply absolute top-2 right-2 z-1 m-0;
+  }
+
   html:has(.explorer[open]) {
     overflow: hidden;
   }

@@ -1,4 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
+import { modalsOpen, aboveOpen, popupOpen } from "lib/layers"
 
 const OPEN_DURATION = 340
 const CLOSE_DURATION = 220
@@ -8,6 +9,7 @@ const CLOSE_EASING = "cubic-bezier(0.4, 0, 0.2, 1)"
 const PANEL_RADIUS = "14px"
 const FULL_CLIP = `inset(0px 0px 0px 0px round ${PANEL_RADIUS})`
 const ESCAPE_DEDUPE_MS = 80
+const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable='false'])"
 
 export default class extends Controller {
   static targets = ["dialog", "panel", "title", "subtitle", "body", "plot"]
@@ -41,8 +43,9 @@ export default class extends Controller {
     if (!card || this.dialog.open) return
 
     this.card = card
+    this.key = trigger?.dataset.explore || null
     this.opener = trigger || document.activeElement
-    this.fillHeader(card)
+    this.fillHeader(card, trigger)
     this.dialog.showModal()
     this.animateOpen()
     this.panelTarget.focus({ preventScroll: true })
@@ -91,11 +94,33 @@ export default class extends Controller {
   }
 
   onKeydown(event) {
-    if (event.key !== "Escape" || !this.dialog.open || event.defaultPrevented) return
+    if (event.defaultPrevented) return
+    if (!this.dialog.open) {
+      if (this.isExpandShortcut(event)) this.openFocusedCard(event)
+      return
+    }
+    if (event.key !== "Escape") return
 
     event.preventDefault()
     this.escapedAt = performance.now()
     this.dismiss()
+  }
+
+  isExpandShortcut(event) {
+    if (event.key !== "v" && event.key !== "V") return false
+    if (event.metaKey || event.ctrlKey || event.altKey) return false
+    return !event.target.closest?.(EDITABLE)
+  }
+
+  openFocusedCard(event) {
+    if (modalsOpen() || aboveOpen() || popupOpen()) return
+
+    const trigger = this.element.querySelector(".card:hover [data-explore]") ||
+      document.activeElement?.closest?.(".card")?.querySelector("[data-explore]")
+    if (!trigger) return
+
+    event.preventDefault()
+    this.open(trigger.closest(".card"), trigger)
   }
 
   onCancel(event) {
@@ -117,11 +142,12 @@ export default class extends Controller {
     this.bodyTarget.getAnimations().forEach((animation) => animation.cancel())
     this.plotTarget.replaceChildren()
     this.card = null
+    this.key = null
     this.opener = null
   }
 
-  fillHeader(card) {
-    const title = card.querySelector(".card-title")?.textContent.trim() || ""
+  fillHeader(card, trigger) {
+    const title = trigger?.dataset.exploreTitle || card.querySelector(".card-title")?.textContent.trim() || ""
     const subtitle = card.querySelector(".card-sub")?.textContent.trim() || ""
     this.titleTarget.textContent = title
     this.subtitleTarget.textContent = subtitle

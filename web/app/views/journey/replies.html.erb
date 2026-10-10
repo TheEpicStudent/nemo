@@ -42,6 +42,7 @@
 
   <div class="card card-flush">
     <% if @response_rate.any? %>
+      <%= explore_button "journey.response-rate", title: "Response rate", floating: true %>
       <div style="padding: 0 var(--s-sm) var(--s-2xs)">
         <div
           data-controller="chart"

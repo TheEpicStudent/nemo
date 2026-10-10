@@ -8,7 +8,10 @@
 
   <div class="grid g-3">
     <div class="card">
-      <div class="card-head"><h2 class="card-title">Active</h2></div>
+      <div class="card-head">
+        <h2 class="card-title">Active</h2>
+        <%= explore_button "community.active" %>
+      </div>
       <div class="card-body">
         <div
           data-controller="chart"
@@ -25,7 +28,10 @@
     </div>
 
     <div class="card">
-      <div class="card-head"><h2 class="card-title">Posted</h2></div>
+      <div class="card-head">
+        <h2 class="card-title">Posted</h2>
+        <%= explore_button "community.posted" %>
+      </div>
       <div class="card-body">
         <div
           data-controller="chart"
@@ -42,7 +48,10 @@
     </div>
 
     <div class="card">
-      <div class="card-head"><h2 class="card-title">Share who posted</h2></div>
+      <div class="card-head">
+        <h2 class="card-title">Share who posted</h2>
+        <%= explore_button "community.share-who-posted" %>
+      </div>
       <div class="card-body">
         <div
           data-controller="chart"

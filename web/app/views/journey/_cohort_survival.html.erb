@@ -1,5 +1,6 @@
 <div class="card card-flush">
   <% if survival.any? %>
+    <%= explore_button "journey.cohort-survival", title: "Cohort survival", floating: true %>
     <div style="padding: 0 var(--s-sm) var(--s-2xs)">
       <div
         data-controller="chart"

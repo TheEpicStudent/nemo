@@ -1,5 +1,6 @@
 <div class="card card-flush">
   <% if retention.any? %>
+    <%= explore_button "journey.retention-by-cohort", title: "Retention by cohort", floating: true %>
     <div style="padding: 0 var(--s-sm) var(--s-2xs)">
       <div
         data-controller="chart"
