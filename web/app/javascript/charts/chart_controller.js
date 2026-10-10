@@ -81,7 +81,8 @@ export default class extends Controller {
     kind: String, data: Object, height: Number, pct: Boolean, pctFit: Boolean,
     stacked: Boolean, days: Boolean, spark: Boolean, rule: Object, splits: Array,
     voids: Array, partial: Array, partialNote: String, notes: Array, caps: Array, nokey: Boolean,
-    xlabel: String, ylabel: String, brush: Boolean, brushHref: String, brushKeys: Array
+    xlabel: String, ylabel: String, brush: Boolean, brushHref: String, brushKeys: Array,
+    view: Object
   }
 
   connect() {
@@ -145,7 +146,12 @@ export default class extends Controller {
     }))
   }
 
+  get fill() {
+    return !!this.viewValue.fill
+  }
+
   get height() {
+    if (this.fill && this.fillHeight > 0) return this.fillHeight
     return this.hasHeightValue && this.heightValue > 0 ? this.heightValue : 214
   }
 
@@ -179,9 +185,11 @@ export default class extends Controller {
   measure() {
     const chart = this.element.querySelector(".chart")
     const wide = chart ? chart.clientWidth : 0
-    if (!wide || wide === this.wide) return
+    const height = this.fill && chart ? chart.clientHeight : 0
+    if (!wide || (wide === this.wide && height === this.fillHeight)) return
 
     this.wide = wide
+    this.fillHeight = height
     this.draw(chart, wide)
   }
 
@@ -613,7 +621,8 @@ export default class extends Controller {
   }
 
   summary(rows, series) {
-    const title = this.element.closest(".card")?.querySelector(".card-title")?.textContent?.trim()
+    const title = this.viewValue.title ||
+      this.element.closest(".card")?.querySelector(".card-title")?.textContent?.trim()
     const what = series.map((s) => s.n).join(" and ")
     const shape = this.sparkValue ? "trend" : this.stack ? "stacked bar chart"
       : this.line ? "line chart" : "bar chart"

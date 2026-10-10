@@ -61,6 +61,18 @@
   }
 
   .explorer-plot {
-    @apply relative min-h-0 flex-auto;
+    @apply relative flex min-h-0 flex-auto flex-col;
+  }
+
+  .explorer-plot > [data-controller~="chart"] {
+    @apply min-h-0 flex-auto px-6 pt-5 pb-5 max-sm:px-3;
+  }
+
+  .explorer-plot > [data-controller~="chart"] > .chart {
+    @apply min-h-0 flex-[1_1_0];
+  }
+
+  .explorer-plot .chart-empty, .explorer-plot > .empty {
+    @apply h-full min-h-0 flex-auto;
   }
 }

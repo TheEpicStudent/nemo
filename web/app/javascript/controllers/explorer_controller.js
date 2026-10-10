@@ -10,6 +10,8 @@ const PANEL_RADIUS = "14px"
 const FULL_CLIP = `inset(0px 0px 0px 0px round ${PANEL_RADIUS})`
 const ESCAPE_DEDUPE_MS = 80
 const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable='false'])"
+const CHART_SOURCE = "[data-controller~='chart']:not([data-chart-spark-value='true'])"
+const DETACHED_VALUES = ["brush", "brush-href", "brush-keys"]
 
 export default class extends Controller {
   static targets = ["dialog", "panel", "title", "subtitle", "body", "plot"]
@@ -47,6 +49,7 @@ export default class extends Controller {
     this.opener = trigger || document.activeElement
     this.fillHeader(card, trigger)
     this.dialog.showModal()
+    this.mountChart(card)
     this.animateOpen()
     this.panelTarget.focus({ preventScroll: true })
   }
@@ -144,6 +147,27 @@ export default class extends Controller {
     this.card = null
     this.key = null
     this.opener = null
+  }
+
+  mountChart(card) {
+    const source = card.querySelector(CHART_SOURCE)
+    if (!source) {
+      const empty = card.querySelector(".empty")
+      this.plotTarget.replaceChildren(empty ? empty.cloneNode(true) : this.emptyState())
+      return
+    }
+
+    const mount = source.cloneNode(false)
+    DETACHED_VALUES.forEach((name) => mount.removeAttribute(`data-chart-${name}-value`))
+    mount.setAttribute("data-chart-view-value", JSON.stringify({ fill: true, title: this.titleTarget.textContent }))
+    this.plotTarget.replaceChildren(mount)
+  }
+
+  emptyState() {
+    const empty = document.createElement("div")
+    empty.className = "empty"
+    empty.innerHTML = '<p class="empty-title">No data</p>'
+    return empty
   }
 
   fillHeader(card, trigger) {
