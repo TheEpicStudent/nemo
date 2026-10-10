@@ -20,11 +20,12 @@
               <% end %>
             </div>
             <div class="facets">
-              <% @band_measures.each do |_key, rows| %>
+              <% @band_measures.each do |key, rows| %>
                 <% silent = rows.find { |r| r.band_order.zero? } %>
                 <% busy = rows.reject { |r| r.band_order.zero? } %>
                 <% total = rows.sum(&:channels) %>
-                <div class="facet">
+                <div class="facet" data-explore-scope>
+                  <%= explore_button "channels.activity.#{key}", title: band_title(rows.first) %>
                   <div class="facet-head">
                     <p class="facet-name"><%= band_title(rows.first) %></p>
                     <p class="facet-zero">

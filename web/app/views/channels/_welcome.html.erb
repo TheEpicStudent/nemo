@@ -34,6 +34,7 @@
       <div class="card-tools">
         <span class="card-sub">median <%= duration_label(welcome.median_latency) %></span>
       </div>
+      <% if welcome.latency.any? %><%= explore_button "channel.reply-time" %><% end %>
     </div>
     <% if welcome.latency.any? %>
       <div

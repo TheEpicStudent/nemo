@@ -136,7 +136,7 @@ export default class extends Controller {
     this.fillHeader(card, trigger)
     this.dialog.hidden = false
     this.coverPage()
-    this.mountChart(card)
+    this.mountChart(trigger?.closest("[data-explore-scope]") || card)
     if (animate) this.animateOpen()
     this.panelTarget.focus({ preventScroll: true })
     this.writeUrl()
@@ -413,7 +413,8 @@ export default class extends Controller {
   openFocusedCard(event) {
     if (this.layerAbove()) return
 
-    const trigger = this.element.querySelector(":is(.card, .foldcard):hover [data-explore]") ||
+    const trigger = this.element.querySelector("[data-explore-scope]:hover [data-explore]") ||
+      this.element.querySelector(":is(.card, .foldcard):hover [data-explore]") ||
       document.activeElement?.closest?.(CARD)?.querySelector("[data-explore]")
     if (!trigger) return
 

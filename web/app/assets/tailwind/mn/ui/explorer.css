@@ -3,8 +3,20 @@
     @apply -my-1.5 -mr-1.5 ml-auto text-muted-foreground opacity-0 focus-visible:opacity-100;
   }
 
-  .card-tools + .card-expand {
+  :is(.card-tools, .segmented) + .card-expand {
     @apply ml-0;
+  }
+
+  .facet:has(> .card-expand) {
+    @apply relative;
+  }
+
+  .facet:has(> .card-expand) > .facet-head {
+    @apply pr-8;
+  }
+
+  .facet > .card-expand {
+    @apply absolute -top-1 right-0 m-0;
   }
 
   .card:hover .card-expand, .card:focus-within .card-expand,

@@ -48,6 +48,7 @@
         <h2 class="card-title">Tenure</h2>
       </div>
       <div class="card-tools"><%= picker %></div>
+      <% if crowd.tenure.any? %><%= explore_button "channel.tenure" %><% end %>
     </div>
     <% if crowd.tenure.any? %>
       <div

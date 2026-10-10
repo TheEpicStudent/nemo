@@ -131,6 +131,7 @@
                       aria: { current: ("true" if @span == key) } %>
               <% end %>
             </nav>
+            <%= explore_button "message.reach" %>
           </div>
           <div data-controller="chart"
                data-chart-kind-value="line"
@@ -146,6 +147,7 @@
         <section class="card">
           <div class="card-head">
             <div><h2 class="card-title">Views, clicks and reactions</h2></div>
+            <%= explore_button "message.daily" %>
           </div>
           <div data-controller="chart"
                data-chart-kind-value="bars"
