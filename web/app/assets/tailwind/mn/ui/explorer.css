@@ -17,27 +17,23 @@
     @apply absolute top-2 right-2 z-1 m-0;
   }
 
-  html:has(.explorer[open]) {
-    overflow: hidden;
-  }
-
   .explorer {
-    @apply fixed inset-0 m-0 h-full max-h-none w-full max-w-none border-0 bg-transparent p-3 text-foreground outline-none max-sm:p-0;
+    @apply absolute inset-0 z-50 flex flex-col bg-background text-foreground;
+    border-radius: inherit;
   }
 
-  .explorer::backdrop {
-    background: var(--veil);
-    animation: fade-in var(--dur-3) var(--ease-out);
+  .explorer[hidden] {
+    display: none;
   }
 
   .explorer-panel {
-    @apply relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-card text-card-foreground ring-1 ring-foreground/10 outline-none max-sm:rounded-none;
-    box-shadow: 0 30px 60px -16px oklch(0 0 0 / 0.35);
+    @apply relative flex min-h-0 flex-auto flex-col overflow-hidden bg-background text-foreground outline-none;
+    border-radius: inherit;
     container-type: inline-size;
   }
 
   .explorer-header {
-    @apply flex min-h-13 flex-none items-center gap-3 border-b border-border py-2 pr-2.5 pl-4.5;
+    @apply flex min-h-14 flex-none items-center gap-3 border-b border-border py-2 pr-3 pl-4.5;
   }
 
   .explorer-heading {
@@ -54,6 +50,55 @@
 
   .explorer-toolbar {
     @apply ml-auto flex flex-none items-center gap-1.5;
+  }
+
+  .explorer-separator {
+    @apply mx-1 h-4.5 w-px bg-border;
+  }
+
+  .explorer-popover-anchor {
+    @apply relative;
+  }
+
+  .explorer-display {
+    @apply top-[calc(100%+6px)] right-0 left-auto w-72 max-w-[calc(100vw-2rem)] outline-none;
+    transform-origin: top right;
+  }
+
+  .explorer-settings-group {
+    @apply flex flex-col pb-1;
+  }
+
+  .explorer-settings-group[hidden], .explorer-setting[hidden] {
+    display: none;
+  }
+
+  .explorer-settings-label {
+    @apply m-0 px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground;
+  }
+
+  .explorer-setting {
+    @apply flex min-h-9 items-center justify-between gap-3 px-2 text-sm text-popover-foreground;
+  }
+
+  .explorer-setting-name {
+    @apply inline-flex items-center gap-2;
+  }
+
+  .explorer-setting .segmented {
+    @apply h-7;
+  }
+
+  .explorer-setting .segmented > button {
+    @apply px-2 text-xs tabular-nums;
+  }
+
+  .explorer-setting .segmented > button:disabled {
+    @apply pointer-events-none opacity-40;
+  }
+
+  .explorer-settings-footer {
+    @apply mt-1 flex justify-end border-t border-border px-1 pt-1;
   }
 
   .explorer-body {

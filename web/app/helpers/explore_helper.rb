@@ -6,6 +6,25 @@ module ExploreHelper
     [:line, { x1: 3, x2: 10, y1: 21, y2: 14 }]
   ].freeze
 
+  DISPLAY_SETTINGS = [
+    ["Chart", [
+      { key: "kind", label: "Type", choices: [["bars", "Bars"], ["line", "Line"]] },
+      { key: "stacked", label: "Stacked" }
+    ]],
+    ["Y axis", [
+      { key: "yScale", label: "Scale", choices: [["linear", "Linear"], ["log", "Log"]] },
+      { key: "zero", label: "Start at zero" },
+      { key: "fit", label: "Fit to data" }
+    ]],
+    ["Numbers", [
+      { key: "format", label: "Format", choices: [["full", "1,204", "Full"], ["compact", "1.2k", "Compact"]] }
+    ]],
+    ["Show", [
+      { key: "grid", label: "Gridlines", shortcut: "G" },
+      { key: "notes", label: "Annotations", shortcut: "A" }
+    ]]
+  ].freeze
+
   def explore_button(key, title: nil, floating: false)
     tag.button(type: "button",
       class: ["btn btn-ghost btn-sm btn-only card-expand", ("card-expand-floating" if floating)].compact.join(" "),

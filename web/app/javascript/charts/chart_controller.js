@@ -1,5 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
-import { scaleBand, scaleLinear } from "d3-scale"
+import { scaleBand, scaleLinear, scaleLog } from "d3-scale"
 import { line as lineOf, area as areaOf, curveMonotoneX, curveLinear } from "d3-shape"
 
 let seq = 0
@@ -41,6 +41,20 @@ function binLabels(rows) {
 }
 
 const F = (n) => (n == null ? "n/a" : Number(n).toLocaleString("en-US"))
+
+const LOG_MANTISSAS = [1, 2, 5]
+
+function logTicks(lo, hi) {
+  const decades = []
+  const steps = []
+  for (let exp = Math.floor(Math.log10(lo)); exp <= Math.ceil(Math.log10(hi)); exp++) {
+    LOG_MANTISSAS.forEach((m) => {
+      const v = m * 10 ** exp
+      if (v >= lo * 0.999 && v <= hi * 1.001) (m === 1 ? decades : steps).push(v)
+    })
+  }
+  return decades.length >= 3 ? decades : [...decades, ...steps].sort((a, b) => a - b)
+}
 
 const axl = (v) =>
   Math.abs(v) >= 1000 ? `${+(v / 1000).toFixed(v % 1000 ? 1 : 0)}k` : `${Math.round(v)}`
@@ -102,7 +116,10 @@ export default class extends Controller {
   }
 
   viewValueChanged() {
-    if (this.ready) this.build({ animate: false })
+    if (!this.ready) return
+
+    this.build({ animate: false })
+    this.dispatch("update")
   }
 
   get rows() {
@@ -159,7 +176,7 @@ export default class extends Controller {
 
   legendEntries() {
     const all = this.allSeries
-    const order = this.stackedValue && !this.line ? all.slice().reverse() : all
+    const order = this.stacked && !this.line ? all.slice().reverse() : all
     return order.map((s) => ({
       key: s.k, label: s.n, colorClass: this.paint(s), color: s.own || null,
       shape: s.ghost ? "dashed" : this.line ? "line" : "box"
@@ -176,7 +193,53 @@ export default class extends Controller {
   }
 
   get line() {
-    return this.shown === "line"
+    return (this.viewValue.kind || this.shown) === "line"
+  }
+
+  get stacked() {
+    return this.viewValue.stacked ?? this.stackedValue
+  }
+
+  get pctFit() {
+    return this.viewValue.fit ?? this.pctFitValue
+  }
+
+  get logScale() {
+    return this.line && this.viewValue.yScale === "log" && !this.pctValue
+  }
+
+  get showGrid() {
+    return this.viewValue.grid !== false
+  }
+
+  get showNotes() {
+    return this.viewValue.notes !== false
+  }
+
+  get hasNotes() {
+    return (this.hasRuleValue && this.ruleValue.at != null) ||
+      (this.hasSplitsValue && this.splitsValue.length > 0) ||
+      (this.hasPartialValue && this.partialValue.length > 0) || this.daysValue
+  }
+
+  displayDefaults() {
+    return {
+      kind: this.kindValue || "bars", stacked: this.stackedValue, fit: this.pctFitValue,
+      yScale: "linear", zero: false, format: "full", grid: true, notes: true
+    }
+  }
+
+  displayOptions() {
+    return {
+      kind: true,
+      stacked: this.allSeries.filter((s) => !s.ghost && !s.over).length > 1,
+      yScale: !this.pctValue,
+      zero: !this.pctValue,
+      fit: this.pctValue,
+      format: !this.pctValue,
+      grid: true,
+      notes: this.hasNotes
+    }
   }
 
   build({ animate = true } = {}) {
@@ -249,7 +312,8 @@ export default class extends Controller {
 
   format(v) {
     if (v == null) return "n/a"
-    return this.pctValue ? `${Number(v).toFixed(1)}%` : F(v)
+    if (this.pctValue) return `${Number(v).toFixed(1)}%`
+    return this.viewValue.format === "compact" ? axl(v) : F(v)
   }
 
   get overs() {
@@ -269,7 +333,7 @@ export default class extends Controller {
   }
 
   get stack() {
-    return this.stackedValue && !this.line && this.series.filter((s) => !s.over).length > 1
+    return this.stacked && !this.line && this.series.filter((s) => !s.over).length > 1
   }
 
   sum(row, series) {
@@ -292,24 +356,29 @@ export default class extends Controller {
     let lo = 0
     let hi = seen.length ? Math.max(...seen) : 0
 
-    const pinned = this.pctValue && !this.pctFitValue
+    const pinned = this.pctValue && !this.pctFit
+    const log = this.logScale
     if (pinned) {
       lo = 0
       hi = 100
+    } else if (log) {
+      const positive = seen.map(Number).filter((v) => v > 0)
+      lo = positive.length ? Math.min(...positive) : 1
+      hi = Math.max(hi, lo * 2)
     } else if (line && seen.length) {
       const least = Math.min(...seen)
       if (this.sparkValue) lo = least
-      else if (least > 0 && hi > 0 && (hi - least) / hi < 0.6) lo = least
+      else if (!this.viewValue.zero && least > 0 && hi > 0 && (hi - least) / hi < 0.6) lo = least
     }
-    if (this.hasRuleValue && this.ruleValue.at != null && !pinned) {
+    if (this.showNotes && this.hasRuleValue && this.ruleValue.at != null && !pinned) {
       hi = Math.max(hi, Number(this.ruleValue.at))
     }
     if (hi <= lo) hi = lo + 1
 
-    const y = scaleLinear().domain([lo, hi]).range([high - pad.b, pad.t])
-    if (!pinned && !this.sparkValue) y.nice(4)
+    const y = (log ? scaleLog() : scaleLinear()).domain([lo, hi]).range([high - pad.b, pad.t])
+    if (!log && !pinned && !this.sparkValue) y.nice(4)
 
-    return { x, y, lo: y.domain()[0], line, high, pad, pinned }
+    return { x, y, lo: y.domain()[0], line, high, pad, pinned, log }
   }
 
   shownLabels(rows, wide) {
@@ -338,21 +407,24 @@ export default class extends Controller {
     const overs = this.overs
     const series = overs.length ? all.filter((s) => !s.over) : all
     const labels = this.sparkValue ? { show: new Set() } : this.shownLabels(rows, wide)
-    const { x, y, lo, line, high, pad, pinned } = this.scales(rows, series, wide)
+    const { x, y, lo, line, high, pad, pinned, log } = this.scales(rows, series, wide)
     const mid = (i) => x(i) + x.bandwidth() / 2
     const span = y.domain()[1] - y.domain()[0]
     this.fineTicks = !pinned && this.pctValue && span < 5
     const whole = rows.every((r) => series.every((s) => r[s.k] == null || Number.isInteger(Number(r[s.k]))))
+    const tickCount = high < 160 ? 3 : 4
     const ticks = pinned ? [0, 50, 100]
-      : y.ticks(high < 160 ? 3 : 4).filter((v) => !whole || Number.isInteger(v))
+      : log ? logTicks(y.domain()[0], y.domain()[1])
+        : y.ticks(tickCount).filter((v) => !whole || Number.isInteger(v))
     const right = wide - pad.r
     const floor = y(lo)
 
-    const grid = this.sparkValue ? "" : `<g class="grid-set" mask="url(#${this.gid}-fade)">${
+    const gridLines = this.showGrid ? `<g class="grid-set" mask="url(#${this.gid}-fade)">${
       ticks.map((v) => {
         const at = y(v).toFixed(1)
         return `<line class="grid" x1="${pad.l}" y1="${at}" x2="${right}" y2="${at}"/>`
-      }).join("")}</g>` + ticks.map((v) =>
+      }).join("")}</g>` : ""
+    const grid = this.sparkValue ? "" : gridLines + ticks.map((v) =>
       `<text class="ax" x="${pad.l - 8}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${
         this.tick(v)}</text>`).join("")
 
@@ -361,7 +433,7 @@ export default class extends Controller {
         Math.max(1, x.step()).toFixed(1)}" height="${(floor - pad.t).toFixed(1)}"/>`
       : "").join("")
 
-    const rule = this.hasRuleValue && this.ruleValue.at != null
+    const rule = this.showNotes && this.hasRuleValue && this.ruleValue.at != null
       ? `<line class="mark-rule" x1="${pad.l}" y1="${y(this.ruleValue.at).toFixed(1)}" x2="${
         right}" y2="${y(this.ruleValue.at).toFixed(1)}"/>` + (this.ruleValue.label
         ? `<text class="ax rule-note" x="${right}" y="${
@@ -370,7 +442,7 @@ export default class extends Controller {
         : "")
       : ""
 
-    const splits = (this.hasSplitsValue ? this.splitsValue : []).map((split) => {
+    const splits = (this.hasSplitsValue && this.showNotes ? this.splitsValue : []).map((split) => {
       const after = Number(split.after)
       if (!(after >= 0) || after >= rows.length - 1) return ""
 
@@ -391,14 +463,14 @@ export default class extends Controller {
       else all.push([i, i])
       return all
     }, [])
-    const marks = this.sparkValue ? "" : runs.map(([from, to]) => {
+    const marks = this.sparkValue || !this.showNotes ? "" : runs.map(([from, to]) => {
       const left = Math.max(pad.l, x(from) - lip)
       const width = Math.min(right, x(to) + x.bandwidth() + lip) - left
       return `<rect class="partial-area" x="${left.toFixed(1)}" y="${pad.t}" width="${
         width.toFixed(1)}" height="${(floor - pad.t).toFixed(1)}" fill="url(#${this.gid}-hatch)"/>`
     }).join("")
 
-    const weekends = !this.daysValue || this.sparkValue ? "" : rows.map((r, i) => {
+    const weekends = !this.daysValue || this.sparkValue || !this.showNotes ? "" : rows.map((r, i) => {
       if (!ISO.test(r.key)) return ""
       const day = new Date(`${r.key}T00:00:00Z`).getUTCDay()
       if (day !== 0 && day !== 6) return ""
@@ -426,7 +498,7 @@ export default class extends Controller {
     }).join("")
 
     const body = line
-      ? this.drawLine(rows, series, { x, y, mid, lo, floor })
+      ? this.drawLine(rows, series, { x, y, mid, lo, floor, log })
       : this.drawBars(rows, series, { x, y, floor })
     const brushed = this.brushValue
       ? `<rect class="brush-area" x="0" y="${pad.t}" width="0" height="${
@@ -444,7 +516,7 @@ export default class extends Controller {
           axl(v)}</text>`).join("")
       : ""
 
-    const wash = line && series.length === 1 && (lo === 0 || this.sparkValue)
+    const wash = line && !log && series.length === 1 && (lo === 0 || this.sparkValue)
       ? `<linearGradient id="${this.gid}" x1="0" y1="0" x2="0" y2="1">
           <stop class="top ${this.paint(series[0])}"${this.tint(series[0])} offset="0"/>
           <stop class="bot ${this.paint(series[0])}"${this.tint(series[0])} offset="1"/>
@@ -511,10 +583,10 @@ export default class extends Controller {
     }
 
     this.geom = {
-      x, y, y2, mid, lo, line, wide, high, rows, series: all, bars: series, floor, pad,
+      x, y, y2, mid, lo, line, log, wide, high, rows, series: all, bars: series, floor, pad,
       tops: rows.map((r) => this.stack
         ? y(this.sum(r, series))
-        : Math.min(...series.map((s) => r[s.k] == null ? high : y(r[s.k]))))
+        : Math.min(...series.map((s) => r[s.k] == null || (log && r[s.k] <= 0) ? high : y(r[s.k]))))
     }
     if (this.at != null) this.show(clamp(this.at, 0, rows.length - 1))
   }
@@ -590,15 +662,16 @@ export default class extends Controller {
     }).join("")
   }
 
-  drawLine(rows, series, { mid, y, lo, floor }) {
+  drawLine(rows, series, { mid, y, lo, floor, log }) {
     const bend = curveMonotoneX
-    const pts = (s) => rows.map((r, i) => ({ i, v: r[s.k] }))
+    const plottable = (v) => v != null && (!log || Number(v) > 0)
+    const pts = (s) => rows.map((r, i) => ({ i, v: plottable(r[s.k]) ? r[s.k] : null }))
     const path = lineOf().defined((d) => d.v != null).x((d) => mid(d.i)).y((d) => y(d.v))
       .curve(bend)
     const under = areaOf().defined((d) => d.v != null).x((d) => mid(d.i)).y0(floor)
       .y1((d) => y(d.v)).curve(bend)
     const solid = series.filter((s) => !s.ghost)
-    const wash = solid.length === 1 && (lo === 0 || this.sparkValue)
+    const wash = !log && solid.length === 1 && (lo === 0 || this.sparkValue)
 
     return series.map((s) => {
       const seen = pts(s)
@@ -839,7 +912,7 @@ export default class extends Controller {
       cur.setAttribute("opacity", "1")
       chart.querySelectorAll(".dot").forEach((dot) => {
         const v = row[dot.dataset.s]
-        if (v == null) return dot.setAttribute("opacity", "0")
+        if (v == null || (g.log && v <= 0)) return dot.setAttribute("opacity", "0")
 
         dot.setAttribute("cx", at)
         dot.setAttribute("cy", dot.dataset.axis === "2" && g.y2 ? g.y2(v) : g.y(v))

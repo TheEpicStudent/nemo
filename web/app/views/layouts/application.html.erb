@@ -88,6 +88,8 @@
             </div>
           </main>
         </div>
+
+        <%= render "layouts/explorer" %>
       </div>
 
       <% if fire_engine %>
@@ -95,7 +97,6 @@
       <% end %>
 
       <%= render "layouts/lightbox" %>
-      <%= render "layouts/explorer" %>
 
       <%= yield :overlays %>
     </div>

@@ -1,5 +1,5 @@
-<dialog id="chart-explorer" class="explorer" aria-labelledby="chart-explorer-title"
-        data-explorer-target="dialog" data-turbo-permanent>
+<section id="chart-explorer" class="explorer" role="dialog" aria-labelledby="chart-explorer-title"
+         data-explorer-target="dialog" data-turbo-permanent hidden>
   <div class="explorer-panel" data-explorer-target="panel" tabindex="-1">
     <header class="explorer-header">
       <div class="explorer-heading">
@@ -7,6 +7,50 @@
         <span class="explorer-subtitle" data-explorer-target="subtitle" hidden></span>
       </div>
       <div class="explorer-toolbar" role="toolbar" aria-label="Chart tools">
+        <div class="explorer-popover-anchor">
+          <button type="button" class="btn btn-ghost btn-sm btn-only" data-explorer-target="displayButton"
+                  data-action="explorer#toggleDisplay" aria-haspopup="dialog" aria-expanded="false"
+                  aria-controls="chart-explorer-display" aria-label="Display" aria-keyshortcuts="d">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/>
+            </svg>
+          </button>
+          <div class="menu-pop explorer-display" id="chart-explorer-display" role="dialog" aria-label="Display"
+               tabindex="-1" data-explorer-target="display" hidden>
+            <% ExploreHelper::DISPLAY_SETTINGS.each do |group, settings| %>
+              <div class="explorer-settings-group" data-settings-group>
+                <p class="explorer-settings-label"><%= group %></p>
+                <% settings.each do |setting| %>
+                  <div class="explorer-setting" data-setting="<%= setting[:key] %>">
+                    <span class="explorer-setting-name">
+                      <%= setting[:label] %>
+                      <% if setting[:shortcut] %><span class="kbd"><%= setting[:shortcut] %></span><% end %>
+                    </span>
+                    <% if setting[:choices] %>
+                      <span class="segmented" role="group" aria-label="<%= setting[:label] %>">
+                        <% setting[:choices].each do |value, text, name| %>
+                          <button type="button" aria-pressed="false" <% if name %>aria-label="<%= name %>"<% end %>
+                                  data-action="explorer#chooseSetting"
+                                  data-explorer-setting-param="<%= setting[:key] %>"
+                                  data-explorer-choice-param="<%= value %>"><%= text %></button>
+                        <% end %>
+                      </span>
+                    <% else %>
+                      <button type="button" class="switch" role="switch" aria-checked="false"
+                              aria-label="<%= setting[:label] %>" data-action="explorer#toggleSetting"
+                              data-explorer-setting-param="<%= setting[:key] %>"></button>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
+            <div class="explorer-settings-footer">
+              <button type="button" class="btn btn-ghost btn-sm" data-action="explorer#resetDisplay">Reset</button>
+            </div>
+          </div>
+        </div>
+        <span class="explorer-separator" aria-hidden="true"></span>
         <button type="button" class="btn btn-ghost btn-sm btn-only" data-action="explorer#close"
                 aria-label="Close" aria-keyshortcuts="Escape">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -18,7 +62,7 @@
     </header>
     <div class="explorer-body" data-explorer-target="body">
       <div class="explorer-legend" role="group" aria-label="Series" data-explorer-target="legend" hidden></div>
-      <div class="explorer-plot" data-explorer-target="plot" data-action="chart:ready->explorer#chartReady"></div>
+      <div class="explorer-plot" data-explorer-target="plot" data-action="chart:ready->explorer#chartReady chart:update->explorer#chartReady"></div>
     </div>
   </div>
-</dialog>
+</section>

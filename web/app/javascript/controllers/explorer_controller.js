@@ -1,20 +1,19 @@
 import { Controller } from "@hotwired/stimulus"
-import { modalsOpen, aboveOpen, popupOpen } from "lib/layers"
+import { modalsOpen, aboveOpen, popupOpen, drawerOpen } from "lib/layers"
 
 const OPEN_DURATION = 340
 const CLOSE_DURATION = 220
 const FADE_DURATION = 160
 const OPEN_EASING = "cubic-bezier(0.16, 1, 0.3, 1)"
 const CLOSE_EASING = "cubic-bezier(0.4, 0, 0.2, 1)"
-const PANEL_RADIUS = "14px"
-const FULL_CLIP = `inset(0px 0px 0px 0px round ${PANEL_RADIUS})`
-const ESCAPE_DEDUPE_MS = 80
 const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable='false'])"
 const CHART_SOURCE = "[data-controller~='chart']:not([data-chart-spark-value='true'])"
 const DETACHED_VALUES = ["brush", "brush-href", "brush-keys"]
+const DISPLAY_KEYS = ["kind", "stacked", "yScale", "zero", "fit", "format", "grid", "notes"]
+const STORAGE_PREFIX = "mn-explore-"
 
 export default class extends Controller {
-  static targets = ["dialog", "panel", "title", "subtitle", "body", "legend", "plot"]
+  static targets = ["dialog", "panel", "title", "subtitle", "body", "legend", "plot", "displayButton", "display"]
 
   connect() {
     this.dialog = this.dialogTarget
@@ -22,47 +21,45 @@ export default class extends Controller {
     this.onClick = this.onClick.bind(this)
     this.onKeydown = this.onKeydown.bind(this)
     this.onPointerdown = this.onPointerdown.bind(this)
-    this.onCancel = this.onCancel.bind(this)
-    this.onClose = this.onClose.bind(this)
     this.element.addEventListener("click", this.onClick)
     document.addEventListener("keydown", this.onKeydown)
     this.dialog.addEventListener("pointerdown", this.onPointerdown)
-    this.dialog.addEventListener("cancel", this.onCancel)
-    this.dialog.addEventListener("close", this.onClose)
   }
 
   disconnect() {
     this.element.removeEventListener("click", this.onClick)
     document.removeEventListener("keydown", this.onKeydown)
     this.dialog.removeEventListener("pointerdown", this.onPointerdown)
-    this.dialog.removeEventListener("cancel", this.onCancel)
-    this.dialog.removeEventListener("close", this.onClose)
-    if (this.dialog.open) this.dialog.close()
+    this.hide()
     this.reset()
   }
 
+  get isOpen() {
+    return !this.dialog.hidden
+  }
+
   open(card, trigger = null) {
-    if (!card || this.dialog.open) return
+    if (!card || this.isOpen) return
 
     this.card = card
     this.key = trigger?.dataset.explore || null
     this.opener = trigger || document.activeElement
     this.fillHeader(card, trigger)
-    this.dialog.showModal()
+    this.dialog.hidden = false
+    this.coverPage()
     this.mountChart(card)
     this.animateOpen()
     this.panelTarget.focus({ preventScroll: true })
   }
 
   close() {
-    if (!this.dialog.open || this.closing) return
+    if (!this.isOpen || this.closing) return
 
     this.closing = true
     const clip = this.cardClip()
-    this.fadeBackdrop()
     const animation = clip
       ? this.panelTarget.animate(
-        [{ clipPath: FULL_CLIP }, { clipPath: clip, opacity: 0.6 }],
+        [{ clipPath: this.fullClip() }, { clipPath: clip, opacity: 0.6 }],
         { duration: CLOSE_DURATION, easing: CLOSE_EASING, fill: "forwards" })
       : this.panelTarget.animate(
         [{ opacity: 1 }, { opacity: 0, transform: "scale(0.985)" }],
@@ -70,21 +67,45 @@ export default class extends Controller {
     animation.finished.catch(() => {}).then(() => this.finishClose())
   }
 
+  hide() {
+    this.closing = false
+    this.dialog.hidden = true
+    this.uncoverPage()
+  }
+
+  coverPage() {
+    const area = this.dialog.parentElement
+    this.covered = [...area.children].filter((element) => element !== this.dialog && !element.inert)
+    this.covered.forEach((element) => { element.inert = true })
+  }
+
+  uncoverPage() {
+    this.covered?.forEach((element) => { element.inert = false })
+    this.covered = []
+  }
+
+  layerAbove() {
+    return modalsOpen() > 0 || aboveOpen() || drawerOpen() || popupOpen()
+  }
+
   dismiss() {
+    if (!this.displayTarget.hidden) {
+      this.closeDisplay({ restoreFocus: true })
+      return
+    }
     this.close()
   }
 
   finishClose() {
-    this.closing = false
-    if (this.dialog.open) this.dialog.close()
+    if (!this.isOpen) return
+
+    const opener = this.opener
+    this.hide()
+    this.reset()
+    if (opener?.isConnected && typeof opener.focus === "function") opener.focus({ preventScroll: true })
   }
 
   onClick(event) {
-    if (event.target === this.dialog) {
-      if (this.pressedBackdrop) this.close()
-      return
-    }
-
     const trigger = event.target.closest("[data-explore]")
     if (!trigger || this.dialog.contains(trigger)) return
 
@@ -93,20 +114,40 @@ export default class extends Controller {
   }
 
   onPointerdown(event) {
-    this.pressedBackdrop = event.target === this.dialog
+    if (this.displayTarget.hidden) return
+    if (this.displayTarget.contains(event.target) || this.displayButtonTarget.contains(event.target)) return
+    this.closeDisplay()
   }
 
   onKeydown(event) {
     if (event.defaultPrevented) return
-    if (!this.dialog.open) {
+    if (!this.isOpen) {
       if (this.isExpandShortcut(event)) this.openFocusedCard(event)
       return
     }
-    if (event.key !== "Escape") return
+    if (this.layerAbove()) return
+    if (event.key === "Escape") {
+      event.preventDefault()
+      this.dismiss()
+      return
+    }
+
+    const shortcut = this.shortcutFor(event)
+    if (!shortcut) return
 
     event.preventDefault()
-    this.escapedAt = performance.now()
-    this.dismiss()
+    shortcut()
+  }
+
+  shortcutFor(event) {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.target.closest?.(EDITABLE)) return null
+
+    switch (event.key.toLowerCase()) {
+      case "d": return () => this.toggleDisplay()
+      case "g": return () => this.toggleSettingIfShown("grid")
+      case "a": return () => this.toggleSettingIfShown("notes")
+      default: return null
+    }
   }
 
   isExpandShortcut(event) {
@@ -116,7 +157,7 @@ export default class extends Controller {
   }
 
   openFocusedCard(event) {
-    if (modalsOpen() || aboveOpen() || popupOpen()) return
+    if (this.layerAbove()) return
 
     const trigger = this.element.querySelector(".card:hover [data-explore]") ||
       document.activeElement?.closest?.(".card")?.querySelector("[data-explore]")
@@ -126,29 +167,18 @@ export default class extends Controller {
     this.open(trigger.closest(".card"), trigger)
   }
 
-  onCancel(event) {
-    event.preventDefault()
-    if (performance.now() - (this.escapedAt || 0) > ESCAPE_DEDUPE_MS) this.dismiss()
-  }
-
-  onClose() {
-    this.closing = false
-    const opener = this.opener
-    this.reset()
-    if (opener?.isConnected && typeof opener.focus === "function") opener.focus({ preventScroll: true })
-  }
-
   reset() {
-    this.backdropAnimation?.cancel()
-    this.backdropAnimation = null
     this.panelTarget.getAnimations().forEach((animation) => animation.cancel())
     this.bodyTarget.getAnimations().forEach((animation) => animation.cancel())
     this.plotTarget.replaceChildren()
     this.legendTarget.replaceChildren()
     this.legendTarget.hidden = true
+    this.displayTarget.hidden = true
+    this.displayButtonTarget.setAttribute("aria-expanded", "false")
     this.chart = null
     this.chartMount = null
     this.hiddenSeries = new Set()
+    this.displayOverrides = {}
     this.card = null
     this.key = null
     this.opener = null
@@ -167,12 +197,20 @@ export default class extends Controller {
     DETACHED_VALUES.forEach((name) => mount.removeAttribute(`data-chart-${name}-value`))
     this.chartMount = mount
     this.hiddenSeries = new Set()
+    this.displayOverrides = this.loadDisplay()
     this.writeView()
     this.plotTarget.replaceChildren(mount)
   }
 
   get view() {
-    return { fill: true, title: this.titleTarget.textContent, legend: false, hidden: [...this.hiddenSeries] }
+    return {
+      fill: true, title: this.titleTarget.textContent, legend: false, hidden: [...this.hiddenSeries],
+      ...this.displayOverrides
+    }
+  }
+
+  get display() {
+    return { ...this.chart?.displayDefaults(), ...this.displayOverrides }
   }
 
   writeView() {
@@ -182,12 +220,15 @@ export default class extends Controller {
   chartReady(event) {
     this.chart = this.application.getControllerForElementAndIdentifier(event.target, "chart")
     this.renderLegend()
+    this.renderDisplay()
   }
 
   renderLegend() {
     const entries = this.chart?.legendEntries() || []
+    const focused = this.legendTarget.contains(document.activeElement) ? document.activeElement.dataset.series : null
     this.legendTarget.hidden = entries.length < 2
     this.legendTarget.replaceChildren(...(entries.length < 2 ? [] : entries.map((entry) => this.legendItem(entry))))
+    if (focused) this.legendTarget.querySelector(`[data-series="${focused}"]`)?.focus({ preventScroll: true })
   }
 
   legendItem(entry) {
@@ -221,7 +262,6 @@ export default class extends Controller {
     this.clearHighlight()
     this.writeView()
     this.renderLegend()
-    this.legendTarget.querySelector(`[data-series="${key}"]`)?.focus({ preventScroll: true })
   }
 
   highlightSeries(event) {
@@ -233,6 +273,106 @@ export default class extends Controller {
 
   clearHighlight() {
     if (this.chartMount) delete this.chartMount.dataset.highlight
+  }
+
+  toggleDisplay() {
+    if (this.displayTarget.hidden) this.openDisplay()
+    else this.closeDisplay({ restoreFocus: true })
+  }
+
+  openDisplay() {
+    if (!this.chart) return
+
+    this.renderDisplay()
+    this.displayTarget.hidden = false
+    this.displayButtonTarget.setAttribute("aria-expanded", "true")
+    this.displayTarget.focus({ preventScroll: true })
+  }
+
+  closeDisplay({ restoreFocus = false } = {}) {
+    if (this.displayTarget.hidden) return
+
+    const hadFocus = this.displayTarget.contains(document.activeElement)
+    this.displayTarget.hidden = true
+    this.displayButtonTarget.setAttribute("aria-expanded", "false")
+    if (restoreFocus || hadFocus) this.displayButtonTarget.focus({ preventScroll: true })
+  }
+
+  chooseSetting({ params: { setting, choice } }) {
+    this.setDisplay(setting, choice)
+  }
+
+  toggleSetting({ params: { setting } }) {
+    this.setDisplay(setting, !this.display[setting])
+  }
+
+  toggleSettingIfShown(setting) {
+    if (this.chart?.displayOptions()[setting]) this.setDisplay(setting, !this.display[setting])
+  }
+
+  resetDisplay() {
+    this.displayOverrides = {}
+    this.saveDisplay()
+    this.writeView()
+    this.renderDisplay()
+  }
+
+  setDisplay(key, value) {
+    if (!this.chart || !DISPLAY_KEYS.includes(key)) return
+
+    if (value === this.chart.displayDefaults()[key]) delete this.displayOverrides[key]
+    else this.displayOverrides[key] = value
+    this.saveDisplay()
+    this.writeView()
+    this.renderDisplay()
+  }
+
+  renderDisplay() {
+    if (!this.chart) return
+
+    const options = this.chart.displayOptions()
+    const display = this.display
+    const line = display.kind === "line"
+    const shown = (key) => options[key] && !(key === "zero" && !line) && !(key === "stacked" && line)
+    const effective = (key) => (key === "yScale" && !line ? "linear" : display[key])
+    this.displayTarget.querySelectorAll("[data-setting]").forEach((row) => {
+      const key = row.dataset.setting
+      row.hidden = !shown(key)
+      row.querySelectorAll("[data-explorer-choice-param]").forEach((button) => {
+        const choice = button.dataset.explorerChoiceParam
+        button.setAttribute("aria-pressed", String(effective(key) === choice))
+        button.disabled = key === "yScale" && choice === "log" && !line
+      })
+      row.querySelector("[role='switch']")?.setAttribute("aria-checked", String(!!display[key]))
+    })
+    this.displayTarget.querySelectorAll("[data-settings-group]").forEach((group) => {
+      group.hidden = !group.querySelector("[data-setting]:not([hidden])")
+    })
+  }
+
+  get storageKey() {
+    return this.key ? `${STORAGE_PREFIX}${this.key}` : null
+  }
+
+  loadDisplay() {
+    if (!this.storageKey) return {}
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(this.storageKey) || "{}").display || {}
+      return Object.fromEntries(Object.entries(saved).filter(([key]) => DISPLAY_KEYS.includes(key)))
+    } catch {
+      return {}
+    }
+  }
+
+  saveDisplay() {
+    if (!this.storageKey) return
+
+    try {
+      localStorage.setItem(this.storageKey, JSON.stringify({ display: this.displayOverrides }))
+    } catch {
+      return
+    }
   }
 
   emptyState() {
@@ -259,19 +399,10 @@ export default class extends Controller {
       return
     }
 
-    this.panelTarget.animate([{ clipPath: clip }, { clipPath: FULL_CLIP }],
+    this.panelTarget.animate([{ clipPath: clip }, { clipPath: this.fullClip() }],
       { duration: OPEN_DURATION, easing: OPEN_EASING })
     this.bodyTarget.animate([{ opacity: 0.35 }, { opacity: 1 }],
       { duration: OPEN_DURATION - 60, easing: "ease-out" })
-  }
-
-  fadeBackdrop() {
-    try {
-      this.backdropAnimation = this.dialog.animate([{ opacity: 1 }, { opacity: 0 }],
-        { duration: this.duration(CLOSE_DURATION), pseudoElement: "::backdrop", fill: "forwards" })
-    } catch {
-      this.backdropAnimation = null
-    }
   }
 
   cardClip() {
@@ -285,7 +416,19 @@ export default class extends Controller {
     const right = Math.max(0, panel.right - card.right)
     const bottom = Math.max(0, panel.bottom - card.bottom)
     const left = Math.max(0, card.left - panel.left)
-    return `inset(${top}px ${right}px ${bottom}px ${left}px round ${PANEL_RADIUS})`
+    return `inset(${top}px ${right}px ${bottom}px ${left}px round ${this.cardRadius()})`
+  }
+
+  fullClip() {
+    return `inset(0px 0px 0px 0px round ${this.panelRadius()})`
+  }
+
+  cardRadius() {
+    return getComputedStyle(this.card).borderTopLeftRadius || "0px"
+  }
+
+  panelRadius() {
+    return getComputedStyle(this.dialog.parentElement).borderTopLeftRadius || "0px"
   }
 
   duration(ms) {
