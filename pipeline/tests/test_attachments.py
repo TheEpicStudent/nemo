@@ -147,12 +147,12 @@ def test_an_anonymous_reporter_is_worn_like_any_other_face(monkeypatch):
 
 def card_case():
     return {"case_id": 6, "is_anonymous": True, "reporter_user_id": None, "subjects": [],
-            "other_cases": 0, "assignees": [], "category_key": None, "threads": 1,
-            "body": "", "files": [], "shares": []}
+            "other_cases": 0, "assignees": [], "category_key": None,
+            "body": "", "shares": []}
 
 
 def card(**over):
-    case = {"case_id": 2, "body": "he keeps following me", "files": [], "shares": [],
+    case = {"case_id": 2, "body": "he keeps following me", "shares": [],
             "is_anonymous": False, "reporter_user_id": "UALICE", "subjects": ["UBOB"],
             "other_cases": 2, "assignees": [], "category_key": "bullying"}
     case.update(over)
@@ -245,7 +245,7 @@ def linked(**over):
 
 
 def pointing(shares):
-    return card(body=f"<{LINK}|{LINK}>", shares=shares, threads=1)
+    return card(body=f"<{LINK}|{LINK}>", shares=shares)
 
 
 def quotes(built):
@@ -258,18 +258,6 @@ def test_a_link_slack_never_resolved_is_still_quoted():
     found = quotes(built)
     assert len(found) == 1, "the link is all we have, so it stays"
     assert found[0]["elements"][0]["elements"][0]["type"] == "link"
-
-
-def test_a_channel_with_no_name_is_left_for_slack_to_resolve():
-    found = report.evidence([linked(is_reachable=False, source_body=None)])
-
-    assert found == [f"<#C0BNYU3JK3Q> · <{LINK}|open it> (a link, not shared)"]
-    assert "|<#" not in found[0], "a channel mention must not sit inside a link label"
-
-
-def test_a_named_channel_still_reads_as_a_hash_link():
-    assert report.evidence([linked(is_reachable=False, source_body=None,
-                                   source_channel_name="lounge")]) == [f"<{LINK}|#lounge> (a link, not shared)"]
 
 
 class Broken(Slack):
@@ -314,10 +302,6 @@ def test_a_reply_with_a_picture_still_uses_blocks(monkeypatch):
                 wearing={"username": "Anonymous"}, body="look")
 
     assert [b["type"] for b in slack.posted[0]["blocks"]] == ["section", "image"]
-
-
-def test_a_share_shown_in_full_is_not_listed_again_below():
-    assert report.evidence([linked()]) == []
 
 
 def test_nemo_cites_every_reachable_source_itself():

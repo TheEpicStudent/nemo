@@ -50,21 +50,6 @@ LIMIT 1
 """
 
 
-FILES = """
-SELECT f.slack_file_id, f.name, f.fetch_state, f.external_url
-FROM fd.intake_message_files mf
-JOIN fd.intake_files f ON f.id = mf.file_id
-JOIN fd.intake_messages m ON m.id = mf.message_id
-WHERE m.conversation_id = %s
-ORDER BY m.posted_at, mf.seq
-"""
-
-
-THREADS = """
-SELECT count(*) FROM fd.case_threads WHERE case_id = %s AND kind = 'evidence'
-"""
-
-
 LIVE_ACTION_COUNT = """
 SELECT count(*) FROM fd.actions WHERE case_id = %s AND reversed_at IS NULL
 """
@@ -189,7 +174,6 @@ def gather(conn, case_id):
         "conversation_id": row[9],
         "card_digest": row[10],
         "url": case_url(row[0]),
-        "files": [],
         "shares": [],
         "message_id": None,
         "blocks": None,
@@ -206,7 +190,6 @@ def gather(conn, case_id):
         if case["subjects"]
         else 0
     )
-    case["threads"] = conn.execute(THREADS, (case["case_id"],)).fetchone()[0]
     case["live_actions"] = conn.execute(LIVE_ACTION_COUNT, (case["case_id"],)).fetchone()[0]
 
     convo = case["conversation_id"]
@@ -221,10 +204,6 @@ def gather(conn, case_id):
         if not case["body"]:
             case["body"] = first[1]
 
-    case["files"] = [
-        {"slack_file_id": f[0], "name": f[1], "fetch_state": f[2], "external_url": f[3]}
-        for f in conn.execute(FILES, (convo,)).fetchall()
-    ]
     case["shares"] = shares_for(conn, case["message_id"])
     return case
 

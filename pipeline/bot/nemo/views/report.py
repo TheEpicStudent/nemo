@@ -149,48 +149,6 @@ def footer(case):
     return context([" · ".join(part for part in parts if part)])
 
 
-def evidence(shares):
-    shown = evidence_blocks(shares)
-    lines = []
-    for share in shares[:CONTEXT_ELEMENTS]:
-        if any(share is one for one in shown):
-            continue
-        named = share.get("source_channel_name")
-        permalink = share.get("permalink")
-        if named:
-            line = f"<{permalink}|#{named}>" if permalink else f"#{named}"
-        elif channel_ref(share):
-            line = channel_ref(share)
-            if permalink:
-                line += f" · <{permalink}|open it>"
-        else:
-            line = f"<{permalink}|a linked message>" if permalink else "a linked message"
-        if not share.get("is_reachable"):
-            line += " (a link, not shared)"
-        lines.append(line)
-    return lines
-
-
-FILE_STATE_NOTES = {
-    "stored": "kept",
-    "pending": "not kept yet",
-    "skipped": "lives outside Slack",
-    "gone": "Slack no longer has it",
-    "too_large": "too big to keep",
-    "refused": "Slack would not hand it over",
-    "failed": "we could not keep it",
-}
-
-
-def named(files):
-    out = []
-    for item in files:
-        name = escape(item.get("name") or item.get("slack_file_id"))
-        note = FILE_STATE_NOTES.get(item.get("fetch_state"))
-        out.append(f"{name} ({note})" if note else name)
-    return out
-
-
 def button(action_id, label, case_id, style=None):
     made = {
         "type": "button",
@@ -237,14 +195,6 @@ def buttons(case):
     return {"type": "actions", "block_id": f"case_{case_id}", "elements": elements}
 
 
-def attached(case):
-    held = case.get("threads") or 0
-    if not held:
-        return None
-
-    return f"*{held} thread" + ("s attached*" if held != 1 else " attached*")
-
-
 SHOWN_SHARES = 3
 
 
@@ -285,19 +235,11 @@ def report_body_text(case):
 
 
 def build_blocks(case):
-    files = case.get("files") or []
-    shares = case.get("shares") or []
-
     built = [part for part in [
         title(case), subject_summary_text(case), quote(case.get("body"), case.get("blocks")),
     ] if part]
     built += report_body_text(case)
     built.append(footer(case))
-
-    trail = [part for part in [attached(case)] if part]
-    trail += evidence(shares) + [f"📎 {name}" for name in named(files)]
-    if trail:
-        built.append(context([" · ".join(trail)]))
 
     acting = buttons(case)
     if acting:
