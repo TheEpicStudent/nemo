@@ -14,7 +14,7 @@ const CHART_SOURCE = "[data-controller~='chart']:not([data-chart-spark-value='tr
 const DETACHED_VALUES = ["brush", "brush-href", "brush-keys"]
 
 export default class extends Controller {
-  static targets = ["dialog", "panel", "title", "subtitle", "body", "plot"]
+  static targets = ["dialog", "panel", "title", "subtitle", "body", "legend", "plot"]
 
   connect() {
     this.dialog = this.dialogTarget
@@ -144,6 +144,11 @@ export default class extends Controller {
     this.panelTarget.getAnimations().forEach((animation) => animation.cancel())
     this.bodyTarget.getAnimations().forEach((animation) => animation.cancel())
     this.plotTarget.replaceChildren()
+    this.legendTarget.replaceChildren()
+    this.legendTarget.hidden = true
+    this.chart = null
+    this.chartMount = null
+    this.hiddenSeries = new Set()
     this.card = null
     this.key = null
     this.opener = null
@@ -158,9 +163,76 @@ export default class extends Controller {
     }
 
     const mount = source.cloneNode(false)
+    mount.removeAttribute("id")
     DETACHED_VALUES.forEach((name) => mount.removeAttribute(`data-chart-${name}-value`))
-    mount.setAttribute("data-chart-view-value", JSON.stringify({ fill: true, title: this.titleTarget.textContent }))
+    this.chartMount = mount
+    this.hiddenSeries = new Set()
+    this.writeView()
     this.plotTarget.replaceChildren(mount)
+  }
+
+  get view() {
+    return { fill: true, title: this.titleTarget.textContent, legend: false, hidden: [...this.hiddenSeries] }
+  }
+
+  writeView() {
+    this.chartMount?.setAttribute("data-chart-view-value", JSON.stringify(this.view))
+  }
+
+  chartReady(event) {
+    this.chart = this.application.getControllerForElementAndIdentifier(event.target, "chart")
+    this.renderLegend()
+  }
+
+  renderLegend() {
+    const entries = this.chart?.legendEntries() || []
+    this.legendTarget.hidden = entries.length < 2
+    this.legendTarget.replaceChildren(...(entries.length < 2 ? [] : entries.map((entry) => this.legendItem(entry))))
+  }
+
+  legendItem(entry) {
+    const item = document.createElement("button")
+    item.type = "button"
+    item.className = "explorer-legend-item"
+    item.dataset.series = entry.key
+    item.dataset.action = "explorer#toggleSeries mouseenter->explorer#highlightSeries " +
+      "mouseleave->explorer#clearHighlight focus->explorer#highlightSeries blur->explorer#clearHighlight"
+    item.setAttribute("aria-pressed", String(!this.hiddenSeries.has(entry.key)))
+    const key = document.createElement("i")
+    key.className = `explorer-legend-key is-${entry.shape} ${entry.colorClass}`
+    if (entry.color) key.style.color = entry.color
+    const label = document.createElement("span")
+    label.textContent = entry.label
+    item.append(key, label)
+    return item
+  }
+
+  toggleSeries(event) {
+    const key = event.currentTarget.dataset.series
+    const keys = this.chart.legendEntries().map((entry) => entry.key)
+    if (event.altKey || event.metaKey) {
+      const isolated = keys.every((other) => (other === key) !== this.hiddenSeries.has(other))
+      this.hiddenSeries = new Set(isolated ? [] : keys.filter((other) => other !== key))
+    } else if (this.hiddenSeries.has(key)) {
+      this.hiddenSeries.delete(key)
+    } else {
+      this.hiddenSeries.add(key)
+    }
+    this.clearHighlight()
+    this.writeView()
+    this.renderLegend()
+    this.legendTarget.querySelector(`[data-series="${key}"]`)?.focus({ preventScroll: true })
+  }
+
+  highlightSeries(event) {
+    const key = event.currentTarget.dataset.series
+    if (!this.chartMount || this.hiddenSeries.has(key)) return
+
+    this.chartMount.dataset.highlight = key
+  }
+
+  clearHighlight() {
+    if (this.chartMount) delete this.chartMount.dataset.highlight
   }
 
   emptyState() {

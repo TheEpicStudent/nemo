@@ -17,7 +17,8 @@
       </div>
     </header>
     <div class="explorer-body" data-explorer-target="body">
-      <div class="explorer-plot" data-explorer-target="plot"></div>
+      <div class="explorer-legend" role="group" aria-label="Series" data-explorer-target="legend" hidden></div>
+      <div class="explorer-plot" data-explorer-target="plot" data-action="chart:ready->explorer#chartReady"></div>
     </div>
   </div>
 </dialog>

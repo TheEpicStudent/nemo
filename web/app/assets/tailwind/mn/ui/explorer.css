@@ -60,8 +60,61 @@
     @apply relative flex min-h-0 flex-auto flex-col;
   }
 
+  .explorer-legend {
+    @apply flex flex-none flex-wrap items-center gap-0.5 px-4 pt-3 max-sm:px-2;
+  }
+
+  .explorer-legend[hidden] {
+    display: none;
+  }
+
+  .explorer-legend-item {
+    @apply inline-flex h-7 cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 text-[0.8125rem] text-foreground outline-none transition-[background-color,opacity] hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50;
+  }
+
+  .explorer-legend-item[aria-pressed="false"] {
+    @apply opacity-50;
+  }
+
+  .explorer-legend-key {
+    @apply inline-block flex-none;
+    background: currentColor;
+  }
+
+  .explorer-legend-key.is-box {
+    @apply size-2.5 rounded-[3px];
+  }
+
+  .explorer-legend-key.is-line {
+    @apply h-[3px] w-3 rounded-sm;
+  }
+
+  .explorer-legend-key.is-dashed {
+    @apply h-0 w-3;
+    background: none;
+    border-top: 2px dashed currentColor;
+  }
+
+  .explorer-legend-item[aria-pressed="false"] .explorer-legend-key:not(.is-dashed) {
+    background: none;
+    box-shadow: inset 0 0 0 1.5px currentColor;
+  }
+
   .explorer-plot {
     @apply relative flex min-h-0 flex-auto flex-col;
+  }
+
+  .explorer-plot [data-highlight] .chart svg [data-series] {
+    transition: opacity 150ms ease;
+  }
+
+  .explorer-plot [data-highlight="s0"] .chart svg [data-series]:not([data-series="s0"]),
+  .explorer-plot [data-highlight="s1"] .chart svg [data-series]:not([data-series="s1"]),
+  .explorer-plot [data-highlight="s2"] .chart svg [data-series]:not([data-series="s2"]),
+  .explorer-plot [data-highlight="s3"] .chart svg [data-series]:not([data-series="s3"]),
+  .explorer-plot [data-highlight="s4"] .chart svg [data-series]:not([data-series="s4"]),
+  .explorer-plot [data-highlight="s5"] .chart svg [data-series]:not([data-series="s5"]) {
+    opacity: 0.15;
   }
 
   .explorer-plot > [data-controller~="chart"] {

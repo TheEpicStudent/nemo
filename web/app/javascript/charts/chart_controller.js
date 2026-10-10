@@ -90,17 +90,19 @@ export default class extends Controller {
     this.shown = this.kindValue || "bars"
     this.at = null
     this.wide = 0
-    this.build()
-
-    const chart = this.element.querySelector(".chart")
-    if (!chart) return
-
     this.watcher = new ResizeObserver(() => this.measure())
-    this.watcher.observe(chart)
+    this.build()
+    this.ready = true
+    if (this.hasViewValue) this.dispatch("ready")
   }
 
   disconnect() {
+    this.ready = false
     this.watcher?.disconnect()
+  }
+
+  viewValueChanged() {
+    if (this.ready) this.build({ animate: false })
   }
 
   get rows() {
@@ -139,10 +141,28 @@ export default class extends Controller {
     })
   }
 
-  get series() {
+  get allSeries() {
     return (this.dataValue.datasets || []).map((set, i) => ({
       k: `s${i}`, c: `c${i}`, n: set.label, ink: INK[i % INK.length], own: set.color,
       ghost: !!set.ghost, over: !!set.over
+    }))
+  }
+
+  get hiddenSeries() {
+    return new Set(this.viewValue.hidden || [])
+  }
+
+  get series() {
+    const hidden = this.hiddenSeries
+    return this.allSeries.filter((s) => !hidden.has(s.k))
+  }
+
+  legendEntries() {
+    const all = this.allSeries
+    const order = this.stackedValue && !this.line ? all.slice().reverse() : all
+    return order.map((s) => ({
+      key: s.k, label: s.n, colorClass: this.paint(s), color: s.own || null,
+      shape: s.ghost ? "dashed" : this.line ? "line" : "box"
     }))
   }
 
@@ -159,17 +179,21 @@ export default class extends Controller {
     return this.shown === "line"
   }
 
-  build() {
+  build({ animate = true } = {}) {
     const series = this.series
     const rows = this.rows
-    if (!rows.length || !series.length) return
+    if (!rows.length) return
+    if (!series.length) {
+      if (this.hasViewValue) this.element.innerHTML = '<div class="chart-empty">No series shown</div>'
+      return
+    }
 
     if (!this.sparkValue && rows.every((r) => series.every((s) => !Number(r[s.k])))) {
       this.element.innerHTML = `<div class="chart-empty" style="min-height:${this.height}px">Nothing in this range</div>`
       return
     }
 
-    this.fresh = true
+    this.fresh = animate
     this.element.classList.toggle("chart-spark", this.sparkValue)
     const brush = this.brushValue
       ? " pointerdown->chart#press pointermove->chart#drag pointerup->chart#release pointercancel->chart#release"
@@ -179,6 +203,8 @@ export default class extends Controller {
       data-action="mousemove->chart#track mouseleave->chart#clear keydown->chart#key${brush}"
       ><div class="tip"></div><span class="chart-caption" aria-live="polite"></span></div>`
     this.wide = 0
+    this.watcher.disconnect()
+    this.watcher.observe(this.element.querySelector(".chart"))
     this.measure()
   }
 
@@ -197,7 +223,7 @@ export default class extends Controller {
     const swatch = (s) =>
       `<span><i class="${this.paint(s)}${s.ghost ? " ghost" : ""}"${
         this.tint(s)}></i>${esc(s.n)}</span>`
-    if (series.length < 2 || this.sparkValue || this.nokeyValue) return ""
+    if (series.length < 2 || this.sparkValue || this.nokeyValue || this.viewValue.legend === false) return ""
 
     const order = this.stack ? series.slice().reverse() : series
     return `<div class="chart-legend">${order.map(swatch).join("")}</div>`
@@ -209,6 +235,10 @@ export default class extends Controller {
 
   tint(s) {
     return s.own ? ` style="color:${esc(s.own)}"` : ""
+  }
+
+  mark(s) {
+    return `${this.tint(s)} data-series="${s.k}"`
   }
 
   tick(v) {
@@ -509,12 +539,12 @@ export default class extends Controller {
           wide = BAR_CAP
         }
         if (Number(v) === 0) {
-          return `<rect class="${this.paint(s)}"${this.tint(s)} fill="currentColor" opacity="0.45"
+          return `<rect class="${this.paint(s)}"${this.mark(s)} fill="currentColor" opacity="0.45"
             x="${at.toFixed(1)}" y="${(floor - 2).toFixed(1)}"
             width="${wide.toFixed(1)}" height="2" rx="1"/>`
         }
         const tall = Math.max(floor - y(v), 2)
-        return `<path class="bar ${this.paint(s)}"${this.tint(s)} fill="currentColor" d="${
+        return `<path class="bar ${this.paint(s)}"${this.mark(s)} fill="currentColor" d="${
           topBar(at, floor - tall, wide, tall, Math.min(BAR_R, wide / 2))}"/>`
       }).join("")
 
@@ -546,7 +576,7 @@ export default class extends Controller {
         if (!(tall > 0)) return ""
 
         const cap = s_i === series.length - 1 ? Math.min(BAR_R, wide / 2) : 0
-        return `<path class="bar ${this.paint(s)}"${this.tint(s)} fill="currentColor" d="${
+        return `<path class="bar ${this.paint(s)}"${this.mark(s)} fill="currentColor" d="${
           topBar(at, top, wide, tall, cap)}"/>`
       }).reverse().join("")
 
@@ -573,11 +603,11 @@ export default class extends Controller {
     return series.map((s) => {
       const seen = pts(s)
       const fill = wash && !s.ghost
-        ? `<path class="wash" fill="url(#${this.gid})" mask="url(#${this.gid}-fade)" d="${
+        ? `<path class="wash" data-series="${s.k}" fill="url(#${this.gid})" mask="url(#${this.gid}-fade)" d="${
           under(seen)}"/>` : ""
       const dash = s.ghost ? ' stroke-dasharray="5 4"' : ' pathLength="1"'
       return `${fill}${this.bridge(seen, s, mid, y)}<path class="${s.ghost ? "" : "stroke-line "}${
-        this.paint(s)}"${this.tint(s)} fill="none" stroke="currentColor"
+        this.paint(s)}"${this.mark(s)} fill="none" stroke="currentColor"
         stroke-width="${s.ghost ? 1.5 : 2}"${dash} stroke-linejoin="round" stroke-linecap="round"
         d="${path(seen)}"/>${this.alone(seen, s, mid, y)}`
     }).join("")
@@ -590,9 +620,9 @@ export default class extends Controller {
       const path = lineOf().defined((d) => d.v != null).x((d) => mid(d.i)).y((d) => y2(d.v)).curve(bend)
       const under = areaOf().defined((d) => d.v != null).x((d) => mid(d.i)).y0(floor)
         .y1((d) => y2(d.v)).curve(bend)
-      return `<path class="wash wash-over" fill="url(#${this.gid}-o${n})" mask="url(#${this.gid}-fade)"
+      return `<path class="wash wash-over" data-series="${s.k}" fill="url(#${this.gid}-o${n})" mask="url(#${this.gid}-fade)"
           d="${under(seen)}"/>` +
-        `<path class="stroke-line ${this.paint(s)}"${this.tint(s)} pathLength="1" fill="none"
+        `<path class="stroke-line ${this.paint(s)}"${this.mark(s)} pathLength="1" fill="none"
           stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"
           d="${path(seen)}"/>`
     }).join("")
@@ -606,7 +636,7 @@ export default class extends Controller {
       .map(([a, b]) => `M${mid(a.i)},${y(a.v)}L${mid(b.i)},${y(b.v)}`)
     if (!spans.length) return ""
 
-    return `<path class="${this.paint(s)}"${this.tint(s)} fill="none" stroke="currentColor"
+    return `<path class="${this.paint(s)}"${this.mark(s)} fill="none" stroke="currentColor"
       stroke-width="${s.ghost ? 1.5 : 2}" stroke-dasharray="2 3" stroke-linecap="round"
       opacity="0.5" d="${spans.join("")}"/>`
   }
@@ -615,7 +645,7 @@ export default class extends Controller {
     return seen.filter((d, i) =>
       d.v != null && seen[i - 1]?.v == null && seen[i + 1]?.v == null
     ).map((d) =>
-      `<circle class="${this.paint(s)}"${this.tint(s)} fill="currentColor" stroke="none"
+      `<circle class="${this.paint(s)}"${this.mark(s)} fill="currentColor" stroke="none"
         cx="${mid(d.i)}" cy="${y(d.v)}" r="${s.ghost ? 1.5 : 2}"/>`
     ).join("")
   }
