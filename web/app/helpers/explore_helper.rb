@@ -11,6 +11,9 @@ module ExploreHelper
       { key: "kind", label: "Type", choices: [["bars", "Bars"], ["line", "Line"]] },
       { key: "stacked", label: "Stacked" }
     ]],
+    ["X axis", [
+      { key: "xScale", label: "Scale", choices: [["linear", "Linear"], ["log", "Log"]] }
+    ]],
     ["Y axis", [
       { key: "yScale", label: "Scale", choices: [["linear", "Linear"], ["log", "Log"]] },
       { key: "zero", label: "Start at zero" },
@@ -22,6 +25,7 @@ module ExploreHelper
     ["Show", [
       { key: "grid", label: "Gridlines", shortcut: "G" },
       { key: "notes", label: "Annotations", shortcut: "A" },
+      { key: "labels", label: "Labels" },
       { key: "overview", label: "Overview", shortcut: "N" }
     ]]
   ].freeze

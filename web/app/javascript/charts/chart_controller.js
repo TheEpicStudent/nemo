@@ -1,7 +1,9 @@
 import { Controller } from "@hotwired/stimulus"
 import { scaleBand, scaleLinear, scaleLog } from "d3-scale"
 import { line as lineOf, area as areaOf, curveMonotoneX, curveLinear } from "d3-shape"
-import { clampWindow, isFullWindow, MIN_WINDOW_ROWS } from "charts/frame"
+import {
+  clampWindow, isFullWindow, zoomWindow, shiftWindow, windowAround, interpolateWindow, minimumSpan, MIN_WINDOW_ROWS
+} from "charts/frame"
 
 let seq = 0
 
@@ -68,6 +70,7 @@ const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
 const withoutViewport = ({ window: _window, pin: _pin, ...rest }) => JSON.stringify(rest)
 const sameExceptViewport = (value, previous) => withoutViewport(value) === withoutViewport(previous)
 const WEEKEND = [0, 6]
+const MIN_SELECTION_ROWS = 2
 
 function dayLabel(iso) {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
@@ -327,6 +330,64 @@ export default class extends Controller {
     return !this.sparkValue && this.rowCount() > MIN_WINDOW_ROWS
   }
 
+  fullWindow() {
+    return [0, this.rowCount()]
+  }
+
+  isFullWindow(window) {
+    return isFullWindow(window, this.rowCount())
+  }
+
+  canZoomIn(window) {
+    const [start, end] = window || this.fullWindow()
+    return end - start > minimumSpan(this.rowCount()) + 0.001
+  }
+
+  windowCenter(window) {
+    const [start, end] = window || this.fullWindow()
+    return (start + end) / 2
+  }
+
+  zoomWindowAt(window, factor, anchor) {
+    return zoomWindow(window || this.fullWindow(), this.rowCount(), factor, anchor ?? this.windowCenter(window))
+  }
+
+  panWindow(window, dx) {
+    return shiftWindow(window || this.fullWindow(), this.rowCount(), -dx * this.rowsPerPixel())
+  }
+
+  windowFromSelection(from, to) {
+    if (from == null || to == null) return null
+
+    const start = Math.floor(Math.min(from, to))
+    const end = Math.ceil(Math.max(from, to))
+    if (end - start < MIN_SELECTION_ROWS) return null
+
+    return windowAround(start, end, this.rowCount())
+  }
+
+  interpolateWindow(from, to, progress) {
+    return interpolateWindow(from, to, progress)
+  }
+
+  anchorAt(event) {
+    return this.unitAt(event)
+  }
+
+  previewSelection(from, to) {
+    if (from != null && to != null) this.selectUnits(from, to)
+  }
+
+  windowLabel(window) {
+    const range = this.rangeOf(window)
+    if (!range) return null
+
+    return {
+      label: range.from === range.to ? range.fromLabel : `${range.fromLabel} to ${range.toLabel}`,
+      detail: range.daily ? `${range.count} ${range.count === 1 ? "day" : "days"}` : `${range.count} of ${range.total}`
+    }
+  }
+
   windowFor(count) {
     const window = this.viewValue.window
     if (!Array.isArray(window) || count < 2) return null
@@ -426,7 +487,7 @@ export default class extends Controller {
 
     return {
       title: dated ? dayTitle(row.key) : row.label,
-      weekend: dated && WEEKEND.includes(new Date(`${row.key}T00:00:00Z`).getUTCDay()),
+      qualifier: dated && WEEKEND.includes(new Date(`${row.key}T00:00:00Z`).getUTCDay()) ? "weekend" : null,
       tags,
       note: row.tip || null,
       total: total == null ? null : this.format(total),

@@ -1,6 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
 import { modalsOpen, aboveOpen, popupOpen, drawerOpen } from "lib/layers"
-import { zoomWindow, windowAround, shiftWindow, isFullWindow, interpolateWindow, minimumSpan } from "charts/frame"
 import { PlotGestures } from "charts/gesture"
 import { Overview } from "charts/overview"
 import { exportSvg, svgToPng } from "charts/export"
@@ -14,10 +13,15 @@ const OPEN_EASING = "cubic-bezier(0.16, 1, 0.3, 1)"
 const CLOSE_EASING = "cubic-bezier(0.4, 0, 0.2, 1)"
 const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable='false'])"
 const INTERACTIVE = "button, a, [role='switch'], [role='separator'], input, textarea, select"
-const MIN_BRUSH_ROWS = 2
-const CHART_SOURCE = "[data-controller~='chart']:not([data-chart-spark-value='true'])"
-const DETACHED_VALUES = ["brush", "brush-href", "brush-keys"]
-const DISPLAY_KEYS = ["kind", "stacked", "yScale", "zero", "fit", "format", "grid", "notes", "overview"]
+const CHART_SOURCES = [
+  {
+    identifier: "chart",
+    selector: "[data-controller~='chart']:not([data-chart-spark-value='true'])",
+    detached: ["brush", "brush-href", "brush-keys"]
+  },
+  { identifier: "scatter", selector: "[data-controller~='scatter']", detached: [] }
+]
+const DISPLAY_KEYS = ["kind", "stacked", "yScale", "zero", "fit", "format", "grid", "notes", "overview", "labels", "xScale"]
 const STORAGE_PREFIX = "mn-explore-"
 const URL_PARAMS = { chart: "explore", from: "xfrom", to: "xto" }
 const URL_WRITE_DELAY = 150
@@ -148,7 +152,7 @@ export default class extends Controller {
   writeUrl() {
     clearTimeout(this.urlTimer)
     const url = new URL(window.location.href)
-    const range = this.isOpen && this.zoomWindow && this.chart ? this.chart.rangeOf(this.zoomWindow) : null
+    const range = this.isOpen && this.zoomWindow && this.chart?.rangeOf ? this.chart.rangeOf(this.zoomWindow) : null
     if (this.isOpen && this.key) url.searchParams.set(URL_PARAMS.chart, this.key)
     else url.searchParams.delete(URL_PARAMS.chart)
     if (range) {
@@ -337,13 +341,13 @@ export default class extends Controller {
         this.chart.clear()
         return true
       },
-      brushMove: (start, event) => this.chart.selectUnits(this.chart.unitAt(start), this.chart.unitAt(event)),
-      brushEnd: (start, event) => this.zoomToSelection(this.chart.unitAt(start), this.chart.unitAt(event)),
-      pan: (dx) => this.panBy(dx),
+      brushMove: (start, event) => this.chart.previewSelection(this.chart.anchorAt(start), this.chart.anchorAt(event)),
+      brushEnd: (start, event) => this.zoomToSelection(this.chart.anchorAt(start), this.chart.anchorAt(event)),
+      pan: (dx, dy) => this.panBy(dx, dy),
       panEnd: () => this.plotTarget.classList.remove("is-panning"),
-      zoom: (factor, event) => this.zoomAround(factor, this.chart?.unitAt(event)),
+      zoom: (factor, event) => this.zoomAround(factor, this.chart?.anchorAt(event)),
       pinchStart: (center) => {
-        this.pinchOrigin = { window: this.currentWindow(), anchor: this.chart?.unitAt(center) }
+        this.pinchOrigin = { window: this.currentWindow(), anchor: this.chart?.anchorAt(center) }
       },
       pinch: (scale) => this.zoomFromOrigin(scale),
       doubleClick: () => {
@@ -358,40 +362,37 @@ export default class extends Controller {
   }
 
   currentWindow() {
-    return this.zoomWindow || [0, this.chart?.rowCount() || 0]
+    return this.zoomWindow || this.chart?.fullWindow() || null
   }
 
   zoomToSelection(from, to) {
     this.chart.clear()
     if (from == null || to == null) return
 
-    const start = Math.floor(Math.min(from, to))
-    const end = Math.ceil(Math.max(from, to))
-    if (end - start < MIN_BRUSH_ROWS) return
-
-    this.animateWindow(windowAround(start, end, this.chart.rowCount()))
+    const target = this.chart.windowFromSelection(from, to)
+    if (target) this.animateWindow(target)
   }
 
-  panBy(dx) {
+  panBy(dx, dy = 0) {
     if (!this.chart || !this.zoomWindow) return
 
     cancelAnimationFrame(this.zoomFrame)
     this.plotTarget.classList.add("is-panning")
-    this.applyWindow(shiftWindow(this.zoomWindow, this.chart.rowCount(), -dx * this.chart.rowsPerPixel()))
+    this.applyWindow(this.chart.panWindow(this.zoomWindow, dx, dy))
   }
 
   zoomAround(factor, anchor) {
     if (!this.chart?.zoomable() || anchor == null) return
 
     cancelAnimationFrame(this.zoomFrame)
-    this.applyWindow(zoomWindow(this.currentWindow(), this.chart.rowCount(), factor, anchor))
+    this.applyWindow(this.chart.zoomWindowAt(this.currentWindow(), factor, anchor))
   }
 
   zoomFromOrigin(scale) {
     const origin = this.pinchOrigin
     if (!this.chart?.zoomable() || !origin || origin.anchor == null) return
 
-    this.applyWindow(zoomWindow(origin.window, this.chart.rowCount(), scale, origin.anchor))
+    this.applyWindow(this.chart.zoomWindowAt(origin.window, scale, origin.anchor))
   }
 
   isExpandShortcut(event) {
@@ -420,6 +421,7 @@ export default class extends Controller {
     this.displayTarget.hidden = true
     this.displayButtonTarget.setAttribute("aria-expanded", "false")
     this.chart = null
+    this.chartIdentifier = null
     this.chartMount = null
     this.hiddenSeries = new Set()
     this.displayOverrides = {}
@@ -459,7 +461,8 @@ export default class extends Controller {
   }
 
   mountChart(card) {
-    const source = card.querySelector(CHART_SOURCE)
+    const kind = CHART_SOURCES.find((entry) => card.querySelector(entry.selector))
+    const source = kind && card.querySelector(kind.selector)
     if (!source) {
       const empty = card.querySelector(".empty")
       this.plotTarget.replaceChildren(empty ? empty.cloneNode(true) : this.emptyState())
@@ -468,7 +471,8 @@ export default class extends Controller {
 
     const mount = source.cloneNode(false)
     mount.removeAttribute("id")
-    DETACHED_VALUES.forEach((name) => mount.removeAttribute(`data-chart-${name}-value`))
+    kind.detached.forEach((name) => mount.removeAttribute(`data-${kind.identifier}-${name}-value`))
+    this.chartIdentifier = kind.identifier
     this.chartMount = mount
     this.hiddenSeries = new Set()
     this.displayOverrides = this.loadDisplay()
@@ -497,13 +501,14 @@ export default class extends Controller {
   }
 
   writeView() {
-    this.chartMount?.setAttribute("data-chart-view-value", JSON.stringify(this.view))
+    this.chartMount?.setAttribute(`data-${this.chartIdentifier}-view-value`, JSON.stringify(this.view))
   }
 
   chartReady(event) {
-    this.chart = this.application.getControllerForElementAndIdentifier(event.target, "chart")
+    this.chart = this.application.getControllerForElementAndIdentifier(event.target, this.chartIdentifier)
+    if (!this.chart) return
     if (this.pendingRange) {
-      const restored = this.chart.windowForKeys(...this.pendingRange)
+      const restored = this.chart.windowForKeys?.(...this.pendingRange)
       this.pendingRange = null
       if (restored && this.chart.zoomable()) this.applyWindow(restored)
     }
@@ -583,7 +588,8 @@ export default class extends Controller {
 
     const scrollTop = this.tableTarget.scrollTop
     const table = element("table", "data-table explorer-data-table")
-    table.append(this.tableHead(data.columns), this.tableBody(data), this.tableFoot(data))
+    table.append(this.tableHead(data.columns), this.tableBody(data))
+    if (data.footer) table.append(this.tableFoot(data))
     this.tableTarget.replaceChildren(table)
     this.tableTarget.scrollTop = scrollTop
   }
@@ -720,7 +726,7 @@ export default class extends Controller {
   }
 
   exportFilename(extension) {
-    const range = this.chart.rangeOf(this.zoomWindow)
+    const range = this.chart.rangeOf?.(this.zoomWindow)
     const base = fileSlug(this.key || this.titleTarget.textContent || "chart") || "chart"
     return range ? `${base}_${fileSlug(range.from)}_${fileSlug(range.to)}.${extension}` : `${base}.${extension}`
   }
@@ -794,8 +800,8 @@ export default class extends Controller {
   }
 
   exportSubtitle() {
-    const range = this.chart.rangeOf(this.zoomWindow)
-    if (!range) return ""
+    const range = this.chart.rangeOf?.(this.zoomWindow)
+    if (!range) return this.subtitleTarget.textContent
 
     const describe = (key, label) => (range.daily && ISO_DAY.test(key)
       ? new Date(`${key}T00:00:00Z`).toLocaleDateString("en-US", {
@@ -951,6 +957,12 @@ export default class extends Controller {
       return
     }
 
+    if (stats.summary) {
+      this.statsRangeTarget.textContent = stats.rangeLabel || ""
+      this.statsTarget.replaceChildren(this.summaryList(stats.summary))
+      return
+    }
+
     this.statsRangeTarget.textContent = stats.fromLabel === stats.toLabel
       ? stats.fromLabel
       : `${stats.fromLabel} to ${stats.toLabel}`
@@ -963,6 +975,16 @@ export default class extends Controller {
     const nodes = [this.statsTable(stats, filled)]
     if (stats.hasPrevious && filled.some((entry) => entry.change)) nodes.push(this.changeList(filled))
     this.statsTarget.replaceChildren(...nodes)
+  }
+
+  summaryList(items) {
+    const list = element("dl", "explorer-stats-summary")
+    items.forEach(({ label, value }) => {
+      const row = element("div", "explorer-stats-summary-row")
+      row.append(element("dt", null, label), element("dd", null, value))
+      list.append(row)
+    })
+    return list
   }
 
   statsTable(stats, series) {
@@ -1041,7 +1063,7 @@ export default class extends Controller {
     const fragment = document.createDocumentFragment()
     const title = element("p", "explorer-point-title")
     title.append(element("span", null, details.title))
-    if (details.weekend) title.append(element("span", "explorer-point-day", "weekend"))
+    if (details.qualifier) title.append(element("span", "explorer-point-day", details.qualifier))
     fragment.append(title)
     if (details.tags.length) {
       const tags = element("div", "explorer-point-tags")
@@ -1096,7 +1118,8 @@ export default class extends Controller {
   }
 
   renderOverview() {
-    const shown = !!this.chart?.zoomable() && this.display.overview !== false && this.isOpen &&
+    const shown = !!this.chart?.zoomable() && typeof this.chart.overviewSeries === "function" &&
+      this.display.overview !== false && this.isOpen &&
       this.viewMode !== "table"
     this.overviewTarget.hidden = !shown
     if (!shown) return
@@ -1124,14 +1147,12 @@ export default class extends Controller {
   zoomBy(factor) {
     if (!this.chart?.zoomable()) return
 
-    const count = this.chart.rowCount()
-    this.animateWindow(zoomWindow(this.zoomWindow || [0, count], count, factor))
+    this.animateWindow(this.chart.zoomWindowAt(this.currentWindow(), factor))
   }
 
   animateWindow(target) {
-    const count = this.chart.rowCount()
-    const from = this.zoomWindow || [0, count]
-    const to = target || [0, count]
+    const from = this.currentWindow()
+    const to = target || this.chart.fullWindow()
     cancelAnimationFrame(this.zoomFrame)
     if (this.reducedMotion.matches) {
       this.applyWindow(to)
@@ -1142,7 +1163,7 @@ export default class extends Controller {
     const tick = (now) => {
       const progress = Math.min(1, (now - startedAt) / ZOOM_DURATION)
       const eased = 1 - (1 - progress) ** 3
-      this.applyWindow(progress < 1 ? interpolateWindow(from, to, eased) : to)
+      this.applyWindow(progress < 1 ? this.chart.interpolateWindow(from, to, eased) : to)
       if (progress < 1) this.zoomFrame = requestAnimationFrame(tick)
     }
     this.zoomFrame = requestAnimationFrame(tick)
@@ -1151,7 +1172,7 @@ export default class extends Controller {
   applyWindow(window) {
     if (!this.chart) return
 
-    this.zoomWindow = isFullWindow(window, this.chart.rowCount()) ? null : window
+    this.zoomWindow = this.chart.isFullWindow(window) ? null : window
     this.writeView()
     this.renderZoom()
     this.renderTool()
@@ -1162,14 +1183,12 @@ export default class extends Controller {
   }
 
   renderRange() {
-    const range = this.zoomWindow && this.chart ? this.chart.rangeOf(this.zoomWindow) : null
-    this.rangeTarget.hidden = !range
-    if (!range) return
+    const summary = this.zoomWindow && this.chart ? this.chart.windowLabel(this.zoomWindow) : null
+    this.rangeTarget.hidden = !summary
+    if (!summary) return
 
-    this.rangeLabelTarget.textContent = range.from === range.to ? range.fromLabel : `${range.fromLabel} to ${range.toLabel}`
-    this.rangeCountTarget.textContent = range.daily
-      ? `${range.count} ${range.count === 1 ? "day" : "days"}`
-      : `${range.count} of ${range.total}`
+    this.rangeLabelTarget.textContent = summary.label
+    this.rangeCountTarget.textContent = summary.detail || ""
   }
 
   renderZoom() {
@@ -1177,9 +1196,7 @@ export default class extends Controller {
     this.zoomControlsTarget.hidden = !zoomable
     if (!zoomable) return
 
-    const count = this.chart.rowCount()
-    const [start, end] = this.zoomWindow || [0, count]
-    this.zoomInButtonTarget.disabled = end - start <= minimumSpan(count) + 0.001
+    this.zoomInButtonTarget.disabled = !this.chart.canZoomIn(this.currentWindow())
     this.zoomOutButtonTarget.disabled = !this.zoomWindow
     this.zoomResetButtonTarget.disabled = !this.zoomWindow
   }
@@ -1283,6 +1300,7 @@ export default class extends Controller {
 
     if (value === this.chart.displayDefaults()[key]) delete this.displayOverrides[key]
     else this.displayOverrides[key] = value
+    if (key === "xScale") this.zoomWindow = null
     this.savePreferences()
     this.writeView()
     this.renderDisplay()

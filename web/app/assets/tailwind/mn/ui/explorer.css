@@ -3,6 +3,10 @@
     @apply -my-1.5 -mr-1.5 ml-auto text-muted-foreground opacity-0 focus-visible:opacity-100;
   }
 
+  .card-tools + .card-expand {
+    @apply ml-0;
+  }
+
   .card:hover .card-expand, .card:focus-within .card-expand {
     @apply opacity-100;
   }
@@ -277,6 +281,22 @@
     @apply -mx-1 cursor-pointer rounded-sm border-0 bg-transparent px-1 py-0.5 text-[0.8125rem] text-foreground tabular-nums underline decoration-foreground/30 decoration-dotted underline-offset-3 outline-none hover:bg-muted hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring/50;
   }
 
+  .explorer-stats-summary {
+    @apply m-0 flex flex-col text-[0.8125rem];
+  }
+
+  .explorer-stats-summary-row {
+    @apply flex items-baseline justify-between gap-3 border-t border-border py-1.5 first:border-t-0 first:pt-0;
+  }
+
+  .explorer-stats-summary-row dt {
+    @apply min-w-0 truncate text-muted-foreground;
+  }
+
+  .explorer-stats-summary-row dd {
+    @apply m-0 font-medium text-foreground tabular-nums;
+  }
+
   .explorer-stats-change {
     @apply flex flex-col gap-2;
   }
@@ -379,6 +399,33 @@
     transition: none !important;
   }
 
+  .explorer-plot .point-label {
+    fill: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    font-weight: 500;
+    stroke: var(--background);
+    stroke-width: 3px;
+    paint-order: stroke;
+    stroke-linejoin: round;
+    pointer-events: none;
+  }
+
+  .explorer-plot .selection-area {
+    fill: color-mix(in oklab, var(--foreground) 8%, transparent);
+    stroke: color-mix(in oklab, var(--foreground) 25%, transparent);
+    stroke-width: 1;
+    pointer-events: none;
+  }
+
+  .explorer-plot .pin-ring {
+    fill: none;
+    stroke: var(--primary);
+    stroke-width: 1.5;
+    stroke-dasharray: 3 2;
+    pointer-events: none;
+  }
+
   .explorer-plot .pin-mark line {
     stroke: var(--primary);
     stroke-width: 1.5;
@@ -417,6 +464,10 @@
 
   .explorer-legend-key.is-line {
     @apply h-[3px] w-3 rounded-sm;
+  }
+
+  .explorer-legend-key.is-dot {
+    @apply size-2.5 rounded-full;
   }
 
   .explorer-legend-key.is-dashed {
@@ -506,15 +557,21 @@
   .explorer-plot [data-highlight="s2"] .chart svg [data-series]:not([data-series="s2"]),
   .explorer-plot [data-highlight="s3"] .chart svg [data-series]:not([data-series="s3"]),
   .explorer-plot [data-highlight="s4"] .chart svg [data-series]:not([data-series="s4"]),
-  .explorer-plot [data-highlight="s5"] .chart svg [data-series]:not([data-series="s5"]) {
+  .explorer-plot [data-highlight="s5"] .chart svg [data-series]:not([data-series="s5"]),
+  .explorer-plot [data-highlight="g0"] .chart svg [data-series]:not([data-series="g0"]),
+  .explorer-plot [data-highlight="g1"] .chart svg [data-series]:not([data-series="g1"]),
+  .explorer-plot [data-highlight="g2"] .chart svg [data-series]:not([data-series="g2"]),
+  .explorer-plot [data-highlight="g3"] .chart svg [data-series]:not([data-series="g3"]),
+  .explorer-plot [data-highlight="g4"] .chart svg [data-series]:not([data-series="g4"]),
+  .explorer-plot [data-highlight="g5"] .chart svg [data-series]:not([data-series="g5"]) {
     opacity: 0.15;
   }
 
-  .explorer-plot > [data-controller~="chart"] {
-    @apply min-h-0 flex-auto px-6 pt-5 pb-5 max-sm:px-3;
+  .explorer-plot > [data-controller] {
+    @apply flex min-h-0 min-w-0 flex-auto flex-col px-6 pt-5 pb-5 max-sm:px-3;
   }
 
-  .explorer-plot > [data-controller~="chart"] > .chart {
+  .explorer-plot > [data-controller] > .chart {
     @apply min-h-0 flex-[1_1_0];
   }
 

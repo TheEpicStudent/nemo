@@ -12,6 +12,7 @@
               options: cohorts.reject(&:default?).map(&pick) }
           ] %>
     <% end %>
+    <% if map.any? %><%= explore_button "channels.newcomers-landing" %><% end %>
   </div>
 
   <% if map.any? %>

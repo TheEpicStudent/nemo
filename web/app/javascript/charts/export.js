@@ -4,7 +4,7 @@ const INLINED_PROPERTIES = [
   "stroke-linejoin", "opacity", "font-family", "font-size", "font-weight", "font-variant-numeric",
   "stop-color", "stop-opacity", "shape-rendering", "paint-order", "visibility"
 ]
-const OVERLAYS = ".cur, .dot, .x-pill, .brush-area, .pin-mark"
+const OVERLAYS = ".cur, .dot, .x-pill, .brush-area, .pin-mark, .selection-area, .pin-ring"
 const PADDING = 24
 const TITLE_SIZE = 16
 const SUBTITLE_SIZE = 12.5
@@ -58,17 +58,26 @@ function inlineStyles(source, clone) {
   })
 }
 
+function legendKey(entry, x, top) {
+  switch (entry.shape) {
+    case "line":
+      return `<rect x="${x}" y="${top - 5.5}" width="12" height="3" rx="1.5" fill="${entry.color}"/>`
+    case "dot":
+      return `<circle cx="${x + LEGEND_KEY / 2}" cy="${top - LEGEND_KEY / 2 + 1}" r="${LEGEND_KEY / 2}" fill="${entry.color}"/>`
+    case "dashed":
+      return `<line x1="${x}" x2="${x + 12}" y1="${top - 4}" y2="${top - 4}" stroke="${entry.color}" stroke-width="2" stroke-dasharray="3 2"/>`
+    default:
+      return `<rect x="${x}" y="${top - LEGEND_KEY + 1}" width="${LEGEND_KEY}" height="${LEGEND_KEY}" rx="3" fill="${entry.color}"/>`
+  }
+}
+
 function legendMarkup(entries, { top, foreground }) {
   let x = PADDING
   return entries.map((entry) => {
-    const key = entry.shape === "line"
-      ? `<rect x="${x}" y="${top - 5.5}" width="12" height="3" rx="1.5" fill="${entry.color}"/>`
-      : entry.shape === "dashed"
-        ? `<line x1="${x}" x2="${x + 12}" y1="${top - 4}" y2="${top - 4}" stroke="${entry.color}" stroke-width="2" stroke-dasharray="3 2"/>`
-        : `<rect x="${x}" y="${top - LEGEND_KEY + 1}" width="${LEGEND_KEY}" height="${LEGEND_KEY}" rx="3" fill="${entry.color}"/>`
     const label = `<text x="${x + 18}" y="${top}" font-size="${LEGEND_SIZE}" fill="${foreground}">${escapeXml(entry.label)}</text>`
+    const markup = legendKey(entry, x, top) + label
     x += 18 + textWidth(entry.label, LEGEND_SIZE) + LEGEND_GAP
-    return key + label
+    return markup
   }).join("")
 }
 
