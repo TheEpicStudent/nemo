@@ -131,8 +131,109 @@
     @apply mt-1 flex justify-end border-t border-border px-1 pt-1;
   }
 
+  .explorer-toolbar .btn[aria-pressed="true"] {
+    @apply bg-muted text-foreground;
+  }
+
   .explorer-body {
-    @apply relative flex min-h-0 flex-auto flex-col;
+    @apply relative flex min-h-0 flex-auto flex-row;
+  }
+
+  .explorer-main {
+    @apply flex min-h-0 min-w-0 flex-auto flex-col;
+  }
+
+  .explorer-inspector {
+    @apply w-75 flex-none overflow-y-auto overscroll-contain border-l border-border bg-background;
+  }
+
+  .explorer-inspector[hidden] {
+    display: none;
+  }
+
+  @container (max-width: 780px) {
+    .explorer-inspector {
+      @apply absolute inset-y-0 right-0 z-10 w-[min(18.75rem,88%)] shadow-xl;
+    }
+  }
+
+  .explorer-inspector-section {
+    @apply flex flex-col gap-3 border-b border-border p-4;
+  }
+
+  .explorer-inspector-head {
+    @apply flex min-h-7 items-center justify-between gap-2;
+  }
+
+  .explorer-inspector-label {
+    @apply m-0 text-xs font-medium text-muted-foreground;
+  }
+
+  .explorer-pin[hidden] {
+    display: none;
+  }
+
+  .explorer-pin[aria-pressed="true"] {
+    @apply bg-primary/10 text-foreground hover:bg-primary/15;
+  }
+
+  .explorer-point {
+    @apply flex flex-col gap-3;
+  }
+
+  .explorer-point-title {
+    @apply m-0 flex items-baseline justify-between gap-2 text-base leading-snug font-semibold tracking-tight text-foreground tabular-nums;
+  }
+
+  .explorer-point-day {
+    @apply flex-none text-sm font-normal tracking-normal text-muted-foreground;
+  }
+
+  .explorer-point-tags {
+    @apply -mt-1.5 flex flex-wrap gap-1;
+  }
+
+  .explorer-point-tag {
+    @apply inline-flex h-5 items-center rounded-md bg-muted px-1.5 text-xs font-medium text-muted-foreground;
+  }
+
+  .explorer-point-rows {
+    @apply flex flex-col gap-3;
+  }
+
+  .explorer-point-row {
+    @apply grid grid-cols-[0.75rem_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 text-sm;
+  }
+
+  .explorer-point-row.is-total {
+    @apply border-t border-border pt-3;
+  }
+
+  .explorer-point-label {
+    @apply min-w-0 truncate text-foreground;
+  }
+
+  .explorer-point-value {
+    @apply font-semibold text-foreground tabular-nums;
+  }
+
+  .explorer-point-meta {
+    @apply col-span-2 col-start-2 flex items-center justify-between gap-2 text-xs text-muted-foreground tabular-nums;
+  }
+
+  .explorer-point-note, .explorer-point-empty {
+    @apply m-0 text-sm text-muted-foreground;
+  }
+
+  .explorer-plot .pin-mark line {
+    stroke: var(--primary);
+    stroke-width: 1.5;
+    stroke-dasharray: 3 3;
+    shape-rendering: crispEdges;
+  }
+
+  .explorer-plot .pin-mark circle {
+    fill: var(--primary);
   }
 
   .explorer-legend {

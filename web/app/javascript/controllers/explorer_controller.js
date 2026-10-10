@@ -20,12 +20,23 @@ const DISPLAY_KEYS = ["kind", "stacked", "yScale", "zero", "fit", "format", "gri
 const STORAGE_PREFIX = "mn-explore-"
 const URL_PARAMS = { chart: "explore", from: "xfrom", to: "xto" }
 const URL_WRITE_DELAY = 150
+const INSPECTOR_MIN_WIDTH = 900
+const DELTA_PATHS = { up: "m18 15-6-6-6 6", down: "m6 9 6 6 6-6", flat: "M5 12h14" }
+const DELTA_WORDS = { up: "up", down: "down", flat: "no change" }
+
+function element(tag, className, text) {
+  const node = document.createElement(tag)
+  if (className) node.className = className
+  if (text != null) node.textContent = text
+  return node
+}
 
 export default class extends Controller {
   static targets = [
     "dialog", "panel", "title", "subtitle", "body", "legend", "plot", "displayButton", "display",
     "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton", "overview",
-    "range", "rangeLabel", "rangeCount"
+    "range", "rangeLabel", "rangeCount",
+    "inspector", "inspectorButton", "point", "pinButton", "pinLabel", "announcer"
   ]
 
   connect() {
@@ -160,6 +171,10 @@ export default class extends Controller {
       this.gestures.cancel()
       return
     }
+    if (this.pin != null) {
+      this.setPin(null)
+      return
+    }
     this.close()
   }
 
@@ -214,6 +229,7 @@ export default class extends Controller {
 
   shortcutFor(event) {
     if (event.metaKey || event.ctrlKey || event.altKey || event.target.closest?.(EDITABLE)) return null
+    if (event.key === "Enter") return event.target.closest?.(INTERACTIVE) ? null : () => this.pinFromKeyboard()
 
     switch (event.key.toLowerCase()) {
       case "+": case "=": return () => this.zoomIn()
@@ -225,6 +241,7 @@ export default class extends Controller {
       case "g": return () => this.toggleSettingIfShown("grid")
       case "a": return () => this.toggleSettingIfShown("notes")
       case "n": return () => this.toggleSettingIfShown("overview")
+      case "i": return () => this.toggleInspector()
       default: return null
     }
   }
@@ -264,7 +281,10 @@ export default class extends Controller {
       panMode: () => this.panMode,
       hover: (event) => this.chart?.track(event),
       leave: () => this.chart?.clear(),
-      tap: (event) => { if (event.pointerType === "touch") this.chart?.track(event) },
+      tap: (event) => {
+        if (event.pointerType === "touch") this.chart?.track(event)
+        this.togglePinAt(event)
+      },
       brushStart: () => {
         if (!this.chart?.zoomable()) return false
         this.chart.clear()
@@ -279,7 +299,10 @@ export default class extends Controller {
         this.pinchOrigin = { window: this.currentWindow(), anchor: this.chart?.unitAt(center) }
       },
       pinch: (scale) => this.zoomFromOrigin(scale),
-      doubleClick: () => this.resetZoom(),
+      doubleClick: () => {
+        this.setPin(this.pinBeforeClick ?? null)
+        this.resetZoom()
+      },
       cancel: () => {
         this.chart?.clear()
         this.plotTarget.classList.remove("is-panning")
@@ -366,6 +389,13 @@ export default class extends Controller {
     this.overviewTarget.hidden = true
     this.rangeTarget.hidden = true
     this.pendingRange = null
+    this.pin = null
+    this.hoverIndex = null
+    this.pinBeforeClick = null
+    this.inspectorOpen = false
+    this.inspectorTarget.hidden = true
+    this.pointTarget.replaceChildren()
+    this.announcerTarget.textContent = ""
     this.card = null
     this.key = null
     this.opener = null
@@ -385,6 +415,10 @@ export default class extends Controller {
     this.chartMount = mount
     this.hiddenSeries = new Set()
     this.displayOverrides = this.loadDisplay()
+    const saved = this.readPreferences()
+    this.inspectorOpen = typeof saved.inspector === "boolean"
+      ? saved.inspector
+      : this.panelTarget.clientWidth >= INSPECTOR_MIN_WIDTH
     this.writeView()
     this.plotTarget.replaceChildren(mount)
     this.startGestures()
@@ -393,7 +427,8 @@ export default class extends Controller {
   get view() {
     return {
       fill: true, title: this.titleTarget.textContent, legend: false, pointer: "external", hidden: [...this.hiddenSeries],
-      ...this.displayOverrides, ...(this.zoomWindow ? { window: this.zoomWindow } : {})
+      ...this.displayOverrides, ...(this.zoomWindow ? { window: this.zoomWindow } : {}),
+      ...(this.pin != null ? { pin: this.pin } : {})
     }
   }
 
@@ -417,6 +452,118 @@ export default class extends Controller {
     this.renderZoom()
     this.renderTool()
     this.renderOverview()
+    this.renderInspector()
+  }
+
+  rememberPin(event) {
+    if (event.detail === 1) this.pinBeforeClick = this.pin
+  }
+
+  chartPoint(event) {
+    const { index, source } = event.detail
+    this.hoverIndex = index
+    if (source === "keyboard" && this.pin != null && index != null) {
+      this.setPin(index)
+      return
+    }
+    this.renderInspector()
+  }
+
+  togglePin() {
+    this.setPin(this.pin != null ? null : this.hoverIndex)
+  }
+
+  togglePinAt(event) {
+    const index = this.chart?.spot(event)
+    this.setPin(index == null || index === this.pin ? null : index)
+  }
+
+  pinFromKeyboard() {
+    if (this.hoverIndex != null) this.setPin(this.pin === this.hoverIndex ? null : this.hoverIndex)
+    else if (this.pin != null) this.setPin(null)
+  }
+
+  setPin(index) {
+    const next = Number.isInteger(index) ? index : null
+    if (next === this.pin) return
+
+    this.pin = next
+    this.writeView()
+    this.renderInspector()
+    const details = next == null ? null : this.chart?.pointDetails(next)
+    this.announcerTarget.textContent = details ? `Pinned ${details.title}` : "Unpinned"
+  }
+
+  toggleInspector() {
+    if (!this.chart) return
+
+    this.inspectorOpen = !this.inspectorOpen
+    this.savePreferences()
+    this.renderInspector()
+  }
+
+  renderInspector() {
+    const open = !!this.inspectorOpen && !!this.chart
+    this.inspectorTarget.hidden = !open
+    this.inspectorButtonTarget.setAttribute("aria-pressed", String(!!this.inspectorOpen))
+    if (!open) return
+
+    const index = this.pin ?? this.hoverIndex
+    const details = index == null ? null : this.chart.pointDetails(index)
+    const pinned = this.pin != null
+    this.pinButtonTarget.hidden = !details
+    this.pinButtonTarget.setAttribute("aria-pressed", String(pinned))
+    this.pinLabelTarget.textContent = pinned ? "Pinned" : "Pin"
+    this.pointTarget.replaceChildren(details ? this.pointView(details) : element("p", "explorer-point-empty", "No point selected"))
+  }
+
+  pointView(details) {
+    const fragment = document.createDocumentFragment()
+    const title = element("p", "explorer-point-title")
+    title.append(element("span", null, details.title))
+    if (details.weekend) title.append(element("span", "explorer-point-day", "weekend"))
+    fragment.append(title)
+    if (details.tags.length) {
+      const tags = element("div", "explorer-point-tags")
+      details.tags.forEach((tag) => tags.append(element("span", "explorer-point-tag", tag)))
+      fragment.append(tags)
+    }
+
+    const rows = element("div", "explorer-point-rows")
+    details.values.forEach((value) => rows.append(this.pointRow(value)))
+    if (details.total) {
+      const total = element("div", "explorer-point-row is-total")
+      total.append(element("i"), element("span", "explorer-point-label", "total"),
+        element("b", "explorer-point-value", details.total))
+      rows.append(total)
+    }
+    fragment.append(rows)
+    if (details.note) fragment.append(element("p", "explorer-point-note", details.note))
+    return fragment
+  }
+
+  pointRow(value) {
+    const row = element("div", "explorer-point-row")
+    const key = element("i", `explorer-legend-key is-${value.shape} ${value.colorClass}`)
+    if (value.color) key.style.color = value.color
+    row.append(key, element("span", "explorer-point-label", value.label), element("b", "explorer-point-value", value.value))
+
+    const meta = element("div", "explorer-point-meta")
+    if (value.change) meta.append(this.deltaView(value.change))
+    if (value.share) meta.append(element("span", "explorer-point-share", `${value.share} of total`))
+    if (meta.childElementCount) row.append(meta)
+    return row
+  }
+
+  deltaView({ value, unit }) {
+    const direction = Math.abs(value) < 0.05 ? "flat" : value > 0 ? "up" : "down"
+    const delta = element("span", `delta delta-${direction}`)
+    delta.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ` +
+      `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${DELTA_PATHS[direction]}"/></svg>`
+    delta.append(element("span", "visually-hidden", DELTA_WORDS[direction]),
+      document.createTextNode(`${Math.abs(value).toFixed(1)}${unit === "pts" ? " pts" : "%"}`),
+      element("span", "visually-hidden", " from the previous point"))
+    return delta
   }
 
   moveWindow(window, { animate = false } = {}) {
@@ -604,7 +751,7 @@ export default class extends Controller {
 
   resetDisplay() {
     this.displayOverrides = {}
-    this.saveDisplay()
+    this.savePreferences()
     this.writeView()
     this.renderDisplay()
   }
@@ -614,7 +761,7 @@ export default class extends Controller {
 
     if (value === this.chart.displayDefaults()[key]) delete this.displayOverrides[key]
     else this.displayOverrides[key] = value
-    this.saveDisplay()
+    this.savePreferences()
     this.writeView()
     this.renderDisplay()
   }
@@ -646,22 +793,27 @@ export default class extends Controller {
     return this.key ? `${STORAGE_PREFIX}${this.key}` : null
   }
 
-  loadDisplay() {
+  readPreferences() {
     if (!this.storageKey) return {}
 
     try {
-      const saved = JSON.parse(localStorage.getItem(this.storageKey) || "{}").display || {}
-      return Object.fromEntries(Object.entries(saved).filter(([key]) => DISPLAY_KEYS.includes(key)))
+      return JSON.parse(localStorage.getItem(this.storageKey) || "{}") || {}
     } catch {
       return {}
     }
   }
 
-  saveDisplay() {
+  loadDisplay() {
+    const saved = this.readPreferences().display || {}
+    return Object.fromEntries(Object.entries(saved).filter(([key]) => DISPLAY_KEYS.includes(key)))
+  }
+
+  savePreferences() {
     if (!this.storageKey) return
 
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify({ display: this.displayOverrides }))
+      localStorage.setItem(this.storageKey,
+        JSON.stringify({ display: this.displayOverrides, inspector: !!this.inspectorOpen }))
     } catch {
       return
     }

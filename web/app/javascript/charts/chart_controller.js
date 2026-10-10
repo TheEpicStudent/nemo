@@ -65,8 +65,15 @@ const esc = (s) =>
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
 
-const withoutWindow = ({ window: _window, ...rest }) => JSON.stringify(rest)
-const sameExceptWindow = (value, previous) => withoutWindow(value) === withoutWindow(previous)
+const withoutViewport = ({ window: _window, pin: _pin, ...rest }) => JSON.stringify(rest)
+const sameExceptViewport = (value, previous) => withoutViewport(value) === withoutViewport(previous)
+const WEEKEND = [0, 6]
+
+function dayTitle(iso) {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC"
+  })
+}
 
 function topBar(x, y, w, h, r) {
   if (!(h > 0) || !(w > 0)) return ""
@@ -121,7 +128,7 @@ export default class extends Controller {
 
   viewValueChanged(value, previous) {
     if (!this.ready) return
-    if (previous && sameExceptWindow(value, previous)) {
+    if (previous && sameExceptViewport(value, previous)) {
       this.redraw()
       return
     }
@@ -293,9 +300,63 @@ export default class extends Controller {
     const all = this.allSeries
     const order = this.stacked && !this.line ? all.slice().reverse() : all
     return order.map((s) => ({
-      key: s.k, label: s.n, colorClass: this.paint(s), color: s.own || null,
-      shape: s.ghost ? "dashed" : this.line ? "line" : "box"
+      key: s.k, label: s.n, colorClass: this.paint(s), color: s.own || null, shape: this.shapeOf(s)
     }))
+  }
+
+  shapeOf(s) {
+    if (s.ghost) return "dashed"
+    return this.line ? "line" : "box"
+  }
+
+  pointDetails(i) {
+    const rows = this.rows
+    const row = rows[i]
+    if (!row) return null
+
+    const previous = i > 0 ? rows[i - 1] : null
+    const series = this.series
+    const solid = series.filter((s) => !s.ghost && !s.over)
+    const total = this.stack && !row.gap ? this.sum(row, solid) : null
+    const dated = this.daysValue && ISO.test(row.key)
+    const tags = []
+    if (row.gap) tags.push(row.why || "not fetched")
+    if (this.hasPartialValue && this.partialValue.map(Number).includes(i)) {
+      tags.push(this.partialNoteValue || "period not complete")
+    }
+
+    return {
+      title: dated ? dayTitle(row.key) : row.label,
+      weekend: dated && WEEKEND.includes(new Date(`${row.key}T00:00:00Z`).getUTCDay()),
+      tags,
+      note: row.tip || null,
+      total: total == null ? null : this.format(total),
+      values: series.map((s) => ({
+        label: s.n, colorClass: this.paint(s), color: s.own || null, shape: this.shapeOf(s),
+        value: row.gap ? "n/a" : this.format(row[s.k]),
+        change: this.changeFrom(previous, row, s),
+        share: total && solid.includes(s) && row[s.k] != null ? `${((row[s.k] / total) * 100).toFixed(1)}%` : null
+      }))
+    }
+  }
+
+  changeFrom(previous, row, s) {
+    if (!previous || previous.gap || row.gap) return null
+
+    const now = row[s.k]
+    const before = previous[s.k]
+    if (now == null || before == null) return null
+    if (this.pctValue) return { value: Number(now) - Number(before), unit: "pts" }
+    if (!Number(before)) return null
+
+    return { value: ((Number(now) - Number(before)) / Math.abs(Number(before))) * 100, unit: "%" }
+  }
+
+  announcePoint(index, source) {
+    if (!this.hasViewValue || index === this.announcedIndex) return
+
+    this.announcedIndex = index
+    this.dispatch("point", { detail: { index, source } })
   }
 
   get fill() {
@@ -676,6 +737,10 @@ export default class extends Controller {
         : "")
     const overDots = overs.map((s) => `<circle class="dot ${this.paint(s)}"${this.tint(s)} data-s="${
       s.k}" data-axis="2" r="4" fill="currentColor" opacity="0"/>`).join("")
+    const pinIndex = this.viewValue.pin
+    const pinMark = Number.isInteger(pinIndex) && pinIndex >= first && pinIndex <= last
+      ? this.pinMark(mid(pinIndex), pad.t, floor)
+      : ""
 
     const pill = this.sparkValue ? "" :
       `<g class="x-pill" opacity="0"><rect y="${(high - pad.b + 6).toFixed(1)}" height="${PILL_H}"
@@ -703,7 +768,7 @@ export default class extends Controller {
       `<svg width="${wide}" height="${high}" viewBox="0 0 ${wide} ${high}" role="img"
         aria-label="${esc(this.summary(rows, series))}"><defs>${defs}</defs>${clipped(weekends + marks + gaps)}${
         grid}` +
-      `${base}${rule}${brushed}${cursor}${clipped(body + over + splits)}${overDots}${names}${rightAxis}${says}${
+      `${base}${rule}${brushed}${cursor}${clipped(body + over + splits)}${pinMark}${overDots}${names}${rightAxis}${says}${
         pill}</svg>`)
 
     if (this.fresh) {
@@ -719,7 +784,7 @@ export default class extends Controller {
         ? y(this.sum(r, series))
         : Math.min(...series.map((s) => r[s.k] == null || (log && r[s.k] <= 0) ? high : y(r[s.k]))))
     }
-    if (this.at != null) this.show(clamp(this.at, first, last))
+    if (this.at != null) this.show(clamp(this.at, first, last), { silent: true })
   }
 
   drawBars(rows, series, { x, y, floor }) {
@@ -830,6 +895,12 @@ export default class extends Controller {
           stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"
           d="${path(seen)}"/>`
     }).join("")
+  }
+
+  pinMark(at, top, floor) {
+    const x = at.toFixed(1)
+    return `<g class="pin-mark" aria-hidden="true"><line x1="${x}" x2="${x}" y1="${top - 4}" y2="${floor}"/>` +
+      `<circle cx="${x}" cy="${top - 4}" r="3"/></g>`
   }
 
   bridge(seen, s, mid, y) {
@@ -983,14 +1054,15 @@ export default class extends Controller {
     else return
 
     event.preventDefault()
-    this.show(next)
+    this.show(next, { source: "keyboard" })
   }
 
-  show(i) {
+  show(i, { source = "pointer", silent = false } = {}) {
     const g = this.geom
     const chart = this.element.querySelector(".chart")
     const row = g.rows[i]
     this.at = i
+    if (!silent) this.announcePoint(i, source)
 
     const lines = row.gap
       ? `<div class="row"><i class="donut-hole-dot"></i>${
@@ -1087,6 +1159,7 @@ export default class extends Controller {
     if (!chart) return
 
     this.at = null
+    this.announcePoint(null, "pointer")
     chart.querySelector(".tip")?.classList.remove("on")
     chart.querySelector(".cur")?.setAttribute("opacity", "0")
     chart.querySelectorAll(".dot").forEach((dot) => dot.setAttribute("opacity", "0"))

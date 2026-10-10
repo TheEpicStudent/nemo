@@ -92,6 +92,14 @@
             </div>
           </div>
         </div>
+        <button type="button" class="btn btn-ghost btn-sm btn-only" data-explorer-target="inspectorButton"
+                data-action="explorer#toggleInspector" aria-pressed="false" aria-controls="chart-explorer-inspector"
+                aria-label="Inspector" aria-keyshortcuts="i">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>
+          </svg>
+        </button>
         <span class="explorer-separator" aria-hidden="true"></span>
         <button type="button" class="btn btn-ghost btn-sm btn-only" data-action="explorer#close"
                 aria-label="Close" aria-keyshortcuts="Escape">
@@ -103,9 +111,31 @@
       </div>
     </header>
     <div class="explorer-body" data-explorer-target="body">
-      <div class="explorer-legend" role="group" aria-label="Series" data-explorer-target="legend" hidden></div>
-      <div class="explorer-plot" data-explorer-target="plot" data-action="chart:ready->explorer#chartReady chart:update->explorer#chartReady"></div>
-      <div class="explorer-overview" data-explorer-target="overview" aria-hidden="true" hidden></div>
+      <div class="explorer-main">
+        <div class="explorer-legend" role="group" aria-label="Series" data-explorer-target="legend" hidden></div>
+        <div class="explorer-plot" data-explorer-target="plot"
+             data-action="chart:ready->explorer#chartReady chart:update->explorer#chartReady chart:point->explorer#chartPoint mousedown->explorer#rememberPin"></div>
+        <div class="explorer-overview" data-explorer-target="overview" aria-hidden="true" hidden></div>
+      </div>
+      <aside class="explorer-inspector" id="chart-explorer-inspector" aria-label="Inspector"
+             data-explorer-target="inspector" hidden>
+        <section class="explorer-inspector-section">
+          <div class="explorer-inspector-head">
+            <h3 class="explorer-inspector-label">Point</h3>
+            <button type="button" class="btn btn-ghost btn-sm explorer-pin" data-explorer-target="pinButton"
+                    data-action="explorer#togglePin" aria-pressed="false" aria-keyshortcuts="Enter" hidden>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 17v5"/>
+                <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>
+              </svg>
+              <span data-explorer-target="pinLabel">Pin</span>
+            </button>
+          </div>
+          <div class="explorer-point" data-explorer-target="point"></div>
+        </section>
+      </aside>
+      <span class="visually-hidden" aria-live="polite" data-explorer-target="announcer"></span>
     </div>
   </div>
 </section>
