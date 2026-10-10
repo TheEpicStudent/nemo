@@ -1,5 +1,6 @@
 <section id="chart-explorer" class="explorer" role="dialog" aria-labelledby="chart-explorer-title"
-         data-explorer-target="dialog" data-turbo-permanent hidden>
+         data-explorer-target="dialog" data-export-font="<%= asset_path("geist-variable.woff2") %>"
+         data-turbo-permanent hidden>
   <div class="explorer-panel" data-explorer-target="panel" tabindex="-1">
     <header class="explorer-header">
       <div class="explorer-heading">
@@ -125,6 +126,25 @@
             </svg>
           </summary>
           <div class="menu-pop" role="menu" aria-label="More">
+            <button type="button" role="menuitem" data-explorer-target="imageAction"
+                    data-action="explorer#exportImage" data-explorer-format-param="png">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/>
+                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+              </svg>
+              Export PNG
+            </button>
+            <button type="button" role="menuitem" data-explorer-target="imageAction"
+                    data-action="explorer#exportImage" data-explorer-format-param="svg">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>
+                <path d="m10 12.5-2 2.5 2 2.5M14 12.5l2 2.5-2 2.5"/>
+              </svg>
+              Export SVG
+            </button>
+            <div class="menu-sep"></div>
             <button type="button" role="menuitem" data-action="explorer#copyCsv">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

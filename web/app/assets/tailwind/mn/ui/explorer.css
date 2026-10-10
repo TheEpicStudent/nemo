@@ -359,6 +359,14 @@
     @apply ml-2 text-xs text-muted-foreground;
   }
 
+  .explorer-menu .menu-pop button:disabled {
+    @apply pointer-events-none opacity-50;
+  }
+
+  .explorer-plot .is-exporting, .explorer-plot .is-exporting * {
+    transition: none !important;
+  }
+
   .explorer-plot .pin-mark line {
     stroke: var(--primary);
     stroke-width: 1.5;

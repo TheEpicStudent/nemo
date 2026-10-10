@@ -3,6 +3,7 @@ import { modalsOpen, aboveOpen, popupOpen, drawerOpen } from "lib/layers"
 import { zoomWindow, windowAround, shiftWindow, isFullWindow, interpolateWindow, minimumSpan } from "charts/frame"
 import { PlotGestures } from "charts/gesture"
 import { Overview } from "charts/overview"
+import { exportSvg, svgToPng } from "charts/export"
 
 const OPEN_DURATION = 340
 const CLOSE_DURATION = 220
@@ -30,6 +31,8 @@ const CSV_FORMULA = /^[=+\-@\t\r]/
 const CSV_MIME = "text/csv;charset=utf-8"
 const BYTE_ORDER_MARK = "\uFEFF"
 const DOWNLOAD_REVOKE_DELAY = 1000
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
+const IMAGE_TYPES = { png: "image/png", svg: "image/svg+xml" }
 const DELTA_PATHS = { up: "m18 15-6-6-6 6", down: "m6 9 6 6 6-6", flat: "M5 12h14" }
 const DELTA_WORDS = { up: "up", down: "down", flat: "no change" }
 
@@ -67,7 +70,7 @@ export default class extends Controller {
     "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton", "overview",
     "range", "rangeLabel", "rangeCount",
     "inspector", "inspectorButton", "point", "pinButton", "pinLabel", "announcer", "stats", "statsRange",
-    "viewButton", "splitHandle", "table", "menu", "toastTemplate", "warningTemplate"
+    "viewButton", "splitHandle", "table", "menu", "toastTemplate", "warningTemplate", "imageAction"
   ]
 
   connect() {
@@ -519,6 +522,7 @@ export default class extends Controller {
     this.viewButtonTargets.forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.explorerViewParam === this.viewMode))
     })
+    this.imageActionTargets.forEach((button) => { button.disabled = this.viewMode === "table" })
   }
 
   setSplit(ratio) {
@@ -705,10 +709,83 @@ export default class extends Controller {
     return lines.join("\r\n")
   }
 
-  csvFilename() {
+  exportFilename(extension) {
     const range = this.chart.rangeOf(this.zoomWindow)
     const base = fileSlug(this.key || this.titleTarget.textContent || "chart") || "chart"
-    return range ? `${base}_${fileSlug(range.from)}_${fileSlug(range.to)}.csv` : `${base}.csv`
+    return range ? `${base}_${fileSlug(range.from)}_${fileSlug(range.to)}.${extension}` : `${base}.${extension}`
+  }
+
+  async exportImage({ params: { format } }) {
+    this.closeMenu()
+    if (!IMAGE_TYPES[format]) return
+
+    try {
+      const markup = await this.exportMarkup()
+      if (!markup) throw new Error("nothing to export")
+
+      const blob = format === "png" ? await svgToPng(markup) : new Blob([markup], { type: IMAGE_TYPES.svg })
+      this.downloadFile(blob, this.exportFilename(format))
+    } catch {
+      this.showToast("Export failed", { warning: true })
+    }
+  }
+
+  exportMarkup() {
+    const chartElement = this.chartMount?.querySelector(".chart")
+    if (!this.chart || !chartElement || this.viewMode === "table") return null
+
+    this.chart.clear()
+    return exportSvg(chartElement, {
+      title: this.titleTarget.textContent,
+      subtitle: this.exportSubtitle(),
+      legend: this.exportLegend(),
+      fontUrl: this.dialog.dataset.exportFont,
+      colors: {
+        background: getComputedStyle(this.panelTarget).backgroundColor,
+        foreground: getComputedStyle(this.titleTarget).color,
+        muted: getComputedStyle(this.subtitleTarget).color
+      }
+    })
+  }
+
+  exportLegend() {
+    const probe = element("span")
+    this.panelTarget.append(probe)
+    const entries = this.chart.legendEntries()
+      .filter((entry) => !this.hiddenSeries.has(entry.key))
+      .map((entry) => {
+        probe.className = entry.colorClass
+        probe.style.color = entry.color || ""
+        return { label: entry.label, shape: entry.shape, color: getComputedStyle(probe).color }
+      })
+    probe.remove()
+    return entries
+  }
+
+  exportSubtitle() {
+    const range = this.chart.rangeOf(this.zoomWindow)
+    if (!range) return ""
+
+    const describe = (key, label) => (range.daily && ISO_DAY.test(key)
+      ? new Date(`${key}T00:00:00Z`).toLocaleDateString("en-US", {
+        month: "short", day: "numeric", year: "numeric", timeZone: "UTC"
+      })
+      : label)
+    const from = describe(range.from, range.fromLabel)
+    const to = describe(range.to, range.toLabel)
+    return from === to ? from : `${from} to ${to}`
+  }
+
+  downloadFile(blob, filename) {
+    const url = URL.createObjectURL(blob)
+    const link = element("a")
+    link.href = url
+    link.download = filename
+    link.hidden = true
+    document.body.append(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_REVOKE_DELAY)
   }
 
   async copyCsv() {
@@ -729,15 +806,7 @@ export default class extends Controller {
     const csv = this.buildCsv()
     if (!csv) return
 
-    const url = URL.createObjectURL(new Blob([BYTE_ORDER_MARK, csv], { type: CSV_MIME }))
-    const link = element("a")
-    link.href = url
-    link.download = this.csvFilename()
-    link.hidden = true
-    document.body.append(link)
-    link.click()
-    link.remove()
-    setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_REVOKE_DELAY)
+    this.downloadFile(new Blob([BYTE_ORDER_MARK, csv], { type: CSV_MIME }), this.exportFilename("csv"))
   }
 
   closeMenu() {
