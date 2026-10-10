@@ -163,14 +163,64 @@ export default class extends Controller {
     return clamp(offset, 0, g.rows.length)
   }
 
+  rowSpan(window, count) {
+    const last = count - 1
+    const [start, end] = window || [0, count]
+    const first = clamp(Math.floor(start), 0, last)
+    return [first, clamp(Math.ceil(end) - 1, first, last)]
+  }
+
+  rangeStats(window) {
+    const rows = this.rows
+    if (!rows.length) return null
+
+    const [first, final] = this.rowSpan(window, rows.length)
+    const span = final - first + 1
+    const before = first - span >= 0 ? [first - span, first - 1] : null
+    const pointsOf = (s, from, to) => rows.slice(from, to + 1)
+      .map((r, k) => ({ index: from + k, value: r.gap || r[s.k] == null ? null : Number(r[s.k]) }))
+      .filter((point) => point.value != null)
+    const summarize = (points) => {
+      const sum = points.reduce((at, point) => at + point.value, 0)
+      return { sum, mean: sum / points.length }
+    }
+
+    return {
+      percent: this.pctValue,
+      fromLabel: rows[first].label,
+      toLabel: rows[final].label,
+      hasPrevious: !!before,
+      series: this.series.filter((s) => !s.ghost).map((s) => {
+        const points = pointsOf(s, first, final)
+        const entry = { label: s.n, colorClass: this.paint(s), color: s.own || null, shape: this.shapeOf(s) }
+        if (!points.length) return { ...entry, empty: true }
+
+        const { sum, mean } = summarize(points)
+        const max = points.reduce((best, point) => (point.value > best.value ? point : best))
+        const min = points.reduce((best, point) => (point.value < best.value ? point : best))
+        const previous = before ? pointsOf(s, before[0], before[1]) : []
+        const prior = previous.length ? summarize(previous) : null
+        let change = null
+        if (prior && this.pctValue) change = { value: mean - prior.mean, unit: "pts" }
+        else if (prior && prior.sum) change = { value: ((sum - prior.sum) / Math.abs(prior.sum)) * 100, unit: "%" }
+
+        return {
+          ...entry,
+          total: this.format(sum),
+          mean: this.format(this.pctValue ? mean : Math.round(mean)),
+          max: { index: max.index, value: this.format(max.value) },
+          min: { index: min.index, value: this.format(min.value) },
+          change
+        }
+      })
+    }
+  }
+
   rangeOf(window) {
     const rows = this.rows
     if (!rows.length) return null
 
-    const last = rows.length - 1
-    const [start, end] = window || [0, rows.length]
-    const first = clamp(Math.floor(start), 0, last)
-    const final = clamp(Math.ceil(end) - 1, first, last)
+    const [first, final] = this.rowSpan(window, rows.length)
     return {
       from: String(rows[first].key), to: String(rows[final].key),
       fromLabel: rows[first].label, toLabel: rows[final].label,

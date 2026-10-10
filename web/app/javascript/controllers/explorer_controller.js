@@ -36,7 +36,7 @@ export default class extends Controller {
     "dialog", "panel", "title", "subtitle", "body", "legend", "plot", "displayButton", "display",
     "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton", "overview",
     "range", "rangeLabel", "rangeCount",
-    "inspector", "inspectorButton", "point", "pinButton", "pinLabel", "announcer"
+    "inspector", "inspectorButton", "point", "pinButton", "pinLabel", "announcer", "stats", "statsRange"
   ]
 
   connect() {
@@ -395,6 +395,10 @@ export default class extends Controller {
     this.inspectorOpen = false
     this.inspectorTarget.hidden = true
     this.pointTarget.replaceChildren()
+    this.statsTarget.replaceChildren()
+    this.statsRangeTarget.textContent = ""
+    cancelAnimationFrame(this.statsFrame)
+    this.statsFrame = null
     this.announcerTarget.textContent = ""
     this.card = null
     this.key = null
@@ -453,6 +457,7 @@ export default class extends Controller {
     this.renderTool()
     this.renderOverview()
     this.renderInspector()
+    this.renderStats()
   }
 
   rememberPin(event) {
@@ -500,6 +505,101 @@ export default class extends Controller {
     this.inspectorOpen = !this.inspectorOpen
     this.savePreferences()
     this.renderInspector()
+    this.renderStats()
+  }
+
+  pinRow({ params: { index } }) {
+    this.setPin(index)
+  }
+
+  scheduleStats() {
+    if (this.statsFrame) return
+
+    this.statsFrame = requestAnimationFrame(() => {
+      this.statsFrame = null
+      this.renderStats()
+    })
+  }
+
+  renderStats() {
+    if (!this.inspectorOpen || !this.chart) return
+
+    const stats = this.chart.rangeStats(this.zoomWindow)
+    if (!stats) {
+      this.statsRangeTarget.textContent = ""
+      this.statsTarget.replaceChildren()
+      return
+    }
+
+    this.statsRangeTarget.textContent = stats.fromLabel === stats.toLabel
+      ? stats.fromLabel
+      : `${stats.fromLabel} to ${stats.toLabel}`
+    const filled = stats.series.filter((entry) => !entry.empty)
+    if (!filled.length) {
+      this.statsTarget.replaceChildren(element("p", "explorer-point-empty", "No values in view"))
+      return
+    }
+
+    const nodes = [this.statsTable(stats, filled)]
+    if (stats.hasPrevious && filled.some((entry) => entry.change)) nodes.push(this.changeList(filled))
+    this.statsTarget.replaceChildren(...nodes)
+  }
+
+  statsTable(stats, series) {
+    const columns = stats.percent
+      ? [["Mean", (entry) => entry.mean], ["Min", (entry) => this.pickButton(entry.min)], ["Max", (entry) => this.pickButton(entry.max)]]
+      : [["Total", (entry) => entry.total], ["Mean", (entry) => entry.mean], ["Max", (entry) => this.pickButton(entry.max)]]
+    const table = element("table", "explorer-stats-table")
+    const head = element("tr")
+    const corner = element("th")
+    corner.scope = "col"
+    corner.append(element("span", "visually-hidden", "Series"))
+    head.append(corner, ...columns.map(([name]) => Object.assign(element("th", null, name), { scope: "col" })))
+    const body = element("tbody")
+    series.forEach((entry) => {
+      const row = element("tr")
+      const name = Object.assign(element("th"), { scope: "row" })
+      name.append(this.seriesLabel(entry))
+      row.append(name, ...columns.map(([, cell]) => {
+        const td = element("td")
+        const content = cell(entry)
+        td.append(typeof content === "string" ? document.createTextNode(content) : content)
+        return td
+      }))
+      body.append(row)
+    })
+    const thead = element("thead")
+    thead.append(head)
+    table.append(thead, body)
+    return table
+  }
+
+  changeList(series) {
+    const list = element("div", "explorer-stats-change")
+    list.append(element("p", "explorer-stats-caption", "Change from previous period"))
+    series.forEach((entry) => {
+      const row = element("div", "explorer-stats-change-row")
+      row.append(this.seriesLabel(entry),
+        entry.change ? this.deltaView(entry.change, "from the previous period") : element("span", "explorer-stats-na", "n/a"))
+      list.append(row)
+    })
+    return list
+  }
+
+  seriesLabel(entry) {
+    const label = element("span", "explorer-stats-series")
+    const key = element("i", `explorer-legend-key is-${entry.shape} ${entry.colorClass}`)
+    if (entry.color) key.style.color = entry.color
+    label.append(key, element("span", "explorer-stats-name", entry.label))
+    return label
+  }
+
+  pickButton(point) {
+    const button = element("button", "explorer-stats-pick", point.value)
+    button.type = "button"
+    button.dataset.action = "explorer#pinRow"
+    button.dataset.explorerIndexParam = String(point.index)
+    return button
   }
 
   renderInspector() {
@@ -549,20 +649,20 @@ export default class extends Controller {
     row.append(key, element("span", "explorer-point-label", value.label), element("b", "explorer-point-value", value.value))
 
     const meta = element("div", "explorer-point-meta")
-    if (value.change) meta.append(this.deltaView(value.change))
+    if (value.change) meta.append(this.deltaView(value.change, "from the previous point"))
     if (value.share) meta.append(element("span", "explorer-point-share", `${value.share} of total`))
     if (meta.childElementCount) row.append(meta)
     return row
   }
 
-  deltaView({ value, unit }) {
+  deltaView({ value, unit }, comparison) {
     const direction = Math.abs(value) < 0.05 ? "flat" : value > 0 ? "up" : "down"
     const delta = element("span", `delta delta-${direction}`)
     delta.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ` +
       `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${DELTA_PATHS[direction]}"/></svg>`
     delta.append(element("span", "visually-hidden", DELTA_WORDS[direction]),
       document.createTextNode(`${Math.abs(value).toFixed(1)}${unit === "pts" ? " pts" : "%"}`),
-      element("span", "visually-hidden", " from the previous point"))
+      element("span", "visually-hidden", ` ${comparison}`))
     return delta
   }
 
@@ -636,6 +736,7 @@ export default class extends Controller {
     this.renderTool()
     this.renderOverview()
     this.renderRange()
+    this.scheduleStats()
     this.scheduleUrl()
   }
 

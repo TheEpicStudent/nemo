@@ -225,6 +225,66 @@
     @apply m-0 text-sm text-muted-foreground;
   }
 
+  .explorer-inspector-range {
+    @apply min-w-0 truncate text-xs text-muted-foreground tabular-nums;
+  }
+
+  .explorer-stats {
+    @apply flex flex-col gap-4;
+  }
+
+  .explorer-stats-table {
+    @apply w-full border-collapse text-[0.8125rem] tabular-nums;
+  }
+
+  .explorer-stats-table th, .explorer-stats-table td {
+    @apply py-1.5 pl-2 text-right font-normal whitespace-nowrap first:pl-0;
+  }
+
+  .explorer-stats-table thead th {
+    @apply pt-0 text-xs text-muted-foreground;
+  }
+
+  .explorer-stats-table tbody th {
+    @apply w-full max-w-0 text-left;
+  }
+
+  .explorer-stats-table tbody tr {
+    @apply border-t border-border;
+  }
+
+  .explorer-stats-table td {
+    @apply text-foreground;
+  }
+
+  .explorer-stats-series {
+    @apply flex min-w-0 items-center gap-2;
+  }
+
+  .explorer-stats-name {
+    @apply min-w-0 truncate text-foreground;
+  }
+
+  .explorer-stats-pick {
+    @apply -mx-1 cursor-pointer rounded-sm border-0 bg-transparent px-1 py-0.5 text-[0.8125rem] text-foreground tabular-nums underline decoration-foreground/30 decoration-dotted underline-offset-3 outline-none hover:bg-muted hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring/50;
+  }
+
+  .explorer-stats-change {
+    @apply flex flex-col gap-2;
+  }
+
+  .explorer-stats-caption {
+    @apply m-0 text-xs text-muted-foreground;
+  }
+
+  .explorer-stats-change-row {
+    @apply flex items-center justify-between gap-3 text-[0.8125rem];
+  }
+
+  .explorer-stats-na {
+    @apply text-xs text-muted-foreground;
+  }
+
   .explorer-plot .pin-mark line {
     stroke: var(--primary);
     stroke-width: 1.5;
