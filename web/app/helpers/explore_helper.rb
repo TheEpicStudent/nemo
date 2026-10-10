@@ -21,7 +21,8 @@ module ExploreHelper
     ]],
     ["Show", [
       { key: "grid", label: "Gridlines", shortcut: "G" },
-      { key: "notes", label: "Annotations", shortcut: "A" }
+      { key: "notes", label: "Annotations", shortcut: "A" },
+      { key: "overview", label: "Overview", shortcut: "N" }
     ]]
   ].freeze
 

@@ -156,6 +156,29 @@ export default class extends Controller {
     return clamp(offset, 0, g.rows.length)
   }
 
+  plotBounds() {
+    const g = this.geom
+    if (!g) return null
+
+    const box = this.element.querySelector(".chart").getBoundingClientRect()
+    return { left: box.left + g.pad.l, right: box.right - g.pad.r }
+  }
+
+  overviewSeries() {
+    const rows = this.rows
+    const visible = this.series.filter((s) => !s.ghost && !s.over)
+    if (!this.line) {
+      return { kind: "bars", values: rows.map((r) => (r.gap ? 0 : this.sum(r, visible))) }
+    }
+    return {
+      kind: "line",
+      lines: visible.map((s) => ({
+        colorClass: this.paint(s), color: s.own || null,
+        values: rows.map((r) => (r[s.k] == null ? null : Number(r[s.k])))
+      }))
+    }
+  }
+
   rowsPerPixel() {
     return this.geom ? 1 / this.geom.x.step() : 0
   }
@@ -293,7 +316,7 @@ export default class extends Controller {
   displayDefaults() {
     return {
       kind: this.kindValue || "bars", stacked: this.stackedValue, fit: this.pctFitValue,
-      yScale: "linear", zero: false, format: "full", grid: true, notes: true
+      yScale: "linear", zero: false, format: "full", grid: true, notes: true, overview: true
     }
   }
 
@@ -306,7 +329,8 @@ export default class extends Controller {
       fit: this.pctValue,
       format: !this.pctValue,
       grid: true,
-      notes: this.hasNotes
+      notes: this.hasNotes,
+      overview: this.zoomable()
     }
   }
 

@@ -169,6 +169,49 @@
     @apply cursor-grabbing;
   }
 
+  .explorer-overview {
+    @apply relative mx-6 mb-4 h-10 flex-none cursor-pointer touch-none select-none max-sm:mx-3;
+  }
+
+  .explorer-overview[hidden] {
+    display: none;
+  }
+
+  .explorer-overview svg {
+    @apply block overflow-visible;
+  }
+
+  .overview-track {
+    fill: color-mix(in oklab, var(--foreground) 3%, transparent);
+  }
+
+  .overview-column {
+    fill: color-mix(in oklab, var(--foreground) 20%, transparent);
+  }
+
+  .overview-line {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.25;
+    opacity: 0.75;
+  }
+
+  .overview-mask {
+    fill: color-mix(in oklab, var(--background) 62%, transparent);
+  }
+
+  .overview-window {
+    fill: none;
+    stroke: color-mix(in oklab, var(--foreground) 30%, transparent);
+    stroke-width: 1;
+  }
+
+  .overview-handle {
+    fill: var(--background);
+    stroke: color-mix(in oklab, var(--foreground) 40%, transparent);
+    stroke-width: 1;
+  }
+
   .explorer-tools {
     @apply h-7;
   }

@@ -2,6 +2,7 @@ import { Controller } from "@hotwired/stimulus"
 import { modalsOpen, aboveOpen, popupOpen, drawerOpen } from "lib/layers"
 import { zoomWindow, windowAround, shiftWindow, isFullWindow, interpolateWindow, minimumSpan } from "charts/frame"
 import { PlotGestures } from "charts/gesture"
+import { Overview } from "charts/overview"
 
 const OPEN_DURATION = 340
 const CLOSE_DURATION = 220
@@ -15,13 +16,13 @@ const INTERACTIVE = "button, a, [role='switch'], [role='separator'], input, text
 const MIN_BRUSH_ROWS = 2
 const CHART_SOURCE = "[data-controller~='chart']:not([data-chart-spark-value='true'])"
 const DETACHED_VALUES = ["brush", "brush-href", "brush-keys"]
-const DISPLAY_KEYS = ["kind", "stacked", "yScale", "zero", "fit", "format", "grid", "notes"]
+const DISPLAY_KEYS = ["kind", "stacked", "yScale", "zero", "fit", "format", "grid", "notes", "overview"]
 const STORAGE_PREFIX = "mn-explore-"
 
 export default class extends Controller {
   static targets = [
     "dialog", "panel", "title", "subtitle", "body", "legend", "plot", "displayButton", "display",
-    "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton"
+    "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton", "overview"
   ]
 
   connect() {
@@ -32,6 +33,12 @@ export default class extends Controller {
     this.onPointerdown = this.onPointerdown.bind(this)
     this.onKeyup = this.onKeyup.bind(this)
     this.tool = "select"
+    this.overview = new Overview(this.overviewTarget, {
+      onWindow: (window, { animate }) => this.moveWindow(window, { animate }),
+      onReset: () => this.resetZoom()
+    })
+    this.resizeObserver = new ResizeObserver(() => this.renderOverview())
+    this.resizeObserver.observe(this.overviewTarget)
     this.element.addEventListener("click", this.onClick)
     document.addEventListener("keydown", this.onKeydown)
     document.addEventListener("keyup", this.onKeyup)
@@ -43,6 +50,8 @@ export default class extends Controller {
     document.removeEventListener("keydown", this.onKeydown)
     document.removeEventListener("keyup", this.onKeyup)
     this.dialog.removeEventListener("pointerdown", this.onPointerdown)
+    this.resizeObserver.disconnect()
+    this.overview.destroy()
     this.hide()
     this.reset()
   }
@@ -173,6 +182,7 @@ export default class extends Controller {
       case "d": return () => this.toggleDisplay()
       case "g": return () => this.toggleSettingIfShown("grid")
       case "a": return () => this.toggleSettingIfShown("notes")
+      case "n": return () => this.toggleSettingIfShown("overview")
       default: return null
     }
   }
@@ -310,6 +320,8 @@ export default class extends Controller {
     this.spaceHeld = false
     this.plotTarget.classList.remove("is-pannable", "is-panning")
     this.zoomControlsTarget.hidden = true
+    this.overview?.clear()
+    this.overviewTarget.hidden = true
     this.card = null
     this.key = null
     this.opener = null
@@ -355,6 +367,29 @@ export default class extends Controller {
     this.renderDisplay()
     this.renderZoom()
     this.renderTool()
+    this.renderOverview()
+  }
+
+  moveWindow(window, { animate = false } = {}) {
+    if (animate) {
+      this.animateWindow(window)
+      return
+    }
+    cancelAnimationFrame(this.zoomFrame)
+    this.applyWindow(window)
+  }
+
+  renderOverview() {
+    const shown = !!this.chart?.zoomable() && this.display.overview !== false && this.isOpen
+    this.overviewTarget.hidden = !shown
+    if (!shown) return
+
+    const bounds = this.chart.plotBounds()
+    if (!bounds) return
+
+    this.overview.render({
+      count: this.chart.rowCount(), window: this.zoomWindow, bounds, series: this.chart.overviewSeries()
+    })
   }
 
   zoomIn() {
@@ -403,6 +438,7 @@ export default class extends Controller {
     this.writeView()
     this.renderZoom()
     this.renderTool()
+    this.renderOverview()
   }
 
   renderZoom() {
