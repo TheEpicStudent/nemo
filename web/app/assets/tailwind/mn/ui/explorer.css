@@ -285,6 +285,80 @@
     @apply text-xs text-muted-foreground;
   }
 
+  .explorer[data-view-mode="table"] :is(.explorer-legend, .explorer-plot, .explorer-overview) {
+    display: none;
+  }
+
+  .explorer-split-handle {
+    @apply relative z-1 -my-1 hidden h-2 flex-none cursor-row-resize outline-none;
+  }
+
+  .explorer[data-view-mode="split"] .explorer-split-handle {
+    @apply block;
+  }
+
+  .explorer-split-handle::after {
+    content: "";
+    @apply absolute top-1/2 left-1/2 h-[3px] w-9 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border transition-colors;
+  }
+
+  .explorer-split-handle:hover::after, .explorer-split-handle:focus-visible::after {
+    @apply bg-muted-foreground;
+  }
+
+  .explorer-table {
+    @apply hidden min-h-0 overflow-auto overscroll-contain border-t border-border;
+    flex: 0 0 var(--explorer-split, 40%);
+  }
+
+  .explorer[data-view-mode="split"] .explorer-table {
+    @apply block;
+  }
+
+  .explorer[data-view-mode="table"] .explorer-table {
+    @apply block flex-auto border-t-0;
+  }
+
+  .explorer-data-table thead th {
+    @apply bg-background text-xs font-medium text-muted-foreground;
+  }
+
+  .explorer-data-table thead th:is([aria-sort="ascending"], [aria-sort="descending"]) {
+    @apply text-foreground;
+  }
+
+  .explorer-sort {
+    @apply inline-flex cursor-pointer items-center gap-1.5 rounded-sm border-0 bg-transparent p-0 font-[inherit] text-[length:inherit] text-inherit outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50;
+  }
+
+  .explorer-sort-mark {
+    @apply text-foreground;
+  }
+
+  .explorer-data-table tbody tr {
+    @apply cursor-pointer;
+  }
+
+  .explorer-data-table tbody tr.is-active > td {
+    @apply bg-muted/50;
+  }
+
+  .explorer-data-table tbody tr.is-pinned > td {
+    @apply bg-primary/10;
+  }
+
+  .explorer-data-table td {
+    @apply py-1.5 tabular-nums;
+  }
+
+  .explorer-data-table tfoot td {
+    @apply sticky bottom-0 border-t border-border bg-background py-2 font-medium;
+  }
+
+  .explorer-row-note {
+    @apply ml-2 text-xs text-muted-foreground;
+  }
+
   .explorer-plot .pin-mark line {
     stroke: var(--primary);
     stroke-width: 1.5;

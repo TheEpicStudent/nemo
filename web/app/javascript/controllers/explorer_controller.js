@@ -21,8 +21,22 @@ const STORAGE_PREFIX = "mn-explore-"
 const URL_PARAMS = { chart: "explore", from: "xfrom", to: "xto" }
 const URL_WRITE_DELAY = 150
 const INSPECTOR_MIN_WIDTH = 900
+const VIEW_MODES = ["chart", "split", "table"]
+const DEFAULT_SPLIT = 0.4
+const SPLIT_MIN = 0.2
+const SPLIT_MAX = 0.75
+const SPLIT_STEP = 0.05
 const DELTA_PATHS = { up: "m18 15-6-6-6 6", down: "m6 9 6 6 6-6", flat: "M5 12h14" }
 const DELTA_WORDS = { up: "up", down: "down", flat: "no change" }
+
+function capturePointer(target, pointerId) {
+  try {
+    target.setPointerCapture(pointerId)
+  } catch {
+    return false
+  }
+  return true
+}
 
 function element(tag, className, text) {
   const node = document.createElement(tag)
@@ -36,7 +50,8 @@ export default class extends Controller {
     "dialog", "panel", "title", "subtitle", "body", "legend", "plot", "displayButton", "display",
     "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton", "overview",
     "range", "rangeLabel", "rangeCount",
-    "inspector", "inspectorButton", "point", "pinButton", "pinLabel", "announcer", "stats", "statsRange"
+    "inspector", "inspectorButton", "point", "pinButton", "pinLabel", "announcer", "stats", "statsRange",
+    "viewButton", "splitHandle", "table"
   ]
 
   connect() {
@@ -242,6 +257,9 @@ export default class extends Controller {
       case "a": return () => this.toggleSettingIfShown("notes")
       case "n": return () => this.toggleSettingIfShown("overview")
       case "i": return () => this.toggleInspector()
+      case "1": return () => this.chooseView({ params: { view: "chart" } })
+      case "2": return () => this.chooseView({ params: { view: "split" } })
+      case "3": return () => this.chooseView({ params: { view: "table" } })
       default: return null
     }
   }
@@ -397,8 +415,13 @@ export default class extends Controller {
     this.pointTarget.replaceChildren()
     this.statsTarget.replaceChildren()
     this.statsRangeTarget.textContent = ""
-    cancelAnimationFrame(this.statsFrame)
-    this.statsFrame = null
+    cancelAnimationFrame(this.rangeFrame)
+    this.rangeFrame = null
+    this.tableTarget.replaceChildren()
+    this.tableSort = null
+    this.tableColumns = null
+    this.viewMode = "chart"
+    delete this.dialog.dataset.viewMode
     this.announcerTarget.textContent = ""
     this.card = null
     this.key = null
@@ -423,6 +446,9 @@ export default class extends Controller {
     this.inspectorOpen = typeof saved.inspector === "boolean"
       ? saved.inspector
       : this.panelTarget.clientWidth >= INSPECTOR_MIN_WIDTH
+    this.viewMode = VIEW_MODES.includes(saved.view) ? saved.view : "chart"
+    this.setSplit(typeof saved.split === "number" ? saved.split : DEFAULT_SPLIT)
+    this.applyViewMode()
     this.writeView()
     this.plotTarget.replaceChildren(mount)
     this.startGestures()
@@ -458,6 +484,191 @@ export default class extends Controller {
     this.renderOverview()
     this.renderInspector()
     this.renderStats()
+    this.renderTable()
+  }
+
+  chooseView({ params: { view } }) {
+    if (!this.chart || !VIEW_MODES.includes(view) || view === this.viewMode) return
+
+    this.viewMode = view
+    this.savePreferences()
+    this.applyViewMode()
+    this.renderOverview()
+    this.renderTable()
+  }
+
+  applyViewMode() {
+    this.dialog.dataset.viewMode = this.viewMode
+    this.viewButtonTargets.forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.explorerViewParam === this.viewMode))
+    })
+  }
+
+  setSplit(ratio) {
+    this.split = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, ratio))
+    this.dialog.style.setProperty("--explorer-split", `${(this.split * 100).toFixed(1)}%`)
+    this.splitHandleTarget.setAttribute("aria-valuenow", String(Math.round(this.split * 100)))
+  }
+
+  startResize(event) {
+    if (event.button !== 0) return
+
+    event.preventDefault()
+    this.resizing = true
+    capturePointer(this.splitHandleTarget, event.pointerId)
+  }
+
+  resize(event) {
+    if (!this.resizing) return
+
+    const area = this.splitHandleTarget.parentElement.getBoundingClientRect()
+    this.setSplit((area.bottom - event.clientY) / area.height)
+  }
+
+  endResize() {
+    if (!this.resizing) return
+
+    this.resizing = false
+    this.savePreferences()
+  }
+
+  resizeWithKeys(event) {
+    const step = { ArrowUp: SPLIT_STEP, ArrowDown: -SPLIT_STEP }[event.key]
+    if (!step) return
+
+    event.preventDefault()
+    this.setSplit(this.split + step)
+    this.savePreferences()
+  }
+
+  renderTable() {
+    if (this.viewMode === "chart" || !this.chart) return
+
+    const data = this.chart.tableData(this.zoomWindow)
+    if (!data) {
+      this.tableTarget.replaceChildren()
+      return
+    }
+
+    const scrollTop = this.tableTarget.scrollTop
+    const table = element("table", "data-table explorer-data-table")
+    table.append(this.tableHead(data.columns), this.tableBody(data), this.tableFoot(data))
+    this.tableTarget.replaceChildren(table)
+    this.tableTarget.scrollTop = scrollTop
+  }
+
+  tableHead(columns) {
+    const head = element("thead")
+    const row = element("tr")
+    columns.forEach((column) => {
+      const cell = element("th", column.numeric ? "col-num" : null)
+      cell.scope = "col"
+      const sorted = this.tableSort?.key === column.key
+      cell.setAttribute("aria-sort", sorted ? (this.tableSort.direction > 0 ? "ascending" : "descending") : "none")
+      const button = element("button", "explorer-sort")
+      button.type = "button"
+      button.dataset.action = "explorer#sortTable"
+      button.dataset.explorerColumnParam = column.key
+      if (column.colorClass) {
+        const key = element("i", `explorer-legend-key is-${column.shape} ${column.colorClass}`)
+        if (column.color) key.style.color = column.color
+        button.append(key)
+      }
+      button.append(element("span", null, column.label || ""))
+      if (!column.label) button.append(element("span", "visually-hidden", "Row"))
+      if (sorted) button.append(element("span", "explorer-sort-mark", this.tableSort.direction > 0 ? "↑" : "↓"))
+      cell.append(button)
+      row.append(cell)
+    })
+    head.append(row)
+    this.tableColumns = columns
+    return head
+  }
+
+  tableBody(data) {
+    const body = element("tbody")
+    this.sortedRows(data.rows).forEach((entry) => {
+      const row = element("tr")
+      row.dataset.index = String(entry.index)
+      row.classList.toggle("is-pinned", entry.index === this.pin)
+      row.classList.toggle("is-active", entry.index === this.hoverIndex)
+      data.columns.forEach((column) => {
+        const cell = element("td", column.numeric ? "col-num" : null, entry.display[column.key])
+        if (!column.numeric && entry.note) cell.append(element("span", "explorer-row-note", entry.note))
+        row.append(cell)
+      })
+      body.append(row)
+    })
+    return body
+  }
+
+  tableFoot(data) {
+    const foot = element("tfoot")
+    const row = element("tr")
+    data.columns.forEach((column, index) => {
+      const text = index === 0 ? data.footer.label : data.footer.values[column.key] || ""
+      row.append(element("td", column.numeric ? "col-num" : null, text))
+    })
+    foot.append(row)
+    return foot
+  }
+
+  sortedRows(rows) {
+    const sort = this.tableSort
+    if (!sort) return rows
+
+    return [...rows].sort((a, b) => {
+      const left = a.values[sort.key]
+      const right = b.values[sort.key]
+      if (left == null && right == null) return 0
+      if (left == null) return 1
+      if (right == null) return -1
+      return (left < right ? -1 : left > right ? 1 : 0) * sort.direction
+    })
+  }
+
+  sortTable({ params: { column } }) {
+    const numeric = this.tableColumns?.find((entry) => entry.key === column)?.numeric
+    const first = numeric ? -1 : 1
+    const current = this.tableSort
+    if (current?.key !== column) this.tableSort = { key: column, direction: first }
+    else if (current.direction === first) this.tableSort = { key: column, direction: -first }
+    else this.tableSort = null
+    this.renderTable()
+  }
+
+  hoverRow(event) {
+    const row = event.target.closest("tbody tr[data-index]")
+    if (!row || !this.chart) return
+
+    const index = Number(row.dataset.index)
+    if (index !== this.hoverIndex) this.chart.showIndex(index)
+  }
+
+  leaveTable() {
+    this.chart?.clear()
+  }
+
+  clickRow(event) {
+    const row = event.target.closest("tbody tr[data-index]")
+    if (!row) return
+
+    const index = Number(row.dataset.index)
+    this.setPin(index === this.pin ? null : index)
+  }
+
+  syncTableRows({ scroll = false } = {}) {
+    if (this.viewMode === "chart") return
+
+    this.tableTarget.querySelectorAll("tbody tr").forEach((row) => {
+      const index = Number(row.dataset.index)
+      row.classList.toggle("is-pinned", index === this.pin)
+      row.classList.toggle("is-active", index === this.hoverIndex)
+    })
+    if (!scroll) return
+
+    const target = this.pin ?? this.hoverIndex
+    this.tableTarget.querySelector(`tbody tr[data-index="${target}"]`)?.scrollIntoView({ block: "nearest" })
   }
 
   rememberPin(event) {
@@ -472,6 +683,7 @@ export default class extends Controller {
       return
     }
     this.renderInspector()
+    this.syncTableRows({ scroll: source === "keyboard" })
   }
 
   togglePin() {
@@ -495,6 +707,7 @@ export default class extends Controller {
     this.pin = next
     this.writeView()
     this.renderInspector()
+    this.syncTableRows({ scroll: true })
     const details = next == null ? null : this.chart?.pointDetails(next)
     this.announcerTarget.textContent = details ? `Pinned ${details.title}` : "Unpinned"
   }
@@ -512,12 +725,13 @@ export default class extends Controller {
     this.setPin(index)
   }
 
-  scheduleStats() {
-    if (this.statsFrame) return
+  scheduleRangeViews() {
+    if (this.rangeFrame) return
 
-    this.statsFrame = requestAnimationFrame(() => {
-      this.statsFrame = null
+    this.rangeFrame = requestAnimationFrame(() => {
+      this.rangeFrame = null
       this.renderStats()
+      this.renderTable()
     })
   }
 
@@ -676,7 +890,8 @@ export default class extends Controller {
   }
 
   renderOverview() {
-    const shown = !!this.chart?.zoomable() && this.display.overview !== false && this.isOpen
+    const shown = !!this.chart?.zoomable() && this.display.overview !== false && this.isOpen &&
+      this.viewMode !== "table"
     this.overviewTarget.hidden = !shown
     if (!shown) return
 
@@ -736,7 +951,7 @@ export default class extends Controller {
     this.renderTool()
     this.renderOverview()
     this.renderRange()
-    this.scheduleStats()
+    this.scheduleRangeViews()
     this.scheduleUrl()
   }
 
@@ -914,7 +1129,9 @@ export default class extends Controller {
 
     try {
       localStorage.setItem(this.storageKey,
-        JSON.stringify({ display: this.displayOverrides, inspector: !!this.inspectorOpen }))
+        JSON.stringify({
+          display: this.displayOverrides, inspector: !!this.inspectorOpen, view: this.viewMode, split: this.split
+        }))
     } catch {
       return
     }

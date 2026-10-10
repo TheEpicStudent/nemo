@@ -49,6 +49,23 @@
           </button>
           <span class="explorer-separator" aria-hidden="true"></span>
         </div>
+        <span class="segmented explorer-tools" role="group" aria-label="View">
+          <button type="button" aria-pressed="true" aria-label="Chart" aria-keyshortcuts="1"
+                  data-explorer-target="viewButton" data-explorer-view-param="chart" data-action="explorer#chooseView">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9M13 17V5M8 17v-3"/></svg>
+          </button>
+          <button type="button" aria-pressed="false" aria-label="Chart and table" aria-keyshortcuts="2"
+                  data-explorer-target="viewButton" data-explorer-view-param="split" data-action="explorer#chooseView">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 12h18"/></svg>
+          </button>
+          <button type="button" aria-pressed="false" aria-label="Table" aria-keyshortcuts="3"
+                  data-explorer-target="viewButton" data-explorer-view-param="table" data-action="explorer#chooseView">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg>
+          </button>
+        </span>
         <div class="explorer-popover-anchor">
           <button type="button" class="btn btn-ghost btn-sm btn-only" data-explorer-target="displayButton"
                   data-action="explorer#toggleDisplay" aria-haspopup="dialog" aria-expanded="false"
@@ -116,6 +133,11 @@
         <div class="explorer-plot" data-explorer-target="plot"
              data-action="chart:ready->explorer#chartReady chart:update->explorer#chartReady chart:point->explorer#chartPoint mousedown->explorer#rememberPin"></div>
         <div class="explorer-overview" data-explorer-target="overview" aria-hidden="true" hidden></div>
+        <div class="explorer-split-handle" role="separator" aria-orientation="horizontal" aria-label="Resize table"
+             tabindex="0" data-explorer-target="splitHandle"
+             data-action="pointerdown->explorer#startResize pointermove->explorer#resize pointerup->explorer#endResize pointercancel->explorer#endResize keydown->explorer#resizeWithKeys"></div>
+        <div class="explorer-table" data-explorer-target="table"
+             data-action="pointerover->explorer#hoverRow pointerleave->explorer#leaveTable click->explorer#clickRow"></div>
       </div>
       <aside class="explorer-inspector" id="chart-explorer-inspector" aria-label="Inspector"
              data-explorer-target="inspector" hidden>

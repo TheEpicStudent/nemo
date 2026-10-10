@@ -69,6 +69,12 @@ const withoutViewport = ({ window: _window, pin: _pin, ...rest }) => JSON.string
 const sameExceptViewport = (value, previous) => withoutViewport(value) === withoutViewport(previous)
 const WEEKEND = [0, 6]
 
+function dayLabel(iso) {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric", timeZone: "UTC"
+  })
+}
+
 function dayTitle(iso) {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
     weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC"
@@ -214,6 +220,49 @@ export default class extends Controller {
         }
       })
     }
+  }
+
+  tableData(window) {
+    const rows = this.rows
+    if (!rows.length) return null
+
+    const [first, final] = this.rowSpan(window, rows.length)
+    const series = this.series
+    const solid = series.filter((s) => !s.ghost && !s.over)
+    const stacked = this.stack
+    const dated = this.daysValue
+    const label = { key: "label", label: dated ? "Day" : this.xlabelValue || "", numeric: false }
+    const columns = [
+      label,
+      ...series.map((s) => ({
+        key: s.k, label: s.n, numeric: true, colorClass: this.paint(s), color: s.own || null, shape: this.shapeOf(s)
+      })),
+      ...(stacked ? [{ key: "total", label: "total", numeric: true }] : [])
+    ]
+    const partial = new Set(this.hasPartialValue ? this.partialValue.map(Number) : [])
+    const body = rows.slice(first, final + 1).map((row, offset) => {
+      const index = first + offset
+      const values = { label: dated && ISO.test(row.key) ? row.key : row.label }
+      const display = { label: dated && ISO.test(row.key) ? dayLabel(row.key) : row.label }
+      series.forEach((s) => {
+        values[s.k] = row.gap || row[s.k] == null ? null : Number(row[s.k])
+        display[s.k] = this.format(values[s.k])
+      })
+      if (stacked) {
+        values.total = row.gap ? null : this.sum(row, solid)
+        display.total = this.format(values.total)
+      }
+      const note = row.gap ? row.why || "not fetched" : partial.has(index) ? this.partialNoteValue || "period not complete" : null
+      return { index, values, display, note }
+    })
+    const footerValues = {}
+    columns.filter((column) => column.numeric).forEach((column) => {
+      const present = body.map((row) => row.values[column.key]).filter((value) => value != null)
+      if (!present.length) return
+      const sum = present.reduce((at, value) => at + value, 0)
+      footerValues[column.key] = this.format(this.pctValue ? sum / present.length : sum)
+    })
+    return { columns, rows: body, footer: { label: this.pctValue ? "Mean" : "Total", values: footerValues } }
   }
 
   rangeOf(window) {
@@ -400,6 +449,14 @@ export default class extends Controller {
     if (!Number(before)) return null
 
     return { value: ((Number(now) - Number(before)) / Math.abs(Number(before))) * 100, unit: "%" }
+  }
+
+  showIndex(index) {
+    if (!this.geom) {
+      this.announcePoint(index, "table")
+      return
+    }
+    this.show(index, { source: "table" })
   }
 
   announcePoint(index, source) {
