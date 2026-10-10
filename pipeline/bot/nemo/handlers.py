@@ -413,6 +413,10 @@ def register(app, on_reply=None):
         log.info("nemo: note %s kept on case %s", note_id, case_id)
         return None
 
+    @app.action(views.report.OPEN)
+    def on_open(ack):
+        ack()
+
     @app.action(views.report.REOPEN)
     def on_reopen(ack, body, client):
         ack()

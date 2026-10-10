@@ -35,12 +35,6 @@ SELECT user_id FROM fd.case_assignees WHERE case_id = %s ORDER BY assigned_at
 """
 
 
-OTHER_CASES = """
-SELECT count(DISTINCT case_id) FROM fd.case_participants
-WHERE role = 'subject' AND case_id <> %s AND user_id = ANY(%s)
-"""
-
-
 FIRST_MESSAGE = """
 SELECT id, body, mirrored_ts, blocks
 FROM fd.intake_messages
@@ -185,11 +179,6 @@ def gather(conn, case_id):
     case["assignees"] = [
         held[0] for held in conn.execute(ASSIGNEES, (case["case_id"],)).fetchall()
     ]
-    case["other_cases"] = (
-        conn.execute(OTHER_CASES, (case["case_id"], case["subjects"])).fetchone()[0]
-        if case["subjects"]
-        else 0
-    )
     case["live_actions"] = conn.execute(LIVE_ACTION_COUNT, (case["case_id"],)).fetchone()[0]
 
     convo = case["conversation_id"]

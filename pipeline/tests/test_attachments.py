@@ -147,14 +147,17 @@ def test_an_anonymous_reporter_is_worn_like_any_other_face(monkeypatch):
 
 def card_case():
     return {"case_id": 6, "is_anonymous": True, "reporter_user_id": None, "subjects": [],
-            "other_cases": 0, "assignees": [], "category_key": None,
+            "assignees": [], "category_key": None,
             "body": "", "shares": []}
+
+
+CASE_URL = "https://fire.example/fd/cases/2"
 
 
 def card(**over):
     case = {"case_id": 2, "body": "he keeps following me", "shares": [],
             "is_anonymous": False, "reporter_user_id": "UALICE", "subjects": ["UBOB"],
-            "other_cases": 2, "assignees": [], "category_key": "bullying"}
+            "assignees": [], "category_key": "bullying"}
     case.update(over)
     return report.build_blocks(case)
 
@@ -174,14 +177,17 @@ def test_the_card_names_the_reporter_above_the_words():
     top = lines(built)[0]
     assert "<@UALICE> reported it" in top
     assert "about <@UBOB>" in top
-    assert "2 other case" in top
 
 
-def test_the_footer_keeps_only_standing_and_the_link():
-    top, *rest = lines(card())
-    assert "Open" not in top
-    assert any("Open" in one for one in rest)
-    assert all("reported it" not in one for one in rest), "the reporter is named once"
+def test_fire_engine_is_a_button_not_a_footer():
+    built = card(url=CASE_URL)
+    assert [one.get("url") for one in built[-1]["elements"] if one.get("url")] == [CASE_URL]
+    assert all(CASE_URL not in one for one in lines(built))
+
+
+def test_a_resolved_card_still_opens_fire_engine():
+    built = card(url=CASE_URL, resolved_at="2026-10-10")
+    assert [one["action_id"] for one in built[-1]["elements"]] == [report.REOPEN, report.OPEN]
 
 
 def test_the_quote_keeps_slacks_own_styling_when_it_is_simple():
@@ -355,9 +361,9 @@ def test_the_card_row_is_claimed_before_slack_is_asked():
 
 
 def test_a_bodyless_report_names_nobody_rather_than_saying_so():
-    built = report.build_blocks({"case_id": 1, "body": "x", "files": [], "shares": [],
+    built = report.build_blocks({"case_id": 1, "body": "x", "shares": [],
                            "subjects": [], "is_anonymous": True, "reporter_user_id": None,
-                           "other_cases": 0, "assignees": []})
+                           "assignees": []})
     line = " ".join(
         e["text"] for b in built if b["type"] == "context" for e in b["elements"]
     )
@@ -366,9 +372,9 @@ def test_a_bodyless_report_names_nobody_rather_than_saying_so():
 
 
 def test_a_report_with_subjects_still_names_them():
-    built = report.build_blocks({"case_id": 1, "body": "x", "files": [], "shares": [],
+    built = report.build_blocks({"case_id": 1, "body": "x", "shares": [],
                            "subjects": ["UBOB"], "is_anonymous": True,
-                           "reporter_user_id": None, "other_cases": 0, "assignees": []})
+                           "reporter_user_id": None, "assignees": []})
     line = " ".join(
         e["text"] for b in built if b["type"] == "context" for e in b["elements"]
     )

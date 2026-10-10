@@ -23,6 +23,7 @@ CLAIM = "case_claim"
 LOG_ACTION = "case_log_action"
 RESOLVE = "case_resolve_open"
 REOPEN = "case_reopen"
+OPEN = "case_open"
 
 LABELS = None
 
@@ -99,22 +100,6 @@ def title(case):
     }
 
 
-def standing(case):
-    held = case.get("assignees") or []
-    if case.get("resolved_at"):
-        return "*Resolved*"
-    if held:
-        return ", ".join(f"<@{user_id}>" for user_id in held) + " has it"
-    return "*Open*"
-
-
-def priors(case):
-    others = case.get("other_cases") or 0
-    if not others or not case.get("subjects"):
-        return None
-    return f":warning: *{others} other case" + ("s*" if others != 1 else "*")
-
-
 def subjects_line(case):
     subjects = case.get("subjects") or []
     if not subjects:
@@ -140,12 +125,7 @@ def reported(case):
 
 
 def subject_summary_text(case):
-    parts = [reported(case), subjects_line(case), priors(case)]
-    return context([" · ".join(part for part in parts if part)])
-
-
-def footer(case):
-    parts = [standing(case), link(case)]
+    parts = [reported(case), subjects_line(case)]
     return context([" · ".join(part for part in parts if part)])
 
 
@@ -173,26 +153,41 @@ REOPEN_CONFIRM = {
 }
 
 
+def open_button(case):
+    url = case.get("url")
+    if not url:
+        return None
+    return {
+        "type": "button",
+        "action_id": OPEN,
+        "text": {"type": "plain_text", "text": "Open in Fire Engine"},
+        "url": url,
+    }
+
+
 def buttons(case):
     case_id = case["case_id"]
+    opening = open_button(case)
 
     if case.get("resolved_at"):
         back = button(REOPEN, "Reopen", case_id)
         back["confirm"] = REOPEN_CONFIRM
-        return {"type": "actions", "block_id": f"case_{case_id}", "elements": [back]}
+        elements = [back, opening]
+    else:
+        held = case.get("assignees") or []
+        elements = [] if held else [button(CLAIM, "Claim it", case_id, "primary")]
+        elements += [
+            button(LOG_ACTION, "Log an action", case_id),
+            button(RESOLVE, "Resolve", case_id, "danger"),
+            opening,
+            edit.menu(case),
+        ]
 
-    held = case.get("assignees") or []
-    elements = []
-    if not held:
-        elements.append(button(CLAIM, "Claim it", case_id, "primary"))
-    elements.append(button(LOG_ACTION, "Log an action", case_id))
-    elements.append(button(RESOLVE, "Resolve", case_id, "danger"))
-
-    more = edit.menu(case)
-    if more:
-        elements.append(more)
-
-    return {"type": "actions", "block_id": f"case_{case_id}", "elements": elements}
+    return {
+        "type": "actions",
+        "block_id": f"case_{case_id}",
+        "elements": [one for one in elements if one],
+    }
 
 
 SHOWN_SHARES = 3
@@ -239,7 +234,6 @@ def build_blocks(case):
         title(case), subject_summary_text(case), quote(case.get("body"), case.get("blocks")),
     ] if part]
     built += report_body_text(case)
-    built.append(footer(case))
 
     acting = buttons(case)
     if acting:
