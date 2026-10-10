@@ -26,8 +26,24 @@ const DEFAULT_SPLIT = 0.4
 const SPLIT_MIN = 0.2
 const SPLIT_MAX = 0.75
 const SPLIT_STEP = 0.05
+const CSV_FORMULA = /^[=+\-@\t\r]/
+const CSV_MIME = "text/csv;charset=utf-8"
+const BYTE_ORDER_MARK = "\uFEFF"
+const DOWNLOAD_REVOKE_DELAY = 1000
 const DELTA_PATHS = { up: "m18 15-6-6-6 6", down: "m6 9 6 6 6-6", flat: "M5 12h14" }
 const DELTA_WORDS = { up: "up", down: "down", flat: "no change" }
+
+function csvField(value) {
+  if (value == null) return ""
+
+  let text = String(value)
+  if (typeof value === "string" && CSV_FORMULA.test(text)) text = `'${text}`
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function fileSlug(value) {
+  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+}
 
 function capturePointer(target, pointerId) {
   try {
@@ -51,7 +67,7 @@ export default class extends Controller {
     "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton", "overview",
     "range", "rangeLabel", "rangeCount",
     "inspector", "inspectorButton", "point", "pinButton", "pinLabel", "announcer", "stats", "statsRange",
-    "viewButton", "splitHandle", "table"
+    "viewButton", "splitHandle", "table", "menu", "toastTemplate", "warningTemplate"
   ]
 
   connect() {
@@ -418,6 +434,7 @@ export default class extends Controller {
     cancelAnimationFrame(this.rangeFrame)
     this.rangeFrame = null
     this.tableTarget.replaceChildren()
+    this.closeMenu()
     this.tableSort = null
     this.tableColumns = null
     this.viewMode = "chart"
@@ -669,6 +686,73 @@ export default class extends Controller {
 
     const target = this.pin ?? this.hoverIndex
     this.tableTarget.querySelector(`tbody tr[data-index="${target}"]`)?.scrollIntoView({ block: "nearest" })
+  }
+
+  buildCsv() {
+    const data = this.chart?.tableData(this.zoomWindow)
+    if (!data) return null
+
+    const rows = this.sortedRows(data.rows)
+    const withNotes = rows.some((row) => row.note)
+    const header = data.columns.map((column) => column.label || "label")
+    if (withNotes) header.push("note")
+    const lines = [header.map(csvField).join(",")]
+    rows.forEach((row) => {
+      const fields = data.columns.map((column) => row.values[column.key])
+      if (withNotes) fields.push(row.note)
+      lines.push(fields.map(csvField).join(","))
+    })
+    return lines.join("\r\n")
+  }
+
+  csvFilename() {
+    const range = this.chart.rangeOf(this.zoomWindow)
+    const base = fileSlug(this.key || this.titleTarget.textContent || "chart") || "chart"
+    return range ? `${base}_${fileSlug(range.from)}_${fileSlug(range.to)}.csv` : `${base}.csv`
+  }
+
+  async copyCsv() {
+    this.closeMenu()
+    const csv = this.buildCsv()
+    if (!csv) return
+
+    try {
+      await navigator.clipboard.writeText(csv)
+      this.showToast("Copied CSV")
+    } catch {
+      this.showToast("Clipboard unavailable", { warning: true })
+    }
+  }
+
+  downloadCsv() {
+    this.closeMenu()
+    const csv = this.buildCsv()
+    if (!csv) return
+
+    const url = URL.createObjectURL(new Blob([BYTE_ORDER_MARK, csv], { type: CSV_MIME }))
+    const link = element("a")
+    link.href = url
+    link.download = this.csvFilename()
+    link.hidden = true
+    document.body.append(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_REVOKE_DELAY)
+  }
+
+  closeMenu() {
+    if (this.hasMenuTarget) this.menuTarget.open = false
+  }
+
+  showToast(text, { warning = false } = {}) {
+    const region = document.querySelector(".topbar-msgs")
+    const template = warning ? this.warningTemplateTarget : this.toastTemplateTarget
+    if (!region || !template) return
+
+    const toast = template.content.firstElementChild.cloneNode(true)
+    const title = toast.querySelector(".flash-title")
+    if (title) title.textContent = text
+    region.append(toast)
   }
 
   rememberPin(event) {
