@@ -26,6 +26,14 @@
     display: none;
   }
 
+  .explorer:fullscreen {
+    @apply rounded-none;
+  }
+
+  .explorer::backdrop {
+    @apply bg-background;
+  }
+
   .explorer-panel {
     @apply relative flex min-h-0 flex-auto flex-col overflow-hidden bg-background text-foreground outline-none;
     border-radius: inherit;

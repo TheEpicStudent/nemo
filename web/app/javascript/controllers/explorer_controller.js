@@ -70,7 +70,8 @@ export default class extends Controller {
     "zoomControls", "zoomInButton", "zoomOutButton", "zoomResetButton", "toolButton", "overview",
     "range", "rangeLabel", "rangeCount",
     "inspector", "inspectorButton", "point", "pinButton", "pinLabel", "announcer", "stats", "statsRange",
-    "viewButton", "splitHandle", "table", "menu", "toastTemplate", "warningTemplate", "imageAction"
+    "viewButton", "splitHandle", "table", "menu", "toastTemplate", "warningTemplate", "imageAction",
+    "presentAction", "presentSeparator", "presentLabel", "toastRegion"
   ]
 
   connect() {
@@ -80,6 +81,7 @@ export default class extends Controller {
     this.onKeydown = this.onKeydown.bind(this)
     this.onPointerdown = this.onPointerdown.bind(this)
     this.onKeyup = this.onKeyup.bind(this)
+    this.onFullscreenChange = this.onFullscreenChange.bind(this)
     this.tool = "select"
     this.overview = new Overview(this.overviewTarget, {
       onWindow: (window, { animate }) => this.moveWindow(window, { animate }),
@@ -90,7 +92,10 @@ export default class extends Controller {
     this.element.addEventListener("click", this.onClick)
     document.addEventListener("keydown", this.onKeydown)
     document.addEventListener("keyup", this.onKeyup)
+    document.addEventListener("fullscreenchange", this.onFullscreenChange)
     this.dialog.addEventListener("pointerdown", this.onPointerdown)
+    this.presentActionTarget.hidden = !document.fullscreenEnabled
+    this.presentSeparatorTarget.hidden = !document.fullscreenEnabled
     this.restoreFromUrl()
   }
 
@@ -98,6 +103,7 @@ export default class extends Controller {
     this.element.removeEventListener("click", this.onClick)
     document.removeEventListener("keydown", this.onKeydown)
     document.removeEventListener("keyup", this.onKeyup)
+    document.removeEventListener("fullscreenchange", this.onFullscreenChange)
     this.dialog.removeEventListener("pointerdown", this.onPointerdown)
     clearTimeout(this.urlTimer)
     this.resizeObserver.disconnect()
@@ -164,6 +170,7 @@ export default class extends Controller {
     if (!this.isOpen || this.closing) return
 
     this.closing = true
+    if (this.presenting) document.exitFullscreen().catch(() => {})
     const clip = this.cardClip()
     const animation = clip
       ? this.panelTarget.animate(
@@ -243,6 +250,7 @@ export default class extends Controller {
       return
     }
     if (this.layerAbove()) return
+    if (event.key === "Escape" && document.fullscreenElement) return
     if (event.key === "Escape") {
       event.preventDefault()
       this.dismiss()
@@ -277,6 +285,7 @@ export default class extends Controller {
       case "n": return () => this.toggleSettingIfShown("overview")
       case "i": return () => this.toggleInspector()
       case "c": return () => this.copyImage()
+      case "f": return () => this.togglePresentation()
       case "1": return () => this.chooseView({ params: { view: "chart" } })
       case "2": return () => this.chooseView({ params: { view: "split" } })
       case "3": return () => this.chooseView({ params: { view: "table" } })
@@ -831,12 +840,34 @@ export default class extends Controller {
     this.downloadFile(new Blob([BYTE_ORDER_MARK, csv], { type: CSV_MIME }), this.exportFilename("csv"))
   }
 
+  get presenting() {
+    return document.fullscreenElement === this.dialog
+  }
+
+  async togglePresentation() {
+    this.closeMenu()
+    if (!this.isOpen || !document.fullscreenEnabled) return
+
+    try {
+      if (this.presenting) await document.exitFullscreen()
+      else await this.dialog.requestFullscreen()
+    } catch {
+      this.showToast("Fullscreen unavailable", { warning: true })
+    }
+  }
+
+  onFullscreenChange() {
+    const presenting = this.presenting
+    this.presentLabelTarget.textContent = presenting ? "Stop presenting" : "Present"
+    this.dialog.classList.toggle("is-presenting", presenting)
+  }
+
   closeMenu() {
     if (this.hasMenuTarget) this.menuTarget.open = false
   }
 
   showToast(text, { warning = false } = {}) {
-    const region = document.querySelector(".topbar-msgs")
+    const region = this.presenting ? this.toastRegionTarget : document.querySelector(".topbar-msgs:not(.explorer *)")
     const template = warning ? this.warningTemplateTarget : this.toastTemplateTarget
     if (!region || !template) return
 
