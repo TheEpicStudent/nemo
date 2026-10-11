@@ -16,7 +16,6 @@ MAX_TAIL_ALPHA = 6.0
 LIFETIME_MIN_DAYS = 3.0
 LIFETIME_SCALE_DAYS = 300.0
 LIFETIME_EXPONENT = 2.5
-MESSAGE_RANK_WEIGHT = 0.35
 DATED_CLAIM_DAYS = 210
 CLAIM_LAGS = ((0.7, 0, 0), (0.2, 1, 7), (0.07, 8, 30), (0.03, 31, 90))
 
@@ -327,8 +326,7 @@ def member_events(rng, member, sim, start, days):
             member.user_id,
             channel.channel_id,
             day,
-            max(0, int(sim["msg_q"](clip(MESSAGE_RANK_WEIGHT * rank
-                                         + (1 - MESSAGE_RANK_WEIGHT) * rng.random())))),
+            max(0, int(sim["msg_q"](rng.random()))),
             max(0, int(sim["react_q"](rng.random()))),
         )
 
