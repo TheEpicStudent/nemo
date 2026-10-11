@@ -114,11 +114,12 @@ def items(numbered, shares):
         })
         number += 1
     for share in numbered["forwards"]:
+        full = by_source.get((share.get("source_channel_id"), share.get("source_ts"))) or share
         out.append({
             "number": number,
-            "url": share.get("permalink"),
-            "channel_id": share.get("source_channel_id"),
-            "share": share,
+            "url": full.get("permalink"),
+            "channel_id": full.get("source_channel_id"),
+            "share": full,
         })
         number += 1
     return out
