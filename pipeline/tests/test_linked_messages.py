@@ -273,3 +273,15 @@ def test_a_follow_up_with_numbered_links_leaves_the_unfurling_to_nemo(monkeypatc
     sent = slack.posted[0]
     assert sent["text"] == f"also <{OTHER}> (1)"
     assert sent["unfurl_links"] is False, "slack would draw the same message a second time"
+
+
+def test_a_forward_is_unfurled_with_its_words():
+    light = {"kind": "forward", "source_channel_id": "C0FWD0000", "source_ts": "1786970700.000200",
+             "permalink": LINK}
+    numbered = linked.numbering("", [light], 1)
+    blocks = linked.reply_blocks(linked.items(numbered, [dict(forward(), permalink=LINK)]))
+
+    head, words = blocks[0]["elements"]
+    assert head["elements"][1]["text"] == " (1)"
+    assert words["elements"] == [{"type": "text", "text": "mwah"}]
+    assert blocks[1]["elements"][0]["text"] == "<@UDRACULA> in <#C0FWD0000>"
