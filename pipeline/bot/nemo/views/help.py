@@ -54,6 +54,13 @@ THREAD = (
     (
         ("case.reply", "?we are looking at it", "goes to the reporter, with your name on it"),
         ("case.reply", "~?we are looking at it", "goes to the reporter, without your name"),
+        ("case.read", "!case", "Case link"),
+        ("case.open", "!claim", "Assign yourself"),
+        ("case.open", "!assign @user", "Assign a user"),
+        ("case.open", "!unassign @user", "Unassign a user"),
+        ("case.note", "!note <text>", "Case note"),
+        ("member.note", "!note @user <text>", "Member note"),
+        ("case.resolve", "!resolve", "Resolve and notify the reporter"),
         ("case.chat", "anything else", "stays with the team as case chat"),
     ),
 )
@@ -61,13 +68,9 @@ THREAD = (
 CARD = (
     "On a case card",
     (
-        ("case.open", "Take it, Hand it back", "claim a case or put it back"),
-        ("case.act", "Log an action", "warning, shush, ban, channel ban, locked thread"),
-        ("case.resolve", "Resolve", "close it, and tell the reporter if you want"),
-        ("case.reopen", "Reopen", "put a closed case back in the queue"),
-        ("case.people", "More · Subject", "say who the case is about"),
-        ("case.categorise", "More · Violation", "set what kind of thing it was"),
-        ("case.note", "More · Note", "keep a note on the case"),
+        ("case.resolve", ":white_check_mark:", "Resolve"),
+        ("case.resolve", ":x:", "Resolve as not a conduct matter"),
+        ("case.act", ":ban:", "Log action"),
     ),
 )
 

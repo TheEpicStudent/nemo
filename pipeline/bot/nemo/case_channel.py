@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import audit, blobs, outbox, parse, session
-from bot.nemo import answer, attachments, case_actions, channel, case_queue
+from bot.nemo import announce, answer, attachments, case_actions, channel, case_queue
 
 log = logging.getLogger("bot.nemo")
 
@@ -48,6 +48,7 @@ class CaseChannel:
                     drawn = done
             except Exception:
                 log.exception("nemo: case %s could not have its %s seen to", case_id, name)
+        self.announce_fire_engine()
         return drawn
 
     def mirror(self, case_id):
@@ -170,6 +171,14 @@ class CaseChannel:
             log.info("nemo: echoed %s queued message(s) into the internal_log", done)
         self.post_held_resolutions()
         return done
+
+    def announce_fire_engine(self):
+        try:
+            with session() as conn:
+                return announce.announce(self.client, conn)
+        except Exception:
+            log.exception("nemo: fire engine changes could not be told to their threads")
+            return 0
 
     def post_held_resolutions(self):
         with session() as conn:

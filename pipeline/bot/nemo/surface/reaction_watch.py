@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import access, session, whoami
-from bot.nemo import case_actions, channel, channels, chat, case_queue
+from bot.nemo import case_actions, channel, channels, chat, case_queue, views
 from bot.nemo.surface import on_event
 
 log = logging.getLogger("bot.nemo")
@@ -10,6 +10,7 @@ OPENS = ("hourglass", "hourglass_flowing_sand", "hourglass_not_done")
 CLOSES = ("white_check_mark", "heavy_check_mark", "ballot_box_with_check")
 NOT_CONDUCT = channel.NOT_CONDUCT_MARKS
 ENDS = CLOSES + NOT_CONDUCT
+BANS = ("ban",)
 
 CARD_OF = """
 SELECT case_id FROM (
@@ -174,3 +175,57 @@ def closed(ctx):
 @on_event("reaction_removed", open_to_all=True)
 def unreacted(ctx):
     return None
+
+
+def post_ban_prompt(client, conn, case_id, target):
+    thread = channel.thread_for(conn, case_id)
+    if not thread:
+        return None
+    try:
+        return client.chat_postMessage(
+            channel=channel.card_room(conn, case_id),
+            thread_ts=thread,
+            text=f"Log an action for case {case_id}",
+            blocks=views.edit.ban_prompt(case_id, target),
+        )["ts"]
+    except Exception as failure:
+        log.warning("nemo: case %s did not get its log action prompt: %s", case_id, failure)
+        return None
+
+
+@on_event("reaction_added", open_to_all=True)
+def banned(ctx):
+    event = ctx.payload or {}
+    item = event.get("item") or {}
+    who = event.get("user")
+    if item.get("type") != "message" or plain(event.get("reaction")) not in BANS or not who:
+        return None
+    if who == whoami.bot_user_id(ctx.client, "nemo"):
+        return None
+    channel_id, ts = item.get("channel"), item.get("ts")
+
+    with session() as conn:
+        case_id = card_case(conn, channel_id, ts)
+        in_react_room = channel_id in channels.react_channels(conn)
+        may, _why = access.may(conn, who, "case.act", case_id)
+    if not may or (case_id is None and not in_react_room):
+        return None
+
+    target = None
+    if case_id is None:
+        thread_ts, message = root_of(ctx.client, channel_id, ts)
+        target = message.get("user")
+        with session() as conn:
+            case_id = case_queue.case_on(conn, channel_id, thread_ts)
+            if case_id is None:
+                opens, _why = access.may(conn, who, "case.open")
+                if not opens:
+                    return None
+                case_id = case_actions.open_case(conn, None, None, who)
+                keep_the_root(conn, case_id, channel_id, message)
+                case_queue.post(ctx.client, conn, case_id, channel_id, thread_ts)
+
+    with session() as conn:
+        post_ban_prompt(ctx.client, conn, case_id, target)
+    log.info("nemo: %s asked to log an action on case %s", who, case_id)
+    return case_id

@@ -125,7 +125,7 @@ def test_a_link_nemo_could_not_read_says_so():
     blocks = linked.reply_blocks(linked.items(linked.numbering(text, [unread], 1), [unread]))
 
     assert len(blocks[0]["elements"]) == 1, "no empty quote"
-    assert blocks[1]["elements"][0]["text"] == "can't read it"
+    assert blocks[1]["elements"][0]["text"] == "Message not accessible"
 
 
 def test_a_long_list_stops_short_of_slacks_block_limit():

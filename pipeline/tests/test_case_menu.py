@@ -174,13 +174,13 @@ def test_merging_closes_the_rest_into_the_one_kept(app, monkeypatch):
     noted = []
     monkeypatch.setattr(handlers, "merge", lambda conn, keep, fold, by: fold)
     monkeypatch.setattr(handlers, "post_merge_note",
-                        lambda client, conn, keep, closed: noted.append((keep, closed)))
+                        lambda client, conn, keep, closed, by: noted.append((keep, closed, by)))
     ack = Ack()
 
     app.views[merge.CALLBACK](ack, {"user": {"id": "UME"}}, merging(23, 25, 31), Slack())
 
     assert ack.said == [{"response_action": "clear"}]
-    assert noted == [(23, [25, 31])]
+    assert noted == [(23, [25, 31], "UME")]
 
 
 def test_a_case_cannot_merge_into_itself(app):
@@ -213,9 +213,16 @@ def test_a_case_already_resolved_is_left_out_of_the_merge():
     assert case_actions.merge(Conn({}), 23, [25], "UME") == []
 
 
-def test_the_kept_case_hears_what_was_merged_into_it():
-    assert channel.merged_text([25]) == "case 25 merged into this one"
-    assert channel.merged_text([25, 31]) == "cases 25, 31 merged into this one"
+def test_a_merge_is_told_in_both_threads(monkeypatch):
+    told = []
+    monkeypatch.setattr(channel, "post_line",
+                        lambda client, conn, case_id, text: told.append((case_id, text)))
+    monkeypatch.setattr(channel, "case_url", lambda case_id: None)
+
+    channel.post_merge_note(None, None, 39, [25, 31], "UME")
+
+    text = "<@UME> merged cases 25 and 31 into case 39"
+    assert told == [(39, text), (25, text), (31, text)]
 
 
 def resolving():

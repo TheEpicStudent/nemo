@@ -20,6 +20,7 @@ NOTE = "case_note"
 REVERSE = "case_reverse"
 
 PROBLEM = "more_problem"
+BAN_LOG = "case_ban_log"
 
 WHAT = "category_what"
 NOTE_BODY = "note_body"
@@ -209,3 +210,21 @@ def note_objection(values):
 
 def category_label(key):
     return categories().get(key, (key or "").replace("_", " "))
+
+
+def ban_prompt(case_id, target=None):
+    return [{
+        "type": "actions",
+        "elements": [{
+            "type": "button",
+            "action_id": BAN_LOG,
+            "text": {"type": "plain_text", "text": "Log action"},
+            "style": "primary",
+            "value": f"{case_id}:{target or ''}",
+        }],
+    }]
+
+
+def ban_asked(value):
+    case_id, _, target = (value or "").partition(":")
+    return (int(case_id) if case_id.isdigit() else None), (target or None)

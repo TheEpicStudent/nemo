@@ -2,7 +2,7 @@ import logging
 import re
 
 from bot.core import access, session
-from bot.nemo import answer, views, chat, memberguards, surface
+from bot.nemo import answer, views, chat, memberguards, surface, thread_commands
 from bot.nemo.case_actions import (
     CASE_CATEGORY,
     HELD_BY,
@@ -35,6 +35,7 @@ from bot.nemo.channel import (
     case_channels,
     post_action_echo,
     post_ephemeral,
+    post_line,
     post_merge_note,
     post_resolution_echo,
     refresh_card,
@@ -42,7 +43,6 @@ from bot.nemo.channel import (
 
 log = logging.getLogger("bot.nemo")
 
-RESOLVE_WORD = "!resolve"
 RESOLVED_MARK = "check-check"
 
 
@@ -56,13 +56,7 @@ def register(app, on_reply=None):
                 return f"case {case_id} is already resolved"
             held = [row[0] for row in conn.execute(HELD_BY, (case_id,)).fetchall()]
             if user_id in held:
-                return f"case {case_id} is already yours"
-            if held:
-                who = ", ".join(f"<@{one}>" for one in held)
-                return (
-                    f"case {case_id} is with {who}. Add yourself under More…, People "
-                    "if you need to work it together."
-                )
+                return views.lines.already_claimed(case_id)
             claimed(conn, case_id, user_id)
 
         log.info("nemo: case %s claimed by %s", case_id, user_id)
@@ -174,6 +168,26 @@ def register(app, on_reply=None):
         verb, case_id = views.edit.asked(body["actions"][0]["value"])
         if case_id is not None:
             act(verb, case_id, body, client)
+
+    @app.action(views.edit.BAN_LOG)
+    def on_ban_log(ack, body, client):
+        ack()
+        case_id, target = views.edit.ban_asked(body["actions"][0]["value"])
+        if case_id is None:
+            return None
+        user_id = body["user"]["id"]
+        with session() as conn:
+            allowed, refusal = access.may(conn, user_id, "case.act", case_id)
+            if not allowed:
+                return post_ephemeral(client, body, views.lines.not_permitted(refusal))
+            subjects = [row[0] for row in conn.execute(SUBJECTS, (case_id,)).fetchall()]
+            held = conn.execute(CASE_CATEGORY, (case_id,)).fetchone()
+        if target:
+            subjects = [target, *[one for one in subjects if one != target]]
+        return client.views_open(
+            trigger_id=body["trigger_id"],
+            view=views.action.build_view(case_id, subjects, held[0] if held else None),
+        )
 
     @app.action(views.edit.CLAIM)
     def on_claim(ack, body, client):
@@ -420,6 +434,7 @@ def register(app, on_reply=None):
 
         with session() as conn:
             refresh_card(client, conn, case_id)
+            post_line(client, conn, case_id, views.lines.reopened(user_id, case_id))
         log.info("nemo: case %s reopened by %s", case_id, user_id)
         return None
 
@@ -465,7 +480,7 @@ def register(app, on_reply=None):
         with session() as conn:
             for case_id in closed:
                 refresh_card(client, conn, case_id)
-            post_merge_note(client, conn, values["keep"], closed)
+            post_merge_note(client, conn, values["keep"], closed, user_id)
         log.info("nemo: cases %s merged into %s by %s", closed, values["keep"], user_id)
         return None
 
@@ -546,8 +561,11 @@ def register(app, on_reply=None):
         if not thread_ts or thread_ts == event.get("ts"):
             return
 
-        if (event.get("text") or "").strip().lower() == RESOLVE_WORD:
+        verb, rest = thread_commands.asked(event.get("text"))
+        if verb == thread_commands.RESOLVE:
             return resolve_from_thread(event, thread_ts, client)
+        if verb:
+            return thread_commands.handle(client, event, thread_ts, verb, rest)
 
         aimed = answer.read(event.get("text"))
         if aimed and for_the_member(thread_ts):
@@ -567,7 +585,8 @@ def register(app, on_reply=None):
                     break
 
         if not allowed:
-            post_refusal(event, thread_ts, client, "nothing was sent", refusal)
+            thread_commands.reply(client, event, thread_ts,
+                                  thread_commands.refused(views.lines.not_permitted(refusal)))
             return None
 
         with session() as conn:
@@ -578,10 +597,8 @@ def register(app, on_reply=None):
                 hold_resolution_echo(conn, case_id, user_id)
 
         if resolution is None and not told:
-            client.chat_postEphemeral(
-                channel=event["channel"], user=user_id, thread_ts=thread_ts,
-                text=f"case {case_id} is already resolved and has no open report",
-            )
+            thread_commands.reply(client, event, thread_ts,
+                                  thread_commands.refused(views.lines.already_resolved(case_id)))
             return None
 
         try:

@@ -1,23 +1,27 @@
 import logging
 
-from bot.core import parse
 from bot.nemo import views
 from bot.nemo.channel import (
     ASSIGNEES,
     SUBJECTS,
     card_mark,
+    card_state,
     case_url,
+    drawn_before_states,
     internal_log_channel,
     is_foreign_message_error,
     mark_card,
+    mark_root,
     only_the_face,
+    root_mark,
+    unfurl_opening,
 )
 
 log = logging.getLogger("bot.nemo")
 
 CASE = """
 SELECT id, category_key, resolved_at, card_channel_id, card_ts, card_digest, opened_by,
-       resolution
+       resolution, card_thread_ts, card_header_ts
 FROM fd.cases WHERE id = %s
 """
 
@@ -63,8 +67,14 @@ def case_on(conn, channel_id, thread_ts):
     return row[0] if row else None
 
 
-def digest_of(blocks, mark=None):
-    return parse.digest(mark, blocks, None)
+def mark_key(case, thread_ts):
+    return f"root:{root_mark(case)}" if thread_ts else card_mark(case)
+
+
+def mark(client, channel_id, thread_ts, ts, case, fresh=False):
+    if thread_ts:
+        return mark_root(client, channel_id, thread_ts, ts, case, fresh=fresh)
+    return mark_card(client, channel_id, ts, case, fresh=fresh)
 
 
 def gather(conn, case_id):
@@ -81,13 +91,46 @@ def gather(conn, case_id):
         "card_digest": row[5],
         "opened_by": row[6],
         "resolution": row[7],
+        "card_thread_ts": row[8],
+        "card_header_ts": row[9],
         "url": case_url(row[0]),
     }
     case["subjects"] = [one[0] for one in conn.execute(SUBJECTS, (case_id,)).fetchall()]
     case["assignees"] = [one[0] for one in conn.execute(ASSIGNEES, (case_id,)).fetchall()]
     opening = conn.execute(OPENING, (case_id,)).fetchone()
     case["opening_id"], case["body"] = opening if opening else (None, None)
+    if case["body"]:
+        case["numbering"] = views.linked.numbering(case["body"], [], 1)
     return case
+
+
+HEADER_POSTED = """
+UPDATE fd.cases SET card_header_ts = %s WHERE id = %s AND card_header_ts IS NULL
+"""
+
+
+def post_header(client, conn, case, channel_id, card_ts):
+    if case.get("card_header_ts") or not views.queued.needs_header(case):
+        return None
+    try:
+        sent = client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=card_ts,
+            text=f"Case {case['case_id']}",
+            blocks=views.report.header_blocks(case),
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+    except Exception as failure:
+        log.warning("nemo: case %s has no header in its thread: %s", case["case_id"], failure)
+        return None
+    conn.execute(HEADER_POSTED, (sent["ts"], case["case_id"]))
+    return sent["ts"]
+
+
+def thread_extras(client, conn, case, channel_id, card_ts):
+    post_header(client, conn, case, channel_id, card_ts)
+    unfurl_opening(client, conn, case["case_id"], channel_id, card_ts)
 
 
 def face(client, case):
@@ -118,9 +161,11 @@ def post(client, conn, case_id, channel_id, thread_ts=None):
         **face(client, case),
     )
     conn.execute(
-        KEPT, (channel_id, thread_ts, sent["ts"], digest_of(built, card_mark(case)), case_id)
+        KEPT, (channel_id, thread_ts, sent["ts"], card_state(mark_key(case, thread_ts)), case_id)
     )
-    mark_card(client, channel_id, sent["ts"], case, fresh=True)
+    mark(client, channel_id, thread_ts, sent["ts"], case, fresh=True)
+    if not thread_ts:
+        thread_extras(client, conn, case, channel_id, sent["ts"])
     if case["opening_id"]:
         conn.execute(OPENING_CARRIED, (sent["ts"], case["opening_id"]))
     log.info("nemo: case %s has a card in %s", case_id, channel_id)
@@ -132,27 +177,29 @@ def refresh_card(client, conn, case_id, channel_id=None):
     if case is None or not case["card_ts"]:
         return None
 
-    built = views.queued.build_blocks(case)
-    fingerprint = digest_of(built, card_mark(case))
-    if fingerprint == case["card_digest"]:
+    state = card_state(mark_key(case, case["card_thread_ts"]))
+    if state == case["card_digest"]:
         return case["card_ts"]
 
-    try:
-        client.chat_update(
-            channel=case["card_channel_id"],
-            ts=case["card_ts"],
-            text=views.queued.fallback(case),
-            blocks=built,
-        )
-    except Exception as failure:
-        log.warning("nemo: case %s keeps its card as it was, slack would not edit it: %s",
-                    case_id, failure)
-        if is_foreign_message_error(failure):
-            conn.execute(REDRAWN, (fingerprint, case_id))
-        return case["card_ts"]
+    if drawn_before_states(case["card_digest"]):
+        try:
+            client.chat_update(
+                channel=case["card_channel_id"],
+                ts=case["card_ts"],
+                text=views.queued.fallback(case),
+                blocks=views.queued.build_blocks(case),
+            )
+        except Exception as failure:
+            log.warning("nemo: case %s keeps its card as it was, slack would not edit it: %s",
+                        case_id, failure)
+            if is_foreign_message_error(failure):
+                conn.execute(REDRAWN, (state, case_id))
+            return case["card_ts"]
 
-    conn.execute(REDRAWN, (fingerprint, case_id))
-    mark_card(client, case["card_channel_id"], case["card_ts"], case)
+    conn.execute(REDRAWN, (state, case_id))
+    mark(client, case["card_channel_id"], case["card_thread_ts"], case["card_ts"], case)
+    if not case["card_thread_ts"]:
+        thread_extras(client, conn, case, case["card_channel_id"], case["card_ts"])
     return case["card_ts"]
 
 

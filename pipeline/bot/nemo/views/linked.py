@@ -18,16 +18,25 @@ def message_link(token):
     return parse.ARCHIVE_LINK.match(target(token))
 
 
+def occurrence(url, matched):
+    return {
+        "url": url,
+        "channel_id": matched.group(1),
+        "ts": f"{matched.group(2)}.{matched.group(3)}",
+        "thread_ts": parse.thread_of(matched.group(4)),
+    }
+
+
 def occurrences(text):
     found = []
-    for token in LINK_TOKEN.findall(text or ""):
-        matched = message_link(token)
-        if matched:
-            found.append({
-                "url": target(token),
-                "channel_id": matched.group(1),
-                "ts": f"{matched.group(2)}.{matched.group(3)}",
-            })
+    for part in LINK_TOKEN.split(text or ""):
+        if LINK_TOKEN.fullmatch(part):
+            matched = message_link(part)
+            if matched:
+                found.append(occurrence(target(part), matched))
+            continue
+        for matched in parse.ARCHIVE_LINK.finditer(part):
+            found.append(occurrence(matched.group(0), matched))
     return found
 
 
@@ -76,7 +85,18 @@ def numbered_quote(block, numbered):
 
     if not runs:
         return None
-    return {"type": "rich_text", "elements": [{"type": "rich_text_quote", "elements": runs}]}
+    return {"type": "rich_text", "elements": [{"type": block_kind(block), "elements": runs}]}
+
+
+def block_kind(block):
+    return block["elements"][0]["type"] if block else "rich_text_section"
+
+
+def plain(block):
+    if not block:
+        return block
+    runs = block["elements"][0]["elements"]
+    return {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": runs}]}
 
 
 def numbered_text(text, numbered):
@@ -180,7 +200,7 @@ def item_blocks(item, held=None):
     return [
         {"type": "rich_text", "elements": parts},
         *carried(share, held),
-        context(by_whom(share, item["channel_id"]) if readable(share) else "can't read it"),
+        context(by_whom(share, item["channel_id"]) if readable(share) else "Message not accessible"),
     ]
 
 

@@ -167,6 +167,7 @@ def once(case_channel, channel_id=None):
          channel.post_reopen_notice, client, channel_id)
     case_channel.echo_queued()
     case_channel.tick_queued()
+    case_channel.announce_fire_engine()
 
     for guard_id in destroying:
         apart((f"destroying guard {guard_id}", lambda id=guard_id: guard_actions.run_destroy(client, id)))

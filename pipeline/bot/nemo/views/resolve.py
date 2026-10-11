@@ -1,7 +1,7 @@
 import yaml
 
 from bot.core import richtext
-from bot.nemo.views import action
+from bot.nemo.views import action, lines
 from lib.paths import RESOLUTIONS_FILE
 
 CALLBACK = "case_resolve"
@@ -178,10 +178,11 @@ def validation_errors(values):
     return None
 
 
-def by_line(resolution, by):
-    if resolution == "action_taken":
-        return f"Resolved by <@{by}>"
-    return f"Resolved by <@{by}> · {label(resolution).lower()}"
+def by_line(resolution, by, case_id=None):
+    shown = None if resolution == "action_taken" else label(resolution)
+    if case_id is None:
+        return f"Resolved by <@{by}>" + (f" · {shown}" if shown else "")
+    return lines.resolved(by, case_id, shown)
 
 
 def action_group_blocks(one):
@@ -200,10 +201,10 @@ def action_group_blocks(one):
     return built
 
 
-def echo_blocks(resolution, member_note, by, actions=()):
+def echo_blocks(resolution, member_note, by, actions=(), case_id=None):
     built = [{
         "type": "context",
-        "elements": [{"type": "mrkdwn", "text": by_line(resolution, by)}],
+        "elements": [{"type": "mrkdwn", "text": by_line(resolution, by, case_id)}],
     }]
 
     if resolution == "action_taken":

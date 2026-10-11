@@ -7,7 +7,7 @@ from bot.core.formatting import (
     escape,
     quote_text,
 )
-from bot.nemo.views import edit, linked
+from bot.nemo.views import edit, lines, linked
 from lib.paths import CATEGORIES_FILE
 
 MENTION = re.compile(r"(<[@#][A-Z0-9][A-Z0-9]*(?:\|[^>]*)?>)")
@@ -71,11 +71,23 @@ def footer(case):
 
 
 def body(case):
-    return linked.numbered_quote(quote(case.get("body"), case.get("blocks")), case.get("numbering"))
+    return linked.plain(
+        linked.numbered_quote(quote(case.get("body"), case.get("blocks")), case.get("numbering"))
+    )
+
+
+def header_blocks(case):
+    text = lines.header(case["case_id"], case.get("url"))
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
 
 
 def build_blocks(case):
-    return [part for part in [body(case), footer(case)] if part]
+    said = body(case)
+    return [said] if said else header_blocks(case)
+
+
+def needs_header(case):
+    return body(case) is not None
 
 
 def fallback(case):

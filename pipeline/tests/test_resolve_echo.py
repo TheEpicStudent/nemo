@@ -38,8 +38,15 @@ def test_no_action_needed_names_the_disposition_in_the_byline():
     built = resolve.echo_blocks("no_action", None, MOD)
     assert built == [{
         "type": "context",
-        "elements": [{"type": "mrkdwn", "text": f"Resolved by <@{MOD}> · no action needed"}],
+        "elements": [{"type": "mrkdwn", "text": f"Resolved by <@{MOD}> · No action needed"}],
     }]
+
+
+def test_the_byline_names_the_case_when_it_knows_it():
+    built = resolve.echo_blocks("no_action", None, MOD, case_id=23)
+    assert built[0]["elements"][0]["text"] == f"<@{MOD}> resolved case 23 · No action needed"
+    built = resolve.echo_blocks("action_taken", None, MOD, case_id=23)
+    assert built[0]["elements"][0]["text"] == f"<@{MOD}> resolved case 23"
 
 
 def test_a_summary_is_quoted_when_there_is_no_action():

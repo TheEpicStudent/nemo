@@ -14,7 +14,7 @@ log = logging.getLogger("bot.nemo")
 CASE = """
 SELECT c.id, c.category_key, c.resolved_at,
        r.id, r.is_anonymous, r.reporter_user_id, r.body, r.forwarded_ts, r.received_at,
-       v.id, r.card_digest, c.resolution, r.card_channel_id
+       v.id, r.card_digest, c.resolution, r.card_channel_id, r.header_ts
 FROM fd.cases c
 JOIN fd.case_reports r ON r.case_id = c.id
 LEFT JOIN fd.intake_conversations v ON v.report_id = r.id
@@ -146,6 +146,17 @@ NOT_CONDUCT_MARKS = ("x", "heavy_multiplication_x", "negative_squared_cross_mark
 QUIET = ("already_reacted", "no_reaction")
 
 
+STATE = "mark:"
+
+
+def card_state(mark):
+    return f"{STATE}{mark or ''}"
+
+
+def drawn_before_states(stored):
+    return not str(stored or "").startswith(STATE)
+
+
 def card_mark(case):
     if not case.get("resolved_at"):
         return OPEN_MARK
@@ -180,6 +191,23 @@ def mark_card(client, channel_id, ts, case, fresh=False):
                 react(client, "reactions_remove", channel_id, ts, name)
     if wanted:
         react(client, "reactions_add", channel_id, ts, wanted)
+
+
+def root_mark(case):
+    return card_mark(case) if case.get("resolved_at") else None
+
+
+def mark_root(client, channel_id, root_ts, card_ts, case, fresh=False):
+    wanted = root_mark(case)
+    if case.get("resolution") == "not_conduct" and crossed_by_hand(client, channel_id, root_ts):
+        wanted = None
+    if not fresh:
+        for name in CARD_MARKS:
+            if name != wanted:
+                react(client, "reactions_remove", channel_id, root_ts, name)
+            react(client, "reactions_remove", channel_id, card_ts, name)
+    if wanted:
+        react(client, "reactions_add", channel_id, root_ts, wanted)
 
 
 _internal_log = {}
@@ -242,22 +270,129 @@ def thread_for(conn, case_id):
     return row[0] if row else None
 
 
-def merged_text(closed):
-    if len(closed) == 1:
-        return f"case {closed[0]} merged into this one"
-    return f"cases {', '.join(str(one) for one in closed)} merged into this one"
-
-
-def post_merge_note(client, conn, keep, closed):
-    thread = thread_for(conn, keep)
-    if not thread or not closed:
+def post_line(client, conn, case_id, text):
+    thread = thread_for(conn, case_id)
+    if not thread:
         return None
-    return client.chat_postMessage(
-        channel=card_room(conn, keep),
-        thread_ts=thread,
-        text=merged_text(closed),
-        unfurl_links=False,
-    )["ts"]
+    try:
+        return client.chat_postMessage(
+            channel=card_room(conn, case_id),
+            thread_ts=thread,
+            text=text,
+            unfurl_links=False,
+            unfurl_media=False,
+        )["ts"]
+    except Exception as failure:
+        log.warning("nemo: case %s did not hear %r: %s", case_id, text[:60], failure)
+        return None
+
+
+def post_merge_note(client, conn, keep, closed, by):
+    if not closed:
+        return None
+    text = views.lines.merged(by, closed, keep, case_url)
+    for case_id in (keep, *closed):
+        post_line(client, conn, case_id, text)
+    return text
+
+
+HEADER_POSTED = """
+UPDATE fd.case_reports SET header_ts = %s WHERE id = %s AND header_ts IS NULL
+"""
+
+
+def post_header(client, conn, case, room, thread_ts):
+    if case.get("header_ts") or not views.report.needs_header(case):
+        return None
+    try:
+        sent = client.chat_postMessage(
+            channel=room,
+            thread_ts=thread_ts,
+            text=f"Case {case['case_id']}",
+            blocks=views.report.header_blocks(case),
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+    except Exception as failure:
+        log.warning("nemo: case %s has no header in its thread: %s", case["case_id"], failure)
+        return None
+    conn.execute(HEADER_POSTED, (sent["ts"], case["report_id"]))
+    return sent["ts"]
+
+
+def read_linked(client, channel_id, ts, thread_ts=None):
+    try:
+        if thread_ts and thread_ts != ts:
+            found = client.conversations_replies(
+                channel=channel_id, ts=thread_ts, oldest=ts, latest=ts, inclusive=True, limit=5
+            )
+        else:
+            found = client.conversations_history(
+                channel=channel_id, oldest=ts, latest=ts, inclusive=True, limit=1
+            )
+    except Exception as failure:
+        log.info("nemo: could not read %s in %s: %s", ts, channel_id, failure)
+        return None
+    message = next((one for one in found.get("messages") or [] if one.get("ts") == ts), None)
+    if message is None:
+        return None
+    return {
+        "kind": "link",
+        "source_channel_id": channel_id,
+        "source_ts": ts,
+        "source_author_user_id": message.get("user"),
+        "source_body": message.get("text"),
+        "permalink": None,
+        "is_reachable": bool((message.get("text") or "").strip()),
+        "raw": None,
+    }
+
+
+def linked_shares(client, text):
+    shares, seen = [], set()
+    for one in views.linked.occurrences(text):
+        key = (one["channel_id"], one["ts"])
+        if key in seen:
+            continue
+        seen.add(key)
+        found = read_linked(client, one["channel_id"], one["ts"], one["thread_ts"])
+        if found:
+            shares.append(found)
+    return shares
+
+
+OPENING_TO_UNFURL = """
+SELECT id, body FROM fd.case_chat
+WHERE case_id = %s AND mirrored_as = 'card' AND deleted_at IS NULL AND unfurl_ts IS NULL
+ORDER BY id LIMIT 1
+"""
+
+OPENING_UNFURLED = "UPDATE fd.case_chat SET unfurl_ts = %s WHERE id = %s AND unfurl_ts IS NULL"
+
+
+def unfurl_opening(client, conn, case_id, channel_id, thread_ts):
+    row = conn.execute(OPENING_TO_UNFURL, (case_id,)).fetchone()
+    if row is None:
+        return None
+    chat_id, body = row
+    numbered = views.linked.numbering(body, [], 1)
+    if not numbered["links"]:
+        return None
+    found = views.linked.items(numbered, linked_shares(client, body))
+    try:
+        sent = client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=views.linked.fallback(found),
+            blocks=views.linked.reply_blocks(found),
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+    except Exception as failure:
+        log.warning("nemo: case %s's links would not unfurl: %s", case_id, failure)
+        return None
+    conn.execute(OPENING_UNFURLED, (sent["ts"], chat_id))
+    return sent["ts"]
 
 
 def app_url(path):
@@ -298,6 +433,7 @@ def gather(conn, case_id):
         "card_digest": row[10],
         "resolution": row[11],
         "card_channel_id": row[12],
+        "header_ts": row[13],
         "url": case_url(row[0]),
         "shares": [],
         "message_id": None,
@@ -476,9 +612,10 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
     conn.execute(
         "UPDATE fd.case_reports SET forwarded_ts = %s, card_digest = %s, card_channel_id = %s, "
         "card_rendered_at = now() WHERE id = %s AND forwarded_ts IS NULL",
-        (ts, digest_of(built, card_mark(case)), room, case["report_id"]),
+        (ts, card_state(card_mark(case)), room, case["report_id"]),
     )
     mark_card(client, room, ts, case, fresh=True)
+    post_header(client, conn, case, room, ts)
     if case["message_id"]:
         conn.execute(
             "UPDATE fd.intake_messages SET mirrored_ts = %s, mirrored_at = now() "
@@ -580,30 +717,31 @@ def refresh_card(client, conn, case_id, channel_id=None):
     if not case["forwarded_ts"]:
         return post_report(client, conn, case_id, channel_id)
 
-    built = views.report.build_blocks(case)
-    fingerprint = digest_of(built, card_mark(case))
-    if fingerprint == case["card_digest"]:
+    state = card_state(card_mark(case))
+    if state == case["card_digest"]:
         return case["forwarded_ts"]
 
     room = card_channel(case, channel_id, conn)
-    try:
-        client.chat_update(
-            channel=room,
-            ts=case["forwarded_ts"],
-            text=views.report.fallback(case),
-            blocks=built,
-        )
-    except Exception as failure:
-        if not is_foreign_message_error(failure):
-            raise
-        log.warning("nemo: case %s keeps its card as it was, slack would not edit it: %s",
-                    case_id, failure)
-        conn.execute(REDRAWN, (fingerprint, case["report_id"]))
-        return case["forwarded_ts"]
+    if drawn_before_states(case["card_digest"]):
+        try:
+            client.chat_update(
+                channel=room,
+                ts=case["forwarded_ts"],
+                text=views.report.fallback(case),
+                blocks=views.report.build_blocks(case),
+            )
+        except Exception as failure:
+            if not is_foreign_message_error(failure):
+                raise
+            log.warning("nemo: case %s keeps its card as it was, slack would not edit it: %s",
+                        case_id, failure)
+            conn.execute(REDRAWN, (state, case["report_id"]))
+            return case["forwarded_ts"]
 
-    conn.execute(REDRAWN, (fingerprint, case["report_id"]))
+    conn.execute(REDRAWN, (state, case["report_id"]))
     mark_card(client, room, case["forwarded_ts"], case)
-    log.info("nemo: case %s redrawn", case_id)
+    post_header(client, conn, case, room, case["forwarded_ts"])
+    log.info("nemo: case %s is now %s", case_id, state)
     return case["forwarded_ts"]
 
 
@@ -768,12 +906,11 @@ def post_reopen_announcement(client, conn, case_id, was, channel_id=None):
     if case is None or not case["forwarded_ts"]:
         return None
 
-    label = was.replace("_", " ") if was else "resolved"
+    label = views.resolve.label(was) if was else "Resolved"
     return client.chat_postMessage(
         channel=card_channel(case, channel_id, conn),
         thread_ts=case["forwarded_ts"],
-        text=f":arrows_counterclockwise: they wrote back, so case {case_id} is open again "
-        f"(it was closed as {label})",
+        text=views.lines.reopened_by_reporter(case_id, label),
         unfurl_links=False,
     )["ts"]
 
@@ -903,6 +1040,6 @@ def post_action_echo(client, conn, case_id, values, by):
 
 
 def post_resolution_echo(client, conn, case_id, resolution, member_note, by, actions=()):
-    blocks = views.resolve.echo_blocks(resolution, member_note, by, actions)
+    blocks = views.resolve.echo_blocks(resolution, member_note, by, actions, case_id)
     return post_echo(client, conn, case_id, blocks, by, views.resolve.label(resolution),
         "nemo: the resolution log for case %s did not reach the thread: %s")

@@ -1,5 +1,8 @@
-from bot.nemo.views import action, edit, linked, merge, people, queued, report, resolve, reverse
+from bot.nemo.views import (
+    action, edit, lines, linked, merge, people, queued, report, resolve, reverse,
+)
 
 __all__ = [
-    "action", "edit", "linked", "merge", "people", "queued", "report", "resolve", "reverse",
+    "action", "edit", "lines", "linked", "merge", "people", "queued", "report", "resolve",
+    "reverse",
 ]

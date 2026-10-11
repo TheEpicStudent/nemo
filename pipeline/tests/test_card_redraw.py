@@ -87,7 +87,8 @@ def test_threads_follow_the_report_card_into_its_channel():
 
 
 def staff_case(card_ts="8.8"):
-    return {"SELECT id, category_key": (41, None, None, "C_FIRE", card_ts, "old", "UME", None)}
+    return {"SELECT id, category_key": (41, None, None, "C_FIRE", card_ts, "old", "UME", None, None,
+                                        None)}
 
 
 def test_a_staff_card_keeps_its_place_when_slack_refuses(monkeypatch):

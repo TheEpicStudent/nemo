@@ -40,6 +40,9 @@ class Slack:
     def reactions_add(self, **kwargs):
         self.reacted.append(kwargs)
 
+    def reactions_remove(self, **kwargs):
+        self.reacted.append(dict(kwargs, removed=True))
+
 
 @pytest.fixture(autouse=True)
 def internal_log(monkeypatch):
@@ -55,7 +58,8 @@ def faces(monkeypatch):
 
 def opened(card_ts=None, reported=False, opening=None):
     return {
-        "SELECT id, category_key": (41, None, None, None, card_ts, None, "UOPENER", None),
+        "SELECT id, category_key": (41, None, None, None, card_ts, None, "UOPENER", None, None,
+                                    None),
         "FOR UPDATE": (card_ts,),
         "NOT EXISTS (SELECT 1 FROM fd.case_reports": None if reported or card_ts else (1,),
         "mirrored_as = 'card'": opening,
@@ -118,10 +122,11 @@ def test_what_happened_is_quoted_on_the_card_in_the_openers_name():
 
     case_queue.card(slack, conn, 41)
 
-    sent = slack.posted[0]
+    sent, header = slack.posted
     assert sent["username"] == "UOPENER"
-    assert [b["type"] for b in sent["blocks"]] == ["rich_text", "section"]
+    assert [b["type"] for b in sent["blocks"]] == ["rich_text"]
     assert "kept posting invite links" in str(sent["blocks"][0])
+    assert header["thread_ts"] == "9.9" and header["text"] == "Case 41"
     assert conn.did("UPDATE fd.case_chat SET mirrored_ts") == [("9.9", 7)]
 
 
@@ -142,3 +147,47 @@ def test_a_new_card_waits_with_an_hourglass():
 
     assert slack.reacted == [{"channel": INTERNAL_LOG, "timestamp": "9.9",
                               "name": "hourglass_flowing_sand"}]
+
+
+def test_a_thread_card_leaves_the_tracking_to_the_message_it_answers():
+    conn, slack = Conn(opened()), Slack()
+
+    case_queue.post(slack, conn, 41, "C1", THREAD)
+
+    assert slack.reacted == [], "the hourglass that opened the case is already on that message"
+
+
+def resolved_in_thread(resolution="no_action"):
+    rows = opened(card_ts="8.8")
+    rows["SELECT id, category_key"] = (41, None, "2026-10-11", "C1", "8.8", "old", "UOPENER",
+                                       resolution, THREAD, None)
+    return rows
+
+
+class Updating(Slack):
+    def chat_update(self, **kwargs):
+        return {"ok": True}
+
+    def reactions_get(self, **kwargs):
+        return {"message": {"reactions": []}}
+
+
+def test_a_resolved_thread_case_is_checked_on_the_message_it_answers():
+    conn, slack = Conn(resolved_in_thread()), Updating()
+
+    case_queue.refresh_card(slack, conn, 41)
+
+    added = [one for one in slack.reacted if not one.get("removed")]
+    assert added == [{"channel": "C1", "timestamp": THREAD, "name": "white_check_mark"}]
+    taken_off_card = {one["name"] for one in slack.reacted
+                      if one.get("removed") and one["timestamp"] == "8.8"}
+    assert "hourglass_flowing_sand" in taken_off_card, "nemo's own hourglass leaves the card"
+
+
+def test_a_merged_thread_case_shows_the_repeat_on_its_message():
+    conn, slack = Conn(resolved_in_thread("duplicate")), Updating()
+
+    case_queue.refresh_card(slack, conn, 41)
+
+    assert [one["name"] for one in slack.reacted
+            if not one.get("removed")] == ["repeat"]

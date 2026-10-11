@@ -156,35 +156,29 @@ def card(**over):
     return report.build_blocks(case)
 
 
-def footer(built):
-    return built[-1]
-
-
-def picks(built):
-    return [one["text"]["text"] for one in footer(built)["accessory"]["options"]]
-
-
-def test_the_report_comes_first_and_the_case_link_after_it():
+def test_the_card_is_the_report_and_nothing_else():
     built = card(url=CASE_URL)
-    assert [block["type"] for block in built] == ["rich_text", "section"]
-    assert footer(built)["text"]["text"] == f"<{CASE_URL}|Case 2>"
+    assert [block["type"] for block in built] == ["rich_text"]
+    assert built[0]["elements"][0]["type"] == "rich_text_section", "plain text, not a quote"
+    assert "Case 2" not in str(built), "the case number lives in the thread"
 
 
-def test_the_card_holds_only_the_report_and_the_case():
+def test_the_card_holds_only_the_report():
     text = str(card(is_anonymous=False))
-    for left_out in ("UALICE", "UBOB", "Bullying", "reported"):
+    for left_out in ("UALICE", "UBOB", "Bullying", "reported", "overflow"):
         assert left_out not in text
 
 
-def test_a_case_with_no_link_still_names_itself():
-    assert footer(card())["text"]["text"] == "Case 2"
+def test_the_thread_header_links_the_case():
+    case = {"case_id": 2, "url": CASE_URL}
+    assert report.header_blocks(case)[0]["text"]["text"] == f"<{CASE_URL}|Case 2>"
+    assert report.header_blocks({"case_id": 2})[0]["text"]["text"] == "Case 2"
 
 
-def test_every_case_action_lives_in_the_menu_beside_the_case():
-    assert footer(card())["accessory"]["type"] == "overflow"
-    assert picks(card()) == ["Claim it", "Log an action", "Resolve", "Leave a note", "More…"]
-    assert picks(card(assignees=["UME"])) == ["Log an action", "Resolve", "Leave a note", "More…"]
-    assert picks(card(resolved_at="2026-10-10")) == ["Reopen", "Leave a note", "More…"]
+def test_a_card_with_nothing_said_names_the_case_instead():
+    built = card(body="", blocks=None, url=CASE_URL)
+    assert built == report.header_blocks({"case_id": 2, "url": CASE_URL})
+    assert not report.needs_header({"case_id": 2, "body": "", "shares": []})
 
 
 def test_the_quote_keeps_slacks_own_styling_when_it_is_simple():
@@ -304,7 +298,7 @@ def test_a_reply_with_a_picture_still_uses_blocks(monkeypatch):
 
 def test_the_card_quotes_no_linked_message_itself():
     built = card(shares=[linked()])
-    assert [b["type"] for b in built] == ["rich_text", "section"]
+    assert [b["type"] for b in built] == ["rich_text"]
     assert "mmm" not in str(built), "linked messages go in the thread, not on the card"
 
 

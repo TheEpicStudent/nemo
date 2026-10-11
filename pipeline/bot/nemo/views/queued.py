@@ -1,8 +1,19 @@
-from bot.nemo.views import report
+from bot.nemo.views import linked, report
+
+
+def body(case):
+    return linked.plain(
+        linked.numbered_quote(report.quote(case.get("body")), case.get("numbering"))
+    )
 
 
 def build_blocks(case):
-    return [part for part in [report.quote(case.get("body")), report.footer(case)] if part]
+    said = body(case)
+    return [said] if said else report.header_blocks(case)
+
+
+def needs_header(case):
+    return body(case) is not None
 
 
 def fallback(case):

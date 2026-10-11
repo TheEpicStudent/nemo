@@ -219,6 +219,8 @@ def thread(monkeypatch):
     monkeypatch.setattr(handlers, "case_channels", lambda conn=None: {ROOM})
     monkeypatch.setattr(handlers.chat, "case_of_thread", lambda conn, ts: 23)
     monkeypatch.setattr(handlers.access, "may", lambda conn, who, needs, case=None: (True, None))
+    monkeypatch.setattr(handlers.thread_commands.privileged, "delete_message",
+                        lambda channel_id, ts, max_retries=2: heard.setdefault("deleted", []).append(ts))
     monkeypatch.setattr(
         handlers, "after_resolve",
         lambda client, case_id, resolution, who, echo=True: heard["after"].append((resolution, echo)),
@@ -264,7 +266,8 @@ def test_resolve_with_nothing_left_to_do_says_so_privately(thread, monkeypatch):
     watcher().fn(ctx)
 
     assert ctx.client.made("chat_postEphemeral")[0]["text"] == (
-        "case 23 is already resolved and has no open report")
+        "Case 23 is already resolved and has no open report")
+    assert thread["deleted"] == ["2.0"], "a command that did nothing is taken down"
     assert ctx.client.made("reactions_add") == []
 
 
@@ -279,4 +282,5 @@ def test_resolve_needs_both_answering_and_resolving(thread, monkeypatch):
     watcher().fn(ctx)
 
     assert told == []
-    assert ctx.client.made("reactions_add")[0]["name"] == "x"
+    assert ctx.client.made("chat_postEphemeral")[0]["text"] == "Not permitted: no"
+    assert thread["deleted"] == ["2.0"]
