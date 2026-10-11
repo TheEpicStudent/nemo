@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 
 from psycopg.types.json import Jsonb
 
@@ -77,6 +78,15 @@ UPDATE fd.intake_messages
 SET unfurl_ts = coalesce(%s, unfurl_ts), unfurl_digest = %s,
     unfurled_at = coalesce(unfurled_at, now())
 WHERE id = %s
+"""
+
+
+FORWARDED_FILES = """
+SELECT mf.file_id, f.slack_file_id, f.name, f.mimetype, f.stored_key, mf.mirrored_file_id
+FROM fd.intake_message_files mf
+JOIN fd.intake_files f ON f.id = mf.file_id
+WHERE mf.message_id = %s AND mf.forwarded AND f.fetch_state = 'stored'
+ORDER BY mf.seq
 """
 
 
@@ -349,6 +359,31 @@ def numbers(conn, conversation_id):
     return found
 
 
+def forwarded_files(client, conn, message_id):
+    held = {}
+    uploaded = False
+    for file_id, slack_file_id, name, mimetype, sha, mirrored in conn.execute(
+        FORWARDED_FILES, (message_id,)
+    ).fetchall():
+        shown = name or (sha or slack_file_id)[:12]
+        if not attachments.shows_inline(mimetype):
+            held[slack_file_id] = {"id": None, "name": shown, "image": False}
+            continue
+        if not mirrored:
+            body, _ = attachments.blobs.body_of(conn, sha)
+            if body is None:
+                continue
+            mirrored = attachments.held_in_slack(client, shown, body)
+            if not mirrored:
+                continue
+            conn.execute(attachments.MIRRORED, (mirrored, message_id, file_id))
+            uploaded = True
+        held[slack_file_id] = {"id": mirrored, "name": shown, "image": True}
+    if uploaded:
+        time.sleep(attachments.FILE_INDEX_DELAY)
+    return held
+
+
 def unfurl(client, conn, message_id, channel_id, thread_ts):
     row = conn.execute(UNFURL_OF, (message_id,)).fetchone()
     if row is None:
@@ -360,7 +395,7 @@ def unfurl(client, conn, message_id, channel_id, thread_ts):
     found = views.linked.items(
         numbers(conn, conversation_id).get(message_id), shares_for(conn, message_id)
     )
-    blocks = views.linked.reply_blocks(found)
+    blocks = views.linked.reply_blocks(found, forwarded_files(client, conn, message_id))
 
     if not blocks:
         if not posted:
@@ -605,7 +640,7 @@ SOMETHING_TO_CARRY = """
 coalesce(btrim(m.body), '') <> '' OR EXISTS (
     SELECT 1 FROM fd.intake_message_files mf
     JOIN fd.intake_files f ON f.id = mf.file_id
-    WHERE mf.message_id = m.id AND mf.mirrored_at IS NULL
+    WHERE mf.message_id = m.id AND mf.mirrored_at IS NULL AND NOT mf.forwarded
       AND f.fetch_state IN ('pending', 'stored')
 ) OR EXISTS (
     SELECT 1 FROM fd.intake_shares s WHERE s.message_id = m.id AND s.kind = 'forward'
@@ -643,7 +678,7 @@ JOIN fd.intake_files f ON f.id = mf.file_id
 JOIN fd.intake_messages m ON m.id = mf.message_id
 JOIN fd.intake_conversations c ON c.id = m.conversation_id
 JOIN fd.case_reports r ON r.id = c.report_id
-WHERE mf.mirrored_at IS NULL AND f.fetch_state = 'stored'
+WHERE mf.mirrored_at IS NULL AND f.fetch_state = 'stored' AND NOT mf.forwarded
   AND m.direction = 'inbound' AND r.forwarded_ts IS NOT NULL
 LIMIT 50
 """
@@ -657,7 +692,7 @@ JOIN fd.intake_messages m ON m.id = mf.message_id
 JOIN fd.intake_conversations c ON c.id = m.conversation_id
 JOIN fd.case_reports r ON r.id = c.report_id
 WHERE r.case_id = %s AND mf.mirrored_at IS NULL AND f.fetch_state = 'stored'
-  AND m.direction = 'inbound' AND r.forwarded_ts IS NOT NULL
+  AND NOT mf.forwarded AND m.direction = 'inbound' AND r.forwarded_ts IS NOT NULL
 ORDER BY mf.message_id
 """
 

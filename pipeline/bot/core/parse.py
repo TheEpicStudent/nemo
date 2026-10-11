@@ -144,16 +144,18 @@ def shares(event):
 
 
 def carried_files(event):
-    yield from event.get("files") or []
+    for entry in event.get("files") or []:
+        yield entry, False
     for attachment in event.get("attachments") or []:
         if isinstance(attachment, dict) and attachment.get("is_share"):
-            yield from attachment.get("files") or []
+            for entry in attachment.get("files") or []:
+                yield entry, True
 
 
 def files(event):
     out = []
     seen = set()
-    for entry in carried_files(event):
+    for entry, forwarded in carried_files(event):
         if not isinstance(entry, dict) or not entry.get("id"):
             continue
         if entry["id"] in seen:
@@ -195,6 +197,7 @@ def files(event):
                 "fetch_state": state,
                 "fetch_error": error,
                 "created_at": posted_at(created) if created else None,
+                "forwarded": forwarded,
             }
         )
     return out

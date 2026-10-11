@@ -7,7 +7,7 @@ LINK_TOKEN = re.compile(r"(<https?://[^\s<>]+?(?:\|[^>]*)?>)")
 
 MESSAGE_RUNS = ("link", "message_mention")
 
-SHOWN_ITEMS = 24
+BLOCK_LIMIT = 50
 
 
 def target(token):
@@ -148,7 +148,22 @@ def context(text):
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
 
 
-def item_blocks(item):
+def file_ids(share):
+    raw = share.get("raw") if isinstance(share.get("raw"), dict) else {}
+    return [one["id"] for one in raw.get("files") or [] if isinstance(one, dict) and one.get("id")]
+
+
+def carried(share, held):
+    found = [held[one] for one in file_ids(share) if one in (held or {})]
+    pictures = [
+        {"type": "image", "slack_file": {"id": one["id"]}, "alt_text": one["name"]}
+        for one in found if one["image"]
+    ]
+    named = [one["name"] for one in found if not one["image"]]
+    return pictures + ([context(":paperclip: " + ", ".join(named))] if named else [])
+
+
+def item_blocks(item, held=None):
     share = item["share"]
     number = item["number"]
     head = (
@@ -164,17 +179,19 @@ def item_blocks(item):
 
     return [
         {"type": "rich_text", "elements": parts},
+        *carried(share, held),
         context(by_whom(share, item["channel_id"]) if readable(share) else "can't read it"),
     ]
 
 
-def reply_blocks(found):
+def reply_blocks(found, held=None):
     blocks = []
-    for item in found[:SHOWN_ITEMS]:
-        blocks += item_blocks(item)
-    rest = len(found) - SHOWN_ITEMS
-    if rest > 0:
-        blocks.append(context(f"{rest} more in Fire Engine"))
+    for at, item in enumerate(found):
+        made = item_blocks(item, held)
+        if len(blocks) + len(made) > BLOCK_LIMIT - 1:
+            blocks.append(context(f"{len(found) - at} more in Fire Engine"))
+            return blocks
+        blocks += made
     return blocks
 
 

@@ -27,3 +27,17 @@ def test_a_file_both_sent_and_forwarded_is_kept_once():
     event = {"files": [picture("F1")], "attachments": [{"is_share": True, "files": [picture("F1")]}]}
 
     assert len(parse.files(event)) == 1
+
+
+def test_a_forwarded_file_is_flagged_as_forwarded():
+    event = {"files": [picture("F1")], "attachments": [{"is_share": True, "files": [picture("F2")]}]}
+
+    assert [one["forwarded"] for one in parse.files(event)] == [False, True]
+
+
+def test_forwarded_files_stay_out_of_the_reporters_own_post():
+    from bot.nemo import attachments, channel
+
+    assert "NOT mf.forwarded" in attachments.TO_SHARE
+    for query in (channel.SOMETHING_TO_CARRY, channel.FILES_WAITING, channel.FILES_ON_CASE):
+        assert "NOT mf.forwarded" in query

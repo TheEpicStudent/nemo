@@ -16,6 +16,7 @@ SELECT mf.file_id, f.name, f.mimetype, f.stored_key, f.original_w
 FROM fd.intake_message_files mf
 JOIN fd.intake_files f ON f.id = mf.file_id
 WHERE mf.message_id = %s AND mf.mirrored_at IS NULL AND f.fetch_state = 'stored'
+  AND NOT mf.forwarded
 ORDER BY mf.seq
 """
 

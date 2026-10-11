@@ -151,9 +151,9 @@ def attach(conn, message_id, event):
             item,
         ).fetchone()[0]
         conn.execute(
-            "INSERT INTO fd.intake_message_files (message_id, file_id, seq) "
-            "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
-            (message_id, file_id, seq),
+            "INSERT INTO fd.intake_message_files (message_id, file_id, seq, forwarded) "
+            "VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            (message_id, file_id, seq, item["forwarded"]),
         )
 
 

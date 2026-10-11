@@ -285,3 +285,68 @@ def test_a_forward_is_unfurled_with_its_words():
     assert head["elements"][1]["text"] == " (1)"
     assert words["elements"] == [{"type": "text", "text": "mwah"}]
     assert blocks[1]["elements"][0]["text"] == "<@UDRACULA> in <#C0FWD0000>"
+
+
+def forwarded_with(*files):
+    return dict(forward(), permalink=LINK, raw={"files": [{"id": one} for one in files]})
+
+
+def test_a_forwarded_picture_sits_inside_its_forward():
+    full = forwarded_with("F1")
+    found = linked.items(linked.numbering("", [full], 1), [full])
+    held = {"F1": {"id": "FUP1", "name": "image.png", "image": True}}
+
+    blocks = linked.reply_blocks(found, held)
+
+    assert [b["type"] for b in blocks] == ["rich_text", "image", "context"]
+    assert blocks[1] == {"type": "image", "slack_file": {"id": "FUP1"}, "alt_text": "image.png"}
+
+
+def test_a_forwarded_document_is_named_inside_its_forward():
+    full = forwarded_with("F2")
+    found = linked.items(linked.numbering("", [full], 1), [full])
+
+    blocks = linked.reply_blocks(found, {"F2": {"id": None, "name": "notes.pdf", "image": False}})
+
+    assert blocks[1]["elements"][0]["text"] == ":paperclip: notes.pdf"
+
+
+def test_a_picture_not_downloaded_yet_leaves_no_gap():
+    full = forwarded_with("F1")
+    found = linked.items(linked.numbering("", [full], 1), [full])
+
+    assert [b["type"] for b in linked.reply_blocks(found, {})] == ["rich_text", "context"]
+
+
+def test_pictures_count_toward_slacks_block_limit():
+    full = forwarded_with("F1", "F2", "F3")
+    held = {one: {"id": f"U{one}", "name": "x.png", "image": True} for one in ("F1", "F2", "F3")}
+    found = linked.items(linked.numbering("", [full] * 12, 1), [full])
+
+    blocks = linked.reply_blocks(found, held)
+
+    assert len(blocks) <= 50
+    assert blocks[-1]["elements"][0]["text"].endswith("more in Fire Engine")
+
+
+class Uploading(Slack):
+    def files_upload_v2(self, **kwargs):
+        self.posted.append(("upload", kwargs))
+        return {"files": [{"id": "FUP1"}]}
+
+
+def test_a_forwarded_picture_is_uploaded_once(monkeypatch):
+    monkeypatch.setattr(channel.attachments.blobs, "body_of", lambda conn, sha: (b"png", "image/png"))
+    monkeypatch.setattr(channel.time, "sleep", lambda seconds: None)
+    slack = Uploading()
+    conn = Conn({"mf.forwarded AND f.fetch_state": [(5, "F1", "image.png", "image/png", "abc", None)]})
+
+    held = channel.forwarded_files(slack, conn, 80)
+
+    assert held == {"F1": {"id": "FUP1", "name": "image.png", "image": True}}
+    assert conn.did("SET mirrored_file_id") == [("FUP1", 80, 5)]
+
+    conn = Conn({"mf.forwarded AND f.fetch_state": [(5, "F1", "image.png", "image/png", "abc", "FUP1")]})
+    slack = Uploading()
+    assert channel.forwarded_files(slack, conn, 80)["F1"]["id"] == "FUP1"
+    assert slack.posted == [], "an image already up is reused"
