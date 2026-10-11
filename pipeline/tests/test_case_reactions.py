@@ -50,7 +50,8 @@ class Ctx:
 def test_a_card_shows_where_its_case_stands():
     assert channel.card_mark({}) == "hourglass_flowing_sand"
     assert channel.card_mark({"resolved_at": "x", "resolution": "duplicate"}) == "repeat"
-    assert channel.card_mark({"resolved_at": "x", "resolution": "no_action"}) == "check"
+    assert channel.card_mark({"resolved_at": "x", "resolution": "no_action"}) == "white_check_mark"
+    assert channel.card_mark({"resolved_at": "x", "resolution": "not_conduct"}) is None
 
 
 def test_a_fresh_card_only_gains_its_mark():
@@ -68,13 +69,23 @@ def test_a_redrawn_card_drops_the_marks_it_no_longer_wants():
     channel.mark_card(slack, ROOM, CARD, {"resolved_at": "x", "resolution": "duplicate"})
 
     assert [kwargs["name"] for kwargs in slack.made("reactions_remove")] == [
-        "hourglass_flowing_sand", "check"]
+        "hourglass_flowing_sand", "white_check_mark", "check"]
     assert [kwargs["name"] for kwargs in slack.made("reactions_add")] == ["repeat"]
+
+
+def test_a_case_closed_as_not_conduct_keeps_only_the_x_it_was_given():
+    slack = Slack()
+
+    channel.mark_card(slack, ROOM, CARD, {"resolved_at": "x", "resolution": "not_conduct"})
+
+    assert slack.made("reactions_add") == []
+    assert "hourglass_flowing_sand" in [kwargs["name"] for kwargs in slack.made("reactions_remove")]
 
 
 def test_a_change_of_standing_alone_redraws_the_card():
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "Case 2"}}]
-    assert channel.digest_of(blocks, "hourglass_flowing_sand") != channel.digest_of(blocks, "check")
+    assert channel.digest_of(blocks, "hourglass_flowing_sand") != channel.digest_of(
+        blocks, "white_check_mark")
 
 
 def test_a_check_closes_as_action_taken_only_while_an_action_stands(monkeypatch):

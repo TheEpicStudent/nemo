@@ -168,3 +168,8 @@ def closed(ctx):
     after_resolve(ctx.client, case_id, resolution, who)
     log.info("nemo: case %s resolved from the thread by %s", case_id, who)
     return case_id
+
+
+@on_event("reaction_removed", open_to_all=True)
+def unreacted(ctx):
+    return None

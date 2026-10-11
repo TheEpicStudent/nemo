@@ -13,7 +13,7 @@ log = logging.getLogger("bot.nemo")
 CASE = """
 SELECT c.id, c.category_key, c.resolved_at,
        r.id, r.is_anonymous, r.reporter_user_id, r.body, r.forwarded_ts, r.received_at,
-       v.id, r.card_digest, c.resolution
+       v.id, r.card_digest, c.resolution, r.card_channel_id
 FROM fd.cases c
 JOIN fd.case_reports r ON r.case_id = c.id
 LEFT JOIN fd.intake_conversations v ON v.report_id = r.id
@@ -81,7 +81,7 @@ WHERE id = %s
 
 
 UNFURLS_ON_CASE = """
-SELECT m.id, r.forwarded_ts
+SELECT m.id, r.forwarded_ts, r.card_channel_id
 FROM fd.intake_messages m
 JOIN fd.intake_conversations c ON c.id = m.conversation_id
 JOIN fd.case_reports r ON r.id = c.report_id
@@ -113,7 +113,7 @@ SELECT forwarded_ts FROM fd.case_reports WHERE id = %s FOR UPDATE
 
 FOLLOW_UP = """
 SELECT m.body, m.mirrored_ts, r.forwarded_ts, m.conversation_id,
-       r.is_anonymous, r.reporter_user_id
+       r.is_anonymous, r.reporter_user_id, r.card_channel_id
 FROM fd.intake_messages m
 JOIN fd.intake_conversations c ON c.id = m.conversation_id
 LEFT JOIN fd.case_reports r ON r.id = c.report_id
@@ -130,14 +130,17 @@ def digest_of(blocks, mark=None):
 
 OPEN_MARK = "hourglass_flowing_sand"
 MERGED_MARK = "repeat"
-DONE_MARK = "check"
-CARD_MARKS = (OPEN_MARK, MERGED_MARK, DONE_MARK)
+DONE_MARK = "white_check_mark"
+CARD_MARKS = (OPEN_MARK, MERGED_MARK, DONE_MARK, "check")
+UNMARKED = ("not_conduct",)
 QUIET = ("already_reacted", "no_reaction")
 
 
 def card_mark(case):
     if not case.get("resolved_at"):
         return OPEN_MARK
+    if case.get("resolution") in UNMARKED:
+        return None
     return MERGED_MARK if case.get("resolution") == "duplicate" else DONE_MARK
 
 
@@ -155,7 +158,8 @@ def mark_card(client, channel_id, ts, case, fresh=False):
         for name in CARD_MARKS:
             if name != wanted:
                 react(client, "reactions_remove", channel_id, ts, name)
-    react(client, "reactions_add", channel_id, ts, wanted)
+    if wanted:
+        react(client, "reactions_add", channel_id, ts, wanted)
 
 
 _internal_log = {}
@@ -181,11 +185,20 @@ def case_channels(conn=None):
 
 
 def card_channel(case, channel_id=None, conn=None):
-    return channel_id or internal_log_channel(conn)
+    return room_of(case.get("card_channel_id"), channel_id, conn)
+
+
+def room_of(stored, channel_id=None, conn=None):
+    return stored or channel_id or internal_log_channel(conn)
 
 
 CARD_ROOM = """
-SELECT card_channel_id FROM fd.cases WHERE id = %(case_id)s
+SELECT coalesce(
+    (SELECT r.card_channel_id FROM fd.case_reports r
+      WHERE r.case_id = %(case_id)s AND r.forwarded_ts IS NOT NULL
+      ORDER BY r.id LIMIT 1),
+    (SELECT k.card_channel_id FROM fd.cases k WHERE k.id = %(case_id)s)
+)
 """
 
 
@@ -264,6 +277,7 @@ def gather(conn, case_id):
         "conversation_id": row[9],
         "card_digest": row[10],
         "resolution": row[11],
+        "card_channel_id": row[12],
         "url": case_url(row[0]),
         "shares": [],
         "message_id": None,
@@ -377,9 +391,9 @@ def unfurl(client, conn, message_id, channel_id, thread_ts):
 
 def carry_unfurls(client, conn, case_id, channel_id=None):
     carried = 0
-    for message_id, thread_ts in conn.execute(UNFURLS_ON_CASE, (case_id,)).fetchall():
+    for message_id, thread_ts, stored in conn.execute(UNFURLS_ON_CASE, (case_id,)).fetchall():
         try:
-            if unfurl(client, conn, message_id, channel_id or internal_log_channel(conn), thread_ts):
+            if unfurl(client, conn, message_id, room_of(stored, channel_id, conn), thread_ts):
                 carried += 1
         except Exception as failure:
             log.warning("nemo: message %s's links would not unfurl: %s", message_id, failure)
@@ -415,9 +429,9 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
     ts = sent["ts"]
 
     conn.execute(
-        "UPDATE fd.case_reports SET forwarded_ts = %s, card_digest = %s, "
+        "UPDATE fd.case_reports SET forwarded_ts = %s, card_digest = %s, card_channel_id = %s, "
         "card_rendered_at = now() WHERE id = %s AND forwarded_ts IS NULL",
-        (ts, digest_of(built, card_mark(case)), case["report_id"]),
+        (ts, digest_of(built, card_mark(case)), room, case["report_id"]),
     )
     mark_card(client, room, ts, case, fresh=True)
     if case["message_id"]:
@@ -480,14 +494,14 @@ def post_follow_up(client, conn, message_id, channel_id=None):
     row = conn.execute(FOLLOW_UP, (message_id,)).fetchone()
     if not row:
         return None
-    body, mirrored, forwarded, conversation_id, anonymous, reporter = row
+    body, mirrored, forwarded, conversation_id, anonymous, reporter, stored = row
     if mirrored:
         return mirrored
     if not forwarded:
         log.warning("nemo: message %s has no card to hang under", message_id)
         return None
 
-    room = channel_id or internal_log_channel(conn)
+    room = room_of(stored, channel_id, conn)
     numbered = numbers(conn, conversation_id).get(message_id)
     ts = attachments.share(
         client, conn, message_id, room, forwarded,
@@ -537,12 +551,12 @@ def refresh_card(client, conn, case_id, channel_id=None):
     except Exception as failure:
         if not is_foreign_message_error(failure):
             raise
-        return rebuild_case_card(client, conn, case_id, case["report_id"], channel_id)
+        log.warning("nemo: case %s keeps its card as it was, slack would not edit it: %s",
+                    case_id, failure)
+        conn.execute(REDRAWN, (fingerprint, case["report_id"]))
+        return case["forwarded_ts"]
 
-    conn.execute(
-        "UPDATE fd.case_reports SET card_digest = %s, card_rendered_at = now() WHERE id = %s",
-        (fingerprint, case["report_id"]),
-    )
+    conn.execute(REDRAWN, (fingerprint, case["report_id"]))
     mark_card(client, room, case["forwarded_ts"], case)
     log.info("nemo: case %s redrawn", case_id)
     return case["forwarded_ts"]
@@ -550,19 +564,14 @@ def refresh_card(client, conn, case_id, channel_id=None):
 
 NOT_OURS = ("cant_update_message", "message_not_found", "edit_window_closed")
 
+REDRAWN = """
+UPDATE fd.case_reports SET card_digest = %s, card_rendered_at = now() WHERE id = %s
+"""
+
 
 def is_foreign_message_error(failure):
     text = str(failure)
     return any(one in text for one in NOT_OURS)
-
-
-def rebuild_case_card(client, conn, case_id, report_id, channel_id):
-    conn.execute(
-        "UPDATE fd.case_reports SET forwarded_ts = NULL, card_digest = NULL WHERE id = %s",
-        (report_id,),
-    )
-    log.info("nemo: case %s has a card we cannot edit, putting up a fresh one", case_id)
-    return post_report(client, conn, case_id, channel_id)
 
 
 def post_ephemeral(client, body, text):
@@ -640,7 +649,8 @@ LIMIT 50
 """
 
 FILES_ON_CASE = """
-SELECT DISTINCT mf.message_id, r.forwarded_ts, r.is_anonymous, r.reporter_user_id
+SELECT DISTINCT mf.message_id, r.forwarded_ts, r.is_anonymous, r.reporter_user_id,
+       r.card_channel_id
 FROM fd.intake_message_files mf
 JOIN fd.intake_files f ON f.id = mf.file_id
 JOIN fd.intake_messages m ON m.id = mf.message_id
@@ -658,12 +668,12 @@ def waiting_files(conn):
 
 def carry_files(client, conn, case_id, channel_id=None):
     sent = 0
-    for message_id, forwarded_ts, anonymous, reporter in conn.execute(
+    for message_id, forwarded_ts, anonymous, reporter, stored in conn.execute(
         FILES_ON_CASE, (case_id,)
     ).fetchall():
         try:
             carried = attachments.share(
-                client, conn, message_id, channel_id or internal_log_channel(conn), forwarded_ts,
+                client, conn, message_id, room_of(stored, channel_id, conn), forwarded_ts,
                 wearing=as_reporter(client, anonymous, reporter),
             )
         except Exception as failure:

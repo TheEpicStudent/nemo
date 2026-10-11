@@ -8,6 +8,7 @@ from bot.nemo.channel import (
     card_mark,
     case_url,
     internal_log_channel,
+    is_foreign_message_error,
     mark_card,
     only_the_face,
 )
@@ -55,9 +56,6 @@ REDRAWN = """
 UPDATE fd.cases SET card_digest = %s, updated_at = now() WHERE id = %s
 """
 
-LOST = """
-UPDATE fd.cases SET card_channel_id = NULL, card_ts = NULL, card_digest = NULL WHERE id = %s
-"""
 
 
 def case_on(conn, channel_id, thread_ts):
@@ -147,9 +145,11 @@ def refresh_card(client, conn, case_id, channel_id=None):
             blocks=built,
         )
     except Exception as failure:
-        log.warning("nemo: case %s card could not be redrawn: %s", case_id, failure)
-        conn.execute(LOST, (case_id,))
-        return None
+        log.warning("nemo: case %s keeps its card as it was, slack would not edit it: %s",
+                    case_id, failure)
+        if is_foreign_message_error(failure):
+            conn.execute(REDRAWN, (fingerprint, case_id))
+        return case["card_ts"]
 
     conn.execute(REDRAWN, (fingerprint, case_id))
     mark_card(client, case["card_channel_id"], case["card_ts"], case)

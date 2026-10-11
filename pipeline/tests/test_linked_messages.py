@@ -262,7 +262,7 @@ def test_the_other_verbs_still_need_somebody():
 
 def test_a_follow_up_with_numbered_links_leaves_the_unfurling_to_nemo(monkeypatch):
     conn = Conn({
-        "r.is_anonymous, r.reporter_user_id": [(f"also <{OTHER}>", None, CARD, 7, True, None)],
+        "r.is_anonymous, r.reporter_user_id": [(f"also <{OTHER}>", None, CARD, 7, True, None, None)],
         **conversation((1, "the report", at(-5), CARD, None), (2, f"also <{OTHER}>", at(1), None, None)),
     })
     monkeypatch.setattr(channel, "unfurl", lambda *args: None)

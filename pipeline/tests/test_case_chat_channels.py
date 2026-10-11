@@ -86,8 +86,8 @@ def test_an_action_echo_quotes_a_report_thread(monkeypatch):
     monkeypatch.setattr(channel.profile, "profile",
         lambda client, user_id: {"name": user_id, "icon": None})
     conn = Conn({
-        "SELECT coalesce(": ("100.000",),
-        "SELECT card_channel_id": ("CROOM",),
+        "r.forwarded_ts FROM": ("100.000",),
+        "card_channel_id FROM": ("CROOM",),
     })
     client = Slack()
 
@@ -110,8 +110,8 @@ def test_a_channel_ban_echo_names_its_channel_and_end_date(monkeypatch):
     monkeypatch.setattr(channel.profile, "profile",
         lambda client, user_id: {"name": user_id, "icon": None})
     conn = Conn({
-        "SELECT coalesce(": ("100.000",),
-        "SELECT card_channel_id": ("CROOM",),
+        "r.forwarded_ts FROM": ("100.000",),
+        "card_channel_id FROM": ("CROOM",),
         "SELECT name FROM raw.channel_dim": ("general",),
     })
     client = Slack()
@@ -138,7 +138,7 @@ def test_an_action_echo_with_nowhere_to_go_posts_nothing(monkeypatch):
 def test_an_action_echo_slack_refuses_is_not_recorded(monkeypatch):
     monkeypatch.setattr(channel.profile, "profile",
         lambda client, user_id: {"name": user_id, "icon": None})
-    conn = Conn({"SELECT coalesce(": ("100.000",), "SELECT card_channel_id": ("CROOM",)})
+    conn = Conn({"r.forwarded_ts FROM": ("100.000",), "card_channel_id FROM": ("CROOM",)})
     client = Slack(fails=True)
 
     assert channel.post_action_echo(client, conn, 412,
@@ -150,8 +150,8 @@ def test_a_resolution_echo_quotes_a_report_thread(monkeypatch):
     monkeypatch.setattr(channel.profile, "profile",
         lambda client, user_id: {"name": user_id, "icon": None})
     conn = Conn({
-        "SELECT coalesce(": ("100.000",),
-        "SELECT card_channel_id": ("CROOM",),
+        "r.forwarded_ts FROM": ("100.000",),
+        "card_channel_id FROM": ("CROOM",),
     })
     client = Slack()
 
@@ -216,8 +216,8 @@ def test_a_file_that_will_not_carry_does_not_block_the_rest(monkeypatch):
     monkeypatch.setattr(channel.attachments, "share", fake_share)
     monkeypatch.setattr(channel, "as_reporter", lambda client, anonymous, reporter: {})
     conn = FetchallConn([
-        (46, "100.000", False, "U1"),
-        (47, "100.000", False, "U1"),
+        (46, "100.000", False, "U1", None),
+        (47, "100.000", False, "U1", None),
     ])
 
     assert channel.carry_files(Slack(), conn, 19, "CROOM") == 1
