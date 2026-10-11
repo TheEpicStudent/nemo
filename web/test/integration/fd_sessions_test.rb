@@ -1,6 +1,8 @@
 require "test_helper"
 
 class FdSessionsTest < ActionDispatch::IntegrationTest
+  include SeedsPipelineTables
+
   WHO = "USUB".freeze
   ALSO = "UALT".freeze
 
@@ -9,19 +11,19 @@ class FdSessionsTest < ActionDispatch::IntegrationTest
   end
 
   def agent!(app, os)
-    ApplicationRecord.connection.select_value(ApplicationRecord.sanitize_sql([<<~SQL.squish,
+    as_pipeline(<<~SQL.squish, "raw agent #{app} #{os}", app, os).first.values.first
       INSERT INTO slack.user_agent (ua, app, os) VALUES (?, ?, ?)
       ON CONFLICT (md5(ua)) DO UPDATE SET app = EXCLUDED.app, os = EXCLUDED.os
       RETURNING id
     SQL
-      "raw agent #{app} #{os}", app, os]))
   end
 
   def signed_in!(user_id, at:, ip: "81.2.69.144", ua_app: "Chrome 141",
     ua_os: "Windows 10 or 11", action: "user_login", source: "audit_logs",
     country: "GB", isp: "Sky", seen: 1)
     counted = %w[user_login user_login_failed anomaly].map { |one| action == one ? 1 : 0 }
-    ApplicationRecord.connection.execute(ApplicationRecord.sanitize_sql([<<~SQL.squish, user_id,
+    values = [user_id, source, at, ip, agent!(ua_app, ua_os), at, at, *counted, country, isp, seen]
+    as_pipeline(<<~SQL.squish, *values)
       INSERT INTO fd.login_event AS held
         (user_id, source, hour, ip, ua_id, first_at, last_at, logins, failures, anomalies,
          country, isp, seen)
@@ -33,14 +35,16 @@ class FdSessionsTest < ActionDispatch::IntegrationTest
         failures = held.failures + EXCLUDED.failures,
         anomalies = held.anomalies + EXCLUDED.anomalies, seen = held.seen + EXCLUDED.seen
     SQL
-      source, at, ip, agent!(ua_app, ua_os), at, at, *counted, country, isp, seen]))
+    seeded!("fd.login_event", "user_id", user_id)
+    seeded!("fd.member_trait", "user_id", user_id)
   end
 
   def crowd!(host, people)
-    ApplicationRecord.connection.execute(ApplicationRecord.sanitize_sql([<<~SQL.squish, host, people]))
+    as_pipeline(<<~SQL.squish, host, people)
       INSERT INTO fd.member_trait (user_id, kind, value)
       SELECT 'UCROWD' || n, 'ip_prefix', ? FROM generate_series(1, ?) n
     SQL
+    seeded!("fd.member_trait", "value", host)
   end
 
   test "sign-ins are grouped by the device they came from" do

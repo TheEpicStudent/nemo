@@ -16,10 +16,11 @@ class ImportmapTest < ActiveSupport::TestCase
   test "the chart controllers sit outside the eagerly loaded controllers namespace" do
     assert_empty imports.keys.grep(%r{^controllers/(chart|funnel|hbars|lorenz|parts|ring|scatter|treemap)_controller$}),
       "eagerLoadControllersFrom('controllers') fetches everything it finds under that prefix"
-    assert_equal %w[charts/chart_controller charts/funnel_controller
+    assert_equal %w[charts/chart_controller charts/export charts/frame
+                    charts/funnel_controller charts/gesture
                     charts/hbars_controller charts/lorenz_controller
-                    charts/parts_controller charts/ring_controller
-                    charts/scatter_controller charts/squarify
+                    charts/overview charts/parts_controller charts/ring_controller
+                    charts/scatter_controller charts/squarify charts/tiles
                     charts/treemap_controller],
       imports.keys.grep(%r{^charts/}).sort
   end

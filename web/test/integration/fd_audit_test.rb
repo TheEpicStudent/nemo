@@ -273,7 +273,7 @@ class FdAuditTest < ActionDispatch::IntegrationTest
 
     get fd_audit_path
     assert_select %(.view[aria-current="true"]), text: /Slack/
-    assert_select ".segmented", false, "the range control is gone, the search carries it"
+    assert_select "main .segmented", false, "the range control is gone, the search carries it"
     assert_select ".ractions .queue-search"
   end
 

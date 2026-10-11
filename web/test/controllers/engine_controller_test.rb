@@ -1,6 +1,8 @@
 require "test_helper"
 
 class EngineControllerTest < ActionDispatch::IntegrationTest
+  include SeedsPipelineTables
+
   teardown do
     OmniAuth.config.test_mode = false
     OmniAuth.config.mock_auth[:hackclub] = nil
@@ -23,12 +25,13 @@ class EngineControllerTest < ActionDispatch::IntegrationTest
 
   test "storage lists every table by size and marks one that grew past twice its median" do
     sign_in_as(hold_role!("UTESTCM1", "community_manager"))
-    ApplicationRecord.connection.execute(<<~SQL.squish)
+    as_pipeline(<<~SQL.squish)
       INSERT INTO ingest.table_size (day, table_name, bytes, rows, grew, median_growth, flagged)
       VALUES (current_date, 'slack.audit_event', 18253611008, 7765072, 943718400, 104857600, true),
              (current_date, 'fd.member', 52428800, 140000, 1048576, 1048576, false),
              (current_date - 1, 'fd.gone', 1, 1, NULL, NULL, false)
     SQL
+    %w[slack.audit_event fd.member fd.gone].each { |name| seeded!("ingest.table_size", "table_name", name) }
 
     get engine_path(tab: "storage")
     assert_response :success
@@ -42,7 +45,7 @@ class EngineControllerTest < ActionDispatch::IntegrationTest
 
   test "storage before the first measurement says so" do
     sign_in_as(hold_role!("UTESTCM1", "community_manager"))
-    ApplicationRecord.connection.execute("DELETE FROM ingest.table_size")
+    as_pipeline("DELETE FROM ingest.table_size")
 
     get engine_path(tab: "storage")
     assert_response :success
