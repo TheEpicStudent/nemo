@@ -1,4 +1,5 @@
 <% grouped = local_assigns.fetch(:grouped, false) %>
+<% forwarded_ids = Array(entry.shares).flat_map(&:file_ids) %>
 <div id="message-<%= entry.key %>" class="msg <%= entry.side == "out" ? "out" : "in" %> <%= "is-grouped" if grouped %>"
      data-kind="<%= entry.kind %>">
   <%= entry.anon ? anonymous_face : face(entry.who) %>
@@ -43,31 +44,22 @@
             <% else %>
               <p class="cite-body none"><%= cite.why_not %></p>
             <% end %>
+            <% carried = Array(entry.files).select { |file| cite.file_ids.include?(file.slack_file_id) } %>
+            <% if carried.any? %>
+              <div class="cite-files">
+                <% carried.each do |file| %>
+                  <%= render "fd/cases/message_file", file: file %>
+                <% end %>
+              </div>
+            <% end %>
           </figure>
         <% end %>
       </div>
     <% end %>
-    <% if entry.files.present? %>
+    <% if Array(entry.files).any? { |file| !forwarded_ids.include?(file.slack_file_id) } %>
       <div class="msg-files">
-        <% entry.files.each do |file| %>
-          <% if file.image? %>
-            <%= link_to fd_file_path(file), class: "msg-shot",
-                  data: { lightbox: file.shown_name } do %>
-              <%= image_tag fd_file_path(file), alt: file.shown_name, decoding: "async",
-                    width: file.original_w, height: file.original_h %>
-            <% end %>
-          <% elsif file.kept? %>
-            <%= link_to fd_file_path(file), class: "msg-file", target: "_blank", rel: "noopener" do %>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5"/><path d="M15 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/></svg>
-              <span class="trunc"><%= file.shown_name %></span>
-            <% end %>
-          <% else %>
-            <span class="msg-file is-out">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5"/><path d="M15 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/></svg>
-              <span class="trunc"><%= file.shown_name %></span>
-              <span class="chip chip-off"><%= file.note %></span>
-            </span>
-          <% end %>
+        <% entry.files.reject { |file| forwarded_ids.include?(file.slack_file_id) }.each do |file| %>
+          <%= render "fd/cases/message_file", file: file %>
         <% end %>
       </div>
     <% end %>

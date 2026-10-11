@@ -26,6 +26,11 @@ module Fd
       "a link we could not open" unless body?
     end
 
+    def file_ids
+      held = raw.is_a?(Hash) ? raw["files"] : nil
+      Array(held).filter_map { |one| one["id"] if one.is_a?(Hash) }
+    end
+
     Cited = Struct.new(:case_id, :body, :kind, :author, :channel, :permalink,
       keyword_init: true) do
       def forwarded? = kind == "forward"

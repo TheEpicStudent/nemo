@@ -356,6 +356,32 @@ class FdHelperTest < ActionView::TestCase
     assert_equal "the message they reported", share.source_body
   end
 
+  def stored_file(message, slack_file_id, name, seq:, forwarded: false)
+    Fd::IntakeFileBlob.create!(sha256: "sha-#{slack_file_id}", body: "png", size_bytes: 3,
+      mimetype: "image/png")
+    file = Fd::IntakeFile.create!(slack_file_id: slack_file_id, name: name, mimetype: "image/png",
+      fetch_state: "stored", stored_key: "sha-#{slack_file_id}", sha256: "sha-#{slack_file_id}",
+      original_w: 40, original_h: 20)
+    Fd::IntakeFile.connection.execute(Fd::IntakeFile.sanitize_sql([
+      "INSERT INTO fd.intake_message_files (message_id, file_id, seq, forwarded) VALUES (?, ?, ?, ?)",
+      message.id, file.id, seq, forwarded
+    ]))
+  end
+
+  test "a picture that came inside a forward is drawn inside that forward" do
+    filed = report
+    message = intake(conversation_for(filed), author: "UREP1")
+    cited(message, raw: { "files" => [{ "id" => "FFWD1" }] })
+    stored_file(message, "FFWD1", "theirs.png", seq: 0, forwarded: true)
+    stored_file(message, "FOWN1", "mine.png", seq: 1)
+    entry = chat_entries([filed], [], [message]).first
+
+    page = Nokogiri::HTML.fragment(render(partial: "fd/cases/message", locals: { entry: entry }))
+
+    assert_equal ["theirs.png"], page.css("figure.cite .cite-files img").map { |img| img["alt"] }
+    assert_equal ["mine.png"], page.css(".msg-files img").map { |img| img["alt"] }
+  end
+
   test "a link nobody could open says so rather than quoting nothing" do
     filed = report
     message = intake(conversation_for(filed), author: "UREP1")

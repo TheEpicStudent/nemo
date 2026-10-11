@@ -481,6 +481,7 @@
   .cite-body.none { color: var(--ink-4); font-size: var(--t-small); }
 
   .msg-files { display: flex; flex-wrap: wrap; gap: var(--s-2xs); margin-top: 6px; }
+  .cite-files { display: flex; flex-wrap: wrap; gap: var(--s-2xs); margin-top: 8px; }
   .msg-shot {
     display: block;
     border: 1px solid var(--line);
