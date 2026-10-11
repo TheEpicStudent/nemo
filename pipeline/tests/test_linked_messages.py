@@ -44,12 +44,12 @@ def card(body, blocks=None, shares=()):
 
 def test_the_same_link_twice_is_numbered_twice():
     built = card(f"test <{LINK}> test <{LINK}> test meow")
-    assert numbers_in(built[1]) == [" (1)", " (2)"]
+    assert numbers_in(built[0]) == [" (1)", " (2)"]
 
 
 def test_numbers_sit_right_after_their_link():
     built = card(f"test <{LINK}> test")
-    kinds = [(run["type"], run.get("text")) for run in runs(built[1])]
+    kinds = [(run["type"], run.get("text")) for run in runs(built[0])]
     assert kinds == [("text", "test "), ("link", None), ("text", " (1)"), ("text", " test")]
 
 
@@ -66,7 +66,7 @@ def test_slacks_own_rich_text_is_numbered_too():
         {"type": "link", "url": LINK},
     ]}]}]
     built = card(f"test <{LINK}|{LINK}> test <{LINK}>", blocks=blocks)
-    assert numbers_in(built[1]) == [" (1)", " (2)"]
+    assert numbers_in(built[0]) == [" (1)", " (2)"]
 
 
 def test_a_link_slack_labels_with_itself_counts_once():
@@ -81,7 +81,7 @@ def test_a_link_slack_labels_with_itself_counts_once():
 
 def test_a_link_to_anywhere_but_slack_is_left_alone():
     built = card("see <https://example.com>")
-    assert numbers_in(built[1]) == []
+    assert numbers_in(built[0]) == []
 
 
 def test_a_follow_up_carries_on_from_where_the_count_stopped():
@@ -102,7 +102,7 @@ def test_a_forward_of_a_linked_message_is_not_counted_twice():
 
 def test_a_report_that_is_only_a_forward_still_has_a_quote():
     built = card("", shares=[forward()])
-    assert [run["text"] for run in runs(built[1])] == ["forwarded (1)"]
+    assert [run["text"] for run in runs(built[0])] == ["forwarded (1)"]
 
 
 def test_each_link_is_unfurled_with_its_number_its_words_and_who_said_it():

@@ -55,4 +55,29 @@ def test_no_query_asks_for_the_column_0112_dropped():
 
 def test_the_people_modal_sends_only_what_the_table_holds():
     submitted_values = people.submitted_values({"values": {people.WHO: {people.WHO: {"selected_users": ["U1"]}}}})
-    assert set(submitted_values) == {"user_ids", "role"}
+    assert submitted_values == {"subjects": ["U1"], "assignees": []}
+
+
+def test_subjects_and_assignees_share_one_modal():
+    built = people.build_view(9, [{"user_id": "UBOB", "role": "subject"}], ["UME"])
+    texts = [block["text"]["text"] for block in built["blocks"] if block["type"] == "section"]
+    assert texts == ["<@UBOB> · Subject", "<@UME> · Assigned"]
+    assert {block.get("block_id") for block in built["blocks"]} >= {people.WHO, people.ASSIGN}
+    removing = [block["accessory"]["value"] for block in built["blocks"] if "accessory" in block]
+    assert removing == ["UBOB:subject:9", "UME:assignee:9"]
+
+
+def test_the_modal_offers_only_what_you_may_change():
+    built = people.build_view(9, [{"user_id": "UBOB", "role": "subject"}], ["UME"],
+                              can_people=False, can_assign=True)
+    assert people.WHO not in {block.get("block_id") for block in built["blocks"]}
+    assert [block["accessory"]["value"] for block in built["blocks"] if "accessory" in block] \
+        == ["UME:assignee:9"]
+
+
+def test_adding_nobody_is_held_back_on_the_first_field_shown():
+    assert people.validation_errors({"subjects": [], "assignees": []}, {people.WHO, people.ASSIGN}) \
+        == {people.WHO: "Pick somebody first."}
+    assert people.validation_errors({"subjects": [], "assignees": []}, {people.ASSIGN}) \
+        == {people.ASSIGN: "Pick somebody first."}
+    assert people.validation_errors({"subjects": [], "assignees": ["UME"]}, {people.WHO}) is None

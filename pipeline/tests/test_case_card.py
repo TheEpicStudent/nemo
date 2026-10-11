@@ -31,10 +31,14 @@ class Conn:
 class Slack:
     def __init__(self):
         self.posted = []
+        self.reacted = []
 
     def chat_postMessage(self, **kwargs):
         self.posted.append(kwargs)
         return {"ts": "9.9"}
+
+    def reactions_add(self, **kwargs):
+        self.reacted.append(kwargs)
 
 
 @pytest.fixture(autouse=True)
@@ -51,7 +55,7 @@ def faces(monkeypatch):
 
 def opened(card_ts=None, reported=False, opening=None):
     return {
-        "SELECT id, category_key": (41, None, None, None, card_ts, None, "UOPENER"),
+        "SELECT id, category_key": (41, None, None, None, card_ts, None, "UOPENER", None),
         "FOR UPDATE": (card_ts,),
         "NOT EXISTS (SELECT 1 FROM fd.case_reports": None if reported or card_ts else (1,),
         "mirrored_as = 'card'": opening,
@@ -116,8 +120,8 @@ def test_what_happened_is_quoted_on_the_card_in_the_openers_name():
 
     sent = slack.posted[0]
     assert sent["username"] == "UOPENER"
-    assert [b["type"] for b in sent["blocks"]] == ["section", "rich_text", "actions"]
-    assert "kept posting invite links" in str(sent["blocks"][1])
+    assert [b["type"] for b in sent["blocks"]] == ["rich_text", "section"]
+    assert "kept posting invite links" in str(sent["blocks"][0])
     assert conn.did("UPDATE fd.case_chat SET mirrored_ts") == [("9.9", 7)]
 
 
@@ -127,5 +131,14 @@ def test_a_card_with_nothing_said_goes_up_as_nemo():
     case_queue.card(slack, conn, 41)
 
     assert "username" not in slack.posted[0]
-    assert [b["type"] for b in slack.posted[0]["blocks"]] == ["section", "actions"]
+    assert [b["type"] for b in slack.posted[0]["blocks"]] == ["section"]
     assert conn.did("UPDATE fd.case_chat SET mirrored_ts") == []
+
+
+def test_a_new_card_waits_with_an_hourglass():
+    conn, slack = Conn(opened()), Slack()
+
+    case_queue.card(slack, conn, 41)
+
+    assert slack.reacted == [{"channel": INTERNAL_LOG, "timestamp": "9.9",
+                              "name": "hourglass_flowing_sand"}]

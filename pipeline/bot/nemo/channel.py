@@ -13,7 +13,7 @@ log = logging.getLogger("bot.nemo")
 CASE = """
 SELECT c.id, c.category_key, c.resolved_at,
        r.id, r.is_anonymous, r.reporter_user_id, r.body, r.forwarded_ts, r.received_at,
-       v.id, r.card_digest
+       v.id, r.card_digest, c.resolution
 FROM fd.cases c
 JOIN fd.case_reports r ON r.case_id = c.id
 LEFT JOIN fd.intake_conversations v ON v.report_id = r.id
@@ -124,8 +124,38 @@ WHERE m.id = %s
 ANONYMOUS = "Anonymous"
 
 
-def digest_of(blocks):
-    return parse.digest(None, blocks, None)
+def digest_of(blocks, mark=None):
+    return parse.digest(mark, blocks, None)
+
+
+OPEN_MARK = "hourglass_flowing_sand"
+MERGED_MARK = "repeat"
+DONE_MARK = "check"
+CARD_MARKS = (OPEN_MARK, MERGED_MARK, DONE_MARK)
+QUIET = ("already_reacted", "no_reaction")
+
+
+def card_mark(case):
+    if not case.get("resolved_at"):
+        return OPEN_MARK
+    return MERGED_MARK if case.get("resolution") == "duplicate" else DONE_MARK
+
+
+def react(client, method, channel_id, ts, name):
+    try:
+        getattr(client, method)(channel=channel_id, timestamp=ts, name=name)
+    except Exception as failure:
+        if not any(one in str(failure) for one in QUIET):
+            log.warning("nemo: could not change %s on %s: %s", name, ts, failure)
+
+
+def mark_card(client, channel_id, ts, case, fresh=False):
+    wanted = card_mark(case)
+    if not fresh:
+        for name in CARD_MARKS:
+            if name != wanted:
+                react(client, "reactions_remove", channel_id, ts, name)
+    react(client, "reactions_add", channel_id, ts, wanted)
 
 
 _internal_log = {}
@@ -179,6 +209,24 @@ def thread_for(conn, case_id):
     return row[0] if row else None
 
 
+def merged_text(closed):
+    if len(closed) == 1:
+        return f"case {closed[0]} merged into this one"
+    return f"cases {', '.join(str(one) for one in closed)} merged into this one"
+
+
+def post_merge_note(client, conn, keep, closed):
+    thread = thread_for(conn, keep)
+    if not thread or not closed:
+        return None
+    return client.chat_postMessage(
+        channel=card_room(conn, keep),
+        thread_ts=thread,
+        text=merged_text(closed),
+        unfurl_links=False,
+    )["ts"]
+
+
 def app_url(path):
     host = os.environ.get("APP_HOST")
     if not host:
@@ -215,6 +263,7 @@ def gather(conn, case_id):
         "received_at": row[8],
         "conversation_id": row[9],
         "card_digest": row[10],
+        "resolution": row[11],
         "url": case_url(row[0]),
         "shares": [],
         "message_id": None,
@@ -368,8 +417,9 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
     conn.execute(
         "UPDATE fd.case_reports SET forwarded_ts = %s, card_digest = %s, "
         "card_rendered_at = now() WHERE id = %s AND forwarded_ts IS NULL",
-        (ts, digest_of(built), case["report_id"]),
+        (ts, digest_of(built, card_mark(case)), case["report_id"]),
     )
+    mark_card(client, room, ts, case, fresh=True)
     if case["message_id"]:
         conn.execute(
             "UPDATE fd.intake_messages SET mirrored_ts = %s, mirrored_at = now() "
@@ -472,13 +522,14 @@ def refresh_card(client, conn, case_id, channel_id=None):
         return post_report(client, conn, case_id, channel_id)
 
     built = views.report.build_blocks(case)
-    fingerprint = digest_of(built)
+    fingerprint = digest_of(built, card_mark(case))
     if fingerprint == case["card_digest"]:
         return case["forwarded_ts"]
 
+    room = card_channel(case, channel_id, conn)
     try:
         client.chat_update(
-            channel=card_channel(case, channel_id, conn),
+            channel=room,
             ts=case["forwarded_ts"],
             text=views.report.fallback(case),
             blocks=built,
@@ -492,6 +543,7 @@ def refresh_card(client, conn, case_id, channel_id=None):
         "UPDATE fd.case_reports SET card_digest = %s, card_rendered_at = now() WHERE id = %s",
         (fingerprint, case["report_id"]),
     )
+    mark_card(client, room, case["forwarded_ts"], case)
     log.info("nemo: case %s redrawn", case_id)
     return case["forwarded_ts"]
 

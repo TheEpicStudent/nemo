@@ -156,50 +156,35 @@ def card(**over):
     return report.build_blocks(case)
 
 
-def lines(built):
-    return [
-        " ".join(part["text"] for part in block["elements"])
-        for block in built if block["type"] == "context"
-    ]
+def footer(built):
+    return built[-1]
 
 
-def title(built):
-    return built[0]["text"]["text"]
+def picks(built):
+    return [one["text"]["text"] for one in footer(built)["accessory"]["options"]]
 
 
-def test_the_title_holds_the_case_the_violation_and_who_it_is_about():
-    built = card()
-    assert built[0]["type"] == "section"
-    assert title(built) == "*Case 2 · Bullying · about <@UBOB>*"
-
-
-def test_the_card_never_names_who_reported_it():
-    for anonymous in (True, False):
-        built = card(is_anonymous=anonymous)
-        assert lines(built) == [], "the card wears the reporter's face instead"
-        assert "UALICE" not in title(built)
-
-
-def test_the_title_drops_what_it_does_not_know():
-    assert title(card(category_key=None, subjects=[])) == "*Case 2*"
-    assert title(card(category_key=None)) == "*Case 2 · about <@UBOB>*"
-    assert title(card(subjects=[])) == "*Case 2 · Bullying*"
-
-
-def test_the_title_never_names_the_channel():
-    assert title(card(category_key=None, subjects=[], shares=[linked()])) == "*Case 2*"
-    assert title(card(shares=[linked()])) == "*Case 2 · Bullying · about <@UBOB>*"
-
-
-def test_fire_engine_is_a_button_not_a_footer():
+def test_the_report_comes_first_and_the_case_link_after_it():
     built = card(url=CASE_URL)
-    assert [one.get("url") for one in built[-1]["elements"] if one.get("url")] == [CASE_URL]
-    assert all(CASE_URL not in one for one in lines(built))
+    assert [block["type"] for block in built] == ["rich_text", "section"]
+    assert footer(built)["text"]["text"] == f"<{CASE_URL}|Case 2>"
 
 
-def test_a_resolved_card_still_opens_fire_engine():
-    built = card(url=CASE_URL, resolved_at="2026-10-10")
-    assert [one["action_id"] for one in built[-1]["elements"]] == [report.REOPEN, report.OPEN]
+def test_the_card_holds_only_the_report_and_the_case():
+    text = str(card(is_anonymous=False))
+    for left_out in ("UALICE", "UBOB", "Bullying", "reported"):
+        assert left_out not in text
+
+
+def test_a_case_with_no_link_still_names_itself():
+    assert footer(card())["text"]["text"] == "Case 2"
+
+
+def test_every_case_action_lives_in_the_menu_beside_the_case():
+    assert footer(card())["accessory"]["type"] == "overflow"
+    assert picks(card()) == ["Claim it", "Log an action", "Resolve", "Leave a note", "More…"]
+    assert picks(card(assignees=["UME"])) == ["Log an action", "Resolve", "Leave a note", "More…"]
+    assert picks(card(resolved_at="2026-10-10")) == ["Reopen", "Leave a note", "More…"]
 
 
 def test_the_quote_keeps_slacks_own_styling_when_it_is_simple():
@@ -319,17 +304,28 @@ def test_a_reply_with_a_picture_still_uses_blocks(monkeypatch):
 
 def test_the_card_quotes_no_linked_message_itself():
     built = card(shares=[linked()])
-    assert [b["type"] for b in built] == ["section", "rich_text", "actions"]
+    assert [b["type"] for b in built] == ["rich_text", "section"]
     assert "mmm" not in str(built), "linked messages go in the thread, not on the card"
 
 
-def test_the_card_menu_holds_every_choice_slack_allows():
-    case = {"case_id": 19, "category_key": None, "live_actions": 1,
-            "assignees": ["UME"], "resolved_at": None}
-    menu = edit.menu(case)
+def test_the_card_menu_never_outgrows_the_three_dot_menu():
+    for case in ({"case_id": 19, "assignees": []}, {"case_id": 19, "assignees": ["UME"]},
+                 {"case_id": 19, "resolved_at": "2026-10-10"}):
+        assert len(edit.menu(case)["options"]) <= 5
 
-    assert menu["type"] == "overflow", "five options fit the three-dot menu"
-    assert len(menu["options"]) == 5
+
+def test_more_holds_what_the_card_menu_has_no_room_for():
+    labels = [label for label, _ in edit.more_picks(True, None, [{"id": 1}])]
+    assert labels == ["People", "Set the violation", "Reverse an action", "Merge"]
+    assert [label for label, _ in edit.more_picks(False, "spam", [])] == ["People"]
+
+
+def test_every_more_button_carries_the_case_it_acts_on():
+    built = edit.more_view(19, edit.more_picks(True, None, []))
+    buttons = built["blocks"][-1]["elements"]
+    assert len({one["action_id"] for one in buttons}) == len(buttons), "slack wants them unique"
+    assert all(one["action_id"].startswith(edit.MORE_PICK) for one in buttons)
+    assert [edit.asked(one["value"])[1] for one in buttons] == [19] * len(buttons)
 
 
 def test_every_card_menu_option_carries_the_case_it_acts_on():
@@ -358,11 +354,3 @@ class FakeConn:
 def test_the_card_row_is_claimed_before_slack_is_asked():
     assert "FOR UPDATE" in channel.CLAIM_CARD, "two threads must not both post a card"
     assert "forwarded_ts" in channel.CLAIM_CARD
-
-
-def test_a_report_about_nobody_says_nothing_about_anybody():
-    built = report.build_blocks({"case_id": 1, "body": "x", "shares": [],
-                           "subjects": [], "is_anonymous": True, "reporter_user_id": None,
-                           "assignees": []})
-    assert title(built) == "*Case 1*"
-    assert lines(built) == []

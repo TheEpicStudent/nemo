@@ -1,14 +1,25 @@
 import logging
 
 from bot.core import access, session, whoami
-from bot.nemo import case_actions, channels, chat, case_queue
+from bot.nemo import case_actions, channel, channels, chat, case_queue
 from bot.nemo.surface import on_event
 
 log = logging.getLogger("bot.nemo")
 
 OPENS = ("hourglass", "hourglass_flowing_sand", "hourglass_not_done")
 CLOSES = ("white_check_mark", "heavy_check_mark", "ballot_box_with_check")
-CLOSED_AS = "no_action"
+NOT_CONDUCT = ("x", "heavy_multiplication_x", "negative_squared_cross_mark")
+ENDS = CLOSES + NOT_CONDUCT
+
+CARD_OF = """
+SELECT case_id FROM (
+    SELECT case_id, 1 AS rank FROM fd.case_reports WHERE forwarded_ts = %(ts)s
+    UNION ALL
+    SELECT id, 2 FROM fd.cases WHERE card_ts = %(ts)s AND card_channel_id = %(channel)s
+) found
+ORDER BY rank
+LIMIT 1
+"""
 
 
 def plain(name):
@@ -89,28 +100,71 @@ def opened(ctx):
     return case_id
 
 
+def closing_as(mark):
+    return "not_conduct" if mark in NOT_CONDUCT else None
+
+
+def after_resolve(client, case_id, resolution, who):
+    with session() as conn:
+        channel.refresh_card(client, conn, case_id)
+        case_queue.refresh_card(client, conn, case_id)
+        channel.post_resolution_echo(
+            client, conn, case_id, resolution, None, who,
+            case_actions.resolution_echo_actions(conn, case_id),
+        )
+
+
+def card_case(conn, channel_id, ts):
+    row = conn.execute(CARD_OF, {"ts": ts, "channel": channel_id}).fetchone()
+    return row[0] if row else None
+
+
+@on_event("reaction_added", open_to_all=True)
+def closed_on_card(ctx):
+    event = ctx.payload or {}
+    item = event.get("item") or {}
+    mark = plain(event.get("reaction"))
+    who = event.get("user")
+    if item.get("type") != "message" or mark not in ENDS or not who:
+        return None
+    if who == whoami.bot_user_id(ctx.client, "nemo"):
+        return None
+
+    with session() as conn:
+        case_id = card_case(conn, item.get("channel"), item.get("ts"))
+        if case_id is None:
+            return None
+        may, _why = access.may(conn, who, "case.resolve", case_id)
+        if not may:
+            log.info("nemo: %s reacted on case %s without case.resolve", who, case_id)
+            return None
+        resolution = case_actions.close_quietly(conn, case_id, closing_as(mark), who)
+
+    if resolution is None:
+        log.info("nemo: case %s was already resolved", case_id)
+        return None
+    after_resolve(ctx.client, case_id, resolution, who)
+    log.info("nemo: case %s closed as %s from its card by %s", case_id, resolution, who)
+    return case_id
+
+
 @on_event("reaction_added", open_to_all=True)
 def closed(ctx):
-    asked = wanted(ctx, CLOSES, "case.resolve")
+    asked = wanted(ctx, ENDS, "case.resolve")
     if asked is None:
         return None
     channel_id, thread_ts, _, who = asked
+    mark = plain((ctx.payload or {}).get("reaction"))
 
     with session() as conn:
         case_id = case_queue.case_on(conn, channel_id, thread_ts)
         if case_id is None:
             return None
+        resolution = case_actions.close_quietly(conn, case_id, closing_as(mark), who)
 
-        notified = case_actions.resolve(
-            conn, case_id,
-            {"resolution": CLOSED_AS, "member_note": None, "message": None,
-             "notify_reporter": False},
-            who,
-        )
-        if notified is None:
-            log.info("nemo: case %s was already resolved", case_id)
-            return None
-        case_queue.refresh_card(ctx.client, conn, case_id)
-
+    if resolution is None:
+        log.info("nemo: case %s was already resolved", case_id)
+        return None
+    after_resolve(ctx.client, case_id, resolution, who)
     log.info("nemo: case %s resolved from the thread by %s", case_id, who)
     return case_id

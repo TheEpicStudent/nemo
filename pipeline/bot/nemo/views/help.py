@@ -35,6 +35,7 @@ WRITING = (
          "a standing note that follows them to every case"),
         ("case.open", "/nemo open @somebody what happened",
          "open a case, naming somebody is optional"),
+        ("case.resolve", "/nemo merge 23 25", "close 25 as a duplicate of 23"),
     ),
 )
 

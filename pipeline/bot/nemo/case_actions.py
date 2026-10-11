@@ -413,3 +413,65 @@ def log_action(conn, case_id, values, user_id):
         },
     )
     return row[0]
+
+
+MERGE = """
+UPDATE fd.cases
+SET resolved_at = now(), resolution = 'duplicate', duplicate_of = %s, updated_at = now()
+WHERE id = %s AND id <> %s AND resolved_at IS NULL
+RETURNING resolved_at
+"""
+
+
+MERGEABLE = """
+SELECT c.id, c.category_key,
+       (SELECT string_agg(coalesce(m.display_name, m.handle, p.user_id), ', '
+                          ORDER BY p.user_id)
+          FROM fd.case_participants p
+          LEFT JOIN fd.member m ON m.user_id = p.user_id
+         WHERE p.case_id = c.id AND p.role = 'subject')
+FROM fd.cases c
+WHERE c.resolved_at IS NULL
+ORDER BY c.id = ANY(%s) DESC, c.id DESC
+LIMIT 100
+"""
+
+
+def mergeable(conn, wanted=()):
+    return conn.execute(MERGEABLE, (list(wanted),)).fetchall()
+
+
+def merge(conn, keep, fold, by):
+    closed = []
+    for case_id in sorted(set(fold)):
+        row = conn.execute(MERGE, (keep, case_id, keep)).fetchone()
+        if row is None:
+            continue
+        audit.record(
+            conn, "case", case_id, "resolved", by,
+            before={"resolved_at": None, "resolution": None, "duplicate_of": None},
+            after={"resolved_at": str(row[0]), "resolution": "duplicate", "duplicate_of": keep},
+        )
+        closed.append(case_id)
+    return closed
+
+
+def settled_resolution(conn, case_id):
+    return "action_taken" if live_actions(conn, case_id) else "no_action"
+
+
+def close_quietly(conn, case_id, resolution, by):
+    chosen = resolution or settled_resolution(conn, case_id)
+    values = {"resolution": chosen, "member_note": None, "message": None,
+              "notify_reporter": False}
+    return chosen if resolve(conn, case_id, values, by) is not None else None
+
+
+def resolve_and_tell(conn, case_id, message, by):
+    chosen = settled_resolution(conn, case_id)
+    values = {"resolution": chosen, "member_note": None, "message": message,
+              "notify_reporter": True}
+    told = resolve(conn, case_id, values, by)
+    if told is not None:
+        return chosen, told
+    return None, close_reports(conn, case_id, message, by)

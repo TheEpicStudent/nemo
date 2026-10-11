@@ -4,12 +4,22 @@ from bot.core import richtext
 from lib.paths import CATEGORIES_FILE
 
 MENU = "case_more"
+MORE_PICK = "case_more_pick"
 
+CLAIM = "case_claim"
+LOG_ACTION = "case_log_action"
+RESOLVE = "case_resolve_open"
+REOPEN = "case_reopen"
+REOPEN_CONFIRMED = "case_reopen_confirmed"
+MORE = "case_more_open"
+MERGE = "case_merge_open"
 PEOPLE = "case_people"
 ASSIGNEES = "case_assignees_open"
 CATEGORY = "case_category"
 NOTE = "case_note"
 REVERSE = "case_reverse"
+
+PROBLEM = "more_problem"
 
 WHAT = "category_what"
 NOTE_BODY = "note_body"
@@ -32,36 +42,95 @@ def option(text, value):
     return {"text": {"type": "plain_text", "text": text}, "value": value}
 
 
-OVERFLOW_LIMIT = 5
-
-
 def choices(case):
-    out = [option("People", PEOPLE), option("Assignees", ASSIGNEES)]
-    if not case.get("category_key"):
-        out.append(option("Set the violation", CATEGORY))
-    out.append(option("Leave a note", NOTE))
-    if case.get("live_actions"):
-        out.append(option("Reverse an action", REVERSE))
-    return out
+    if case.get("resolved_at"):
+        return [option("Reopen", REOPEN), option("Leave a note", NOTE), option("More…", MORE)]
+
+    out = [] if case.get("assignees") else [option("Claim it", CLAIM)]
+    return out + [
+        option("Log an action", LOG_ACTION),
+        option("Resolve", RESOLVE),
+        option("Leave a note", NOTE),
+        option("More…", MORE),
+    ]
 
 
 def menu(case):
-    picks = choices(case)
-    if not picks:
-        return None
-
-    options = [
-        option(pick["text"]["text"], f"{pick['value']}:{case['case_id']}")
-        for pick in picks
-    ]
-    if len(options) <= OVERFLOW_LIMIT:
-        return {"type": "overflow", "action_id": MENU, "options": options}
-
     return {
-        "type": "static_select",
+        "type": "overflow",
         "action_id": MENU,
-        "placeholder": {"type": "plain_text", "text": "More"},
-        "options": options,
+        "options": [
+            option(pick["text"]["text"], f"{pick['value']}:{case['case_id']}")
+            for pick in choices(case)
+        ],
+    }
+
+
+def more_picks(open_, category_key, live):
+    picks = [("People", PEOPLE)]
+    if open_ and not category_key:
+        picks.append(("Set the violation", CATEGORY))
+    if live:
+        picks.append(("Reverse an action", REVERSE))
+    if open_:
+        picks.append(("Merge", MERGE))
+    return picks
+
+
+def more_view(case_id, picks, problem=None):
+    blocks = []
+    if problem:
+        blocks.append({
+            "type": "context",
+            "block_id": PROBLEM,
+            "elements": [{"type": "mrkdwn", "text": problem}],
+        })
+    blocks.append({
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "action_id": f"{MORE_PICK}_{verb}",
+                "text": {"type": "plain_text", "text": label},
+                "value": f"{verb}:{case_id}",
+            }
+            for label, verb in picks
+        ],
+    })
+    return {
+        "type": "modal",
+        "private_metadata": str(case_id),
+        "title": {"type": "plain_text", "text": f"Case {case_id}"[:TITLE_LIMIT]},
+        "close": {"type": "plain_text", "text": "Close"},
+        "blocks": blocks,
+    }
+
+
+def notice_view(case_id, text):
+    return {
+        "type": "modal",
+        "title": {"type": "plain_text", "text": f"Case {case_id}"[:TITLE_LIMIT]},
+        "close": {"type": "plain_text", "text": "Close"},
+        "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+    }
+
+
+def reopen_view(case_id):
+    return {
+        "type": "modal",
+        "callback_id": REOPEN_CONFIRMED,
+        "private_metadata": str(case_id),
+        "title": {"type": "plain_text", "text": f"Reopen case {case_id}"[:TITLE_LIMIT]},
+        "submit": {"type": "plain_text", "text": "Reopen"},
+        "close": {"type": "plain_text", "text": "Leave it closed"},
+        "blocks": [{
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "This drops the resolution and takes everybody off it. "
+                "The case comes back unclaimed.",
+            },
+        }],
     }
 
 

@@ -2,11 +2,7 @@ from bot.nemo.views import report
 
 
 def build_blocks(case):
-    return [
-        part
-        for part in [report.title(case), report.quote(case.get("body")), report.buttons(case)]
-        if part
-    ]
+    return [part for part in [report.quote(case.get("body")), report.footer(case)] if part]
 
 
 def fallback(case):

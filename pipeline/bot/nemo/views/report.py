@@ -15,13 +15,10 @@ SLACK_BIT = re.compile(
     r"(<[@#][A-Z0-9][A-Z0-9]*(?:\|[^>]*)?>|<https?://[^\s<>]+?(?:\|[^>]*)?>)"
 )
 
-SECTION_LIMIT = 3000
-CONTEXT_ELEMENTS = 10
-
-CLAIM = "case_claim"
-LOG_ACTION = "case_log_action"
-RESOLVE = "case_resolve_open"
-REOPEN = "case_reopen"
+CLAIM = edit.CLAIM
+LOG_ACTION = edit.LOG_ACTION
+RESOLVE = edit.RESOLVE
+REOPEN = edit.REOPEN
 OPEN = "case_open"
 
 LABELS = None
@@ -57,91 +54,19 @@ def quote(body, blocks=None):
     return richtext.quote(words) if words else None
 
 
-def section(text):
-    return {"type": "section", "text": {"type": "mrkdwn", "text": text[:SECTION_LIMIT]}}
-
-
-def context(parts):
-    kept = [part for part in parts if part][:CONTEXT_ELEMENTS]
-    return {"type": "context", "elements": [{"type": "mrkdwn", "text": part} for part in kept]}
-
-
 def headline(case):
     name = f"Case {case['case_id']}"
     label = category_label(case.get("category_key"))
     return f"{name} · {label}" if label else name
 
 
-def title(case):
-    parts = [headline(case), subjects_line(case)]
-    return section("*" + escape_but_slack(" · ".join(part for part in parts if part)) + "*")
-
-
-def subjects_line(case):
-    subjects = case.get("subjects") or []
-    if not subjects:
-        return None
-    return "about " + ", ".join(f"<@{user_id}>" for user_id in subjects)
-
-
-def button(action_id, label, case_id, style=None):
-    made = {
-        "type": "button",
-        "action_id": action_id,
-        "text": {"type": "plain_text", "text": label},
-        "value": str(case_id),
-    }
-    if style:
-        made["style"] = style
-    return made
-
-
-REOPEN_CONFIRM = {
-    "title": {"type": "plain_text", "text": "Reopen it?"},
-    "text": {
-        "type": "mrkdwn",
-        "text": "This drops the resolution and takes everybody off it. "
-        "The case comes back unclaimed.",
-    },
-    "confirm": {"type": "plain_text", "text": "Reopen"},
-    "deny": {"type": "plain_text", "text": "Leave it closed"},
-}
-
-
-def open_button(case):
+def footer(case):
+    name = f"Case {case['case_id']}"
     url = case.get("url")
-    if not url:
-        return None
     return {
-        "type": "button",
-        "action_id": OPEN,
-        "text": {"type": "plain_text", "text": "Open in Fire Engine"},
-        "url": url,
-    }
-
-
-def buttons(case):
-    case_id = case["case_id"]
-    opening = open_button(case)
-
-    if case.get("resolved_at"):
-        back = button(REOPEN, "Reopen", case_id)
-        back["confirm"] = REOPEN_CONFIRM
-        elements = [back, opening]
-    else:
-        held = case.get("assignees") or []
-        elements = [] if held else [button(CLAIM, "Claim it", case_id, "primary")]
-        elements += [
-            button(LOG_ACTION, "Log an action", case_id),
-            button(RESOLVE, "Resolve", case_id, "danger"),
-            opening,
-            edit.menu(case),
-        ]
-
-    return {
-        "type": "actions",
-        "block_id": f"case_{case_id}",
-        "elements": [one for one in elements if one],
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": f"<{url}|{name}>" if url else name},
+        "accessory": edit.menu(case),
     }
 
 
@@ -150,7 +75,7 @@ def body(case):
 
 
 def build_blocks(case):
-    return [part for part in [title(case), body(case), buttons(case)] if part]
+    return [part for part in [body(case), footer(case)] if part]
 
 
 def fallback(case):

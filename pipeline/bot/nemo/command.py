@@ -5,7 +5,7 @@ import re
 from bot.core import access, audit, richtext, session
 from bot.nemo import case_actions, channel, memberguards, record
 from bot.nemo.views import help as helping
-from bot.nemo.views import report
+from bot.nemo.views import merge, report
 
 log = logging.getLogger("bot.nemo")
 
@@ -13,12 +13,13 @@ COMMAND = "/nemo"
 LOOKUP = "lookup"
 NOTE = "note"
 OPEN = "open"
+MERGE = "merge"
 SHUSH = "shush"
 CHANNEL_BAN = "channelban"
 OPEN_RECORD = "open_record"
 
 ABOUT_SOMEBODY = (LOOKUP, NOTE, SHUSH, CHANNEL_BAN)
-VERBS = (*ABOUT_SOMEBODY, OPEN)
+VERBS = (*ABOUT_SOMEBODY, OPEN, MERGE)
 NEEDS_WORDS = (NOTE, OPEN, SHUSH, CHANNEL_BAN)
 
 WHO = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
@@ -198,6 +199,7 @@ NEEDED = {
     LOOKUP: "case.read",
     NOTE: "member.note",
     OPEN: "case.open",
+    MERGE: "case.resolve",
     SHUSH: "member.guard",
     CHANNEL_BAN: "member.guard",
     "case": "case.read",
@@ -261,7 +263,7 @@ def register(app):
         ack()
 
     @app.command(COMMAND)
-    def on_nemo(ack, command, respond):
+    def on_nemo(ack, command, respond, client):
         ack()
         verb, wanted, body = asked(command.get("text"))
         user_id = command["user_id"]
@@ -277,6 +279,14 @@ def register(app):
             allowed, refusal = access.may(conn, user_id, NEEDED[verb])
             if not allowed:
                 return respond(**message_only(refusal))
+
+            if verb == MERGE:
+                keep, fold = merge.asked(body)
+                cases = case_actions.mergeable(conn, [one for one in (keep, *fold) if one])
+                client.views_open(
+                    trigger_id=command["trigger_id"], view=merge.build_view(cases, keep, fold)
+                )
+                return None
 
             if verb == LOOKUP:
                 answer = looked_up(record.read(conn, wanted))

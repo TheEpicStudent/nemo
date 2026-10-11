@@ -5,15 +5,18 @@ from bot.nemo import views
 from bot.nemo.channel import (
     ASSIGNEES,
     SUBJECTS,
+    card_mark,
     case_url,
     internal_log_channel,
+    mark_card,
     only_the_face,
 )
 
 log = logging.getLogger("bot.nemo")
 
 CASE = """
-SELECT id, category_key, resolved_at, card_channel_id, card_ts, card_digest, opened_by
+SELECT id, category_key, resolved_at, card_channel_id, card_ts, card_digest, opened_by,
+       resolution
 FROM fd.cases WHERE id = %s
 """
 
@@ -62,8 +65,8 @@ def case_on(conn, channel_id, thread_ts):
     return row[0] if row else None
 
 
-def digest_of(blocks):
-    return parse.digest(None, blocks, None)
+def digest_of(blocks, mark=None):
+    return parse.digest(mark, blocks, None)
 
 
 def gather(conn, case_id):
@@ -79,6 +82,7 @@ def gather(conn, case_id):
         "card_ts": row[4],
         "card_digest": row[5],
         "opened_by": row[6],
+        "resolution": row[7],
         "url": case_url(row[0]),
     }
     case["subjects"] = [one[0] for one in conn.execute(SUBJECTS, (case_id,)).fetchall()]
@@ -115,7 +119,10 @@ def post(client, conn, case_id, channel_id, thread_ts=None):
         unfurl_media=False,
         **face(client, case),
     )
-    conn.execute(KEPT, (channel_id, thread_ts, sent["ts"], digest_of(built), case_id))
+    conn.execute(
+        KEPT, (channel_id, thread_ts, sent["ts"], digest_of(built, card_mark(case)), case_id)
+    )
+    mark_card(client, channel_id, sent["ts"], case, fresh=True)
     if case["opening_id"]:
         conn.execute(OPENING_CARRIED, (sent["ts"], case["opening_id"]))
     log.info("nemo: case %s has a card in %s", case_id, channel_id)
@@ -128,7 +135,7 @@ def refresh_card(client, conn, case_id, channel_id=None):
         return None
 
     built = views.queued.build_blocks(case)
-    fingerprint = digest_of(built)
+    fingerprint = digest_of(built, card_mark(case))
     if fingerprint == case["card_digest"]:
         return case["card_ts"]
 
@@ -145,6 +152,7 @@ def refresh_card(client, conn, case_id, channel_id=None):
         return None
 
     conn.execute(REDRAWN, (fingerprint, case_id))
+    mark_card(client, case["card_channel_id"], case["card_ts"], case)
     return case["card_ts"]
 
 
