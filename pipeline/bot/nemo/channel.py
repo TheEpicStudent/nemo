@@ -142,16 +142,24 @@ OPEN_MARK = "hourglass_flowing_sand"
 MERGED_MARK = "repeat"
 DONE_MARK = "white_check_mark"
 CARD_MARKS = (OPEN_MARK, MERGED_MARK, DONE_MARK, "check")
-UNMARKED = ("not_conduct",)
+NOT_CONDUCT_MARKS = ("x", "heavy_multiplication_x", "negative_squared_cross_mark")
 QUIET = ("already_reacted", "no_reaction")
 
 
 def card_mark(case):
     if not case.get("resolved_at"):
         return OPEN_MARK
-    if case.get("resolution") in UNMARKED:
-        return None
     return MERGED_MARK if case.get("resolution") == "duplicate" else DONE_MARK
+
+
+def crossed_by_hand(client, channel_id, ts):
+    try:
+        found = client.reactions_get(channel=channel_id, timestamp=ts)
+    except Exception as failure:
+        log.warning("nemo: could not read the reactions on %s: %s", ts, failure)
+        return False
+    reactions = ((found or {}).get("message") or {}).get("reactions") or []
+    return any((one.get("name") or "").split("::")[0] in NOT_CONDUCT_MARKS for one in reactions)
 
 
 def react(client, method, channel_id, ts, name):
@@ -164,6 +172,8 @@ def react(client, method, channel_id, ts, name):
 
 def mark_card(client, channel_id, ts, case, fresh=False):
     wanted = card_mark(case)
+    if case.get("resolution") == "not_conduct" and crossed_by_hand(client, channel_id, ts):
+        wanted = None
     if not fresh:
         for name in CARD_MARKS:
             if name != wanted:

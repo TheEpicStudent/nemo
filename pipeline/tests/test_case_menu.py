@@ -216,3 +216,70 @@ def test_a_case_already_resolved_is_left_out_of_the_merge():
 def test_the_kept_case_hears_what_was_merged_into_it():
     assert channel.merged_text([25]) == "case 25 merged into this one"
     assert channel.merged_text([25, 31]) == "cases 25, 31 merged into this one"
+
+
+def resolving():
+    return {"private_metadata": "23", "state": {"values": {}}}
+
+
+def test_a_resolve_that_tells_the_reporter_holds_its_line_for_after(app, monkeypatch):
+    held, echoed = [], []
+    monkeypatch.setattr(handlers.views.resolve, "submitted_values",
+                        lambda state, live: {"resolution": "no_action", "member_note": None,
+                                             "message": "thanks", "notify_reporter": True})
+    monkeypatch.setattr(handlers.views.resolve, "validation_errors", lambda values: None)
+    monkeypatch.setattr(handlers, "resolve", lambda conn, case_id, values, by: 1)
+    monkeypatch.setattr(handlers, "hold_resolution_echo",
+                        lambda conn, case_id, by: held.append((case_id, by)))
+    monkeypatch.setattr(handlers, "post_resolution_echo", lambda *args: echoed.append(args))
+
+    app.views[handlers.views.resolve.CALLBACK](Ack(), {"user": {"id": "UME"}}, resolving(), Slack())
+
+    assert held == [(23, "UME")]
+    assert echoed == []
+
+
+def test_a_quiet_resolve_says_so_at_once(app, monkeypatch):
+    held, echoed = [], []
+    monkeypatch.setattr(handlers.views.resolve, "submitted_values",
+                        lambda state, live: {"resolution": "no_action", "member_note": None,
+                                             "message": None, "notify_reporter": False})
+    monkeypatch.setattr(handlers.views.resolve, "validation_errors", lambda values: None)
+    monkeypatch.setattr(handlers, "resolve", lambda conn, case_id, values, by: 0)
+    monkeypatch.setattr(handlers, "hold_resolution_echo",
+                        lambda conn, case_id, by: held.append((case_id, by)))
+    monkeypatch.setattr(handlers, "resolution_echo_actions", lambda conn, case_id: [])
+    monkeypatch.setattr(handlers, "post_resolution_echo", lambda *args: echoed.append(args))
+
+    app.views[handlers.views.resolve.CALLBACK](Ack(), {"user": {"id": "UME"}}, resolving(), Slack())
+
+    assert held == []
+    assert len(echoed) == 1
+
+
+def test_a_held_line_goes_up_once_the_reporter_message_is_in(monkeypatch):
+    from bot.nemo import case_channel
+
+    posted = []
+
+    @contextlib.contextmanager
+    def one_session():
+        yield Conn({})
+
+    monkeypatch.setattr(case_channel, "session", one_session)
+    monkeypatch.setattr(case_channel.case_actions, "held_resolution_echoes", lambda conn: [23, 24])
+    monkeypatch.setattr(case_channel.case_actions, "resolution_echo_due",
+                        lambda conn, case_id: ("UME", "no_action", None) if case_id == 23 else None)
+    monkeypatch.setattr(case_channel.case_actions, "resolution_echo_actions", lambda conn, case_id: [])
+    monkeypatch.setattr(case_channel.channel, "post_resolution_echo",
+                        lambda client, conn, case_id, resolution, note, by, actions:
+                        posted.append((case_id, resolution, by)))
+
+    case_channel.CaseChannel(Slack()).post_held_resolutions()
+
+    assert posted == [(23, "no_action", "UME")], "24 still waits on its reporter message"
+
+
+def test_the_line_is_due_only_when_no_reporter_message_is_left_to_echo():
+    assert "o.kind = 'outcome' AND o.echoed_at IS NULL" in case_actions.RESOLUTION_ECHO_DUE
+    assert "SET resolution_echo_by = NULL" in case_actions.RESOLUTION_ECHO_DUE

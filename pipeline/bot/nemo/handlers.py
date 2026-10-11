@@ -12,6 +12,7 @@ from bot.nemo.case_actions import (
     assign_people,
     claimed,
     counted,
+    hold_resolution_echo,
     keep_note,
     live_actions,
     log_action,
@@ -486,6 +487,8 @@ def register(app, on_reply=None):
             if not allowed:
                 return ack(response_action="errors", errors={views.resolve.WHY: refusal})
             notified = resolve(conn, case_id, values, user_id)
+            if notified:
+                hold_resolution_echo(conn, case_id, user_id)
 
         if notified is None:
             return ack(
@@ -496,9 +499,10 @@ def register(app, on_reply=None):
         ack()
         with session() as conn:
             refresh_card(client, conn, case_id)
-            actions = resolution_echo_actions(conn, case_id)
-            post_resolution_echo(client, conn, case_id, values["resolution"],
-                values["member_note"], user_id, actions)
+            if not notified:
+                actions = resolution_echo_actions(conn, case_id)
+                post_resolution_echo(client, conn, case_id, values["resolution"],
+                    values["member_note"], user_id, actions)
         log.info("nemo: case %s resolved by %s, %s notified", case_id, user_id, notified)
 
     def post_refusal(event, thread_ts, client, what, refusal):
@@ -570,6 +574,8 @@ def register(app, on_reply=None):
             resolution, told = resolve_and_tell(
                 conn, case_id, views.resolve.default_message(), user_id
             )
+            if resolution and told:
+                hold_resolution_echo(conn, case_id, user_id)
 
         if resolution is None and not told:
             client.chat_postEphemeral(
@@ -584,7 +590,7 @@ def register(app, on_reply=None):
         except Exception as failure:
             log.warning("nemo: could not mark %s as done: %s", event["ts"], failure)
         if resolution:
-            after_resolve(client, case_id, resolution, user_id)
+            after_resolve(client, case_id, resolution, user_id, echo=not told)
         log.info("nemo: case %s resolved from the thread by %s, %s told", case_id, user_id, told)
         return case_id
 

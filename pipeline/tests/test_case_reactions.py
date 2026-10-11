@@ -51,7 +51,7 @@ def test_a_card_shows_where_its_case_stands():
     assert channel.card_mark({}) == "hourglass_flowing_sand"
     assert channel.card_mark({"resolved_at": "x", "resolution": "duplicate"}) == "repeat"
     assert channel.card_mark({"resolved_at": "x", "resolution": "no_action"}) == "white_check_mark"
-    assert channel.card_mark({"resolved_at": "x", "resolution": "not_conduct"}) is None
+    assert channel.card_mark({"resolved_at": "x", "resolution": "not_conduct"}) == "white_check_mark"
 
 
 def test_a_fresh_card_only_gains_its_mark():
@@ -73,13 +73,26 @@ def test_a_redrawn_card_drops_the_marks_it_no_longer_wants():
     assert [kwargs["name"] for kwargs in slack.made("reactions_add")] == ["repeat"]
 
 
-def test_a_case_closed_as_not_conduct_keeps_only_the_x_it_was_given():
-    slack = Slack()
+class Crossed(Slack):
+    def reactions_get(self, **kwargs):
+        return {"message": {"reactions": [{"name": "x", "users": ["UME"], "count": 1}]}}
+
+
+def test_a_case_closed_by_an_x_keeps_only_the_x_it_was_given():
+    slack = Crossed()
 
     channel.mark_card(slack, ROOM, CARD, {"resolved_at": "x", "resolution": "not_conduct"})
 
     assert slack.made("reactions_add") == []
     assert "hourglass_flowing_sand" in [kwargs["name"] for kwargs in slack.made("reactions_remove")]
+
+
+def test_a_case_closed_as_not_conduct_from_the_menu_still_gets_its_check():
+    slack = Slack()
+
+    channel.mark_card(slack, ROOM, CARD, {"resolved_at": "x", "resolution": "not_conduct"})
+
+    assert [kwargs["name"] for kwargs in slack.made("reactions_add")] == ["white_check_mark"]
 
 
 def test_a_change_of_standing_alone_redraws_the_card():
@@ -206,8 +219,12 @@ def thread(monkeypatch):
     monkeypatch.setattr(handlers, "case_channels", lambda conn=None: {ROOM})
     monkeypatch.setattr(handlers.chat, "case_of_thread", lambda conn, ts: 23)
     monkeypatch.setattr(handlers.access, "may", lambda conn, who, needs, case=None: (True, None))
-    monkeypatch.setattr(handlers, "after_resolve",
-                        lambda client, case_id, resolution, who: heard["after"].append(resolution))
+    monkeypatch.setattr(
+        handlers, "after_resolve",
+        lambda client, case_id, resolution, who, echo=True: heard["after"].append((resolution, echo)),
+    )
+    monkeypatch.setattr(handlers, "hold_resolution_echo",
+                        lambda conn, case_id, by: heard.setdefault("held", []).append((case_id, by)))
     return heard
 
 
@@ -224,7 +241,8 @@ def test_resolve_in_the_thread_closes_the_case_and_tells_the_reporter(thread, mo
 
     assert ctx.client.made("reactions_add") == [{"channel": ROOM, "timestamp": "2.0",
                                                  "name": "check-check"}]
-    assert thread["after"] == ["no_action"]
+    assert thread["after"] == [("no_action", False)], "the resolved line waits for the reporter's"
+    assert thread["held"] == [(23, "UME")]
 
 
 def test_resolve_on_a_closed_case_only_tells_the_reporter(thread, monkeypatch):

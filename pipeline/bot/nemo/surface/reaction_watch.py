@@ -8,7 +8,7 @@ log = logging.getLogger("bot.nemo")
 
 OPENS = ("hourglass", "hourglass_flowing_sand", "hourglass_not_done")
 CLOSES = ("white_check_mark", "heavy_check_mark", "ballot_box_with_check")
-NOT_CONDUCT = ("x", "heavy_multiplication_x", "negative_squared_cross_mark")
+NOT_CONDUCT = channel.NOT_CONDUCT_MARKS
 ENDS = CLOSES + NOT_CONDUCT
 
 CARD_OF = """
@@ -104,14 +104,15 @@ def closing_as(mark):
     return "not_conduct" if mark in NOT_CONDUCT else None
 
 
-def after_resolve(client, case_id, resolution, who):
+def after_resolve(client, case_id, resolution, who, echo=True):
     with session() as conn:
         channel.refresh_card(client, conn, case_id)
         case_queue.refresh_card(client, conn, case_id)
-        channel.post_resolution_echo(
-            client, conn, case_id, resolution, None, who,
-            case_actions.resolution_echo_actions(conn, case_id),
-        )
+        if echo:
+            channel.post_resolution_echo(
+                client, conn, case_id, resolution, None, who,
+                case_actions.resolution_echo_actions(conn, case_id),
+            )
 
 
 def card_case(conn, channel_id, ts):

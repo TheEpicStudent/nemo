@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import audit, blobs, outbox, parse, session
-from bot.nemo import answer, attachments, channel, case_queue
+from bot.nemo import answer, attachments, case_actions, channel, case_queue
 
 log = logging.getLogger("bot.nemo")
 
@@ -168,7 +168,24 @@ class CaseChannel:
 
         if done:
             log.info("nemo: echoed %s queued message(s) into the internal_log", done)
+        self.post_held_resolutions()
         return done
+
+    def post_held_resolutions(self):
+        with session() as conn:
+            held = case_actions.held_resolution_echoes(conn)
+
+        for case_id in held:
+            with session() as conn:
+                due = case_actions.resolution_echo_due(conn, case_id)
+                if due is None:
+                    continue
+                by, resolution, member_note = due
+                channel.post_resolution_echo(
+                    self.client, conn, case_id, resolution, member_note, by,
+                    case_actions.resolution_echo_actions(conn, case_id),
+                )
+                log.info("nemo: case %s heard it was resolved after the reporter did", case_id)
 
     def tick_queued(self):
         with session() as conn:

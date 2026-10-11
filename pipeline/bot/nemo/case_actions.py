@@ -475,3 +475,38 @@ def resolve_and_tell(conn, case_id, message, by):
     if told is not None:
         return chosen, told
     return None, close_reports(conn, case_id, message, by)
+
+
+HOLD_RESOLUTION_ECHO = "UPDATE fd.cases SET resolution_echo_by = %s WHERE id = %s"
+
+HELD_RESOLUTION_ECHOES = "SELECT id FROM fd.cases WHERE resolution_echo_by IS NOT NULL"
+
+RESOLUTION_ECHO_DUE = """
+WITH due AS (
+    SELECT k.id, k.resolution_echo_by AS held_by, k.resolution, k.member_note
+    FROM fd.cases k
+    WHERE k.id = %(case_id)s AND k.resolution_echo_by IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM fd.intake_outbox o
+          JOIN fd.intake_conversations c ON c.id = o.conversation_id
+          JOIN fd.case_reports r ON r.id = c.report_id
+          WHERE r.case_id = k.id AND o.kind = 'outcome' AND o.echoed_at IS NULL
+      )
+    FOR UPDATE
+)
+UPDATE fd.cases k SET resolution_echo_by = NULL
+FROM due WHERE k.id = due.id
+RETURNING due.held_by, due.resolution, due.member_note
+"""
+
+
+def hold_resolution_echo(conn, case_id, by):
+    conn.execute(HOLD_RESOLUTION_ECHO, (by, case_id))
+
+
+def held_resolution_echoes(conn):
+    return [row[0] for row in conn.execute(HELD_RESOLUTION_ECHOES).fetchall()]
+
+
+def resolution_echo_due(conn, case_id):
+    return conn.execute(RESOLUTION_ECHO_DUE, {"case_id": case_id}).fetchone()
