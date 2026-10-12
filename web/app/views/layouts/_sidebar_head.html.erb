@@ -1,10 +1,10 @@
 <% fire_engine = may_use_fire_engine? %>
-<% place, = shell_place(fire_engine: fire_engine) %>
-<% stops = rail_stops(fire_engine: fire_engine) %>
-<% face = capture do %>
+<% current_label, = current_section(fire_engine: fire_engine) %>
+<% stops = nav_items(fire_engine: fire_engine) %>
+<% switcher_label = capture do %>
   <span class="switcher-mark" data-controller="logo">
     <span><%= title.first %></span>
-    <%= image_tag workspace_logo_path, alt: "", data: { logo_target: "img", action: "error->logo#gone" } %>
+    <%= image_tag workspace_logo_path, alt: "", data: { logo_target: "img", action: "error->logo#remove" } %>
   </span>
   <span class="switcher-name">
     <b><%= title %></b>
@@ -12,27 +12,27 @@
   </span>
 <% end %>
 <div class="sidebar-head">
-  <% if stops.any? { |stop| stop.label != place } %>
+  <% if stops.any? { |nav_item| nav_item.label != current_label } %>
     <%= render layout: "shared/dropdown", locals: {
           css: "switcher", trigger_css: "switcher-face", pop_css: "switcher-pop menu-start",
           label: "#{title}, switch area",
-          trigger: face + tag.svg(class: "switcher-chev", width: 16, height: 16, viewBox: "0 0 24 24",
+          trigger: switcher_label + tag.svg(class: "switcher-chev", width: 16, height: 16, viewBox: "0 0 24 24",
             fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round",
             "stroke-linejoin": "round", aria: { hidden: true }) {
               tag.path(d: "m7 15 5 5 5-5") + tag.path(d: "m7 9 5-5 5 5")
             } } do %>
-      <% stops.each do |stop| %>
-        <%= link_to stop.path, class: "switcher-row",
-              aria: { current: ("page" if stop.label == place) } do %>
-          <%= rail_icon(stop.icon) %>
-          <span class="switcher-what"><%= stop.label %></span>
-          <% if stop.tally.to_i.positive? %>
-            <span class="switcher-tally"><%= stop.tally > 99 ? "99+" : stop.tally %></span>
+      <% stops.each do |nav_item| %>
+        <%= link_to nav_item.path, class: "switcher-row",
+              aria: { current: ("page" if nav_item.label == current_label) } do %>
+          <%= rail_icon(nav_item.icon) %>
+          <span class="switcher-what"><%= nav_item.label %></span>
+          <% if nav_item.tally.to_i.positive? %>
+            <span class="switcher-tally"><%= nav_item.tally > 99 ? "99+" : nav_item.tally %></span>
           <% end %>
         <% end %>
       <% end %>
     <% end %>
   <% else %>
-    <div class="switcher-face switcher-still"><%= face %></div>
+    <div class="switcher-face switcher-still"><%= switcher_label %></div>
   <% end %>
 </div>

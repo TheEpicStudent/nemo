@@ -8,10 +8,10 @@ from bot.nemo import activity, surface
 from bot.nemo.views import activity as card
 from bot.nemo.surface import message_activity
 
-ROOM = "C0ANNOUNCE"
+CHANNEL_ID = "C0ANNOUNCE"
 TS = "1790701062.123456"
-ME = "U0ME"
-THEM = "U0THEM"
+USER_ID = "U0ME"
+OTHER_USER_ID = "U0THEM"
 
 STATS = {
     "num_users_viewed": 224,
@@ -64,15 +64,15 @@ def test_an_empty_answer_shapes_to_zeros():
 class Conn:
     def __init__(self, rows=None):
         self.rows = rows or {}
-        self.ran = []
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def fetchone(self):
         for mark, row in self.rows.items():
-            if mark in self.ran[-1][0]:
+            if mark in self.executed[-1][0]:
                 return row
         return None
 
@@ -81,32 +81,32 @@ class Conn:
 
 
 def test_only_the_author_reads_their_post():
-    assert activity.may_read(ME, ME) is True
-    assert activity.may_read(THEM, ME) is False
-    assert activity.may_read(ME, None) is False, "a post with no author is nobody's"
+    assert activity.may_read(USER_ID, USER_ID) is True
+    assert activity.may_read(OTHER_USER_ID, USER_ID) is False
+    assert activity.may_read(USER_ID, None) is False, "a post with no author is nobody's"
 
 
 def test_an_every_account_capability_needs_no_fire_department_grant():
     conn = Conn(rows={"FROM app.capability": ("See how their own post did", "author", True)})
-    assert access.may(conn, ME, "message.read") == (True, None)
-    assert not any("effective_role" in sql for sql, _ in conn.ran), "no role lookup was needed"
+    assert access.may(conn, USER_ID, "message.read") == (True, None)
+    assert not any("effective_role" in sql for sql, _ in conn.executed), "no role lookup was needed"
 
 
 def test_a_capability_that_is_not_every_account_still_wants_a_grant():
     conn = Conn(rows={"FROM app.capability": ("Read every case", None, False),
                       "holds_capability": (False,)})
-    allowed, why = access.may(conn, ME, "case.read")
+    allowed, reason = access.may(conn, USER_ID, "case.read")
     assert allowed is False
-    assert "grant" in why
+    assert "grant" in reason
 
 
 def test_the_card_quotes_the_post_and_says_who_where_when():
     stats = activity.shaped(STATS)
-    view = card.build_view(ROOM, TS, ME, "hello  world", stats, found=None, crowd=600)
+    view = card.build_view(CHANNEL_ID, TS, USER_ID, "hello  world", stats, archived_message=None, crowd=600)
     blocks = view["blocks"]
     assert blocks[0]["text"]["text"] == "> hello world"
-    assert f"<@{ME}>" in blocks[1]["elements"][0]["text"]
-    assert f"<#{ROOM}>" in blocks[1]["elements"][0]["text"]
+    assert f"<@{USER_ID}>" in blocks[1]["elements"][0]["text"]
+    assert f"<#{CHANNEL_ID}>" in blocks[1]["elements"][0]["text"]
     fields = [one["text"] for one in blocks[3]["fields"]]
     assert fields[0] == "*Viewers*\n224 · 37% of the channel"
     assert fields[4] == "*Replies*\nnot landed yet"
@@ -121,7 +121,7 @@ def test_the_card_quotes_the_post_and_says_who_where_when():
 
 
 def test_a_long_post_is_cut_short_in_the_card():
-    view = card.build_view(ROOM, TS, ME, "x" * 1000, activity.shaped({}))
+    view = card.build_view(CHANNEL_ID, TS, USER_ID, "x" * 1000, activity.shaped({}))
     assert len(view["blocks"][0]["text"]["text"]) <= card.QUOTE_LIMIT + 2
 
 
@@ -144,20 +144,20 @@ class Answer:
 
 
 class Slack:
-    def __init__(self, refuses_the_file=0):
+    def __init__(self, update_failures=0):
         self.opened = []
         self.updated = []
         self.ephemeral = []
-        self.refuses_the_file = refuses_the_file
+        self.update_failures = update_failures
 
-    def views_open(self, **asked):
-        self.opened.append(asked)
+    def views_open(self, **kwargs):
+        self.opened.append(kwargs)
         return Answer({"view": {"id": "V1"}})
 
-    def views_update(self, **asked):
-        self.updated.append(asked)
-        if self.refuses_the_file > 0:
-            self.refuses_the_file -= 1
+    def views_update(self, **kwargs):
+        self.updated.append(kwargs)
+        if self.update_failures > 0:
+            self.update_failures -= 1
             raise SlackApiError(
                 "invalid_arguments: [ERROR] invalid slack file "
                 "[json-pointer:view/blocks/5/slack_file.id/slack_file]",
@@ -165,8 +165,8 @@ class Slack:
             )
         return Answer({"ok": True})
 
-    def chat_postEphemeral(self, **asked):
-        self.ephemeral.append(asked)
+    def chat_postEphemeral(self, **kwargs):
+        self.ephemeral.append(kwargs)
 
 
 class _Session:
@@ -180,21 +180,21 @@ class _Session:
         return False
 
 
-def clicked(author=ME, who=ME, thread_ts=None):
+def shortcut_ctx(author=USER_ID, user_id=USER_ID, thread_ts=None):
     message = {"ts": TS, "user": author, "text": "big news"}
     if thread_ts:
         message["thread_ts"] = thread_ts
-    body = {"user": {"id": who}, "channel": {"id": ROOM}, "trigger_id": "T1", "message": message}
+    body = {"user": {"id": user_id}, "channel": {"id": CHANNEL_ID}, "trigger_id": "T1", "message": message}
     entry = surface.SurfaceEntry(surface.SHORTCUT, message_activity.SHORTCUT, "message.read", None)
     return surface.Ctx(entry, body, Slack(), lambda: None)
 
 
-def hold(monkeypatch, shown=True, stats=None, landed=None):
+def install_fakes(monkeypatch, enabled=True, stats=None, archive_row=None):
     rows = {}
-    if shown:
+    if enabled:
         rows["app.channel_message_activity"] = (1,)
-    if landed:
-        rows["FROM archive.message"] = landed
+    if archive_row:
+        rows["FROM archive.message"] = archive_row
     conn = Conn(rows=rows)
     monkeypatch.setattr(message_activity, "session", lambda: _Session(conn))
     monkeypatch.setattr(activity, "fetch", lambda channel_id, ts: stats)
@@ -202,51 +202,51 @@ def hold(monkeypatch, shown=True, stats=None, landed=None):
 
 
 def test_a_reply_is_turned_away_before_anything_is_read(monkeypatch):
-    conn = hold(monkeypatch)
-    ctx = clicked(thread_ts="1790700000.000001")
-    message_activity.asked(ctx)
+    conn = install_fakes(monkeypatch)
+    ctx = shortcut_ctx(thread_ts="1790700000.000001")
+    message_activity.open_activity_modal(ctx)
     assert ctx.client.ephemeral[0]["text"] == message_activity.NOT_A_POST
-    assert conn.ran == []
+    assert conn.executed == []
 
 
 def test_a_channel_that_is_not_shown_says_so(monkeypatch):
-    hold(monkeypatch, shown=False)
-    ctx = clicked()
-    message_activity.asked(ctx)
-    assert ctx.client.ephemeral[0]["text"] == message_activity.NOT_SHOWN
+    install_fakes(monkeypatch, enabled=False)
+    ctx = shortcut_ctx()
+    message_activity.open_activity_modal(ctx)
+    assert ctx.client.ephemeral[0]["text"] == message_activity.NOT_ENABLED
     assert ctx.client.opened == []
 
 
 def test_somebody_elses_post_is_refused_and_written_down(monkeypatch):
-    conn = hold(monkeypatch)
-    ctx = clicked(author=THEM, who=ME)
-    message_activity.asked(ctx)
+    conn = install_fakes(monkeypatch)
+    ctx = shortcut_ctx(author=OTHER_USER_ID, user_id=USER_ID)
+    message_activity.open_activity_modal(ctx)
     assert ctx.client.ephemeral[0]["text"] == message_activity.NOT_YOURS
-    refusals = [args for sql, args in conn.ran if "fd.audit" in sql]
+    refusals = [args for sql, args in conn.executed if "fd.audit" in sql]
     assert len(refusals) == 1
     assert ctx.client.opened == []
 
 
 def test_the_author_gets_a_modal_that_fills_in_once_slack_answers(monkeypatch):
-    hold(monkeypatch, stats=activity.shaped(STATS), landed=(8, 5, None))
-    ctx = clicked()
-    message_activity.asked(ctx)
+    install_fakes(monkeypatch, stats=activity.shaped(STATS), archive_row=(8, 5, None))
+    ctx = shortcut_ctx()
+    message_activity.open_activity_modal(ctx)
     assert ctx.client.opened[0]["view"] == card.loading_view()
-    filled = ctx.client.updated[0]
-    assert filled["view_id"] == "V1"
-    assert filled["view"]["title"]["text"] == card.TITLE
-    fields = [one["text"] for one in filled["view"]["blocks"][3]["fields"]]
+    update = ctx.client.updated[0]
+    assert update["view_id"] == "V1"
+    assert update["view"]["title"]["text"] == card.TITLE
+    fields = [one["text"] for one in update["view"]["blocks"][3]["fields"]]
     assert fields[4] == "*Replies*\n8 from 5 people"
 
 
 def test_a_chart_slack_has_not_finished_taking_is_tried_again(monkeypatch):
-    hold(monkeypatch, stats=activity.shaped(STATS), landed=(8, 5, None))
+    install_fakes(monkeypatch, stats=activity.shaped(STATS), archive_row=(8, 5, None))
     monkeypatch.setattr(activity, "chart", lambda *args: ("F1", "1d"))
-    ctx = clicked()
-    ctx.client.refuses_the_file = 1
+    ctx = shortcut_ctx()
+    ctx.client.update_failures = 1
     monkeypatch.setattr(message_activity.time, "sleep", lambda _: None)
 
-    message_activity.asked(ctx)
+    message_activity.open_activity_modal(ctx)
 
     assert len(ctx.client.updated) == 2, "it waits and puts the same card up again"
     assert ctx.client.updated[1]["view"] == ctx.client.updated[0]["view"]
@@ -254,13 +254,13 @@ def test_a_chart_slack_has_not_finished_taking_is_tried_again(monkeypatch):
 
 
 def test_a_chart_slack_keeps_refusing_leaves_the_numbers_standing(monkeypatch):
-    hold(monkeypatch, stats=activity.shaped(STATS), landed=(8, 5, None))
+    install_fakes(monkeypatch, stats=activity.shaped(STATS), archive_row=(8, 5, None))
     monkeypatch.setattr(activity, "chart", lambda *args: ("F1", "1d"))
-    ctx = clicked()
-    ctx.client.refuses_the_file = message_activity.FILE_TRIES
+    ctx = shortcut_ctx()
+    ctx.client.update_failures = message_activity.FILE_TRIES
     monkeypatch.setattr(message_activity.time, "sleep", lambda _: None)
 
-    message_activity.asked(ctx)
+    message_activity.open_activity_modal(ctx)
 
     last = ctx.client.updated[-1]["view"]
     assert not any(one["type"] == "image" for one in last["blocks"]), "the chart is dropped"
@@ -268,18 +268,18 @@ def test_a_chart_slack_keeps_refusing_leaves_the_numbers_standing(monkeypatch):
 
 
 def test_when_slack_will_not_answer_the_modal_says_so(monkeypatch):
-    hold(monkeypatch, stats=None)
-    ctx = clicked()
-    message_activity.asked(ctx)
+    install_fakes(monkeypatch, stats=None)
+    ctx = shortcut_ctx()
+    message_activity.open_activity_modal(ctx)
     assert ctx.client.updated[0]["view"] == card.error_view(message_activity.NOT_NOW)
 
 
 def test_the_shortcut_is_registered_behind_message_read():
     from bot.nemo import app as nemo_app  # noqa: F401  registers every surface
 
-    found = [one for one in surface.ENTRIES
-             if (one.kind, one.key) == (surface.SHORTCUT, message_activity.SHORTCUT)]
-    assert found and found[0].needs == "message.read"
+    entries = [one for one in surface.ENTRIES
+               if (one.kind, one.key) == (surface.SHORTCUT, message_activity.SHORTCUT)]
+    assert entries and entries[0].needs == "message.read"
 
 
 @pytest.mark.parametrize("key", ["message.read", "message.show"])
@@ -321,15 +321,15 @@ def test_the_span_follows_the_age_of_the_post():
 
 
 class Uploader:
-    def __init__(self, answer=None, blows_up=False):
+    def __init__(self, answer=None, fails=False):
         self.answer = answer if answer is not None else {"files": [{"id": "F1"}]}
-        self.blows_up = blows_up
-        self.sent = []
+        self.fails = fails
+        self.uploads = []
 
-    def files_upload_v2(self, **asked):
-        if self.blows_up:
+    def files_upload_v2(self, **kwargs):
+        if self.fails:
             raise RuntimeError("not_allowed")
-        self.sent.append(asked)
+        self.uploads.append(kwargs)
         return self.answer
 
 
@@ -339,23 +339,23 @@ def test_the_chart_goes_to_slack_privately_and_comes_back_as_a_file_id():
     posted = dt.datetime.now(dt.UTC) - dt.timedelta(hours=5)
     file_id, span = activity.chart(client, stats["curves"], posted, stats["viewers"])
     assert (file_id, span) == ("F1", "1d")
-    assert client.sent[0]["filename"] == "activity-1d.png"
-    assert "channel" not in client.sent[0], "the file is not shared anywhere"
+    assert client.uploads[0]["filename"] == "activity-1d.png"
+    assert "channel" not in client.uploads[0], "the file is not shared anywhere"
 
 
 def test_a_chart_slack_will_not_take_is_simply_left_out():
     stats = activity.shaped(STATS)
-    file_id, span = activity.chart(Uploader(blows_up=True), stats["curves"],
+    file_id, span = activity.chart(Uploader(fails=True), stats["curves"],
                                    dt.datetime.now(dt.UTC), stats["viewers"])
     assert file_id is None and span == "1h"
 
 
 def test_the_card_carries_the_chart_and_the_way_to_the_page():
     stats = activity.shaped(STATS)
-    view = card.build_view(ROOM, TS, ME, "hi", stats, chart=("F1", "1d"),
+    view = card.build_view(CHANNEL_ID, TS, USER_ID, "hi", stats, chart=("F1", "1d"),
                      activity_url="https://nemo.test/messages/C0ANNOUNCE/1790701062.123456")
     image = next(one for one in view["blocks"] if one["type"] == "image")
     assert image["slack_file"] == {"id": "F1"}
     buttons = next(one for one in view["blocks"] if one["type"] == "actions")["elements"]
     assert buttons[0]["action_id"] == card.OPEN_ACTIVITY
-    assert buttons[0]["url"].endswith(f"/messages/{ROOM}/{TS}")
+    assert buttons[0]["url"].endswith(f"/messages/{CHANNEL_ID}/{TS}")

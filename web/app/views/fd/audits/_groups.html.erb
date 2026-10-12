@@ -10,14 +10,14 @@
         </tr>
       </thead>
       <tbody>
-        <% @groups.each do |one| %>
+        <% @groups.each do |group_row| %>
           <tr>
-            <td class="audit-about"><%= audit_group_value(@query.group, one) %></td>
+            <td class="audit-about"><%= audit_group_value(@query.group, group_row) %></td>
             <td class="col-num">
-              <%= link_to number_with_delimiter(one.count), fd_audit_path(@query.group_params_for(one)), class: "lnk" %>
+              <%= link_to number_with_delimiter(group_row.count), fd_audit_path(@query.group_params_for(group_row)), class: "lnk" %>
             </td>
-            <td class="audit-when"><%= audit_stamp(one.first_at) %></td>
-            <td class="audit-when"><%= audit_stamp(one.last_at) %></td>
+            <td class="audit-when"><%= audit_stamp(group_row.first_at) %></td>
+            <td class="audit-when"><%= audit_stamp(group_row.last_at) %></td>
           </tr>
         <% end %>
       </tbody>

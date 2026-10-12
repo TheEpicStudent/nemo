@@ -20,20 +20,20 @@ const compact = (n) => {
   return F(v)
 }
 
-const share = (part, whole) => {
-  if (!(whole > 0)) return null
-  const pct = (part / whole) * 100
+const share = (part, total) => {
+  if (!(total > 0)) return null
+  const pct = (part / total) * 100
   return pct >= 10 || pct === 0 ? `${Math.round(pct)}%` : `${pct.toFixed(1)}%`
 }
 
-const RULER = typeof document === "undefined"
+const MEASURE_CTX = typeof document === "undefined"
   ? null
   : document.createElement("canvas").getContext("2d")
 
-function wideAs(text) {
-  if (!RULER) return String(text).length * 7
-  RULER.font = '700 12px Geist, ui-sans-serif, system-ui, sans-serif'
-  return RULER.measureText(String(text)).width
+function textWidth(text) {
+  if (!MEASURE_CTX) return String(text).length * 7
+  MEASURE_CTX.font = '700 12px Geist, ui-sans-serif, system-ui, sans-serif'
+  return MEASURE_CTX.measureText(String(text)).width
 }
 
 function band(norm0, norm1, x, w, my, h, scale) {
@@ -44,14 +44,14 @@ function band(norm0, norm1, x, w, my, h, scale) {
     ` L ${x + w} ${my + h1} C ${x + w - cx} ${my + h1}, ${x + cx} ${my + h0}, ${x} ${my + h0} Z`
 }
 
-const withoutPin = ({ pin: _pin, ...rest }) => JSON.stringify(rest)
+const withoutPin = ({ pin: _pin, ...view }) => JSON.stringify(view)
 
 export default class extends Controller {
-  static values = { stages: Array, height: Number, ink: Number, label: String, view: Object }
+  static values = { stages: Array, height: Number, seriesColor: Number, label: String, view: Object }
 
   connect() {
     this.at = null
-    this.fresh = true
+    this.firstDraw = true
     this.wide = 0
     this.fillHeight = 0
     const hover = this.externalPointer ? "" : "mousemove->funnel#track mouseleave->funnel#clear "
@@ -59,8 +59,8 @@ export default class extends Controller {
       data-action="${hover}keydown->funnel#key"
       ><div class="tip"></div><span class="chart-caption" aria-live="polite"></span></div>`
     const box = this.element.querySelector(".chart")
-    this.watcher = new ResizeObserver(() => this.measure())
-    this.watcher.observe(box)
+    this.observer = new ResizeObserver(() => this.measure())
+    this.observer.observe(box)
     this.measure()
     this.ready = true
     if (this.hasViewValue) this.dispatch("ready", { prefix: "chart" })
@@ -68,8 +68,8 @@ export default class extends Controller {
 
   disconnect() {
     this.ready = false
-    this.watcher?.disconnect()
-    clearTimeout(this.entered)
+    this.observer?.disconnect()
+    clearTimeout(this.enterTimer)
   }
 
   viewValueChanged(value, previous) {
@@ -99,8 +99,8 @@ export default class extends Controller {
     return Number.isInteger(this.viewValue.pin) ? this.viewValue.pin : null
   }
 
-  get ink() {
-    return this.hasInkValue ? this.inkValue : 1
+  get seriesColor() {
+    return this.hasSeriesColorValue ? this.seriesColorValue : 1
   }
 
   get unit() {
@@ -139,14 +139,14 @@ export default class extends Controller {
     const segW = (wide - GAP * (n - 1)) / n
     const first = Number(stages[0].value) || 0
     const norms = stages.map((s) => (first > 0 ? Math.max(Number(s.value) || 0, 0) / first : 0))
-    const ink = this.ink
+    const seriesColor = this.seriesColor
     const labels = this.showLabels
 
     const segs = stages.map((stage, i) => {
       const x = i * (segW + GAP)
       const n0 = Math.max(norms[i], 0.012)
       const n1 = Math.max(i < n - 1 ? norms[i + 1] : norms[i], 0.012)
-      const rings = Array.from({ length: LAYERS }, (_, l) => {
+      const layerPaths = Array.from({ length: LAYERS }, (_, l) => {
         const scale = 1 - (l / LAYERS) * 0.35
         const opacity = 0.18 + (l / (LAYERS - 1)) * 0.65
         return `<path d="${band(n0, n1, x, segW, my, h, scale)}" fill="currentColor"
@@ -154,28 +154,28 @@ export default class extends Controller {
       }).join("")
 
       const pct = share(Number(stage.value) || 0, first) || "n/a"
-      const pillW = wideAs(pct) + 24
+      const pillW = textWidth(pct) + 24
       const cx = x + segW / 2
-      const says = labels
+      const labelMarkup = labels
         ? `<text class="funnel-value" x="${cx.toFixed(1)}" y="${TOP - 10}" text-anchor="middle">${
           esc(compact(stage.value))}</text>` +
           `<g class="funnel-pill"><rect x="${(cx - pillW / 2).toFixed(1)}" y="${(my - PILL_H / 2).toFixed(1)}"
           width="${pillW.toFixed(1)}" height="${PILL_H}" rx="6"/><text x="${cx.toFixed(1)}"
           y="${(my + 4).toFixed(1)}" text-anchor="middle">${esc(pct)}</text></g>`
         : ""
-      return `<g class="funnel-seg ser-${ink}" data-i="${i}" style="--i:${i}">${rings}</g>` +
-        `<g class="funnel-says" data-i="${i}" style="--i:${i}">${says}` +
+      return `<g class="funnel-seg ser-${seriesColor}" data-i="${i}" style="--i:${i}">${layerPaths}</g>` +
+        `<g class="funnel-says" data-i="${i}" style="--i:${i}">${labelMarkup}` +
         `<text class="ax funnel-stage" x="${cx.toFixed(1)}" y="${high - 10}" text-anchor="middle">${
           esc(stage.label)}</text></g>`
     }).join("")
 
     const pin = this.pinned
-    const ring = pin != null && pin < n
+    const pinOutline = pin != null && pin < n
       ? `<rect class="pin-ring" x="${(pin * (segW + GAP) - PIN_INSET).toFixed(1)}" y="${TOP - PIN_INSET}"
           width="${(segW + PIN_INSET * 2).toFixed(1)}" height="${(h + PIN_INSET * 2).toFixed(1)}" rx="8"/>`
       : ""
 
-    const seams = stages.slice(1).map((_, i) => {
+    const separators = stages.slice(1).map((_, i) => {
       const at = (i + 1) * (segW + GAP) - GAP / 2
       return `<line class="funnel-seam" x1="${at.toFixed(1)}" y1="${TOP}" x2="${at.toFixed(1)}"
         y2="${(TOP + h).toFixed(1)}"/>`
@@ -184,26 +184,26 @@ export default class extends Controller {
     box.querySelector("svg")?.remove()
     box.insertAdjacentHTML("afterbegin",
       `<svg width="${wide}" height="${high}" viewBox="0 0 ${wide} ${high}" role="img"
-        aria-label="${esc(this.summary(stages))}">${seams}${segs}${ring}</svg>`)
+        aria-label="${esc(this.summary(stages))}">${separators}${segs}${pinOutline}</svg>`)
 
     this.geom = { wide, high, segW, n, first, my }
-    if (this.fresh) {
-      this.fresh = false
+    if (this.firstDraw) {
+      this.firstDraw = false
       box.classList.add("is-entering")
-      clearTimeout(this.entered)
-      this.entered = setTimeout(() => box.classList.remove("is-entering"), 1600)
+      clearTimeout(this.enterTimer)
+      this.enterTimer = setTimeout(() => box.classList.remove("is-entering"), 1600)
     }
     if (this.at != null) this.show(Math.min(this.at, n - 1), { silent: true })
   }
 
   summary(stages) {
     const first = Number(stages[0].value) || 0
-    const what = this.hasLabelValue && this.labelValue ? this.labelValue : "funnel"
-    return `${what}: ${stages.map((s) =>
+    const label = this.hasLabelValue && this.labelValue ? this.labelValue : "funnel"
+    return `${label}: ${stages.map((s) =>
       `${s.label} ${F(s.value)} (${share(Number(s.value) || 0, first) || "n/a"})`).join(", ")}`
   }
 
-  spot(event) {
+  indexAtPointer(event) {
     const g = this.geom
     if (!g) return null
 
@@ -214,7 +214,7 @@ export default class extends Controller {
   }
 
   track(event) {
-    const i = this.spot(event)
+    const i = this.indexAtPointer(event)
     if (i == null) return this.clear()
     if (i !== this.at) this.show(i)
   }
@@ -261,11 +261,11 @@ export default class extends Controller {
     const box = this.element.querySelector(".chart")
     const value = Number(stage.value) || 0
     const prev = i > 0 ? Number(stages[i - 1].value) || 0 : null
-    const ink = this.ink
+    const seriesColor = this.seriesColor
 
     const tip = box.querySelector(".tip")
     tip.innerHTML = `<div class="t">${esc(stage.label)}</div>` +
-      `<div class="row"><i class="ser-${ink}"></i>${esc(this.labelValue || "count")}<b>${F(value)}</b></div>` +
+      `<div class="row"><i class="ser-${seriesColor}"></i>${esc(this.labelValue || "count")}<b>${F(value)}</b></div>` +
       (i > 0 ? `<div class="row"><i class="ser-none"></i>of ${esc(stages[0].label)}<b>${
         share(value, g.first) || "n/a"}</b></div>` : "") +
       (prev != null ? `<div class="row"><i class="ser-none"></i>of the step before<b>${
@@ -294,8 +294,8 @@ export default class extends Controller {
     box.querySelector(".tip")?.classList.remove("on")
     box.classList.remove("lit")
     box.querySelectorAll(".funnel-seg.on, .funnel-says.on").forEach((seg) => seg.classList.remove("on"))
-    const say = box.querySelector(".chart-caption")
-    if (say) say.textContent = ""
+    const caption = box.querySelector(".chart-caption")
+    if (caption) caption.textContent = ""
   }
 
   pointKey(index) {
@@ -337,7 +337,7 @@ export default class extends Controller {
       note: stage.note || null,
       total: null,
       values: [
-        row(this.unit, F(value), { colorClass: `ser-${this.ink}`, shape: "box" }),
+        row(this.unit, F(value), { colorClass: `ser-${this.seriesColor}`, shape: "box" }),
         i > 0 && row(`of ${stages[0].label}`, share(value, first) || "n/a"),
         prev != null && row("of the step before", share(value, prev) || "n/a"),
         prev != null && row("lost from the step before", F(Math.max(prev - value, 0)))
@@ -353,15 +353,15 @@ export default class extends Controller {
     const first = values[0]
     const last = values[values.length - 1]
     const drops = values.slice(1).map((value, k) => ({
-      label: stages[k + 1].label, kept: values[k] > 0 ? value / values[k] : null
-    })).filter((drop) => drop.kept != null)
-    const worst = drops.reduce((low, drop) => (low && low.kept <= drop.kept ? low : drop), null)
+      label: stages[k + 1].label, retention: values[k] > 0 ? value / values[k] : null
+    })).filter((drop) => drop.retention != null)
+    const largestDrop = drops.reduce((low, drop) => (low && low.retention <= drop.retention ? low : drop), null)
     return {
       summary: [
         { label: stages[0].label, value: F(first) },
         stages.length > 1 && { label: stages[stages.length - 1].label, value: F(last) },
         stages.length > 1 && { label: "conversion", value: share(last, first) || "n/a" },
-        worst && { label: `largest drop, to ${worst.label}`, value: share(1 - worst.kept, 1) || "n/a" }
+        largestDrop && { label: `largest drop, to ${largestDrop.label}`, value: share(1 - largestDrop.retention, 1) || "n/a" }
       ].filter(Boolean)
     }
   }
@@ -370,7 +370,7 @@ export default class extends Controller {
     const stages = this.stages
     const values = stages.map((stage) => Number(stage.value) || 0)
     const first = values[0]
-    const ratio = (part, whole) => (whole > 0 ? Number(((part / whole) * 100).toFixed(3)) : null)
+    const ratio = (part, total) => (total > 0 ? Number(((part / total) * 100).toFixed(3)) : null)
     return {
       columns: [
         { key: "label", label: "Step", numeric: false },

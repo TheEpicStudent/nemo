@@ -36,12 +36,12 @@ _lock = threading.Lock()
 
 def refresh(conn):
     global _loaded
-    found = dict(conn.execute(LIVE, (list(KEYS),)).fetchall())
+    settings = dict(conn.execute(LIVE, (list(KEYS),)).fetchall())
     with _lock:
         _settings.clear()
-        _settings.update(found)
+        _settings.update(settings)
         _loaded = True
-    return len(found)
+    return len(settings)
 
 
 def setting(key):
@@ -56,16 +56,16 @@ def on(key):
 
 
 def setting_list(key):
-    held = setting(key) or ""
-    return [one.strip() for one in held.split(",") if one.strip()]
+    value = setting(key) or ""
+    return [one.strip() for one in value.split(",") if one.strip()]
 
 
 def cooldown_days():
     try:
-        held = int(setting(AUTORESPONSE_COOLDOWN) or 0)
+        days = int(setting(AUTORESPONSE_COOLDOWN) or 0)
     except ValueError:
-        held = 0
-    return held if 1 <= held <= SLOWEST else COOLDOWN_FALL_BACK
+        days = 0
+    return days if 1 <= days <= SLOWEST else COOLDOWN_FALL_BACK
 
 
 def answering(channel_id, emoji):

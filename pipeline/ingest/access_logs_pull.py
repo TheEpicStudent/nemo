@@ -57,8 +57,8 @@ def stamp(seconds):
 
 
 def normalized(value):
-    held = str(value or "").strip()
-    return held or None
+    text = str(value or "").strip()
+    return text or None
 
 
 def row_for(login):
@@ -68,14 +68,14 @@ def row_for(login):
         return None
 
     ip = normalized(login.get("ip"))
-    seen = useragent.parse(login.get("user_agent"))
+    parsed_ua = useragent.parse(login.get("user_agent"))
     try:
         count = max(1, int(login.get("count") or 1))
     except (TypeError, ValueError):
         count = 1
 
     return (
-        user_id, at, ip, seen["ua"],
+        user_id, at, ip, parsed_ua["ua"],
         normalized(login.get("country")), normalized(login.get("region")), normalized(login.get("isp")),
         count, stamp(login.get("date_first")),
     )
@@ -115,27 +115,27 @@ def insert_rows(conn, logins, counts):
     return len(rows)
 
 
-def newest_held(conn):
+def newest_login_at(conn):
     row = conn.execute(NEWEST_SQL).fetchone()
     return row[0] if row else None
 
 
 def run(conn, client=None):
     client = client or ProxyClient.for_source(SOURCE)
-    since = newest_held(conn)
+    since = newest_login_at(conn)
     stop_at = since - timedelta(seconds=LAP_SECONDS) if since else None
 
-    held = []
-    landed = 0
+    pending = []
+    inserted = 0
     caught_up = False
 
     with ingest_run(conn, SOURCE) as counts:
         def flush():
-            nonlocal landed
-            if not held:
+            nonlocal inserted
+            if not pending:
                 return
-            landed += insert_rows(conn, held, counts)
-            held.clear()
+            inserted += insert_rows(conn, pending, counts)
+            pending.clear()
 
         walk = client.paginate(
             METHOD, {}, "logins", page_size=PAGE, cursor_param="cursor",
@@ -147,17 +147,17 @@ def run(conn, client=None):
             if stop_at is not None and when is not None and when < stop_at:
                 caught_up = True
                 break
-            held.append(login)
-            if len(held) >= PAGE * MOST_PAGES:
+            pending.append(login)
+            if len(pending) >= PAGE * MOST_PAGES:
                 break
-            if len(held) % PAGE == 0:
+            if len(pending) % PAGE == 0:
                 flush()
         walk.close()
         flush()
 
     state = "up to date" if caught_up else "more to walk"
-    print(f"{SOURCE}: {landed} login row(s), {state}")
-    return landed
+    print(f"{SOURCE}: {inserted} login row(s), {state}")
+    return inserted
 
 
 def backfill_start(conn):
@@ -183,16 +183,16 @@ def backfill(conn, client=None):
 
     client = client or ProxyClient.for_source(BACKFILL)
     batch = []
-    landed = 0
-    taken = 0
+    inserted = 0
+    fetched = 0
     oldest = None
     capped = False
 
     with ingest_run(conn, BACKFILL) as counts:
         def flush():
-            nonlocal landed
+            nonlocal inserted
             if batch:
-                landed += insert_rows(conn, batch, counts)
+                inserted += insert_rows(conn, batch, counts)
                 batch.clear()
             if oldest is not None:
                 save_cursor(conn, BACKFILL, str(next_before(before, oldest)))
@@ -202,15 +202,15 @@ def backfill(conn, client=None):
             METHOD, {"before": before}, "logins", page_size=PAGE, cursor_param="cursor",
             credential=CREDENTIAL, page_param="limit",
             cursor_field="response_metadata.next_cursor",
-            on_page=lambda _cursor, _seen: flush(),
+            on_page=lambda _cursor, _record_count: flush(),
         )
         for login in entries:
             first_seen = stamp(login.get("date_first"))
             if first_seen is not None and (oldest is None or first_seen < oldest):
                 oldest = first_seen
             batch.append(login)
-            taken += 1
-            if taken >= PAGE * MOST_PAGES:
+            fetched += 1
+            if fetched >= PAGE * MOST_PAGES:
                 capped = True
                 break
         entries.close()
@@ -221,5 +221,5 @@ def backfill(conn, client=None):
 
     reached = f"first seen {oldest:%Y-%m-%d %H:%M}" if oldest else "no entries"
     state = "more to walk" if capped else "complete"
-    print(f"{BACKFILL}: {landed} login row(s), {reached}, {state}")
-    return landed
+    print(f"{BACKFILL}: {inserted} login row(s), {reached}, {state}")
+    return inserted

@@ -36,44 +36,44 @@ module Fd
     end
 
     def people_ids
-      named = @reports.map(&:reporter_user_id) + @reports.map(&:closed_by) +
+      user_ids = @reports.map(&:reporter_user_id) + @reports.map(&:closed_by) +
         @conversation_messages.map(&:sent_by) + cited.map(&:source_author_user_id) +
         @queued.map(&:requested_by) + @chat.map(&:author_user_id) + [@case.opened_by]
-      return named if @reports.any?(&:anonymous?)
+      return user_ids if @reports.any?(&:anonymous?)
 
-      named + @conversation_messages.map(&:author_user_id)
+      user_ids + @conversation_messages.map(&:author_user_id)
     end
 
     def changes_since(since)
       @version = ChatVersion.for(@case.id)
       return head :no_content if since == @version
 
-      had = ChatVersion.parse(since)
-      @gone = []
-      return @everything = true if had.nil?
+      previous_parts = ChatVersion.parse(since)
+      @sent_ids = []
+      return @everything = true if previous_parts.nil?
 
-      now = ChatVersion.parts(@case.id)
-      return head :reset_content if now.zip(had).any? { |here, there| here.count < there.count }
+      current_parts = ChatVersion.parts(@case.id)
+      return head :reset_content if current_parts.zip(previous_parts).any? { |current, previous| current.count < previous.count }
 
-      chat_had, messages_had, queued_had = had
-      @chat_changed = @chat.select { |line| moved?(line, chat_had, :posted_at, :edited_at, :deleted_at) }
-      @messages_changed = @conversation_messages.select { |one| moved?(one, messages_had, :posted_at, :edited_at, :deleted_at) }
-      @queued_changed = @queued.select { |row| moved?(row, queued_had, :requested_at, :sent_at, :failed_at) }
-      @gone = sent_since(queued_had)
+      previous_chat, previous_messages, previous_queued = previous_parts
+      @chat_changed = @chat.select { |line| changed_since?(line, previous_chat, :posted_at, :edited_at, :deleted_at) }
+      @messages_changed = @conversation_messages.select { |message| changed_since?(message, previous_messages, :posted_at, :edited_at, :deleted_at) }
+      @queued_changed = @queued.select { |row| changed_since?(row, previous_queued, :requested_at, :sent_at, :failed_at) }
+      @sent_ids = sent_since(previous_queued)
 
-      head :no_content if [@chat_changed, @messages_changed, @queued_changed, @gone].all?(&:empty?)
+      head :no_content if [@chat_changed, @messages_changed, @queued_changed, @sent_ids].all?(&:empty?)
     end
 
-    def moved?(row, had, *columns)
-      row.id > had.max_id ||
-        ChatVersion.stamp(*columns.map { |column| row.public_send(column) }) >= had.stamp
+    def changed_since?(row, previous, *columns)
+      row.id > previous.max_id ||
+        ChatVersion.stamp(*columns.map { |column| row.public_send(column) }) >= previous.stamp
     end
 
-    def sent_since(had)
+    def sent_since(previous)
       return [] if @conversation.nil?
 
       IntakeOutbox.where(conversation_id: @conversation.id).where.not(sent_at: nil)
-        .where(sent_at: had.cutoff..).pluck(:id)
+        .where(sent_at: previous.cutoff..).pluck(:id)
     end
   end
 end

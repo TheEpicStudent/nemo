@@ -17,10 +17,10 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     ENV.delete("INTERNAL_LOG_CHANNEL_ID")
   end
 
-  def instead_of(answer)
+  def stub_post_message(result)
     original = Slack::Chat.method(:post_message)
     Slack::Chat.define_singleton_method(:post_message) do |*args, **kwargs|
-      answer.respond_to?(:call) ? answer.call(*args, **kwargs) : answer
+      result.respond_to?(:call) ? result.call(*args, **kwargs) : result
     end
     yield
   ensure
@@ -34,7 +34,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
   end
 
   def link(user_id = "UME")
-    Fd::StaffSlack.keep!(user_id, token: "xoxp-real", team_id: "T0FIRE", scopes: "chat:write")
+    Fd::StaffSlack.store!(user_id, token: "xoxp-real", team_id: "T0FIRE", scopes: "chat:write")
   end
 
   test "a sent reply from a linked author is echoed with their own token" do
@@ -42,12 +42,12 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     queued = queue
     sent = nil
 
-    carried = instead_of(lambda { |**args|
+    echoed_count = stub_post_message(lambda { |**args|
       sent = args
       { "ok" => true, "ts" => "1700.0100" }
     }) { Fd::ReplyEcho.flush_pending(@kase.id) }
 
-    assert_equal 1, carried
+    assert_equal 1, echoed_count
     assert_equal "xoxp-real", sent[:token]
     assert_equal "C0FIRE", sent[:channel]
     assert_equal "1700.0001", sent[:thread_ts]
@@ -61,7 +61,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     queue(mode: "body")
     sent = nil
 
-    instead_of(lambda { |**args|
+    stub_post_message(lambda { |**args|
       sent = args
       { "ok" => true, "ts" => "1700.0101" }
     }) { Fd::ReplyEcho.flush_pending(@kase.id) }
@@ -72,11 +72,11 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
   test "an author who never linked is left for the bot" do
     queued = queue
 
-    carried = instead_of(->(**) { flunk "the bot echoes this one" }) {
+    echoed_count = stub_post_message(->(**) { flunk "the bot echoes this one" }) {
       Fd::ReplyEcho.flush_pending(@kase.id)
     }
 
-    assert_equal 0, carried
+    assert_equal 0, echoed_count
     assert_nil queued.reload.echoed_at
   end
 
@@ -84,7 +84,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     link
     queued = queue(sent: false)
 
-    instead_of(->(**) { flunk "nothing has been sent to the reporter yet" }) {
+    stub_post_message(->(**) { flunk "nothing has been sent to the reporter yet" }) {
       Fd::ReplyEcho.flush_pending(@kase.id)
     }
 
@@ -96,7 +96,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     queued = queue
     tries = 0
 
-    instead_of(lambda { |**|
+    stub_post_message(lambda { |**|
       tries += 1
       { "ok" => true, "ts" => "1700.0102" }
     }) do
@@ -112,7 +112,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     grant = link
     queued = queue
 
-    instead_of(->(**) { { "ok" => false, "error" => "not_in_channel" } }) do
+    stub_post_message(->(**) { { "ok" => false, "error" => "not_in_channel" } }) do
       Fd::ReplyEcho.flush_pending(@kase.id)
     end
 
@@ -139,7 +139,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     queued = queue
 
     with_a_failing_write do
-      instead_of(->(**) { { "ok" => true, "ts" => "1700.0103" } }) do
+      stub_post_message(->(**) { { "ok" => true, "ts" => "1700.0103" } }) do
         assert_raises(ActiveRecord::StatementInvalid) { Fd::ReplyEcho.flush_pending(@kase.id) }
       end
     end
@@ -154,7 +154,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     @report.update!(forwarded_ts: nil)
     queued = queue
 
-    instead_of(->(**) { flunk "there is no thread to echo into" }) do
+    stub_post_message(->(**) { flunk "there is no thread to echo into" }) do
       Fd::ReplyEcho.flush_pending(@kase.id)
     end
 

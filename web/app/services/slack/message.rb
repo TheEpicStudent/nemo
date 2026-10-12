@@ -4,16 +4,16 @@ module Slack
     TTL = 10.minutes
 
     Result = Struct.new(:message, :error, keyword_init: true) do
-      def found? = message.present?
+      def message? = message.present?
     end
 
     def self.at(channel_id, ts)
-      found = Rails.cache.fetch(key_for(channel_id, ts), expires_in: TTL, skip_nil: true) do
-        asked(channel_id, ts)
+      message = Rails.cache.fetch(key_for(channel_id, ts), expires_in: TTL, skip_nil: true) do
+        fetch_message(channel_id, ts)
       end
-      return Result.new(error: :not_found) if found.nil?
+      return Result.new(error: :not_found) if message.nil?
 
-      Result.new(message: found)
+      Result.new(message: message)
     rescue ProxyClient::NotConfiguredError => e
       Rails.logger.error("slack message proxy is not configured: #{e.message}")
       Result.new(error: :not_configured)
@@ -25,15 +25,15 @@ module Slack
 
     def self.key_for(channel_id, ts) = "slack/message/#{channel_id}/#{ts}"
 
-    def self.asked(channel_id, ts)
-      answer = ProxyClient.call(METHOD, {
+    def self.fetch_message(channel_id, ts)
+      response = ProxyClient.call(METHOD, {
         "channel" => channel_id, "latest" => ts, "oldest" => ts,
         "inclusive" => true, "limit" => 1
       }, credential: "admin")
-      return nil unless answer["ok"]
+      return nil unless response["ok"]
 
-      found = (answer["messages"] || []).first
-      found if found && found["ts"] == ts
+      message = (response["messages"] || []).first
+      message if message && message["ts"] == ts
     end
   end
 end

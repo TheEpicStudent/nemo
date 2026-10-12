@@ -1,5 +1,5 @@
-<% given = defined?(peak_messages) ? peak_messages.to_i : 0 %>
-<% peak = given.positive? ? given : channels.map { |c| c.range_messages.to_i }.max.to_i %>
+<% peak_override = defined?(peak_messages) ? peak_messages.to_i : 0 %>
+<% peak = peak_override.positive? ? peak_override : channels.map { |c| c.range_messages.to_i }.max.to_i %>
 <% channels.each do |channel| %>
   <tr data-controller="row-link"
       data-row-link-href-value="<%= channel_path(channel) %>"

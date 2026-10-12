@@ -14,7 +14,7 @@ ROLES = """
 SELECT role FROM app.effective_role WHERE user_id = %s ORDER BY role
 """
 
-CARRIED = ("author", "channel")
+SUPPORTED_SCOPES = ("author", "channel")
 
 
 class UnknownCapabilityError(KeyError):
@@ -35,8 +35,8 @@ def roles(conn, user_id):
 
 
 def role(conn, user_id):
-    held = roles(conn, user_id)
-    return held[0] if held else None
+    user_roles = roles(conn, user_id)
+    return user_roles[0] if user_roles else None
 
 
 def holds(conn, user_id, key):
@@ -51,7 +51,7 @@ def refusal(cap):
 
 def in_scope(cap):
     scope = cap["record_scope"]
-    if scope is None or scope in CARRIED:
+    if scope is None or scope in SUPPORTED_SCOPES:
         return True, None
     return False, f"{cap['label'].lower()} is scoped to {scope}, which nemo cannot weigh"
 

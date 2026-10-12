@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 const SLOW_AFTER = 10000
-const LANDED_FOR = 1600
+const HIGHLIGHT_MS = 1600
 
 export default class extends Controller {
   static targets = ["slow"]
@@ -13,7 +13,7 @@ export default class extends Controller {
 
   disconnect() {
     clearTimeout(this.slowTimer)
-    clearTimeout(this.landedTimer)
+    clearTimeout(this.highlightTimer)
   }
 
   get enforcementStatus() {
@@ -24,9 +24,9 @@ export default class extends Controller {
     if (this.element.dataset.landed !== "true") return
 
     this.element.classList.add("just-landed")
-    this.landedTimer = setTimeout(() => {
+    this.highlightTimer = setTimeout(() => {
       this.element.classList.remove("just-landed")
-    }, LANDED_FOR)
+    }, HIGHLIGHT_MS)
   }
 
   waitForSlack() {

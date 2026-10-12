@@ -2,21 +2,21 @@
   <div class="merge-pane">
     <div class="merge-list">
       <p class="merge-group">ticked, and who holds them</p>
-      <% plan.all.each do |one| %>
-        <%= link_to fd_confirm_merge_cases_path(carry.merge(case_ids: plan.all.map(&:id),
-              keep: one.id)), class: "merge-pick", data: { turbo_frame: "merge-body" },
-              aria: { current: ("true" if one.id == plan.keeper.id) } do %>
+      <% plan.all.each do |kase| %>
+        <%= link_to fd_confirm_merge_cases_path(query_params.merge(case_ids: plan.all.map(&:id),
+              keep: kase.id)), class: "merge-pick", data: { turbo_frame: "merge-body" },
+              aria: { current: ("true" if kase.id == plan.primary.id) } do %>
           <span class="merge-ring" aria-hidden="true"></span>
           <span class="merge-who">
-            <b><%= subject_handles(one) %></b>
-            <span class="merge-id">#<%= one.id %></span>
-            <span class="merge-sub"><%= merge_candidate_line(one) %></span>
+            <b><%= subject_handles(kase) %></b>
+            <span class="merge-id">#<%= kase.id %></span>
+            <span class="merge-sub"><%= merge_candidate_line(kase) %></span>
           </span>
-          <%= case_status_chip(one) %>
+          <%= case_status_chip(kase) %>
         <% end %>
       <% end %>
     </div>
   </div>
 
-  <%= render "fd/merges/outcome", plan: plan, carry: carry %>
+  <%= render "fd/merges/outcome", plan: plan, query_params: query_params %>
 <% end %>

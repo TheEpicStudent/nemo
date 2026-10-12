@@ -7,7 +7,7 @@ export default class extends Controller {
     this.sync()
   }
 
-  get picked() {
+  get checkedBoxes() {
     return this.boxTargets.filter((box) => box.checked)
   }
 
@@ -16,16 +16,16 @@ export default class extends Controller {
   }
 
   toggleAll() {
-    const want = this.allTarget.checked
+    const allChecked = this.allTarget.checked
     this.boxTargets.forEach((box) => {
-      box.checked = want
+      box.checked = allChecked
     })
     this.sync()
   }
 
   sync() {
-    const picked = this.picked
-    const count = picked.length
+    const checkedBoxes = this.checkedBoxes
+    const count = checkedBoxes.length
 
     if (this.hasAllTarget) {
       this.allTarget.checked = count > 0 && count === this.boxTargets.length
@@ -40,28 +40,28 @@ export default class extends Controller {
       row.classList.toggle("is-picked", Boolean(box && box.checked))
     })
 
-    this.carry(picked)
-    this.fit()
+    this.syncHiddenFields(checkedBoxes)
+    this.syncSubmit()
   }
 
-  carry(picked) {
+  syncHiddenFields(checkedBoxes) {
     if (!this.hasFieldTarget) return
 
     this.fieldTarget.replaceChildren(
-      ...picked.map((box) => {
-        const held = document.createElement("input")
-        held.type = "hidden"
-        held.name = "user_ids[]"
-        held.value = box.value
-        return held
+      ...checkedBoxes.map((box) => {
+        const hiddenInput = document.createElement("input")
+        hiddenInput.type = "hidden"
+        hiddenInput.name = "user_ids[]"
+        hiddenInput.value = box.value
+        return hiddenInput
       })
     )
   }
 
-  fit() {
+  syncSubmit() {
     if (!this.hasGoTarget) return
 
-    this.goTarget.disabled = this.picked.length === 0
+    this.goTarget.disabled = this.checkedBoxes.length === 0
   }
 
   clear() {

@@ -5,12 +5,12 @@ class WorkspaceLogo
   HOSTS = %w[hackclub.com hackclub.dev hackclub-assets.com].freeze
   SUFFIXES = HOSTS.map { |host| ".#{host}" }.freeze
   CACHE_KEY = "workspace_logo/image".freeze
-  FOUND_FOR = 10.minutes
+  IMAGE_TTL = 10.minutes
   MISSING_FOR = 2.minutes
   OPEN_TIMEOUT = 2
   READ_TIMEOUT = 5
-  HOPS = 3
-  BIGGEST = 4.megabytes
+  MAX_REDIRECTS = 3
+  MAX_BYTES = 4.megabytes
 
   Image = Struct.new(:body, :type, keyword_init: true)
 
@@ -18,13 +18,13 @@ class WorkspaceLogo
     cached = Rails.cache.read(CACHE_KEY)
     return cached.presence && cached if cached
 
-    found = read
-    Rails.cache.write(CACHE_KEY, found || "", expires_in: found ? FOUND_FOR : MISSING_FOR)
-    found
+    result = read
+    Rails.cache.write(CACHE_KEY, result || "", expires_in: result ? IMAGE_TTL : MISSING_FOR)
+    result
   end
 
   def self.read
-    url = pointed_at
+    url = logo_url
     return nil if url.nil?
 
     fetch(url)
@@ -33,35 +33,35 @@ class WorkspaceLogo
     nil
   end
 
-  def self.pointed_at
-    answer = get(URI(SOURCE))
-    return nil unless answer.is_a?(Net::HTTPSuccess)
+  def self.logo_url
+    response = get(URI(SOURCE))
+    return nil unless response.is_a?(Net::HTTPSuccess)
 
-    where = answer.body.to_s.strip.lines.first.to_s.strip
-    uri = fetch_safely(where)
+    found_url = response.body.to_s.strip.lines.first.to_s.strip
+    uri = fetch_safely(found_url)
     uri && uri.to_s
   end
 
   def self.fetch(url)
     uri = fetch_safely(url)
-    HOPS.times do
+    MAX_REDIRECTS.times do
       return nil if uri.nil?
 
-      answer = get(uri)
-      return picture(answer) if answer.is_a?(Net::HTTPSuccess)
-      return nil unless answer.is_a?(Net::HTTPRedirection)
+      response = get(uri)
+      return image_from(response) if response.is_a?(Net::HTTPSuccess)
+      return nil unless response.is_a?(Net::HTTPRedirection)
 
-      uri = fetch_safely(answer["location"].to_s)
+      uri = fetch_safely(response["location"].to_s)
     end
     nil
   end
 
-  def self.picture(answer)
-    type = answer["content-type"].to_s.split(";").first.to_s.strip
+  def self.image_from(response)
+    type = response["content-type"].to_s.split(";").first.to_s.strip
     return nil unless type.start_with?("image/")
-    return nil if answer.body.to_s.bytesize > BIGGEST || answer.body.to_s.empty?
+    return nil if response.body.to_s.bytesize > MAX_BYTES || response.body.to_s.empty?
 
-    Image.new(body: answer.body, type: type)
+    Image.new(body: response.body, type: type)
   end
 
   def self.get(uri)
@@ -76,7 +76,7 @@ class WorkspaceLogo
     return nil unless uri.is_a?(URI::HTTPS)
 
     host = uri.host.to_s.downcase
-    return nil unless HOSTS.include?(host) || SUFFIXES.any? { |one| host.end_with?(one) }
+    return nil unless HOSTS.include?(host) || SUFFIXES.any? { |suffix| host.end_with?(suffix) }
 
     uri
   rescue URI::InvalidURIError

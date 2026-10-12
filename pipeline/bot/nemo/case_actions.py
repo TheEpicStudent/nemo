@@ -8,7 +8,7 @@ from bot.nemo import views, memberguards
 log = logging.getLogger("bot.nemo")
 
 
-HELD_BY = """
+CASE_ASSIGNEES = """
 SELECT user_id FROM fd.case_assignees WHERE case_id = %s ORDER BY assigned_at
 """
 
@@ -90,12 +90,12 @@ RETURNING category_key
 """
 
 
-KEEP_NOTE = """
+INSERT_NOTE = """
 INSERT INTO fd.notes (case_id, body, author) VALUES (%s, %s, %s) RETURNING id
 """
 
 
-HAND_BACK = """
+REMOVE_ASSIGNEE = """
 DELETE FROM fd.case_assignees WHERE case_id = %s AND user_id = %s
 RETURNING assigned_by
 """
@@ -217,8 +217,8 @@ def set_category(conn, case_id, key, by):
     return True
 
 
-def keep_note(conn, case_id, body, by):
-    note_id = conn.execute(KEEP_NOTE, (case_id, body, by)).fetchone()[0]
+def add_note(conn, case_id, body, by):
+    note_id = conn.execute(INSERT_NOTE, (case_id, body, by)).fetchone()[0]
     audit.record(
         conn, "note", note_id, "noted", by,
         after={"case_id": case_id, "body": body},
@@ -238,7 +238,7 @@ def assign_people(conn, case_id, user_ids, by):
 
 
 def remove_assignee(conn, case_id, user_id, by):
-    row = conn.execute(HAND_BACK, (case_id, user_id)).fetchone()
+    row = conn.execute(REMOVE_ASSIGNEE, (case_id, user_id)).fetchone()
     if row is None:
         return False
 
@@ -254,10 +254,10 @@ def reopen(conn, case_id, by):
     if row is None:
         return False
 
-    held = [one[0] for one in conn.execute(CLEAR_ASSIGNEES, (case_id,)).fetchall()]
+    cleared_assignees = [one[0] for one in conn.execute(CLEAR_ASSIGNEES, (case_id,)).fetchall()]
     audit.record(
         conn, "case", case_id, "reopened", by,
-        before={"resolution": row[0], "assignees": held},
+        before={"resolution": row[0], "assignees": cleared_assignees},
         after={"resolved_at": None, "resolution": None, "assignees": []},
     )
     return True
@@ -437,20 +437,20 @@ LIMIT 100
 """
 
 
-def mergeable(conn, wanted=()):
-    return conn.execute(MERGEABLE, (list(wanted),)).fetchall()
+def mergeable(conn, preferred_ids=()):
+    return conn.execute(MERGEABLE, (list(preferred_ids),)).fetchall()
 
 
-def merge(conn, keep, fold, by):
+def merge(conn, target_id, duplicate_ids, by):
     closed = []
-    for case_id in sorted(set(fold)):
-        row = conn.execute(MERGE, (keep, case_id, keep)).fetchone()
+    for case_id in sorted(set(duplicate_ids)):
+        row = conn.execute(MERGE, (target_id, case_id, target_id)).fetchone()
         if row is None:
             continue
         audit.record(
             conn, "case", case_id, "resolved", by,
             before={"resolved_at": None, "resolution": None, "duplicate_of": None},
-            after={"resolved_at": str(row[0]), "resolution": "duplicate", "duplicate_of": keep},
+            after={"resolved_at": str(row[0]), "resolution": "duplicate", "duplicate_of": target_id},
         )
         closed.append(case_id)
     return closed
@@ -461,25 +461,25 @@ def settled_resolution(conn, case_id):
 
 
 def close_quietly(conn, case_id, resolution, by):
-    chosen = resolution or settled_resolution(conn, case_id)
-    values = {"resolution": chosen, "member_note": None, "message": None,
+    final_resolution = resolution or settled_resolution(conn, case_id)
+    values = {"resolution": final_resolution, "member_note": None, "message": None,
               "notify_reporter": False}
-    return chosen if resolve(conn, case_id, values, by) is not None else None
+    return final_resolution if resolve(conn, case_id, values, by) is not None else None
 
 
 def resolve_and_tell(conn, case_id, message, by):
-    chosen = settled_resolution(conn, case_id)
-    values = {"resolution": chosen, "member_note": None, "message": message,
+    final_resolution = settled_resolution(conn, case_id)
+    values = {"resolution": final_resolution, "member_note": None, "message": message,
               "notify_reporter": True}
-    told = resolve(conn, case_id, values, by)
-    if told is not None:
-        return chosen, told
+    notified = resolve(conn, case_id, values, by)
+    if notified is not None:
+        return final_resolution, notified
     return None, close_reports(conn, case_id, message, by)
 
 
-HOLD_RESOLUTION_ECHO = "UPDATE fd.cases SET resolution_echo_by = %s WHERE id = %s"
+MARK_RESOLUTION_ECHO = "UPDATE fd.cases SET resolution_echo_by = %s WHERE id = %s"
 
-HELD_RESOLUTION_ECHOES = "SELECT id FROM fd.cases WHERE resolution_echo_by IS NOT NULL"
+PENDING_RESOLUTION_ECHOES = "SELECT id FROM fd.cases WHERE resolution_echo_by IS NOT NULL"
 
 RESOLUTION_ECHO_DUE = """
 WITH due AS (
@@ -500,12 +500,12 @@ RETURNING due.held_by, due.resolution, due.member_note
 """
 
 
-def hold_resolution_echo(conn, case_id, by):
-    conn.execute(HOLD_RESOLUTION_ECHO, (by, case_id))
+def mark_resolution_echo_pending(conn, case_id, by):
+    conn.execute(MARK_RESOLUTION_ECHO, (by, case_id))
 
 
-def held_resolution_echoes(conn):
-    return [row[0] for row in conn.execute(HELD_RESOLUTION_ECHOES).fetchall()]
+def pending_resolution_echoes(conn):
+    return [row[0] for row in conn.execute(PENDING_RESOLUTION_ECHOES).fetchall()]
 
 
 def resolution_echo_due(conn, case_id):

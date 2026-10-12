@@ -79,7 +79,7 @@ function parseKeys(text) {
   }
 }
 
-function rememberApplied(key, message) {
+function storeAppliedMessage(key, message) {
   try {
     sessionStorage.setItem(APPLIED_KEY, JSON.stringify({ key, message }))
   } catch {
@@ -88,7 +88,7 @@ function rememberApplied(key, message) {
   return true
 }
 
-function takeApplied(key) {
+function consumeAppliedMessage(key) {
   try {
     const saved = JSON.parse(sessionStorage.getItem(APPLIED_KEY) || "null")
     sessionStorage.removeItem(APPLIED_KEY)
@@ -194,7 +194,7 @@ export default class extends Controller {
     const to = params.get(URL_PARAMS.to)
     this.pendingRange = from && to ? [from, to] : null
     this.open(trigger.closest(CARD), trigger, { animate: false })
-    const applied = takeApplied(key)
+    const applied = consumeAppliedMessage(key)
     if (applied) this.showToast(applied)
   }
 
@@ -289,7 +289,7 @@ export default class extends Controller {
     url.searchParams.set("start", target.start)
     url.searchParams.set("end", target.end)
     url.searchParams.set(URL_PARAMS.chart, this.key)
-    rememberApplied(this.key, `Page range set to ${target.label}`)
+    storeAppliedMessage(this.key, `Page range set to ${target.label}`)
     this.panelTarget.classList.add("is-applying")
     this.applyButtonTarget.disabled = true
     if (window.Turbo) window.Turbo.visit(url.toString(), { action: "advance" })
@@ -409,7 +409,7 @@ export default class extends Controller {
     }
     if (event.key === " " && !event.target.closest?.(INTERACTIVE)) {
       event.preventDefault()
-      this.setSpaceHeld(true)
+      this.setSpacePressed(true)
       return
     }
 
@@ -445,13 +445,13 @@ export default class extends Controller {
   }
 
   onKeyup(event) {
-    if (event.key === " ") this.setSpaceHeld(false)
+    if (event.key === " ") this.setSpacePressed(false)
   }
 
-  setSpaceHeld(held) {
-    if (this.spaceHeld === held) return
+  setSpacePressed(pressed) {
+    if (this.spacePressed === pressed) return
 
-    this.spaceHeld = held
+    this.spacePressed = pressed
     this.renderTool()
   }
 
@@ -463,7 +463,7 @@ export default class extends Controller {
   }
 
   get panMode() {
-    return this.tool === "pan" || !!this.spaceHeld
+    return this.tool === "pan" || !!this.spacePressed
   }
 
   renderTool() {
@@ -581,7 +581,7 @@ export default class extends Controller {
     this.pinchOrigin = null
     this.zoomWindow = null
     this.tool = "select"
-    this.spaceHeld = false
+    this.spacePressed = false
     this.plotTarget.classList.remove("is-pannable", "is-panning")
     this.zoomControlsTarget.hidden = true
     this.overview?.clear()
@@ -687,10 +687,10 @@ export default class extends Controller {
     this.chart = this.application.getControllerForElementAndIdentifier(event.target, this.chartIdentifier)
     if (!this.chart) return
     if (this.pendingRange || this.pendingWindow) {
-      const restored = this.pendingRange ? this.chart.windowForKeys?.(...this.pendingRange) : this.pendingWindow
+      const initialWindow = this.pendingRange ? this.chart.windowForKeys?.(...this.pendingRange) : this.pendingWindow
       this.pendingRange = null
       this.pendingWindow = null
-      if (restored && this.canZoom) this.applyWindow(restored)
+      if (initialWindow && this.canZoom) this.applyWindow(initialWindow)
     }
     if (this.pendingPin != null) {
       const index = this.chart.indexOfKey?.(this.pendingPin)
@@ -1085,7 +1085,7 @@ export default class extends Controller {
     region.append(toast)
   }
 
-  rememberPin(event) {
+  recordPinBeforeClick(event) {
     if (event.detail === 1) this.pinBeforeClick = this.pin
   }
 
@@ -1105,7 +1105,7 @@ export default class extends Controller {
   }
 
   togglePinAt(event) {
-    const index = this.chart?.spot(event)
+    const index = this.chart?.indexAtPointer(event)
     this.setPin(index == null || index === this.pin ? null : index)
   }
 
@@ -1191,8 +1191,8 @@ export default class extends Controller {
 
   statsTable(stats, series) {
     const columns = stats.percent
-      ? [["Mean", (entry) => entry.mean], ["Min", (entry) => this.pickButton(entry.min)], ["Max", (entry) => this.pickButton(entry.max)]]
-      : [["Total", (entry) => entry.total], ["Mean", (entry) => entry.mean], ["Max", (entry) => this.pickButton(entry.max)]]
+      ? [["Mean", (entry) => entry.mean], ["Min", (entry) => this.pinButton(entry.min)], ["Max", (entry) => this.pinButton(entry.max)]]
+      : [["Total", (entry) => entry.total], ["Mean", (entry) => entry.mean], ["Max", (entry) => this.pinButton(entry.max)]]
     const table = element("table", "explorer-stats-table")
     const head = element("tr")
     const corner = element("th")
@@ -1238,7 +1238,7 @@ export default class extends Controller {
     return label
   }
 
-  pickButton(point) {
+  pinButton(point) {
     const button = element("button", "explorer-stats-pick", point.value)
     button.type = "button"
     button.dataset.action = "explorer#pinRow"
@@ -1321,11 +1321,11 @@ export default class extends Controller {
   }
 
   renderOverview() {
-    const shown = this.canZoom && typeof this.chart.overviewSeries === "function" &&
+    const visible = this.canZoom && typeof this.chart.overviewSeries === "function" &&
       this.display.overview !== false && this.isOpen &&
       this.viewMode !== "table"
-    this.overviewTarget.hidden = !shown
-    if (!shown) return
+    this.overviewTarget.hidden = !visible
+    if (!visible) return
 
     const bounds = this.chart.plotBounds()
     if (!bounds) return
@@ -1544,11 +1544,11 @@ export default class extends Controller {
     const options = this.displayOptions()
     const display = this.display
     const line = display.kind === "line"
-    const shown = (key) => options[key] && !(key === "zero" && !line) && !(key === "stacked" && line)
+    const isVisible = (key) => options[key] && !(key === "zero" && !line) && !(key === "stacked" && line)
     const effective = (key) => (key === "yScale" && !line ? "linear" : display[key])
     this.displayTarget.querySelectorAll("[data-setting]").forEach((row) => {
       const key = row.dataset.setting
-      row.hidden = !shown(key)
+      row.hidden = !isVisible(key)
       row.querySelectorAll("[data-explorer-choice-param]").forEach((button) => {
         const choice = button.dataset.explorerChoiceParam
         button.setAttribute("aria-pressed", String(effective(key) === choice))

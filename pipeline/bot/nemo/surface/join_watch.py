@@ -10,22 +10,22 @@ log = logging.getLogger("bot.nemo")
 
 @on_event("team_join", open_to_all=True)
 def arrived(ctx):
-    user = new_members.whole((ctx.payload or {}).get("user"))
+    user = new_members.valid_user((ctx.payload or {}).get("user"))
     if user is None:
         return None
 
     with session() as conn:
-        fresh = new_members.arrived(conn, user)
+        is_new = new_members.arrived(conn, user)
 
-    log.info("nemo: %s joined the workspace%s", user["id"], "" if fresh else ", already known")
-    if not fresh:
+    log.info("nemo: %s joined the workspace%s", user["id"], "" if is_new else ", already known")
+    if not is_new:
         return user["id"]
 
-    whole_user = privileged.profile(user["id"]) or user
-    email = ((whole_user.get("profile") or {}).get("email"))
+    full_profile = privileged.profile(user["id"]) or user
+    email = ((full_profile.get("profile") or {}).get("email"))
     with session() as conn:
-        if whole_user is not user:
-            new_members.keep(conn, whole_user)
+        if full_profile is not user:
+            new_members.upsert_member(conn, full_profile)
         screening.screen(conn, user["id"], email, client=ctx.client)
     score_links(user["id"])
     return user["id"]
@@ -45,10 +45,10 @@ def score_links(user_id):
 
 @on_event("user_change", open_to_all=True)
 def changed(ctx):
-    user = new_members.whole((ctx.payload or {}).get("user"))
+    user = new_members.valid_user((ctx.payload or {}).get("user"))
     if user is None:
         return None
 
     with session() as conn:
-        new_members.keep(conn, user)
+        new_members.upsert_member(conn, user)
     return user["id"]

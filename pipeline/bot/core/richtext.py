@@ -25,12 +25,12 @@ def elements(text, style=None):
     out = []
     at = 0
 
-    for found in PIECE.finditer(body):
-        before = body[at : found.start()]
+    for match in PIECE.finditer(body):
+        before = body[at : match.start()]
         if before:
             out.append(text_element(before, style))
 
-        user_id, channel_id, url, label, bare = found.groups()
+        user_id, channel_id, url, label, bare = match.groups()
         if user_id:
             out.append({"type": "user", "user_id": user_id})
         elif channel_id:
@@ -39,11 +39,11 @@ def elements(text, style=None):
             out.append(link(url, label))
         else:
             out.append(link(bare))
-        at = found.end()
+        at = match.end()
 
-    rest = body[at:]
-    if rest or not out:
-        out.append(text_element(rest, style))
+    tail = body[at:]
+    if tail or not out:
+        out.append(text_element(tail, style))
     return out
 
 

@@ -39,7 +39,7 @@ def test_record_scopes_come_from_the_declared_set():
 
 def test_nemo_carries_every_scope_the_catalogue_declares():
     for scope in TABLE["record_scopes"]:
-        assert scope in access.CARRIED, f"nemo does not weigh the {scope} scope"
+        assert scope in access.SUPPORTED_SCOPES, f"nemo does not weigh the {scope} scope"
 
 
 def test_nemo_refuses_a_scope_it_cannot_weigh():
@@ -55,8 +55,8 @@ def test_nemo_allows_an_unscoped_capability():
 def test_every_panel_needs_a_real_capability_or_nothing():
     known = set(capabilities.capabilities(TABLE))
     for name, one in PANELS.items():
-        want = one.get("needs")
-        assert want is None or want in known, f"panel {name} needs {want!r}, not a capability"
+        required = one.get("needs")
+        assert required is None or required in known, f"panel {name} needs {required!r}, not a capability"
 
 
 def test_the_locked_capabilities_are_fd_only_and_fixed():
@@ -72,5 +72,5 @@ def test_the_locked_capabilities_are_fd_only_and_fixed():
 
 
 def test_only_one_role_is_a_superadmin():
-    supers = [n for n, one in capabilities.roles(TABLE).items() if one.get("everything")]
-    assert supers == ["community_manager"], supers
+    superusers = [n for n, one in capabilities.roles(TABLE).items() if one.get("everything")]
+    assert superusers == ["community_manager"], superusers

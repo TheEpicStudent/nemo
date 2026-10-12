@@ -3,32 +3,32 @@ import pathlib
 
 from ingest import member_links as links
 
-WHOLE = 1000
+POPULATION = 1000
 
 
-def rarity(crowd, whole=WHOLE):
+def rarity(group_size, population=POPULATION):
     import math
-    if whole <= 2 or crowd <= 1:
+    if population <= 2 or group_size <= 1:
         return 1.0
-    if crowd >= whole:
+    if group_size >= population:
         return 0.0
-    return min(1.0, max(0.0, math.log(whole / crowd) / math.log(whole / 2)))
+    return min(1.0, max(0.0, math.log(population / group_size) / math.log(population / 2)))
 
 
-def score_for(name, crowd, whole=WHOLE):
-    return links.signals()[name]["weight"] * rarity(crowd, whole)
+def score_for(name, group_size, population=POPULATION):
+    return links.signals()[name]["weight"] * rarity(group_size, population)
 
 
 def test_the_bands_climb():
-    marks = links.scoring()
-    assert marks["floor"] < marks["strong"] < marks["certain"]
+    thresholds = links.scoring()
+    assert thresholds["floor"] < thresholds["strong"] < thresholds["certain"]
 
 
 def test_a_school_domain_cannot_link_two_people_on_its_own():
-    marks = links.scoring()
-    assert score_for("email_domain", 6) < marks["floor"], \
+    thresholds = links.scoring()
+    assert score_for("email_domain", 6) < thresholds["floor"], \
         "six people on one domain is a school, not an alt"
-    assert score_for("joined_together", 2) < marks["floor"], \
+    assert score_for("joined_together", 2) < thresholds["floor"], \
         "arriving together is a crowd signal, not an identity"
 
 
@@ -64,10 +64,10 @@ def test_neither_side_of_the_join_reads_the_unpruned_evidence():
 
 
 def test_a_network_many_people_share_is_not_evidence_of_anything():
-    held = links.shared()
-    assert held["rotates_above"] > 1, "a carrier hands each person a fresh address every time"
-    assert held["crowds_above"] > 1, "a vpn exit is one address behind which anybody can stand"
-    assert held["min_sightings"] >= 2, "one sighting on an address is a coincidence, not a home"
+    shared_config = links.shared()
+    assert shared_config["rotates_above"] > 1, "a carrier hands each person a fresh address every time"
+    assert shared_config["crowds_above"] > 1, "a vpn exit is one address behind which anybody can stand"
+    assert shared_config["min_sightings"] >= 2, "one sighting on an address is a coincidence, not a home"
 
 
 def test_the_shared_networks_are_worked_out_rather_than_listed_by_hand():
@@ -92,11 +92,11 @@ def test_every_signal_belongs_to_a_family_with_a_cap():
 
 
 def test_only_identity_evidence_can_reach_certain_alone():
-    certain = links.scoring()["certain"]
+    certain_threshold = links.scoring()["certain"]
     for family, one in links.families().items():
         if family != "identity":
-            assert one["cap"] < certain, family
-    assert links.signals()["mailbox_alias"]["weight"] >= certain
+            assert one["cap"] < certain_threshold, family
+    assert links.signals()["mailbox_alias"]["weight"] >= certain_threshold
 
 
 def test_the_family_table_lines_up_signal_by_signal():
@@ -114,7 +114,7 @@ def test_each_family_is_capped_before_the_families_are_added():
 
 
 def test_an_unchanged_link_is_not_written_again():
-    assert "IS DISTINCT FROM" in links.LAND
+    assert "IS DISTINCT FROM" in links.UPSERT_SQL
     assert "NOT EXISTS (SELECT 1 FROM link_pass" in links.SWEEP
 
 
@@ -123,7 +123,7 @@ def test_the_full_rebuild_never_sweeps_a_link_the_live_lane_wrote_after_it_start
 
 
 def test_a_pass_gathers_once_then_lands_sweeps_and_counts(monkeypatch, capsys):
-    ran = []
+    executed = []
 
     class Counts:
         rows_in = 0
@@ -139,8 +139,8 @@ def test_a_pass_gathers_once_then_lands_sweeps_and_counts(monkeypatch, capsys):
             return False
 
         def execute(self, sql, _params=None):
-            ran.append(sql)
-            self.rowcount = {links.LAND: 4, links.SWEEP: 1}.get(sql, 0)
+            executed.append(sql)
+            self.rowcount = {links.UPSERT_SQL: 4, links.SWEEP: 1}.get(sql, 0)
 
         def fetchone(self):
             return (9,)
@@ -150,29 +150,29 @@ def test_a_pass_gathers_once_then_lands_sweeps_and_counts(monkeypatch, capsys):
             return Cursor()
 
         def execute(self, sql, _params=None):
-            ran.append(sql)
+            executed.append(sql)
 
         def commit(self):
-            ran.append("commit")
+            executed.append("commit")
 
     @contextlib.contextmanager
-    def bookkeeping(*_args, **_kwargs):
+    def fake_ingest_run(*_args, **_kwargs):
         yield Counts()
 
-    monkeypatch.setattr(links, "ingest_run", bookkeeping)
-    monkeypatch.setattr(links, "mark_shared", lambda _conn, _held: 2)
-    monkeypatch.setattr(links, "prepare", lambda _conn, _held: None)
-    monkeypatch.setattr(links, "measure", lambda _conn, _held: {"ip_stable": 40})
-    monkeypatch.setattr(links, "gather", lambda _conn, _held, _wholes: {"ip_stable": 3})
+    monkeypatch.setattr(links, "ingest_run", fake_ingest_run)
+    monkeypatch.setattr(links, "mark_shared", lambda _conn, _config: 2)
+    monkeypatch.setattr(links, "prepare", lambda _conn, _config: None)
+    monkeypatch.setattr(links, "measure", lambda _conn, _config: {"ip_stable": 40})
+    monkeypatch.setattr(links, "gather", lambda _conn, _config, _totals: {"ip_stable": 3})
 
     assert links.run(Conn()) == 4
-    ran[:] = [one for one in ran if one not in ("ANALYZE shared_ip", "ANALYZE link_part", links.KEEP_WHOLE,
-                                                links.QUIET)]
-    assert ran[:13] == [links.PASS, links.PASS_INDEX, "ANALYZE link_pass", links.PRESENCE.format(**links.FULL),
-                        links.PRESENCE_INDEX,
-                        "ANALYZE presence", links.AGAINST, links.STAFF_TEST, links.CLASSROOM, links.HOUSEHOLD,
-                        links.BELOW_FLOOR, links.LAND, links.SWEEP]
-    assert ran[-1] == "commit"
+    executed[:] = [one for one in executed if one not in ("ANALYZE shared_ip", "ANALYZE link_part", links.SAVE_WHOLES_SQL,
+                                                          links.QUIET)]
+    assert executed[:13] == [links.PASS, links.PASS_INDEX, "ANALYZE link_pass", links.PRESENCE.format(**links.FULL),
+                             links.PRESENCE_INDEX,
+                             "ANALYZE presence", links.AGAINST, links.STAFF_TEST, links.CLASSROOM, links.HOUSEHOLD,
+                             links.BELOW_FLOOR, links.UPSERT_SQL, links.SWEEP]
+    assert executed[-1] == "commit"
     assert "9 link(s) kept, 4 written, 1 dropped" in capsys.readouterr().out
 
 
@@ -189,12 +189,12 @@ def test_a_home_range_only_counts_alongside_another_family():
 
 
 def test_each_signal_reads_the_evidence_built_for_it():
-    held = links.signals()
+    signals = links.signals()
 
-    stable, _ = links.evidence("ip_stable", held["ip_stable"], 2)
-    hourly, _ = links.evidence("ip_hourly", held["ip_hourly"], 2)
-    domain, _ = links.evidence("email_domain", held["email_domain"], 2)
-    together, args = links.evidence("joined_together", held["joined_together"], 2)
+    stable, _ = links.evidence("ip_stable", signals["ip_stable"], 2)
+    hourly, _ = links.evidence("ip_hourly", signals["ip_hourly"], 2)
+    domain, _ = links.evidence("email_domain", signals["email_domain"], 2)
+    together, args = links.evidence("joined_together", signals["joined_together"], 2)
 
     assert "FROM sighting" in stable and "class = 'stable'" in stable
     assert "HAVING sum(s.seen) >= 2" in stable
@@ -228,19 +228,19 @@ def test_the_country_check_reads_only_the_members_of_candidate_links():
 
 
 def test_a_word_for_word_build_is_device_evidence_and_ja4_only_backs_it_up():
-    held = links.signals()
+    signals = links.signals()
 
-    assert held["device_agent"]["family"] == "device"
-    assert held["device_agent"]["corroborating"] is True
-    assert held["device_ja4"]["corroborating"] is True
-    assert held["device_agent"]["crowd_ceiling"] <= 25
+    assert signals["device_agent"]["family"] == "device"
+    assert signals["device_agent"]["corroborating"] is True
+    assert signals["device_ja4"]["corroborating"] is True
+    assert signals["device_agent"]["crowd_ceiling"] <= 25
 
 
 def test_device_evidence_reads_the_full_agent_and_the_anomaly_fingerprint():
-    held = links.signals()
+    signals = links.signals()
 
-    agent, _ = links.evidence("device_agent", held["device_agent"], 2)
-    ja4, _ = links.evidence("device_ja4", held["device_ja4"], 2)
+    agent, _ = links.evidence("device_agent", signals["device_agent"], 2)
+    ja4, _ = links.evidence("device_ja4", signals["device_ja4"], 2)
 
     assert "u.ua AS value" in agent and f"length(u.ua) >= {links.SHORTEST_AGENT}" in agent
     assert "client_ja4_fingerprint" in ja4 and "action = 'anomaly'" in ja4
@@ -248,8 +248,8 @@ def test_device_evidence_reads_the_full_agent_and_the_anomaly_fingerprint():
 
 
 def test_a_shared_build_alone_stays_below_strong():
-    held = links.signals()
-    assert held["device_agent"]["weight"] < links.scoring()["strong"]
+    signals = links.signals()
+    assert signals["device_agent"]["weight"] < links.scoring()["strong"]
     assert links.families()["device"]["cap"] < links.scoring()["strong"]
 
 
@@ -268,9 +268,9 @@ def test_mailboxes_fold_aliases_and_leave_out_staff_domains():
 
 
 def test_names_skip_bots_and_renamed_deactivated_accounts():
-    held = links.signals()
+    signals = links.signals()
     for name in ("full_name", "display_name", "handle_stem", "handle_stem_long"):
-        sql, _ = links.evidence(name, held[name], 2)
+        sql, _ = links.evidence(name, signals[name], 2)
         assert "NOT" in sql and "is_bot" in sql
         assert "position('deactivateduser' IN lower(" in sql
         assert f">= {links.SHORTEST_NAME}" in sql or f">= {links.SHORTEST_LONG_STEM}" in sql
@@ -331,11 +331,11 @@ def test_the_labels_match_the_table_check():
 
 
 def test_household_and_classroom_lower_the_score_and_staff_test_only_labels():
-    held = links.labels()
+    labels = links.labels()
 
-    assert held["household"]["weight"] < 0
-    assert held["classroom"]["weight"] < 0
-    assert "weight" not in held["staff_test"]
+    assert labels["household"]["weight"] < 0
+    assert labels["classroom"]["weight"] < 0
+    assert "weight" not in labels["staff_test"]
     assert "score" not in links.STAFF_TEST
 
 
@@ -357,8 +357,8 @@ def test_a_household_needs_one_home_line_a_shared_surname_and_two_first_names():
 
 
 def test_a_label_change_is_written_like_any_other_change():
-    assert "label = EXCLUDED.label" in links.LAND
-    assert "EXCLUDED.label)" in links.LAND
+    assert "label = EXCLUDED.label" in links.UPSERT_SQL
+    assert "EXCLUDED.label)" in links.UPSERT_SQL
 
 
 def test_every_temp_table_is_analysed_before_it_is_joined():
@@ -391,14 +391,14 @@ def test_a_shared_name_only_backs_other_evidence_up():
 
 
 def test_a_long_shared_handle_stem_links_on_its_own_but_stays_below_strong():
-    held = links.signals()["handle_stem_long"]
-    sql, args = links.evidence("handle_stem_long", held, 2)
+    signal = links.signals()["handle_stem_long"]
+    sql, args = links.evidence("handle_stem_long", signal, 2)
 
-    assert not held.get("corroborating")
-    assert held["family"] == "name"
+    assert not signal.get("corroborating")
+    assert signal["family"] == "name"
     assert f">= {links.SHORTEST_LONG_STEM}" in sql and links.SHORTEST_LONG_STEM >= 8
     assert args["ceiling"] >= 14
-    assert held["weight"] * 0.8 >= links.scoring()["floor"]
+    assert signal["weight"] * 0.8 >= links.scoring()["floor"]
     assert links.families()["name"]["cap"] < links.scoring()["strong"]
 
 
@@ -426,16 +426,16 @@ def test_a_home_address_on_a_busy_range_does_not_count():
 
 
 def test_a_burst_needs_the_same_exit_hour_and_browser_and_joins_in_the_same_week():
-    held = links.signals()["ip_burst"]
-    sql, args = links.evidence("ip_burst", held, 2)
+    signal = links.signals()["ip_burst"]
+    sql, args = links.evidence("ip_burst", signal, 2)
 
-    assert sql == links.BURST.format(**links.names_for(links.FULL, held, 2))
+    assert sql == links.BURST.format(**links.names_for(links.FULL, signal, 2))
     assert "JOIN fd.member_joins j" in sql
     assert "make_interval(days => %(window)s)" in sql
     assert "md5(u.ua)" in sql and "'rotating', 'vpn', 'hosting', 'tor'" in sql
-    assert args == {"weight": held["weight"], "ceiling": 8, "window": 7}
+    assert args == {"weight": signal["weight"], "ceiling": 8, "window": 7}
     assert "{" not in sql
-    assert held["weight"] >= links.scoring()["floor"]
+    assert signal["weight"] >= links.scoring()["floor"]
     assert "ip_burst" in links.COLLAPSED
 
 
@@ -452,8 +452,8 @@ def test_every_signal_has_evidence_built_for_it():
 
 
 def test_the_finder_writes_the_links_table_the_web_reads():
-    assert "INSERT INTO fd.member_link\n" in links.LAND
-    assert "top_signal = EXCLUDED.top_signal" in links.LAND
+    assert "INSERT INTO fd.member_link\n" in links.UPSERT_SQL
+    assert "top_signal = EXCLUDED.top_signal" in links.UPSERT_SQL
     assert "DELETE FROM fd.member_link l" in links.SWEEP
 
 
@@ -461,8 +461,8 @@ def test_the_full_rebuild_keeps_what_the_live_lane_needs():
     import inspect
 
     passed = inspect.getsource(links.run)
-    assert "keep_wholes(conn, wholes)" in passed
-    assert "KEEP_SHARED" in inspect.getsource(links.mark_shared)
+    assert "save_wholes(conn, wholes)" in passed
+    assert "SAVE_SHARED_SQL" in inspect.getsource(links.mark_shared)
     assert "rarity(%(whole)s::numeric, k.people)" in links.PAIRS_SQL
     assert "rarity(%(whole)s::numeric, k.people)" in links.TOGETHER_SQL
 

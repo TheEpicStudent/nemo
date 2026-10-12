@@ -59,16 +59,16 @@ class FdCasePageTest < ActionDispatch::IntegrationTest
   end
 
   test "the sidebar names the people on the other cases it lists" do
-    them = Fd::Member.live.where.not(display_name: [nil, ""]).order(:user_id).first
-    skip "the corpus has no named member" if them.nil?
-    other = make_case(subject: them.user_id, opened_at: 1.hour.ago)
+    named_member = Fd::Member.live.where.not(display_name: [nil, ""]).order(:user_id).first
+    skip "the corpus has no named member" if named_member.nil?
+    other = make_case(subject: named_member.user_id, opened_at: 1.hour.ago)
 
     get fd_case_path(@kase)
 
     assert_response :success
     assert_not_equal other.id, @kase.id
-    assert @controller.view_assigns["names"].known?(them.user_id),
+    assert @controller.view_assigns["names"].known?(named_member.user_id),
       "the sidebar lists other cases, so their people must be named too"
-    assert_equal them.name, @controller.view_assigns["names"][them.user_id]
+    assert_equal named_member.name, @controller.view_assigns["names"][named_member.user_id]
   end
 end

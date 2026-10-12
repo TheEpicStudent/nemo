@@ -18,7 +18,7 @@ export default class extends Controller {
   disconnect() {
     this.element.removeEventListener("keydown", this.onKeys)
     this.element.removeEventListener("toggle", this.onToggle)
-    this.unwatch()
+    this.removeListeners()
   }
 
   get pop() {
@@ -32,26 +32,26 @@ export default class extends Controller {
     if (!this.element.open) {
       if (pop.matches(":popover-open")) pop.hidePopover()
       clearPop(pop)
-      this.unwatch()
+      this.removeListeners()
       return
     }
 
     if (pop.hasAttribute("popover") && !pop.matches(":popover-open")) pop.showPopover()
-    this.place()
+    this.position()
     window.addEventListener("resize", this.onMove)
     document.addEventListener("scroll", this.onMove, true)
   }
 
   onMove() {
-    if (this.element.open) this.place()
+    if (this.element.open) this.position()
   }
 
-  unwatch() {
+  removeListeners() {
     window.removeEventListener("resize", this.onMove)
     document.removeEventListener("scroll", this.onMove, true)
   }
 
-  place() {
+  position() {
     placePop(this.pop, this.summary)
   }
 
@@ -66,7 +66,7 @@ export default class extends Controller {
 
   onKeys(event) {
     if (event.key === "Escape") return this.shut(event)
-    if (event.key === "Enter" || event.key === " ") return this.pick(event)
+    if (event.key === "Enter" || event.key === " ") return this.activateItem(event)
 
     const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0
     if (step !== 0) this.move(event, step)
@@ -80,7 +80,7 @@ export default class extends Controller {
     this.summary?.focus()
   }
 
-  pick(event) {
+  activateItem(event) {
     const label = event.target.closest("label[tabindex]")
     if (!label || !this.element.contains(label)) return
 
@@ -92,14 +92,14 @@ export default class extends Controller {
   move(event, step) {
     if (event.target === this.summary && !this.element.open) return
 
-    const all = this.items
-    if (all.length === 0) return
+    const items = this.items
+    if (items.length === 0) return
 
     event.preventDefault()
     if (!this.element.open) this.element.setAttribute("open", "")
 
-    const at = all.indexOf(document.activeElement)
-    const next = at < 0 ? (step > 0 ? 0 : all.length - 1) : (at + step + all.length) % all.length
-    all[next].focus()
+    const at = items.indexOf(document.activeElement)
+    const next = at < 0 ? (step > 0 ? 0 : items.length - 1) : (at + step + items.length) % items.length
+    items[next].focus()
   }
 }

@@ -11,22 +11,22 @@ module Slack
     Body = Struct.new(:bytes, :kind, keyword_init: true)
 
     def self.file(method, params = {}, read_timeout: 30)
-      answer = sent(URI("#{base_url}/file"), {
+      response = post_json(URI("#{base_url}/file"), {
         "method" => method, "params" => params.compact, "credential" => "admin"
       }, read_timeout)
 
-      case answer
+      case response
       when Net::HTTPSuccess
-        Body.new(bytes: answer.body, kind: answer["Content-Type"])
+        Body.new(bytes: response.body, kind: response["Content-Type"])
       when Net::HTTPBadGateway
-        detail = detail_of(answer)
+        detail = detail_of(response)
         raise detail.to_s.start_with?("invalid_auth") ? AuthError.new(detail) : ApiError.new(detail)
       else
-        raise UnavailableError, "proxy returned #{answer.code}: #{detail_of(answer)}"
+        raise UnavailableError, "proxy returned #{response.code}: #{detail_of(response)}"
       end
     end
 
-    def self.sent(uri, body, read_timeout)
+    def self.post_json(uri, body, read_timeout)
       request = Net::HTTP::Post.new(uri)
       request["Content-Type"] = "application/json"
       request["Authorization"] = "Bearer #{token}"

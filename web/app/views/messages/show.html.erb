@@ -13,7 +13,7 @@
   <%= open_in_slack Fd::SlackLink.url_for(@channel_id, @ts) %>
 <% end %>
 
-<% if !@shown %>
+<% if !@activity_visible %>
   <div class="lede">
     <%= lede_icon %>
     <span class="lede-note">
@@ -39,7 +39,7 @@
   <div class="stack ma">
     <article class="card message-activity-post">
       <header class="message-activity-post-head">
-        <%= face(@post.author_id, css: "row-avatar message-activity-face") %>
+        <%= avatar(@post.author_id, css: "row-avatar message-activity-face") %>
         <span class="msg-who"><%= person_name(@post.author_id) %></span>
         <span class="msg-at">
           <%= @post.posted_at.in_time_zone(viewer_zone).strftime("%-d %b %Y, %H:%M") %>
@@ -47,22 +47,22 @@
       </header>
 
       <div class="message-activity-post-body">
-        <% if @found&.message %>
-          <%= Slack::RichText.for(@found.message, names: @names, channels: @rooms, emoji: @emoji) %>
+        <% if @slack_message&.message %>
+          <%= Slack::RichText.for(@slack_message.message, names: @names, channels: @rooms, emoji: @emoji) %>
         <% else %>
           <p class="msg-gone">Slack did not return the message.</p>
         <% end %>
       </div>
 
-      <% files = Messages::File.listed(@found&.message) %>
+      <% files = Messages::File.listed(@slack_message&.message) %>
       <% if files.any? %>
         <div class="post-files">
-          <% files.each do |one| %>
-            <% url = message_file_path(@channel_id, @ts, one["id"]) %>
-            <% if Messages::File.image?(one) %>
-              <%= image_tag url, alt: one["name"].to_s, class: "post-image", loading: "lazy" %>
+          <% files.each do |file| %>
+            <% url = message_file_path(@channel_id, @ts, file["id"]) %>
+            <% if Messages::File.image?(file) %>
+              <%= image_tag url, alt: file["name"].to_s, class: "post-image", loading: "lazy" %>
             <% else %>
-              <%= link_to one["name"].presence || one["id"], url, class: "chip post-file" %>
+              <%= link_to file["name"].presence || file["id"], url, class: "chip post-file" %>
             <% end %>
           <% end %>
         </div>
@@ -121,7 +121,7 @@
                 <span class="triad-sep">&middot;</span>
                 <%= window_label(stats.window_seconds(@span)) %> after posting
                 <span class="triad-sep">&middot;</span>
-                <%= number_with_delimiter(stats.seen_within(@span)) %> of
+                <%= number_with_delimiter(stats.viewers_within(@span)) %> of
                 <%= number_with_delimiter(stats.viewers) %> viewers<%= " so far" if stats.partial?(@span) %>
               </p>
             </div>

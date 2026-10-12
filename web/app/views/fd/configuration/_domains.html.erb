@@ -21,20 +21,20 @@
             </tr>
           </thead>
           <tbody>
-            <% domains.each do |one| %>
+            <% domains.each do |blocked_domain| %>
               <tr>
-                <td><span class="mono"><%= one.domain %></span></td>
-                <td><%= domain_match_chip(one) %></td>
-                <td><%= domain_effect_chip(one) %></td>
-                <td class="<%= "is-none" if one.people_here.zero? %>">
-                  <%= one.people_here.zero? ? "nobody" : pluralize(one.people_here, "account") %>
+                <td><span class="mono"><%= blocked_domain.domain %></span></td>
+                <td><%= domain_match_chip(blocked_domain) %></td>
+                <td><%= domain_effect_chip(blocked_domain) %></td>
+                <td class="<%= "is-none" if blocked_domain.account_count.zero? %>">
+                  <%= blocked_domain.account_count.zero? ? "nobody" : pluralize(blocked_domain.account_count, "account") %>
                 </td>
                 <td>
-                  <%= member_face(one.added_by, small: true) %>
-                  <span class="sub2"><%= on_day(one.added_at) %></span>
+                  <%= member_face(blocked_domain.added_by, small: true) %>
+                  <span class="sub2"><%= on_day(blocked_domain.added_at) %></span>
                 </td>
                 <td class="col-num">
-                  <%= button_to "Remove", fd_blocked_domain_path(one),
+                  <%= button_to "Remove", fd_blocked_domain_path(blocked_domain),
                         method: :delete, class: "btn btn-sm" %>
                 </td>
               </tr>

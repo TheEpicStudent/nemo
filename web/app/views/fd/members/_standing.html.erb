@@ -9,13 +9,13 @@
              <%= tag.attributes(data: {
                    controller: ("deactivate" if guard.deactivation?),
                    enforcement_status: (guard.enforcement_state if guard.deactivation?),
-                   landed: (guard.landed?.to_s if guard.deactivation?)
+                   landed: (guard.recently_updated?.to_s if guard.deactivation?)
                  }.compact) %>>
           <span class="evdot <%= guard_dot_tone(guard) %>">
             <%= case_action_icon("gauge") %>
           </span>
           <span class="grow standing-line">
-            <b><%= guard_held_line(guard) %></b>
+            <b><%= guard_line(guard) %></b>
             <span class="sub"><%= guard_footnote(guard, names) %></span>
             <% if guard.deactivation? %>
               <span class="enforcement-state"><%= guard_enforcement_label(guard) %></span>
@@ -61,7 +61,7 @@
               </div>
               <div class="modal-foot">
                 <button type="button" class="btn btn-ghost"
-                        data-action="click->modal#shut">Cancel</button>
+                        data-action="click->modal#close">Cancel</button>
                 <%= submit_tag guard.deactivation? ? "Activate" : "Lift it",
                       class: "btn btn-danger" %>
               </div>

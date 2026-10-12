@@ -7,31 +7,31 @@ export default class extends Controller {
 
   connect() {
     if (!this.rowTargets.length) this.add()
-    this.rowTargets.forEach((row) => this.fit(row))
+    this.rowTargets.forEach((row) => this.syncRow(row))
   }
 
   add() {
     if (this.rowTargets.length >= MAX) return
 
-    const mark = this.rowTargets.length + Date.now() % 1000
+    const rowIndex = this.rowTargets.length + Date.now() % 1000
     this.rowsTarget.insertAdjacentHTML("beforeend",
-      this.blankTarget.innerHTML.replaceAll("__i__", String(mark)))
+      this.blankTarget.innerHTML.replaceAll("__i__", String(rowIndex)))
     const row = this.rowTargets[this.rowTargets.length - 1]
-    this.fit(row)
+    this.syncRow(row)
     row.querySelector("select")?.focus()
   }
 
-  drop(event) {
+  removeRow(event) {
     event.target.closest("[data-conditions-target='row']")?.remove()
     if (!this.rowTargets.length) this.add()
   }
 
   swap(event) {
-    this.fit(event.target.closest("[data-conditions-target='row']"))
+    this.syncRow(event.target.closest("[data-conditions-target='row']"))
   }
 
   // the operator list and the number of value boxes both follow the field's kind
-  fit(row) {
+  syncRow(row) {
     if (!row) return
 
     const field = row.querySelector(".cond-field")
@@ -41,10 +41,10 @@ export default class extends Controller {
     const key = field.value
     let first = null
     ops.querySelectorAll("optgroup").forEach((group) => {
-      const mine = group.dataset.for === key
-      group.hidden = !mine
-      group.disabled = !mine
-      if (mine && !first) first = group.querySelector("option")
+      const matchesField = group.dataset.for === key
+      group.hidden = !matchesField
+      group.disabled = !matchesField
+      if (matchesField && !first) first = group.querySelector("option")
     })
     if (ops.selectedOptions[0]?.closest("optgroup")?.dataset.for !== key && first) {
       first.selected = true

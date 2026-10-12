@@ -1,16 +1,16 @@
 module Fd
   class MergePlan
-    def self.for(from, into, keeper: nil)
-      new([from, into], keeper: keeper)
+    def self.for(from, into, primary: nil)
+      new([from, into], primary: primary)
     end
 
-    def self.over(cases, keeper: nil)
-      new(cases, keeper: keeper)
+    def self.over(cases, primary: nil)
+      new(cases, primary: primary)
     end
 
-    def initialize(all, keeper: nil)
+    def initialize(all, primary: nil)
       @all = Array(all).compact.uniq(&:id)
-      @asked = keeper
+      @requested_primary_id = primary
     end
 
     attr_reader :all
@@ -27,16 +27,16 @@ module Fd
       all.size == 2
     end
 
-    def keeper
-      @keeper ||= all.find { |one| one.id == @asked.to_i } || all.min_by(&:opened_at)
+    def primary
+      @primary ||= all.find { |kase| kase.id == @requested_primary_id.to_i } || all.min_by(&:opened_at)
     end
 
-    def folded_cases
-      @folded_cases ||= all.reject { |one| one.id == keeper.id }
+    def merged_cases
+      @merged_cases ||= all.reject { |kase| kase.id == primary.id }
     end
 
-    def folded
-      folded_cases.first
+    def merged
+      merged_cases.first
     end
 
     def reports = both { |kase| kase.reports.size }

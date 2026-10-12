@@ -10,21 +10,21 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     post fd_case_assignees_path(@kase), params: { user_id: "UNEW" }.merge(params)
   end
 
-  def held
+  def assignee_ids
     @kase.reload.assignee_user_ids
   end
 
   test "a signed out visitor cannot assign anybody" do
     add
     assert_redirected_to login_path
-    assert_empty held
+    assert_empty assignee_ids
   end
 
   test "assigning somebody puts them on the case" do
     sign_in_as(@me)
     add
 
-    assert_equal ["UNEW"], held
+    assert_equal ["UNEW"], assignee_ids
     assert_match(/@UNEW is now on the case/, flash[:notice])
   end
 
@@ -33,7 +33,7 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
     add
 
-    assert_equal %w[UNEW UOTHER], held.sort
+    assert_equal %w[UNEW UOTHER], assignee_ids.sort
     assert_nil flash[:alert]
   end
 
@@ -42,7 +42,7 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     add
     add
 
-    assert_equal ["UNEW"], held
+    assert_equal ["UNEW"], assignee_ids
     assert_match(/already on this case, nothing changed/, flash[:notice])
   end
 
@@ -50,7 +50,7 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
     post fd_case_assignees_path(@kase), params: { user_ids: %w[UONE UTWO] }
 
-    assert_equal %w[UONE UTWO], held.sort
+    assert_equal %w[UONE UTWO], assignee_ids.sort
     assert_match(/@UONE and @UTWO are now on the case/, flash[:notice])
   end
 
@@ -59,7 +59,7 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     add(user_id: "UONE")
     post fd_case_assignees_path(@kase), params: { user_ids: %w[UONE UTWO] }
 
-    assert_equal %w[UONE UTWO], held.sort
+    assert_equal %w[UONE UTWO], assignee_ids.sort
     assert_match(/@UTWO is now on the case, 1 already there/, flash[:notice])
   end
 
@@ -67,14 +67,14 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
     add(user_id: "  @unew  ")
 
-    assert_equal ["UNEW"], held
+    assert_equal ["UNEW"], assignee_ids
   end
 
   test "a display name instead of a member id is refused" do
     sign_in_as(@me)
     add(user_id: "bob")
 
-    assert_empty held
+    assert_empty assignee_ids
     assert_match(/does not look like a Slack member id/, flash[:alert])
   end
 
@@ -83,7 +83,7 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
     add
 
-    assert_empty held
+    assert_empty assignee_ids
     assert_match(/already resolved/, flash[:alert])
   end
 
@@ -103,7 +103,7 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     add(user_id: "UWRONG")
     delete fd_case_assignee_path(@kase, "UWRONG")
 
-    assert_empty held
+    assert_empty assignee_ids
     entry = Fd::AuditEntry.where(entity_type: "assignee", entity_id: @kase.id,
       verb: "detached").sole
     assert_equal "UWRONG", entry.before["user_id"]
@@ -134,6 +134,6 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
     delete fd_case_assignee_path(@kase, "UWRONG")
 
-    assert_empty held
+    assert_empty assignee_ids
   end
 end

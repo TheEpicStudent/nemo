@@ -6,7 +6,7 @@
   <% if posts.any? %>
     <% posts.each do |post| %>
       <div class="post">
-        <%= face(post.author_id, css: "row-avatar post-face") %>
+        <%= avatar(post.author_id, css: "row-avatar post-face") %>
         <div class="post-main">
           <div class="msg-head">
             <span class="msg-who"><%= person_name(post.author_id) %></span>
@@ -23,12 +23,12 @@
 
           <% if post.files.any? %>
             <div class="post-files">
-              <% post.files.each do |one| %>
-                <% url = message_file_path(post.channel_id, post.ts, one["id"]) %>
-                <% if Messages::File.image?(one) %>
-                  <%= image_tag url, alt: one["name"].to_s, class: "post-image", loading: "lazy" %>
+              <% post.files.each do |file| %>
+                <% url = message_file_path(post.channel_id, post.ts, file["id"]) %>
+                <% if Messages::File.image?(file) %>
+                  <%= image_tag url, alt: file["name"].to_s, class: "post-image", loading: "lazy" %>
                 <% else %>
-                  <%= link_to one["name"].presence || one["id"], url, class: "chip post-file" %>
+                  <%= link_to file["name"].presence || file["id"], url, class: "chip post-file" %>
                 <% end %>
               <% end %>
             </div>
@@ -37,15 +37,15 @@
           <div class="post-foot">
             <% if post.reactions_label.any? %>
               <span class="post-rxns">
-                <% post.reactions_label.each do |one| %>
+                <% post.reactions_label.each do |reaction| %>
                   <span class="chip post-rxn">
-                    <% if emoji[one["name"]].present? %>
-                      <%= image_tag emoji[one["name"]], alt: ":#{one['name']}:",
+                    <% if emoji[reaction["name"]].present? %>
+                      <%= image_tag emoji[reaction["name"]], alt: ":#{reaction['name']}:",
                             class: "richtext-emoji-img", loading: "lazy", width: 16, height: 16 %>
                     <% else %>
-                      :<%= one["name"] %>:
+                      :<%= reaction["name"] %>:
                     <% end %>
-                    <%= one["count"] %>
+                    <%= reaction["count"] %>
                   </span>
                 <% end %>
               </span>

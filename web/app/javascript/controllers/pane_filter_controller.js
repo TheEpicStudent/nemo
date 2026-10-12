@@ -19,7 +19,7 @@ export default class extends Controller {
       this.queryTarget.focus()
     }
     document.addEventListener("keydown", this.onKey)
-    this.served = this.queryTarget.value.trim().length > 0
+    this.serverFiltered = this.queryTarget.value.trim().length > 0
   }
 
   disconnect() {
@@ -28,37 +28,37 @@ export default class extends Controller {
     this.request?.abort()
   }
 
-  pick(event) {
+  applyTerm(event) {
     this.queryTarget.value = event.params.term || ""
     this.filter()
   }
 
   filter() {
     const term = this.queryTarget.value.trim().toLocaleLowerCase()
-    let shown = 0
+    let visibleCount = 0
 
-    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
 
     this.rowTargets.forEach((row) => {
       const matches = !term || row.textContent.toLocaleLowerCase().includes(term)
       const changed = matches === row.hidden
       row.hidden = !matches
-      if (matches && changed && !still) {
+      if (matches && changed && !reducedMotion) {
         row.animate(
           [{ opacity: 0, transform: "translateY(2px)" }, { opacity: 1, transform: "none" }],
           { duration: 150, easing: "cubic-bezier(0.16, 1, 0.3, 1)" }
         )
       }
-      if (matches) shown += 1
+      if (matches) visibleCount += 1
     })
 
-    if (this.hasEmptyTarget) this.emptyTarget.hidden = shown > 0
+    if (this.hasEmptyTarget) this.emptyTarget.hidden = visibleCount > 0
 
     clearTimeout(this.timer)
     if (!this.hasUrlValue) return
-    if (shown === 0 && term.length >= this.minValue) {
+    if (visibleCount === 0 && term.length >= this.minValue) {
       this.timer = setTimeout(() => this.search(term), this.waitValue)
-    } else if (!term && (this.replaced || this.served)) {
+    } else if (!term && (this.replaced || this.serverFiltered)) {
       this.timer = setTimeout(() => this.search(""), this.waitValue)
     }
   }
@@ -83,13 +83,13 @@ export default class extends Controller {
 
     this.replace(html)
     this.replaced = term.length > 0
-    this.served = this.replaced
+    this.serverFiltered = this.replaced
   }
 
   replace(html) {
-    const holder = document.createElement("div")
-    holder.innerHTML = html
-    const next = holder.querySelector("template[data-expand-next]")
+    const container = document.createElement("div")
+    container.innerHTML = html
+    const next = container.querySelector("template[data-expand-next]")
     next?.remove()
 
     let listbox = this.listTarget.querySelector(`#${this.listIdValue}`)
@@ -101,18 +101,18 @@ export default class extends Controller {
       listbox.setAttribute("aria-label", this.labelValue)
       this.listTarget.prepend(listbox)
     }
-    listbox.replaceChildren(...holder.children)
+    listbox.replaceChildren(...container.children)
 
     this.listTarget.querySelector(".pane-more")?.remove()
     if (next) {
-      const expand = document.createElement("div")
-      more.className = "pane-more"
-      more.setAttribute("aria-hidden", "true")
-      more.dataset.controller = "expand"
-      more.dataset.moreIntoValue = this.listIdValue
-      more.dataset.moreUrlValue = next.dataset.moreNext
-      more.innerHTML = '<i class="dot run"></i>'
-      listbox.after(more)
+      const expander = document.createElement("div")
+      expander.className = "pane-more"
+      expander.setAttribute("aria-hidden", "true")
+      expander.dataset.controller = "expand"
+      expander.dataset.expandIntoValue = this.listIdValue
+      expander.dataset.expandUrlValue = next.dataset.expandNext
+      expander.innerHTML = '<i class="dot run"></i>'
+      listbox.after(expander)
     }
 
     if (this.hasEmptyTarget) this.emptyTarget.hidden = this.rowTargets.length > 0

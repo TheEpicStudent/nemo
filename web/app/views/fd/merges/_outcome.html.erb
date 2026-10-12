@@ -1,8 +1,8 @@
 <%= form_with url: fd_merge_cases_path, method: :post, data: { turbo_frame: "_top" } do %>
-  <% plan.all.each do |one| %>
-    <%= hidden_field_tag "case_ids[]", one.id, id: nil %>
+  <% plan.all.each do |kase| %>
+    <%= hidden_field_tag "case_ids[]", kase.id, id: nil %>
   <% end %>
-  <% local_assigns.fetch(:carry, {}).each do |key, value| %>
+  <% local_assigns.fetch(:query_params, {}).each do |key, value| %>
     <%= hidden_field_tag key, value, id: nil %>
   <% end %>
 
@@ -12,24 +12,24 @@
       <%= merge_thread_line(plan) %>
       <%= merge_fold_line(plan) %>
     </p>
-    <p class="merge-counts">Then on #<%= plan.keeper.id %>: <%= merge_counts(plan) %></p>
+    <p class="merge-counts">Then on #<%= plan.primary.id %>: <%= merge_counts(plan) %></p>
 
-    <% if local_assigns[:keep_url] %>
+    <% if local_assigns[:primary_case_url] %>
       <div class="merge-keep">
-        <% plan.all.each do |one| %>
-          <%= link_to keep_url.call(one), class: "merge-swap",
+        <% plan.all.each do |kase| %>
+          <%= link_to primary_case_url.call(kase), class: "merge-swap",
                 data: { turbo_frame: "merge-body" },
-                aria: { current: ("true" if one.id == plan.keeper.id) } do %>
-            #<%= one.id %> holds them
+                aria: { current: ("true" if kase.id == plan.primary.id) } do %>
+            #<%= kase.id %> holds them
           <% end %>
         <% end %>
       </div>
     <% end %>
-    <%= hidden_field_tag :duplicate_of, plan.keeper.id, id: nil %>
+    <%= hidden_field_tag :duplicate_of, plan.primary.id, id: nil %>
   </div>
 
   <div class="merge-act">
-    <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Cancel</button>
-    <%= submit_tag "Merge into ##{plan.keeper.id}", class: "btn btn-primary" %>
+    <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
+    <%= submit_tag "Merge into ##{plan.primary.id}", class: "btn btn-primary" %>
   </div>
 <% end %>

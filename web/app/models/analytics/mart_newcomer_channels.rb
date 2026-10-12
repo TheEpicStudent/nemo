@@ -51,13 +51,13 @@ module Analytics
             mature: mature, size: size.to_i)
         end
         .group_by(&:default?)
-        .then { |held| held.fetch(true, []) + held.fetch(false, []).first(MONTHS_OFFERED) }
+        .then { |grouped| grouped.fetch(true, []) + grouped.fetch(false, []).first(MONTHS_OFFERED) }
     end
     private_class_method :read_cohorts
 
     def self.cohort(key, among: cohorts)
-      asked = key.to_s
-      among.find { |c| c.key == asked } || among.find(&:default?) || among.first
+      requested = key.to_s
+      among.find { |c| c.key == requested } || among.find(&:default?) || among.first
     end
 
     def self.ranked(key, floor:, cohort: DEFAULT_COHORT, limit: 10)

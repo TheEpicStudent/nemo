@@ -90,28 +90,28 @@ def test_the_note_is_flattened_for_the_record():
 class Conn:
     def __init__(self, rows=None):
         self.rows = rows or {}
-        self.ran = []
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def fetchone(self):
         for mark, row in self.rows.items():
-            if mark in self.ran[-1][0]:
+            if mark in self.executed[-1][0]:
                 return row
         return None
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.executed if mark in sql]
 
 
 def test_keeping_a_note_writes_the_rich_text_and_the_words():
     conn = Conn()
     note = rich_text("we removed this")
-    guards.keep_note(conn, 9, note, "we removed this")
+    guards.set_note(conn, 9, note, "we removed this")
 
-    rich, text, guard_id = conn.did("SET note_rich")[0]
+    rich, text, guard_id = conn.args_for("SET note_rich")[0]
     assert json.loads(rich) == note
     assert text == "we removed this"
     assert guard_id == 9
@@ -123,19 +123,19 @@ class Client:
         self.blows_up = blows_up
         self.posted = []
 
-    def chat_postMessage(self, **asked):
+    def chat_postMessage(self, **kwargs):
         if self.blows_up:
             raise RuntimeError("channel_not_found")
-        self.posted.append(asked)
+        self.posted.append(kwargs)
         return self.answer
 
 
-def hold(monkeypatch, kept, seen=None):
+def install_fakes(monkeypatch, note_row, posted_ts=None):
     conn = Conn()
-    kept_seen = [] if seen is None else seen
-    monkeypatch.setattr(guards, "note_for", lambda _conn, _gid: kept)
+    posted_calls = [] if posted_ts is None else posted_ts
+    monkeypatch.setattr(guards, "note_for", lambda _conn, _gid: note_row)
     monkeypatch.setattr(guards, "note_posted",
-                        lambda _conn, gid, ts: kept_seen.append((gid, ts)))
+                        lambda _conn, gid, ts: posted_calls.append((gid, ts)))
     monkeypatch.setattr(guard_actions, "session", lambda: _Session(conn))
     return conn
 
@@ -152,7 +152,7 @@ class _Session:
 
 
 def test_no_note_means_nothing_is_posted(monkeypatch):
-    hold(monkeypatch, (None, None, None))
+    install_fakes(monkeypatch, (None, None, None))
     client = Client()
 
     assert guard_actions.leave_note(client, 9, "C1", "100.000", "UMOD") is None
@@ -160,24 +160,24 @@ def test_no_note_means_nothing_is_posted(monkeypatch):
 
 
 def test_the_note_is_posted_into_the_thread_and_signed(monkeypatch):
-    seen = []
+    posted_ts = []
     note = rich_text("we removed this")
-    hold(monkeypatch, (note, "we removed this", None), seen)
+    install_fakes(monkeypatch, (note, "we removed this", None), posted_ts)
     client = Client()
 
     ts = guard_actions.leave_note(client, 9, "C1", "100.000", "UMOD")
 
     assert ts == "100.500"
-    assert seen == [(9, "100.500")]
-    sent = client.posted[0]
-    assert sent["thread_ts"] == "100.000"
-    assert sent["text"] == "we removed this"
-    assert sent["blocks"][0] == note
-    assert "<@UMOD>" in sent["blocks"][1]["elements"][0]["text"]
+    assert posted_ts == [(9, "100.500")]
+    message = client.posted[0]
+    assert message["thread_ts"] == "100.000"
+    assert message["text"] == "we removed this"
+    assert message["blocks"][0] == note
+    assert "<@UMOD>" in message["blocks"][1]["elements"][0]["text"]
 
 
 def test_a_note_already_posted_is_not_posted_twice(monkeypatch):
-    hold(monkeypatch, (rich_text("x"), "x", "100.400"))
+    install_fakes(monkeypatch, (rich_text("x"), "x", "100.400"))
     client = Client()
 
     assert guard_actions.leave_note(client, 9, "C1", "100.000", "UMOD") == "100.400"
@@ -185,7 +185,7 @@ def test_a_note_already_posted_is_not_posted_twice(monkeypatch):
 
 
 def test_a_note_slack_refuses_does_not_stop_the_destroy(monkeypatch):
-    hold(monkeypatch, (rich_text("x"), "x", None))
+    install_fakes(monkeypatch, (rich_text("x"), "x", None))
     client = Client(blows_up=True)
 
     assert guard_actions.leave_note(client, 9, "C1", "100.000", "UMOD") is None

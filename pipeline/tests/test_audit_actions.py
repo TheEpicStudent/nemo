@@ -4,17 +4,17 @@ from lib import audit_actions
 
 
 def test_every_action_names_a_known_category():
-    held = audit_actions.catalogue()
-    names = set(audit_actions.categories(held))
-    for action, one in held["actions"].items():
+    catalogue = audit_actions.catalogue()
+    names = set(audit_actions.categories(catalogue))
+    for action, one in catalogue["actions"].items():
         assert one["category"] in names, action
         assert one["label"] and one["sentence"], action
 
 
 def test_every_category_holds_at_least_one_action():
-    held = audit_actions.catalogue()
-    used = {one["category"] for one in held["actions"].values()}
-    assert used == set(audit_actions.categories(held))
+    catalogue = audit_actions.catalogue()
+    used = {one["category"] for one in catalogue["actions"].values()}
+    assert used == set(audit_actions.categories(catalogue))
 
 
 def test_sentences_use_only_the_actor_and_the_entity():
@@ -31,14 +31,14 @@ def test_copy_has_no_em_dashes():
 
 
 def test_every_action_the_pull_asks_slack_for_is_catalogued():
-    wanted = set(pull.LOGIN_ACTIONS) | set(pull.CHANNEL_MEMBERSHIP_ACTIONS) | set(pull.IDENTITY_ACTIONS)
-    assert audit_actions.unknown(wanted) == []
+    action_names = set(pull.LOGIN_ACTIONS) | set(pull.CHANNEL_MEMBERSHIP_ACTIONS) | set(pull.IDENTITY_ACTIONS)
+    assert audit_actions.unknown(action_names) == []
 
 
 def test_an_unknown_action_falls_back_to_its_own_name():
-    found = audit_actions.entry("brand_new_thing")
+    entry = audit_actions.entry("brand_new_thing")
 
-    assert found == {"category": None, "label": "brand new thing", "sentence": "{actor}: brand new thing"}
+    assert entry == {"category": None, "label": "brand new thing", "sentence": "{actor}: brand new thing"}
     assert audit_actions.entry("user_login")["label"] == "Signed in"
 
 

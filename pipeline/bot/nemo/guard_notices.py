@@ -37,12 +37,12 @@ def marketplace_url(app_id):
 
 
 def footer(channel_id, link=None, app_id=None):
-    shown = (
+    links = (
         (link, "message link"),
         (marketplace_url(app_id), "marketplace"),
         (channel.channel_url(channel_id), "open in fire engine"),
     )
-    parts = [f"<{url}|{name}>" for url, name in shown if url]
+    parts = [f"<{url}|{name}>" for url, name in links if url]
     return "\n" + "  ·  ".join(parts) if parts else ""
 
 
@@ -96,8 +96,8 @@ def post(client, conn, guard_id, subject_id, events):
     thread = channelguards.open_notice_thread(conn, guard_id, subject_id, IDLE_TIMEOUT, MAX_AGE)
     planned = counts(events)
 
-    fresh = thread is None
-    if fresh:
+    is_new_thread = thread is None
+    if is_new_thread:
         try:
             sent = client.chat_postMessage(channel=log_channel, text=summary(name, room, *planned),
                                            unfurl_links=False)
@@ -123,18 +123,18 @@ def post(client, conn, guard_id, subject_id, events):
     totals = channelguards.note_event(conn, thread_id, *counts(done))
     if done:
         channelguards.noticed(conn, [one["id"] for one in done])
-    left = events[len(done):]
-    if left:
-        failed(conn, left)
+    unposted = events[len(done):]
+    if unposted:
+        failed(conn, unposted)
 
-    if not (fresh and totals == planned):
+    if not (is_new_thread and totals == planned):
         try:
             client.chat_update(channel=log_channel, ts=parent_ts,
                                text=summary(name, room, *totals))
         except Exception as failure:
             log.warning("nemo: could not update notice thread %s: %s", parent_ts, failure)
 
-    return not left
+    return not unposted
 
 
 def drain_group(client, guard_id, subject_id):

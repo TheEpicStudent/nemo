@@ -55,8 +55,8 @@ module Fd
       return nil unless pieces.size == 5
 
       pieces.map do |piece|
-        found = piece.match(SHAPE) or return nil
-        Part.new(*found.captures.map(&:to_i))
+        match = piece.match(SHAPE) or return nil
+        Part.new(*match.captures.map(&:to_i))
       end
     end
 

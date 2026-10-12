@@ -31,14 +31,14 @@ ON_A_DATE = re.compile(r"\A(\d{4})-(\d{2})-(\d{2})\Z")
 
 LONGEST_DAYS = 365
 
-ASK_FOR_SOMEBODY = {
+SUBJECT_USAGE = {
     LOOKUP: "Name somebody: */nemo lookup @them*",
     NOTE: "Name somebody: */nemo note @them what you found*",
     SHUSH: "Name somebody: */nemo shush @them 3d why*",
     CHANNEL_BAN: "Name somebody: */nemo channelban @them #channel 3d why*",
 }
 
-ASK_FOR_WORDS = {
+TEXT_USAGE = {
     NOTE: "Say what you found: */nemo note @them what you found*",
     OPEN: "Say what happened: */nemo open what happened*",
     SHUSH: "Say how long and why: */nemo shush @them 3d why*",
@@ -50,20 +50,20 @@ HOW_LONG = (
     f"Days or weeks, up to {LONGEST_DAYS} days, or a date like 2026-10-15."
 )
 
-ASK_FOR_TIME = {
+DURATION_USAGE = {
     SHUSH: HOW_LONG.format(example="/nemo shush @them 3d why"),
     CHANNEL_BAN: HOW_LONG.format(example="/nemo channelban @them #channel 3d why"),
 }
 
-ASK_FOR_CHANNEL = "Name the channel: */nemo channelban @them #channel 3d why*"
+CHANNEL_USAGE = "Name the channel: */nemo channelban @them #channel 3d why*"
 
 
-def asked(text):
+def parse_command(text):
     text = (text or "").strip()
     if not text:
         return None, None, None
 
-    first, _, rest = text.partition(" ")
+    first, _, remainder = text.partition(" ")
     number = CASE.match(first)
     if number:
         return "case", int(number.group(1)), None
@@ -72,49 +72,49 @@ def asked(text):
     if verb not in VERBS:
         return None, None, None
 
-    found = WHO.search(rest)
-    if not found:
-        return verb, None, re.sub(r"\s+", " ", rest).strip() or None
+    mention = WHO.search(remainder)
+    if not mention:
+        return verb, None, re.sub(r"\s+", " ", remainder).strip() or None
 
-    who = found.group(1)
-    body = re.sub(r"\s+", " ", rest[: found.start()] + " " + rest[found.end() :]).strip()
+    who = mention.group(1)
+    body = re.sub(r"\s+", " ", remainder[: mention.start()] + " " + remainder[mention.end() :]).strip()
     return verb, (who if MEMBER_ID.match(who) else None), body or None
 
 
 def ends_on(text):
-    found = FOR_A_WHILE.match(text)
-    if found:
-        days = int(found.group(1)) * (7 if found.group(2).lower() == "w" else 1)
+    match = FOR_A_WHILE.match(text)
+    if match:
+        days = int(match.group(1)) * (7 if match.group(2).lower() == "w" else 1)
         if not 1 <= days <= LONGEST_DAYS:
             return None
         return dt.date.today() + dt.timedelta(days=days)
 
-    found = ON_A_DATE.match(text)
-    if not found:
+    match = ON_A_DATE.match(text)
+    if not match:
         return None
 
     try:
-        on = dt.date(int(found.group(1)), int(found.group(2)), int(found.group(3)))
+        on = dt.date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
     except ValueError:
         return None
     return on if on > dt.date.today() else None
 
 
 def for_how_long(body):
-    first, _, rest = (body or "").partition(" ")
+    first, _, remainder = (body or "").partition(" ")
     on = ends_on(first)
     if on is None:
         return None, None
-    return on, re.sub(r"\s+", " ", rest).strip() or None
+    return on, re.sub(r"\s+", " ", remainder).strip() or None
 
 
 def in_a_channel(body):
-    found = WHERE.search(body or "")
-    if not found:
+    match = WHERE.search(body or "")
+    if not match:
         return None, None
 
-    text = body[: found.start()] + " " + body[found.end() :]
-    return found.group(1), re.sub(r"\s+", " ", text).strip() or None
+    text = body[: match.start()] + " " + body[match.end() :]
+    return match.group(1), re.sub(r"\s+", " ", text).strip() or None
 
 
 def message_only(text):
@@ -140,30 +140,30 @@ def bullets(entries):
     }
 
 
-def looked_up(found, names=None):
-    user_id = found["user_id"]
+def looked_up(member_record, names=None):
+    user_id = member_record["user_id"]
     blocks = [
         {
             "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*<@{user_id}>*  ·  {record.standing_line(found['in_force'])}"},
+            "text": {"type": "mrkdwn", "text": f"*<@{user_id}>*  ·  {record.in_force_line(member_record['in_force'])}"},
         },
         {
             "type": "context",
-            "elements": [{"type": "mrkdwn", "text": record.counted(found["counts"])}],
+            "elements": [{"type": "mrkdwn", "text": record.counted(member_record["counts"])}],
         },
     ]
 
-    if found["entries"]:
+    if member_record["entries"]:
         blocks.append({"type": "divider"})
-        blocks.append(bullets(found["entries"]))
-        if found["total"] > len(found["entries"]):
+        blocks.append(bullets(member_record["entries"]))
+        if member_record["total"] > len(member_record["entries"]):
             blocks.append(
                 {
                     "type": "context",
                     "elements": [
                         {
                             "type": "mrkdwn",
-                            "text": f"showing {len(found['entries'])} of {found['total']}",
+                            "text": f"showing {len(member_record['entries'])} of {member_record['total']}",
                         }
                     ],
                 }
@@ -250,11 +250,11 @@ def opened(case_id, user_id):
 
 def helped(user_id):
     with session() as conn:
-        held = {row[0] for row in conn.execute(helping.HELD, (user_id,)).fetchall()}
+        capabilities = {row[0] for row in conn.execute(helping.USER_CAPABILITIES, (user_id,)).fetchall()}
         granters = (
-            [row[0] for row in conn.execute(helping.GRANTERS).fetchall()] if not held else []
+            [row[0] for row in conn.execute(helping.GRANTERS).fetchall()] if not capabilities else []
         )
-    return helping.build_view(held, granters)
+    return helping.build_view(capabilities, granters)
 
 
 def register(app):
@@ -265,15 +265,15 @@ def register(app):
     @app.command(COMMAND)
     def on_nemo(ack, command, respond, client):
         ack()
-        verb, wanted, body = asked(command.get("text"))
+        verb, target_id, body = parse_command(command.get("text"))
         user_id = command["user_id"]
 
         if verb is None:
             return respond(**helped(user_id))
-        if verb in ABOUT_SOMEBODY and wanted is None:
-            return respond(**message_only(ASK_FOR_SOMEBODY[verb]))
+        if verb in ABOUT_SOMEBODY and target_id is None:
+            return respond(**message_only(SUBJECT_USAGE[verb]))
         if verb in NEEDS_WORDS and not body:
-            return respond(**message_only(ASK_FOR_WORDS[verb]))
+            return respond(**message_only(TEXT_USAGE[verb]))
 
         with session() as conn:
             allowed, refusal = access.may(conn, user_id, NEEDED[verb])
@@ -281,68 +281,68 @@ def register(app):
                 return respond(**message_only(refusal))
 
             if verb == MERGE:
-                keep, fold = merge.asked(body)
-                cases = case_actions.mergeable(conn, [one for one in (keep, *fold) if one])
+                target_case_id, duplicate_ids = merge.parse_case_ids(body)
+                cases = case_actions.mergeable(conn, [one for one in (target_case_id, *duplicate_ids) if one])
                 client.views_open(
-                    trigger_id=command["trigger_id"], view=merge.build_view(cases, keep, fold)
+                    trigger_id=command["trigger_id"], view=merge.build_view(cases, target_case_id, duplicate_ids)
                 )
                 return None
 
             if verb == LOOKUP:
-                answer = looked_up(record.read(conn, wanted))
+                answer = looked_up(record.read(conn, target_id))
                 audit.record(conn, "member", 0, "looked_up", user_id,
-                             after={"user_id": wanted})
+                             after={"user_id": target_id})
             elif verb == NOTE:
-                case_actions.member_note(conn, wanted, body, user_id)
+                case_actions.member_note(conn, target_id, body, user_id)
                 answer = message_only(
-                    f"noted about <@{wanted}>, and it follows them to every case"
+                    f"noted about <@{target_id}>, and it follows them to every case"
                 )
             elif verb == SHUSH:
                 on, why = for_how_long(body)
                 if on is None:
-                    answer = message_only(ASK_FOR_TIME[SHUSH])
+                    answer = message_only(DURATION_USAGE[SHUSH])
                 elif not why:
-                    answer = message_only(ASK_FOR_WORDS[SHUSH])
+                    answer = message_only(TEXT_USAGE[SHUSH])
                 else:
                     guard_id = memberguards.open_guard(
-                        conn, memberguards.SHUSH, wanted, user_id, why,
+                        conn, memberguards.SHUSH, target_id, user_id, why,
                         expires_at=f"{on} 23:59:59",
                     )
                     answer = message_only(
-                        shushed(wanted, on) if guard_id else already_shushed(wanted)
+                        shushed(target_id, on) if guard_id else already_shushed(target_id)
                     )
             elif verb == CHANNEL_BAN:
-                where, rest = in_a_channel(body)
-                on, why = for_how_long(rest)
+                where, remainder = in_a_channel(body)
+                on, why = for_how_long(remainder)
                 if where is None:
-                    answer = message_only(ASK_FOR_CHANNEL)
+                    answer = message_only(CHANNEL_USAGE)
                 elif on is None:
-                    answer = message_only(ASK_FOR_TIME[CHANNEL_BAN])
+                    answer = message_only(DURATION_USAGE[CHANNEL_BAN])
                 elif not why:
-                    answer = message_only(ASK_FOR_WORDS[CHANNEL_BAN])
+                    answer = message_only(TEXT_USAGE[CHANNEL_BAN])
                 else:
                     guard_id = memberguards.open_guard(
-                        conn, memberguards.CHANNEL_BAN, wanted, user_id, why,
+                        conn, memberguards.CHANNEL_BAN, target_id, user_id, why,
                         channel_id=where, expires_at=f"{on} 23:59:59",
                     )
                     answer = message_only(
-                        banned(wanted, where, on) if guard_id
-                        else already_banned(wanted, where)
+                        banned(target_id, where, on) if guard_id
+                        else already_banned(target_id, where)
                     )
             elif verb == OPEN:
-                held = case_actions.open_about(conn, wanted) if wanted else []
-                if held:
-                    answer = message_only(already_open(wanted, held))
+                open_case_ids = case_actions.open_about(conn, target_id) if target_id else []
+                if open_case_ids:
+                    answer = message_only(already_open(target_id, open_case_ids))
                 else:
-                    case_id = case_actions.open_case(conn, wanted, body, user_id)
-                    answer = message_only(opened(case_id, wanted))
+                    case_id = case_actions.open_case(conn, target_id, body, user_id)
+                    answer = message_only(opened(case_id, target_id))
             else:
-                case = channel.gather(conn, wanted)
+                case = channel.gather(conn, target_id)
                 answer = (
-                    {"text": f"case {wanted}", "blocks": report.build_blocks(case)}
+                    {"text": f"case {target_id}", "blocks": report.build_blocks(case)}
                     if case
-                    else message_only(f"There is no case {wanted}.")
+                    else message_only(f"There is no case {target_id}.")
                 )
 
-        log.info("nemo: %s ran %s on %s", user_id, verb, wanted)
+        log.info("nemo: %s ran %s on %s", user_id, verb, target_id)
         return respond(**answer)

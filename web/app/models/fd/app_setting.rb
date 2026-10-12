@@ -30,8 +30,8 @@ module Fd
     FALL_BACK = GUARDED
 
     def self.join_mode
-      found = find_by(key: JOIN_MODE)&.value.to_s.strip.downcase
-      MODES.include?(found) ? found : FALL_BACK
+      mode = find_by(key: JOIN_MODE)&.value.to_s.strip.downcase
+      MODES.include?(mode) ? mode : FALL_BACK
     end
 
     def self.value(key)
@@ -39,9 +39,9 @@ module Fd
     end
 
     def self.write(key, value, by:)
-      one = find_or_initialize_by(key: key)
-      one.update!(value: value, changed_by: by, changed_at: Time.current)
-      one
+      setting = find_or_initialize_by(key: key)
+      setting.update!(value: value, changed_by: by, changed_at: Time.current)
+      setting
     end
 
     def self.firehouse_channel
@@ -57,10 +57,10 @@ module Fd
     end
 
     def self.set_case_react_channels(ids, by:)
-      found = Array(ids).map(&:to_s).map(&:strip).reject(&:blank?).uniq.join(",")
-      return where(key: REACT_CHANNELS).destroy_all && nil if found.blank?
+      channel_csv = Array(ids).map(&:to_s).map(&:strip).reject(&:blank?).uniq.join(",")
+      return where(key: REACT_CHANNELS).destroy_all && nil if channel_csv.blank?
 
-      write(REACT_CHANNELS, found, by: by)
+      write(REACT_CHANNELS, channel_csv, by: by)
     end
 
     def self.on?(key)
@@ -75,20 +75,20 @@ module Fd
       value(key).split(",").map(&:strip).reject(&:blank?).uniq
     end
 
-    def self.set_words(key, found, by:)
-      held = Array(found).flat_map { |one| one.to_s.split(",") }
-        .map { |one| one.strip.delete_prefix(":").delete_suffix(":") }
+    def self.set_words(key, values, by:)
+      normalized = Array(values).flat_map { |word| word.to_s.split(",") }
+        .map { |word| word.strip.delete_prefix(":").delete_suffix(":") }
         .reject(&:blank?).uniq
-      return where(key: key).destroy_all && nil if held.empty?
+      return where(key: key).destroy_all && nil if normalized.empty?
 
-      write(key, held.join(","), by: by)
+      write(key, normalized.join(","), by: by)
     end
 
     def self.autoresponse_emoji = words(AUTORESPONSE_EMOJI)
 
     def self.sweep_soon_hours
-      held = value(SWEEP_SOON_HOURS).to_i
-      held.positive? ? held : SOON_FALL_BACK
+      hours = value(SWEEP_SOON_HOURS).to_i
+      hours.positive? ? hours : SOON_FALL_BACK
     end
 
     def self.sweep_tells_member?
@@ -96,16 +96,16 @@ module Fd
     end
 
     def self.autoresponse_cooldown_days
-      held = value(AUTORESPONSE_COOLDOWN).to_i
-      held.positive? ? held : COOLDOWN_FALL_BACK
+      days = value(AUTORESPONSE_COOLDOWN).to_i
+      days.positive? ? days : COOLDOWN_FALL_BACK
     end
 
-    def self.set_join_mode(how, by:)
-      raise ArgumentError, "#{how} is not a join mode" unless MODES.include?(how)
+    def self.set_join_mode(mode, by:)
+      raise ArgumentError, "#{mode} is not a join mode" unless MODES.include?(mode)
 
-      one = find_or_initialize_by(key: JOIN_MODE)
-      one.update!(value: how, changed_by: by, changed_at: Time.current)
-      one
+      setting = find_or_initialize_by(key: JOIN_MODE)
+      setting.update!(value: mode, changed_by: by, changed_at: Time.current)
+      setting
     end
   end
 end

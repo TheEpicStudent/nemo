@@ -14,7 +14,7 @@ UNTIL = "action_until"
 WHERE = "action_where"
 REASON = "action_reason"
 CATEGORY = "action_category"
-STANDING = "action_standing"
+GUARD_STATUS = "action_standing"
 SETTLE = "action_settle"
 
 UNGUARDED = "unguarded"
@@ -22,13 +22,13 @@ ORPHANED = "orphaned"
 ELSEWHERE = "elsewhere"
 HERE = "here"
 
-CARRY = "carry"
+APPLY = "apply"
 ADOPT = "adopt"
 EXTEND = "extend"
 RECORD = "record"
 
 SETTLE_DEFAULT = {
-    UNGUARDED: CARRY,
+    UNGUARDED: APPLY,
     ORPHANED: ADOPT,
     ELSEWHERE: RECORD,
     HERE: RECORD,
@@ -67,7 +67,7 @@ def guard_scope(key):
     return enforce(key).get("scope")
 
 
-def guard_carry(key):
+def guard_mode(key):
     return enforce(key).get("carry")
 
 
@@ -90,14 +90,14 @@ def category_choices():
     return [edit.option(label, key) for key, label in edit.categories().items()]
 
 
-def category_pick(held):
-    submitted_values = [one for one in category_choices() if one["value"] == held]
-    return {"initial_option": submitted_values[0]} if submitted_values else {}
+def category_initial_option(selected_key):
+    matches = [one for one in category_choices() if one["value"] == selected_key]
+    return {"initial_option": matches[0]} if matches else {}
 
 
-def kind_pick(held):
-    submitted_values = [one for one in choices() if one["value"] == held]
-    return {"initial_option": submitted_values[0]} if submitted_values else {}
+def kind_initial_option(selected_key):
+    matches = [one for one in choices() if one["value"] == selected_key]
+    return {"initial_option": matches[0]} if matches else {}
 
 
 def expiry(values):
@@ -124,40 +124,40 @@ def header_text(values, channel_name=None):
     return " ".join(parts)
 
 
-def existing_action_text(found):
-    text = label(found["kind"]).lower()
-    where = found.get("channel_id")
+def existing_action_text(guard):
+    text = label(guard["kind"]).lower()
+    where = guard.get("channel_id")
     return f"{text} in <#{where}>" if where else text
 
 
-def case_attribution_text(found, case_id):
-    held = found.get("case_id")
-    if held is None:
+def case_attribution_text(guard, case_id):
+    guard_case_id = guard.get("case_id")
+    if guard_case_id is None:
         return "on no case"
-    if case_id is not None and held == case_id:
+    if case_id is not None and guard_case_id == case_id:
         return "on this case"
-    return f"under *case {held}*"
+    return f"under *case {guard_case_id}*"
 
 
-def footnote(found):
-    parts = [f"opened by <@{found['opened_by']}>"]
-    since = format_date(found.get("opened_at"))
+def footnote(guard):
+    parts = [f"opened by <@{guard['opened_by']}>"]
+    since = format_date(guard.get("opened_at"))
     if since:
         parts.append(f"since {since}")
-    until = format_date(found.get("expires_at"))
+    until = format_date(guard.get("expires_at"))
     parts.append(f"until {until}" if until else "with no end date")
-    if found.get("enforced_by") == "by_hand":
+    if guard.get("enforced_by") == "by_hand":
         parts.append("done by hand")
-    elif found.get("enforcement_status") == "failed":
+    elif guard.get("enforcement_status") == "failed":
         parts.append("nemo is not holding it")
-    elif found.get("enforcement_status") == "pending":
+    elif guard.get("enforcement_status") == "pending":
         parts.append("nemo has not carried it yet")
     return "  ·  ".join(parts)
 
 
-def standing_blocks(standing):
-    found = (standing or {}).get("found")
-    if not found:
+def existing_guard_blocks(guard_status):
+    guard = (guard_status or {}).get("guard")
+    if not guard:
         return []
 
     return [
@@ -166,24 +166,24 @@ def standing_blocks(standing):
             "text": {
                 "type": "mrkdwn",
                 "text": ":warning: <@{}> is already {} {}.".format(
-                    found["subject_id"], existing_action_text(found), case_attribution_text(found, standing.get("case_id"))
+                    guard["subject_id"], existing_action_text(guard), case_attribution_text(guard, guard_status.get("case_id"))
                 ),
             },
         },
         {
             "type": "context",
-            "block_id": STANDING,
-            "elements": [{"type": "mrkdwn", "text": footnote(found)}],
+            "block_id": GUARD_STATUS,
+            "elements": [{"type": "mrkdwn", "text": footnote(guard)}],
         },
     ]
 
 
-def settle_options(values, standing):
-    standing = standing or {}
-    if not standing.get("enforceable"):
+def settle_options(values, guard_status):
+    guard_status = guard_status or {}
+    if not guard_status.get("enforceable"):
         return []
 
-    reads = standing.get("reads") or UNGUARDED
+    reads = guard_status.get("reads") or UNGUARDED
     if reads == UNGUARDED:
         return []
     if reads == ORPHANED:
@@ -199,21 +199,21 @@ def settle_options(values, standing):
     return built if len(built) > 1 else []
 
 
-def settle_blocks(values, standing):
-    options = settle_options(values, standing)
+def settle_blocks(values, guard_status):
+    options = settle_options(values, guard_status)
     if not options:
         return []
 
-    reads = (standing or {}).get("reads") or UNGUARDED
-    held = values.get("settle")
-    if held not in dict(options):
-        held = SETTLE_DEFAULT.get(reads, RECORD)
+    reads = (guard_status or {}).get("reads") or UNGUARDED
+    selected = values.get("settle")
+    if selected not in dict(options):
+        selected = SETTLE_DEFAULT.get(reads, RECORD)
 
     built = [
         {"text": {"type": "plain_text", "text": text}, "value": value}
         for value, text in options
     ]
-    submitted_values = [one for one in built if one["value"] == held]
+    matches = [one for one in built if one["value"] == selected]
     return [
         {
             "type": "input",
@@ -223,7 +223,7 @@ def settle_blocks(values, standing):
                 "type": "radio_buttons",
                 "action_id": SETTLE,
                 "options": built,
-                **({"initial_option": submitted_values[0]} if submitted_values else {}),
+                **({"initial_option": matches[0]} if matches else {}),
             },
         }
     ]
@@ -236,7 +236,7 @@ def initial_values(subjects=(), category=None):
     }
 
 
-def build_blocks(case_id, values, standing=None):
+def build_blocks(case_id, values, guard_status=None):
     key = values.get("type_key")
     built = [
         {
@@ -269,7 +269,7 @@ def build_blocks(case_id, values, standing=None):
                 "action_id": KIND,
                 "placeholder": {"type": "plain_text", "text": "pick one"},
                 "options": choices(),
-                **kind_pick(key),
+                **kind_initial_option(key),
             },
         },
         {
@@ -292,7 +292,7 @@ def build_blocks(case_id, values, standing=None):
         },
     ]
 
-    built += standing_blocks(standing)
+    built += existing_guard_blocks(guard_status)
 
     if needs_expiry(key):
         built.append(
@@ -333,7 +333,7 @@ def build_blocks(case_id, values, standing=None):
             }
         )
 
-    built += settle_blocks(values, standing)
+    built += settle_blocks(values, guard_status)
 
     built += [
         {
@@ -346,7 +346,7 @@ def build_blocks(case_id, values, standing=None):
                 "action_id": CATEGORY,
                 "placeholder": {"type": "plain_text", "text": "pick one"},
                 "options": category_choices(),
-                **category_pick(values.get("category_key")),
+                **category_initial_option(values.get("category_key")),
             },
         },
         {
@@ -366,7 +366,7 @@ def build_blocks(case_id, values, standing=None):
     return built
 
 
-def build_view(case_id, subjects=(), category=None, values=None, standing=None):
+def build_view(case_id, subjects=(), category=None, values=None, guard_status=None):
     return {
         "type": "modal",
         "callback_id": CALLBACK,
@@ -374,7 +374,7 @@ def build_view(case_id, subjects=(), category=None, values=None, standing=None):
         "title": {"type": "plain_text", "text": "Log an action"},
         "submit": {"type": "plain_text", "text": "Log it"},
         "close": {"type": "plain_text", "text": "Cancel"},
-        "blocks": build_blocks(case_id, values or initial_values(subjects, category), standing),
+        "blocks": build_blocks(case_id, values or initial_values(subjects, category), guard_status),
     }
 
 
@@ -412,15 +412,15 @@ def echo_blocks(values, by, channel_name=None):
     return built
 
 
-def requires_refresh(values, shown, standing=None):
+def requires_refresh(values, block_ids, guard_status=None):
     key = values.get("type_key")
-    if needs_expiry(key) and UNTIL not in shown:
+    if needs_expiry(key) and UNTIL not in block_ids:
         return True
-    if needs_channel(key) and WHERE not in shown:
+    if needs_channel(key) and WHERE not in block_ids:
         return True
-    if (standing or {}).get("found") and STANDING not in shown:
+    if (guard_status or {}).get("guard") and GUARD_STATUS not in block_ids:
         return True
-    return bool(settle_options(values, standing)) and SETTLE not in shown
+    return bool(settle_options(values, guard_status)) and SETTLE not in block_ids
 
 
 def submitted_values(view_state):

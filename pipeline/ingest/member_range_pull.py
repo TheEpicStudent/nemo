@@ -80,7 +80,7 @@ def run(conn, days=None, end=None):
         rows, dates = [], []
         dates_written = 0
 
-        def flush(cursor, seen):
+        def flush(cursor, record_count):
             nonlocal dates_written
             with conn.cursor() as cur:
                 cur.executemany(MEMBER_ACTIVITY_SQL, rows)
@@ -88,7 +88,7 @@ def run(conn, days=None, end=None):
             dates_written += len(dates)
             rows.clear()
             dates.clear()
-            save_walk(conn, SOURCE, window_key, cursor, already + seen)
+            save_walk(conn, SOURCE, window_key, cursor, already + record_count)
             counts.total_expected = client.last_num_found
             counts.progress()
 
@@ -114,11 +114,11 @@ def run(conn, days=None, end=None):
         pruned = 0
         with conn.cursor() as cur:
             cur.execute(WINDOW_COUNTS_SQL, (SOURCE,))
-            landed, held = window_totals(cur.fetchall(), (start, stop))
-        replacing = should_prune(verdict) and supersedes(landed, held)
+            window_rows, existing_rows = window_totals(cur.fetchall(), (start, stop))
+        replacing = should_prune(verdict) and supersedes(window_rows, existing_rows)
         if should_prune(verdict) and not replacing:
             print(
-                f"member range {window_key}: walked {landed} rows against {held} already held, "
+                f"member range {window_key}: walked {window_rows} rows against {existing_rows} already held, "
                 "refusing to prune the fuller window"
             )
         if replacing:

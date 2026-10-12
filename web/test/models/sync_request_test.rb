@@ -22,7 +22,7 @@ class SyncRequestTest < ActiveSupport::TestCase
   test "releasing an already-cancelling request with no worker marks it cancelled" do
     request = claimed(status: "cancelling")
 
-    assert request.cancel!(worker_gone: true)
+    assert request.cancel!(worker_unavailable: true)
     assert_equal "cancelled", request.status
     assert request.finished_at.present?
   end
@@ -30,7 +30,7 @@ class SyncRequestTest < ActiveSupport::TestCase
   test "releasing a claimed request with no worker marks it cancelled" do
     request = claimed(status: "claimed")
 
-    assert request.cancel!(worker_gone: true)
+    assert request.cancel!(worker_unavailable: true)
     assert_equal "cancelled", request.status
   end
 

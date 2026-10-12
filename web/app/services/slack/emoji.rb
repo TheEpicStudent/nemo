@@ -11,13 +11,13 @@ module Slack
     HOPS = 3
 
     def self.for(names)
-      wanted = Array(names).map(&:to_s).reject(&:empty?).uniq
-      return {} if wanted.empty?
+      requested = Array(names).map(&:to_s).reject(&:empty?).uniq
+      return {} if requested.empty?
 
-      held = wanted.index_with { |name| Rails.cache.read(key_for(name)) }
-      missing = wanted.reject { |name| Rails.cache.exist?(key_for(name)) }
-      held = held.merge(looked_up(missing)) if missing.any?
-      held.compact
+      emoji = requested.index_with { |name| Rails.cache.read(key_for(name)) }
+      missing = requested.reject { |name| Rails.cache.exist?(key_for(name)) }
+      emoji = emoji.merge(looked_up(missing)) if missing.any?
+      emoji.compact
     end
 
     def self.key_for(name) = "slack/emoji/#{name}"
@@ -27,19 +27,19 @@ module Slack
       return missing.index_with { nil } if map.nil?
 
       missing.index_with do |name|
-        found = resolve(map, name)
-        Rails.cache.write(key_for(name), found, expires_in: found ? TTL : MISSING_TTL)
-        found
+        url = resolve(map, name)
+        Rails.cache.write(key_for(name), url, expires_in: url ? TTL : MISSING_TTL)
+        url
       end
     end
 
     def self.resolve(map, name)
       HOPS.times do
-        found = map[name]
-        return nil if found.blank?
-        return found unless found.start_with?(ALIAS)
+        value = map[name]
+        return nil if value.blank?
+        return value unless value.start_with?(ALIAS)
 
-        name = found.delete_prefix(ALIAS)
+        name = value.delete_prefix(ALIAS)
       end
       nil
     end
@@ -50,14 +50,14 @@ module Slack
 
     def self.fetched
       uri = URI(URL)
-      answer = Net::HTTP.start(uri.host, uri.port, use_ssl: true,
-                               open_timeout: OPEN_TIMEOUT, read_timeout: READ_TIMEOUT) do |http|
+      response = Net::HTTP.start(uri.host, uri.port, use_ssl: true,
+                                 open_timeout: OPEN_TIMEOUT, read_timeout: READ_TIMEOUT) do |http|
         http.request(Net::HTTP::Get.new(uri))
       end
-      return nil unless answer.is_a?(Net::HTTPSuccess)
+      return nil unless response.is_a?(Net::HTTPSuccess)
 
-      found = JSON.parse(answer.body)
-      found.is_a?(Hash) ? found : nil
+      parsed = JSON.parse(response.body)
+      parsed.is_a?(Hash) ? parsed : nil
     rescue StandardError => e
       Rails.logger.warn("slack emoji list unavailable: #{e.message}")
       nil

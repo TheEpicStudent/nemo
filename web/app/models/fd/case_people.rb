@@ -34,15 +34,15 @@ module Fd
       end
     end
 
-    def self.for(participants, asked: nil)
-      new(participants, asked)
+    def self.for(participants, selected_user_id: nil)
+      new(participants, selected_user_id)
     end
 
-    attr_reader :chosen
+    attr_reader :selected
 
-    def initialize(participants, asked = nil)
+    def initialize(participants, selected_user_id = nil)
       @people = group(participants)
-      @chosen = @people.find { |person| person.user_id == asked } || @people.first
+      @selected = @people.find { |person| person.user_id == selected_user_id } || @people.first
     end
 
     def each(&block)
@@ -53,8 +53,8 @@ module Fd
       @people.size
     end
 
-    def chosen?(person)
-      person.user_id == @chosen&.user_id
+    def selected?(person)
+      person.user_id == @selected&.user_id
     end
 
     def subjects

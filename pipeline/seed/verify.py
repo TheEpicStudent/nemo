@@ -131,29 +131,29 @@ def get_path(node, path):
 
 def compare_shape(reference, seeded):
     for path, tolerance, size_path in SHAPE_CHECKS:
-        want, got = get_path(reference, path), get_path(seeded, path)
+        expected, actual = get_path(reference, path), get_path(seeded, path)
         sample = get_path(seeded, size_path) or 0
         if sample < MIN_SHARE_SAMPLE:
-            yield path, got, want, None, f"skipped, {sample} rows, needs {MIN_SHARE_SAMPLE}"
+            yield path, actual, expected, None, f"skipped, {sample} rows, needs {MIN_SHARE_SAMPLE}"
             continue
-        yield path, got, want, abs(got - want) <= tolerance, f"+-{tolerance}"
+        yield path, actual, expected, abs(actual - expected) <= tolerance, f"+-{tolerance}"
 
 
 def compare_quantiles(reference, seeded):
     for path, point, factor in QUANTILE_CHECKS:
         block = get_path(seeded, path)
-        want = Sampler(get_path(reference, path))(point)
-        got = Sampler(block)(point)
+        expected = Sampler(get_path(reference, path))(point)
+        actual = Sampler(block)(point)
         label = f"{path} p{int(point * 100)}"
         needed = max(MIN_QUANTILE_SAMPLE, round(TAIL_SAMPLES_PER_TAIL / (1 - point)))
         if block.get("n", 0) < needed:
-            yield label, got, want, None, f"skipped, {block.get('n', 0)} rows, needs {needed}"
+            yield label, actual, expected, None, f"skipped, {block.get('n', 0)} rows, needs {needed}"
             continue
-        if want <= 0:
-            ok = got <= 1
+        if expected <= 0:
+            ok = actual <= 1
         else:
-            ok = (1 / factor) <= (got / max(got and want, 1e-9)) <= factor
-        yield label, got, want, ok, f"within {factor}x"
+            ok = (1 / factor) <= (actual / max(actual and expected, 1e-9)) <= factor
+        yield label, actual, expected, ok, f"within {factor}x"
 
 
 def check_marts(admin):
@@ -172,12 +172,12 @@ def check_consistency(conn, checks=None):
 
 def report(rows):
     failures = 0
-    for label, got, want, ok, rule in rows:
+    for label, actual, expected, ok, rule in rows:
         mark = "skip" if ok is None else ("ok  " if ok else "FAIL")
         failures += 1 if ok is False else 0
-        shown = f"{got:.4g}" if isinstance(got, float) else got
-        target = f"{want:.4g}" if isinstance(want, float) else want
-        print(f"  {mark} {label:52} {shown!s:>12}  vs {target!s:>12}  ({rule})")
+        actual_text = f"{actual:.4g}" if isinstance(actual, float) else actual
+        expected_text = f"{expected:.4g}" if isinstance(expected, float) else expected
+        print(f"  {mark} {label:52} {actual_text!s:>12}  vs {expected_text!s:>12}  ({rule})")
     return failures
 
 
@@ -208,12 +208,12 @@ def main(argv=None):
         print("model consistency")
         failures += report(check_consistency(admin, ANALYTICS_CHECKS))
         print("known gaps, reported but not counted")
-        for table, column, why in KNOWN_GAPS:
+        for table, column, reason in KNOWN_GAPS:
             count = admin.execute(
                 f"SELECT count(*) FROM analytics.{table} WHERE {column} IS NOT NULL"
             ).fetchone()[0]
             state = "now populated, retire this entry" if count else "still empty"
-            print(f"  gap  {table}.{column:28} {state}: {why}")
+            print(f"  gap  {table}.{column:28} {state}: {reason}")
 
     print(f"seed.verify: {failures} failing check(s)")
     raise SystemExit(1 if failures else 0)

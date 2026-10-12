@@ -7,7 +7,7 @@ const REACHABLE = [
 ].join(", ")
 
 const LAYER_STEP = 3
-const VEIL_FLOOR = 100
+const BACKDROP_Z_INDEX = 100
 
 export default class extends Controller {
   static targets = ["flip", "box"]
@@ -22,8 +22,8 @@ export default class extends Controller {
     document.addEventListener("keydown", this.onDocumentKey)
     this.boxTarget.addEventListener("keydown", this.onKeys)
     this.boxTarget.addEventListener("submit", this.onSubmit)
-    this.was = this.flipTarget.checked
-    if (this.was) this.entered()
+    this.previousOpen = this.flipTarget.checked
+    if (this.previousOpen) this.afterOpen()
   }
 
   disconnect() {
@@ -49,38 +49,38 @@ export default class extends Controller {
     if (inDrawer(event.target) || inAbove(event.target)) return
 
     event.preventDefault()
-    this.shut()
+    this.close()
   }
 
   get covered() {
     return aboveOpen() || (drawerOpen() && depth(this) === 0)
   }
 
-  holdsEscape(event) {
+  escapeHandledElsewhere(event) {
     return event.defaultPrevented || this.covered || popupOpen(this.boxTarget)
   }
 
   // a form that targets a turbo frame leaves the page in place, so the dialog
   // has to stand down on its own
   onSubmit() {
-    this.shut()
+    this.close()
   }
 
   onDocumentKey(event) {
     if (event.key !== "Escape" || !this.flipTarget.checked || !topmost(this)) return
-    if (this.holdsEscape(event)) return
+    if (this.escapeHandledElsewhere(event)) return
 
     event.preventDefault()
-    this.shut()
+    this.close()
   }
 
   sync() {
-    const on = this.flipTarget.checked
-    if (on === this.was) return
+    const isOpen = this.flipTarget.checked
+    if (isOpen === this.previousOpen) return
 
-    this.was = on
-    if (on) this.entered()
-    else this.left()
+    this.previousOpen = isOpen
+    if (isOpen) this.afterOpen()
+    else this.afterClose()
   }
 
   open() {
@@ -90,7 +90,7 @@ export default class extends Controller {
     this.sync()
   }
 
-  shut(event) {
+  close(event) {
     if (event?.type === "click") event.preventDefault()
     if (!this.flipTarget.checked) return
 
@@ -98,7 +98,7 @@ export default class extends Controller {
     this.sync()
   }
 
-  entered() {
+  afterOpen() {
     raise(this)
     this.stackAt(depth(this))
     if (!this.opener || this.boxTarget.contains(this.opener)) this.opener = document.activeElement
@@ -109,13 +109,13 @@ export default class extends Controller {
   }
 
   stackAt(level) {
-    const veil = this.element.querySelector(".modal-veil")
+    const backdrop = this.element.querySelector(".modal-veil")
     const wrap = this.element.querySelector(".modal-wrap")
-    if (veil) veil.style.zIndex = level > 0 ? String(VEIL_FLOOR + (level * LAYER_STEP)) : ""
-    if (wrap) wrap.style.zIndex = level > 0 ? String(VEIL_FLOOR + 1 + (level * LAYER_STEP)) : ""
+    if (backdrop) backdrop.style.zIndex = level > 0 ? String(BACKDROP_Z_INDEX + (level * LAYER_STEP)) : ""
+    if (wrap) wrap.style.zIndex = level > 0 ? String(BACKDROP_Z_INDEX + 1 + (level * LAYER_STEP)) : ""
   }
 
-  left() {
+  afterClose() {
     lower(this)
     this.stackAt(0)
     const url = new URL(location.href)
@@ -124,30 +124,30 @@ export default class extends Controller {
       url.searchParams.delete("do")
       history.replaceState(history.state, "", url)
     }
-    const back = this.opener
+    const returnTarget = this.opener
     this.opener = null
-    if (back && back.isConnected && typeof back.focus === "function") back.focus()
+    if (returnTarget && returnTarget.isConnected && typeof returnTarget.focus === "function") returnTarget.focus()
   }
 
   onKeys(event) {
-    if (event.key === "Escape" && this.holdsEscape(event)) return
+    if (event.key === "Escape" && this.escapeHandledElsewhere(event)) return
     if (event.key === "Escape") {
       event.preventDefault()
       event.stopPropagation()
-      return this.shut()
+      return this.close()
     }
     if (event.key !== "Tab") return
 
-    const all = this.reachable()
-    if (all.length === 0) return event.preventDefault()
+    const focusable = this.reachable()
+    if (focusable.length === 0) return event.preventDefault()
 
-    const first = all[0]
-    const last = all[all.length - 1]
-    const here = document.activeElement
-    if (event.shiftKey && (here === first || here === this.boxTarget)) {
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    const focused = document.activeElement
+    if (event.shiftKey && (focused === first || focused === this.boxTarget)) {
       event.preventDefault()
       last.focus()
-    } else if (!event.shiftKey && here === last) {
+    } else if (!event.shiftKey && focused === last) {
       event.preventDefault()
       first.focus()
     }

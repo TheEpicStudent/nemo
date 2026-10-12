@@ -4,25 +4,25 @@
       <h2 class="card-title">Activity</h2>
     </div>
     <div class="activity">
-      <% events.each do |one| %>
+      <% events.each do |event| %>
         <div class="activity-item">
           <div class="line-row">
-            <%= guard_face(one.subject_id) %>
+            <%= guard_face(event.subject_id) %>
             <span class="grow two-line">
               <span class="lrow-head">
-                <b><%= bot_name_link(activity_who(one, labels), one.app_id) %></b>
-                <%= activity_verb(one) %>
+                <b><%= bot_name_link(activity_who(event, labels), event.app_id) %></b>
+                <%= activity_verb(event) %>
               </span>
-              <span><%= activity_ids(one) %></span>
+              <span><%= activity_ids(event) %></span>
             </span>
             <span class="row-right">
-              <span class="sub2 mono"><%= at_minute(one.at) %></span>
+              <span class="sub2 mono"><%= at_minute(event.at) %></span>
             </span>
           </div>
 
-          <% if one.message_text.present? %>
+          <% if event.message_text.present? %>
             <span class="queue-cite">
-              <span class="queue-cite-body"><%= plain_text(one.message_text) %></span>
+              <span class="queue-cite-body"><%= plain_text(event.message_text) %></span>
             </span>
           <% end %>
         </div>

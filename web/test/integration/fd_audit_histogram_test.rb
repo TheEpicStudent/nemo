@@ -114,7 +114,7 @@ class FdAuditHistogramTest < ActionDispatch::IntegrationTest
     get fd_audit_path(q: "last:24h", start: "2026-10-09T13:00", end: "2026-10-09T15:00")
     assert_redirected_to fd_audit_path(q: "after:2026-10-09T13:00 before:2026-10-09T16:00")
     follow_redirect!
-    assert_select ".audit-chips .chip-on", text: /after 2026-10-09 13:00/
+    assert_select ".audit-token", text: /after:\s*2026-10-09T13:00/
   end
 
   test "dragging across it sets the range on the same search" do

@@ -16,7 +16,7 @@ IN_CHANNEL = (
     "\n\nYour message was:\n{body}"
 )
 
-DAYS_LEFT = """
+DAYS_REMAINING = """
 SELECT ceil(extract(epoch FROM (known.at + make_interval(days => %s)) - now()) / 86400)::int
 FROM (
     SELECT coalesce(j.joined_at, m.claimed_at) AS at
@@ -29,30 +29,30 @@ WHERE known.at IS NOT NULL
 
 
 def days_left(conn, user_id, days):
-    row = conn.execute(DAYS_LEFT, (days, user_id)).fetchone()
+    row = conn.execute(DAYS_REMAINING, (days, user_id)).fetchone()
     if row is None:
         return None
     return row[0] if row[0] and row[0] > 0 else None
 
 
 @on_event("message", open_to_all=True)
-def seen(ctx):
+def on_message(ctx):
     event = ctx.payload or {}
-    channel_id, subject_id, ts = notify.ours(event)
+    channel_id, subject_id, ts = notify.message_target(event)
     if not channel_id:
         return None
 
-    standing = channelguards.guarding(channel_id, KIND)
-    if standing is None or standing.lets_past(subject_id):
+    guard = channelguards.guarding(channel_id, KIND)
+    if guard is None or guard.lets_past(subject_id):
         return None
 
-    days = standing.min_age_days()
+    days = guard.min_age_days()
     if days <= 0:
         return None
 
     with session() as conn:
-        left = days_left(conn, subject_id, days)
-    if left is None:
+        days_remaining = days_left(conn, subject_id, days)
+    if days_remaining is None:
         return None
 
     body = event.get("text") or ""
@@ -60,15 +60,15 @@ def seen(ctx):
         guard_actions.remove(ctx.client, channel_id, ts)
     except Exception as failure:
         log.warning("nemo: account age %s could not remove %s in %s: %s",
-                    standing.guard_id, ts, channel_id, failure)
+                    guard.guard_id, ts, channel_id, failure)
         return None
 
     with session() as conn:
-        channelguards.record_enforcement(conn, standing.guard_id, channel_id, subject_id,
+        channelguards.record_enforcement(conn, guard.guard_id, channel_id, subject_id,
                                DELETED, text=body, message_ts=ts)
 
     notify.post_ephemeral(ctx.client, channel_id, subject_id, IN_CHANNEL.format(
         days=days, plural="" if days == 1 else "s",
-        left=f"{left} day{'' if left == 1 else 's'}", body=body))
-    log.info("nemo: account age %s removed %s from %s", standing.guard_id, ts, channel_id)
+        left=f"{days_remaining} day{'' if days_remaining == 1 else 's'}", body=body))
+    log.info("nemo: account age %s removed %s from %s", guard.guard_id, ts, channel_id)
     return True

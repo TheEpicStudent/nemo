@@ -1,8 +1,8 @@
 <% content_for :page_title, "Merge #{pluralize(@plan.all.size, 'case')}" %>
 <% content_for :page_face do %>
-  <span class="crumb"><%= link_to "Cases", fd_cases_path(@carry) %> /</span>
+  <span class="crumb"><%= link_to "Cases", fd_cases_path(@query_params) %> /</span>
 <% end %>
 
 <div class="card card-flush">
-  <%= render "selection", plan: @plan, carry: @carry %>
+  <%= render "selection", plan: @plan, query_params: @query_params %>
 </div>

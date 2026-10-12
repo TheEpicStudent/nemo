@@ -1,6 +1,6 @@
 import { Controller } from "@hotwired/stimulus"
 
-const PACE = 700
+const STEP_INTERVAL_MS = 700
 
 export default class extends Controller {
   static targets = ["button", "label"]
@@ -18,7 +18,7 @@ export default class extends Controller {
       step += 1
       if (step >= this.stepsValue) return this.stop()
       this.show(step)
-    }, PACE)
+    }, STEP_INTERVAL_MS)
   }
 
   stop() {
@@ -31,9 +31,9 @@ export default class extends Controller {
     const user = event.currentTarget.dataset.user
     const linked = new Set([user])
     this.element.querySelectorAll("path.edge").forEach((edge) => {
-      const lit = edge.dataset.a === user || edge.dataset.b === user
-      edge.classList.toggle("is-lit", lit)
-      if (lit) linked.add(edge.dataset.a).add(edge.dataset.b)
+      const connected = edge.dataset.a === user || edge.dataset.b === user
+      edge.classList.toggle("is-lit", connected)
+      if (connected) linked.add(edge.dataset.a).add(edge.dataset.b)
     })
     this.element.querySelectorAll(".node").forEach((node) => {
       node.classList.toggle("is-lit", linked.has(node.dataset.user))
@@ -51,12 +51,12 @@ export default class extends Controller {
   blur() {
     this.element.classList.remove("is-focus")
     if (this.hasLabelTarget) this.labelTarget.classList.remove("is-on")
-    this.element.querySelectorAll(".is-lit").forEach((one) => one.classList.remove("is-lit"))
+    this.element.querySelectorAll(".is-lit").forEach((element) => element.classList.remove("is-lit"))
   }
 
   show(step) {
-    this.element.querySelectorAll("[data-step]").forEach((one) => {
-      one.classList.toggle("is-later", Number(one.dataset.step) > step)
+    this.element.querySelectorAll("[data-step]").forEach((element) => {
+      element.classList.toggle("is-later", Number(element.dataset.step) > step)
     })
   }
 }

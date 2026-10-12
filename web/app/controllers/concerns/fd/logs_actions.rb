@@ -33,9 +33,9 @@ module Fd
 
     def may_deactivate? = current_account&.may?("member.deactivate")
 
-    def action_objection(kase)
+    def action_error(kase)
       return "pick what was done" unless FdHelper::ACTION_LABELS.key?(type_key)
-      return thread_lock_objection(kase) if Action.from_thread_lock?(type_key)
+      return thread_lock_error(kase) if Action.from_thread_lock?(type_key)
       return "say who it was directed at" if target_user_id.blank?
       return "#{target_user_id} is not a member id" unless target_user_id.match?(MEMBER_ID)
       return "#{type_name.downcase} is not yours to log" if deactivates? && !may_deactivate?
@@ -56,24 +56,24 @@ module Fd
       nil
     end
 
-    def log_action(kase, at)
+    def log_action(kase, performed_at)
       Action.create!(
         case_id: kase.id,
         type_key: type_key,
         target_user_id: target_user_id,
         decided_by: current_account.user_id,
         performed_by: current_account.user_id,
-        performed_at: at,
+        performed_at: performed_at,
         source_app: Audit::SOURCE_APP,
         expires_at: expiry,
         reason: params[:reason].to_s.strip,
         resolution_note: resolution_note,
-        category_key: chosen_category(kase),
+        category_key: selected_category(kase),
         details: channel
       )
     end
 
-    def thread_lock_objection(kase)
+    def thread_lock_error(kase)
       family = kase.family_ids
       return "pick which thread lock this is" if thread_lock.nil?
       return "that thread lock is already on this case" if thread_lock.on_case?(family)
@@ -87,14 +87,14 @@ module Fd
     def thread_lock
       return @thread_lock if defined?(@thread_lock)
 
-      given = params[:thread_guard_id].to_s.presence
-      @thread_lock = given && ThreadGuard.still_on.locks.find_by(id: given)
+      guard_id = params[:thread_guard_id].to_s.presence
+      @thread_lock = guard_id && ThreadGuard.still_on.locks.find_by(id: guard_id)
     end
 
     def log_thread_lock(kase, guard)
-      was = guard.case_id
+      previous_case_id = guard.case_id
       if guard.orphaned? && guard.attach_to!(kase.id)
-        audit(guard, "attached", before: { "case_id" => was },
+        audit(guard, "attached", before: { "case_id" => previous_case_id },
           after: { "case_id" => kase.id })
       end
 
@@ -103,29 +103,29 @@ module Fd
         decided_by: current_account.user_id, performed_by: current_account.user_id,
         performed_at: Time.current, source_app: Audit::SOURCE_APP,
         expires_at: guard.expires_at, reason: guard.reason,
-        category_key: chosen_category(kase), thread_guard_id: guard.id,
+        category_key: selected_category(kase), thread_guard_id: guard.id,
         details: { "channel_id" => guard.channel_id, "thread_ts" => guard.thread_ts }
       )
     end
 
     def guard_label_text(guard) = FdHelper::ACTION_LABELS.fetch(guard.kind, guard.kind).downcase
 
-    def standing_objection(kase, guard)
+    def standing_error(kase, guard)
       family = kase.family_ids
-      given = guard_label_text(guard)
-      return "that #{given} is already on this case" if guard.on_case?(family)
+      label = guard_label_text(guard)
+      return "that #{label} is already on this case" if guard.on_case?(family)
       if Action.live.exists?(case_id: family, guard_id: guard.id)
-        return "that #{given} is already logged on this case"
+        return "that #{label} is already logged on this case"
       end
 
       nil
     end
 
     def standing_guard
-      given = params[:standing_guard_id].to_s.presence
-      return nil if given.nil?
+      guard_id = params[:standing_guard_id].to_s.presence
+      return nil if guard_id.nil?
 
-      MemberGuard.still_on.for_subject(target_user_id).find_by(id: given)
+      MemberGuard.still_on.for_subject(target_user_id).find_by(id: guard_id)
     end
 
     def guard_channel(type_key)
@@ -135,9 +135,9 @@ module Fd
     end
 
     def attach_standing(kase, guard)
-      was = guard.case_id
+      previous_case_id = guard.case_id
       if guard.orphaned? && guard.attach_to!(kase.id)
-        audit(guard, "attached", before: { "case_id" => was },
+        audit(guard, "attached", before: { "case_id" => previous_case_id },
           after: { "case_id" => kase.id })
       end
 
@@ -146,7 +146,7 @@ module Fd
         decided_by: current_account.user_id, performed_by: current_account.user_id,
         performed_at: Time.current, source_app: Audit::SOURCE_APP,
         expires_at: guard.expires_at, reason: guard.reason,
-        category_key: chosen_category(kase), guard_id: guard.id,
+        category_key: selected_category(kase), guard_id: guard.id,
         details: guard.channel_id ? { "channel_id" => guard.channel_id } : {}
       )
       audit(action, "performed")
@@ -168,9 +168,9 @@ module Fd
       guard
     end
 
-    def chosen_category(kase)
-      asked = params[:category_key].to_s
-      return asked if Case::CATEGORIES.include?(asked)
+    def selected_category(kase)
+      requested_category = params[:category_key].to_s
+      return requested_category if Case::CATEGORIES.include?(requested_category)
 
       kase.category_key
     end
@@ -178,10 +178,10 @@ module Fd
     def expiry
       return nil unless NEEDS_EXPIRY.include?(type_key)
 
-      given = params[:expires_on].to_s.strip
-      return nil if given.blank?
+      expires_on = params[:expires_on].to_s.strip
+      return nil if expires_on.blank?
 
-      Date.strptime(given, "%Y-%m-%d").end_of_day
+      Date.strptime(expires_on, "%Y-%m-%d").end_of_day
     rescue Date::Error
       nil
     end

@@ -1,58 +1,58 @@
 module Admin
   class ChannelGrantsController < BaseController
     def create
-      return refuse unless may_grant?
+      return redirect_with_alert unless may_grant?
 
       channel_id = params[:channel_id].to_s
-      return refuse("Select a channel") if channel_id.blank?
-      return refuse("#{channel_id} is not a channel") unless known?(channel_id)
+      return redirect_with_alert("Select a channel") if channel_id.blank?
+      return redirect_with_alert("#{channel_id} is not a channel") unless active_channel?(channel_id)
 
       ActiveRecord::Base.transaction do
-        held = Channels::Audience::Grant.create!(user_id: who, channel_id: channel_id,
+        grant = Channels::Audience::Grant.create!(user_id: person_user_id, channel_id: channel_id,
           granted_by: current_account.user_id, granted_at: Time.current,
           reason: params[:reason].presence)
-        Account.find_or_create_by!(user_id: who)
-        audit(held, "granted", entity_id: channel_id,
-          after: { "user_id" => who, "channel_id" => channel_id })
+        Account.find_or_create_by!(user_id: person_user_id)
+        audit(grant, "granted", entity_id: channel_id,
+          after: { "user_id" => person_user_id, "channel_id" => channel_id })
       end
       Current.forget_roles
 
-      redirect_to admin_person_path(who), notice: "##{channel_id} is now readable by them"
+      redirect_to admin_person_path(person_user_id), notice: "##{channel_id} is now readable by them"
     rescue ActiveRecord::RecordNotUnique
-      refuse("They already have that channel")
+      redirect_with_alert("They already have that channel")
     end
 
     def destroy
-      return refuse unless may_grant?
+      return redirect_with_alert unless may_grant?
 
-      Channels::Audience::Grant.live.where(user_id: who, channel_id: params[:channel_id])
-        .find_each { |held| revoke(held) }
-      redirect_to admin_person_path(who), notice: "Access to ##{params[:channel_id]} revoked"
+      Channels::Audience::Grant.live.where(user_id: person_user_id, channel_id: params[:channel_id])
+        .find_each { |grant| revoke(grant) }
+      redirect_to admin_person_path(person_user_id), notice: "Access to ##{params[:channel_id]} revoked"
     end
 
     private
 
-    def revoke(held)
+    def revoke(grant)
       ActiveRecord::Base.transaction do
-        held.update!(revoked_by: current_account.user_id, revoked_at: Time.current)
-        audit(held, "revoked", entity_id: held.channel_id,
-          before: { "user_id" => held.user_id, "channel_id" => held.channel_id },
-          after: { "user_id" => held.user_id, "channel_id" => held.channel_id,
+        grant.update!(revoked_by: current_account.user_id, revoked_at: Time.current)
+        audit(grant, "revoked", entity_id: grant.channel_id,
+          before: { "user_id" => grant.user_id, "channel_id" => grant.channel_id },
+          after: { "user_id" => grant.user_id, "channel_id" => grant.channel_id,
                    "revoked_by" => current_account.user_id })
       end
     end
 
-    def who
+    def person_user_id
       params[:person_user_id].to_s.upcase
     end
 
-    def known?(channel_id)
+    def active_channel?(channel_id)
       Analytics::DimChannel.where(channel_id: channel_id, archived: false).exists?
     end
 
-    def refuse(why = nil)
-      redirect_to admin_person_path(who),
-        alert: why || Community::Access.why_not(current_account, "analytics.grant")
+    def redirect_with_alert(message = nil)
+      redirect_to admin_person_path(person_user_id),
+        alert: message || Community::Access.why_not(current_account, "analytics.grant")
     end
   end
 end

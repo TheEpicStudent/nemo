@@ -56,37 +56,37 @@ RETRY_STATUS = frozenset({429, 502, 503, 504})
 UPSTREAM_TRANSPORT = ("upstream unreachable", "upstream timeout", "upstream http")
 FAULT_ORIGIN_HEADER = "X-Fault-Origin"
 
-KEEP_IDLE_SECONDS = 30
+KEEPALIVE_IDLE_SECONDS = 30
 STALE = (http.client.RemoteDisconnected, http.client.CannotSendRequest,
          ConnectionResetError, BrokenPipeError)
 
-_kept = threading.local()
+_connections = threading.local()
 
 
-def kept_pool():
-    pool = getattr(_kept, "pool", None)
+def connection_pool():
+    pool = getattr(_connections, "pool", None)
     if pool is None:
-        pool = _kept.pool = {}
+        pool = _connections.pool = {}
     return pool
 
 
-def drop_kept(key):
-    held = kept_pool().pop(key, None)
-    if held is not None:
-        held[0].close()
+def drop_connection(key):
+    pooled = connection_pool().pop(key, None)
+    if pooled is not None:
+        pooled[0].close()
 
 
-def kept_connection(key, timeout):
-    pool = kept_pool()
-    held = pool.get(key)
-    if held is not None and time.monotonic() - held[1] <= KEEP_IDLE_SECONDS:
-        conn = held[0]
+def pooled_connection(key, timeout):
+    pool = connection_pool()
+    pooled = pool.get(key)
+    if pooled is not None and time.monotonic() - pooled[1] <= KEEPALIVE_IDLE_SECONDS:
+        conn = pooled[0]
         conn.timeout = timeout
         if conn.sock is not None:
             conn.sock.settimeout(timeout)
         return conn, True
 
-    drop_kept(key)
+    drop_connection(key)
     scheme, host, port = key
     kind = http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
     conn = kind(host, port, timeout=timeout)
@@ -94,13 +94,13 @@ def kept_connection(key, timeout):
     return conn, False
 
 
-def post_kept(url, body, headers, timeout):
+def post_pooled(url, body, headers, timeout):
     parts = urllib.parse.urlsplit(url)
     key = (parts.scheme, parts.hostname, parts.port)
     path = parts.path + (f"?{parts.query}" if parts.query else "")
 
     for second_try in (False, True):
-        conn, reused = kept_connection(key, timeout)
+        conn, reused = pooled_connection(key, timeout)
         try:
             if conn.sock is None:
                 conn.connect()
@@ -109,18 +109,18 @@ def post_kept(url, body, headers, timeout):
             resp = conn.getresponse()
             payload = resp.read()
         except STALE as exc:
-            drop_kept(key)
+            drop_connection(key)
             if reused and not second_try:
                 continue
             raise urllib.error.URLError(exc) from exc
         except (OSError, http.client.HTTPException) as exc:
-            drop_kept(key)
+            drop_connection(key)
             raise urllib.error.URLError(exc) from exc
 
         if resp.will_close:
-            drop_kept(key)
+            drop_connection(key)
         else:
-            kept_pool()[key] = (conn, time.monotonic())
+            connection_pool()[key] = (conn, time.monotonic())
         if resp.status >= 400:
             raise urllib.error.HTTPError(url, resp.status, resp.reason, resp.headers,
                                          io.BytesIO(payload))
@@ -209,11 +209,11 @@ class ProxyClient:
         base = dict(params)
         base[page_param] = page_size
         cursor = start_cursor
-        seen = 0
+        fetched_count = 0
         previous_page = None
         empty_pages = 0
         while True:
-            asked_with = cursor
+            requested_cursor = cursor
             page = dict(base)
             if cursor:
                 page[cursor_param] = cursor
@@ -224,14 +224,14 @@ class ProxyClient:
             ).hexdigest()
             if items and fingerprint == previous_page:
                 raise ProxyError(
-                    f"{method}: page repeated after {seen} records, so the walk is not "
+                    f"{method}: page repeated after {fetched_count} records, so the walk is not "
                     f"advancing. sort_column={base.get('sort_column')!r} does not order "
                     f"{cursor_param} stably"
                 )
             previous_page = fingerprint
 
             yield from items
-            seen += len(items)
+            fetched_count += len(items)
             if cursor_field == "response_metadata.next_cursor":
                 cursor = (data.get("response_metadata") or {}).get("next_cursor")
             else:
@@ -243,20 +243,20 @@ class ProxyClient:
             if empty_pages and allow_empty_pages:
                 time.sleep(min(EMPTY_PAGE_BACKOFF * empty_pages, EMPTY_PAGE_BACKOFF_CAP))
             if on_page:
-                on_page(cursor, seen)
+                on_page(cursor, fetched_count)
             if not cursor or (not items and not allow_empty_pages):
                 break
-            if cursor == asked_with:
+            if cursor == requested_cursor:
                 raise ProxyError(
-                    f"{method}: {cursor_param} came back unchanged after {seen} records, "
+                    f"{method}: {cursor_param} came back unchanged after {fetched_count} records, "
                     f"so the next request would repeat this one"
                 )
             if empty_pages >= EMPTY_PAGE_LIMIT:
                 raise ProxyError(
-                    f"{method}: {empty_pages} empty pages in a row after {seen} records, "
+                    f"{method}: {empty_pages} empty pages in a row after {fetched_count} records, "
                     f"so the walk has stalled short of the {num_found} it expected"
                 )
-            if num_found is not None and seen >= num_found:
+            if num_found is not None and fetched_count >= num_found:
                 break
 
     def _request(self, url, body, headers, max_retries, raw=False):
@@ -287,7 +287,7 @@ class ProxyClient:
 
     def _post(self, req, url, body, headers, timeout):
         if self.keep_alive:
-            return post_kept(url, body, headers, timeout)
+            return post_pooled(url, body, headers, timeout)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read()
 

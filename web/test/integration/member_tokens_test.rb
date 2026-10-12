@@ -13,8 +13,8 @@ class MemberTokensTest < ActionDispatch::IntegrationTest
     Current.forget_flags
   end
 
-  def mint(name: "Toolbox", lasting: "90")
-    post settings_tokens_path, params: { app_id: @client.id, name: name, lasting: lasting }
+  def mint(name: "Toolbox", lifetime: "90")
+    post settings_tokens_path, params: { app_id: @client.id, name: name, lifetime: lifetime }
   end
 
   test "the form does not go through turbo, so the answer is not thrown away" do
@@ -37,28 +37,28 @@ class MemberTokensTest < ActionDispatch::IntegrationTest
 
   test "the key on screen is the real one, and is not what we stored" do
     mint
-    shown = css_select(".secret code").sole.text
+    secret = css_select(".secret code").sole.text
     token = Api::Token.sole
 
-    assert_equal Api::Token.digest_of(shown), token.digest
-    assert_not_equal shown, token.digest
-    assert shown.start_with?(Api::Token::LEAD)
+    assert_equal Api::Token.digest_of(secret), token.digest
+    assert_not_equal secret, token.digest
+    assert secret.start_with?(Api::Token::KEY_PREFIX)
   end
 
   test "the chosen expiry is the one written down" do
-    mint(lasting: "30")
+    mint(lifetime: "30")
 
     assert_in_delta 30.days.from_now, Api::Token.sole.expires_at, 1.minute
   end
 
   test "no expiry is a real choice, not a default" do
-    mint(lasting: "never")
+    mint(lifetime: "never")
 
     assert_nil Api::Token.sole.expires_at
   end
 
   test "a made up expiry falls back rather than storing nothing" do
-    mint(lasting: "forever and ever")
+    mint(lifetime: "forever and ever")
 
     assert_in_delta 90.days.from_now, Api::Token.sole.expires_at, 1.minute
   end
@@ -72,7 +72,7 @@ class MemberTokensTest < ActionDispatch::IntegrationTest
   end
 
   test "minting is written to the audit log with its life" do
-    mint(lasting: "30")
+    mint(lifetime: "30")
 
     event = Api::Event.where(verb: "token_minted").sole
     assert_equal @member.user_id, event.actor_user_id

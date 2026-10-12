@@ -7,10 +7,10 @@ module Fd
     scope :newest_first, -> { order(kept_at: :desc, id: :desc) }
 
     def self.for_key(key)
-      found = KEY.match(key.to_s)
-      return nil if found.nil?
+      match = KEY.match(key.to_s)
+      return nil if match.nil?
 
-      newest_first.find_by(channel_id: found[:channel_id], thread_ts: found[:thread_ts])
+      newest_first.find_by(channel_id: match[:channel_id], thread_ts: match[:thread_ts])
     end
 
     def readonly?

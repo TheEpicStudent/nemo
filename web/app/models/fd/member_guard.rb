@@ -9,7 +9,7 @@ module Fd
 
     UNDONE_IN_SLACK = [DEACTIVATION].freeze
     DATELESS = [DEACTIVATION].freeze
-    HOLDS = (KINDS - [DEACTIVATION]).freeze
+    NON_DEACTIVATION_KINDS = (KINDS - [DEACTIVATION]).freeze
     WORST_KINDS = [DEACTIVATION, CHANNEL_BAN, SHUSH].freeze
 
     LIVE = "live".freeze
@@ -24,7 +24,7 @@ module Fd
     NEMO = "nemo".freeze
     BY_HAND = "by_hand".freeze
 
-    CARRY = "carry".freeze
+    MONITOR = "monitor".freeze
     ALREADY_DONE = "by_hand".freeze
     ADOPT = "adopt".freeze
     EXTEND = "extend".freeze
@@ -33,9 +33,9 @@ module Fd
     UNGUARDED = :unguarded
     ORPHANED = :orphaned
     ELSEWHERE = :elsewhere
-    HERE = :here
+    ON_CASE = :on_case
 
-    FRESH = 20.seconds
+    RECENT_UPDATE_WINDOW = 20.seconds
 
     has_many :events, class_name: "Fd::MemberGuardEvent", foreign_key: :guard_id,
       inverse_of: :guard, dependent: :destroy
@@ -53,11 +53,11 @@ module Fd
     scope :for_subject, ->(subject_id) { where(subject_id: subject_id) }
 
     Standing = Struct.new(:enforceable, :guard, :reads, :case_id, keyword_init: true) do
-      def found? = guard.present?
+      def guard? = guard.present?
       def enforceable? = enforceable
     end
 
-    def self.settle(type_key, subject_id, case_id: nil, channel_id: nil)
+    def self.evaluate_standing(type_key, subject_id, case_id: nil, channel_id: nil)
       unless Action.enforceable?(type_key)
         return Standing.new(enforceable: false, guard: nil, reads: UNGUARDED, case_id: case_id)
       end
@@ -91,8 +91,8 @@ module Fd
       kind = Action.guard_kind(type_key)
       return nil if kind.nil?
 
-      where = Action.guard_scope(type_key) == "channel" ? channel_id : nil
-      standing_for(subject_id, kind: kind, channel_id: where)
+      scoped_channel_id = Action.guard_scope(type_key) == "channel" ? channel_id : nil
+      standing_for(subject_id, kind: kind, channel_id: scoped_channel_id)
     end
 
     def self.open!(kind:, subject_id:, by:, reason:, channel_id: nil, case_id: nil,
@@ -107,22 +107,22 @@ module Fd
     end
 
     def attach_to!(case_id)
-      won = self.class.still_on.where(id: id, case_id: nil)
+      updated_count = self.class.still_on.where(id: id, case_id: nil)
         .update_all(case_id: case_id, updated_at: Time.current)
-      won.positive? ? reload : nil
+      updated_count.positive? ? reload : nil
     end
 
     def run_until!(expires_at)
-      won = self.class.still_on.where(id: id)
+      updated_count = self.class.still_on.where(id: id)
         .update_all(expires_at: expires_at, updated_at: Time.current)
-      won.positive? ? reload : nil
+      updated_count.positive? ? reload : nil
     end
 
     def lift!(by:, reason: nil)
-      won = self.class.still_on.where(id: id).update_all(
+      updated_count = self.class.still_on.where(id: id).update_all(
         **lifting_columns, lifted_by: by, lift_reason: reason, updated_at: Time.current
       )
-      won.positive? ? reload : nil
+      updated_count.positive? ? reload : nil
     end
 
     def undone_in_slack?
@@ -145,15 +145,15 @@ module Fd
       lifting? ? LIFTING : enforcement_status
     end
 
-    def landed?(at = Time.current)
-      updated_at.present? && updated_at > at - FRESH
+    def recently_updated?(at = Time.current)
+      updated_at.present? && updated_at > at - RECENT_UPDATE_WINDOW
     end
 
     def on_case?(case_ids) = case_id.present? && Array(case_ids).include?(case_id)
 
     def reads_for(on_case_id)
       return ORPHANED if orphaned?
-      return HERE if on_case_id.present? && case_id == on_case_id
+      return ON_CASE if on_case_id.present? && case_id == on_case_id
 
       ELSEWHERE
     end

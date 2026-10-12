@@ -31,7 +31,8 @@ module Fd
       "Fd::AppSetting" => "app_setting",
       "Authz::Grant" => "capability_grant",
       "Fd::ThreadTranscript" => "thread_transcript",
-      "Fd::LinkVerdict" => "member_link_verdict"
+      "Fd::LinkVerdict" => "member_link_verdict",
+      "Fd::AuditSavedQuery" => "audit_query"
     }.freeze
 
     VERBS = %w[

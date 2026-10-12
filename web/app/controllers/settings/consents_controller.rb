@@ -1,38 +1,38 @@
 module Settings
   class ConsentsController < BaseController
     def update
-      return refuse(turned_off) if api_off?
+      return redirect_with_alert(turned_off) if api_off?
 
       key = params[:scope].to_s
       Api::Scope.fetch(key)
-      app = app_asked
-      return refuse("No such app") if params[:app_id].present? && app.nil?
+      app = requested_app
+      return redirect_with_alert("No such app") if params[:app_id].present? && app.nil?
 
       granted = params[:on] == "1"
       Api::Consent.set!(member_id, app&.id, key, granted, via: "dashboard")
 
       redirect_to settings_permissions_path, notice: notice_for(app, key, granted)
     rescue Api::Scope::UnknownError => e
-      refuse(e.message)
+      redirect_with_alert(e.message)
     end
 
     private
 
-    def app_asked
+    def requested_app
       return nil if params[:app_id].blank?
 
-      found = Api::App.live.find_by(id: params[:app_id])
-      found&.answering? ? found : nil
+      app = Api::App.live.find_by(id: params[:app_id])
+      app&.approved? ? app : nil
     end
 
     def notice_for(app, key, granted)
-      named = Api::Scope.label(key).downcase
-      who = app ? app.name : "Every app"
-      granted ? "#{who} may ask about #{named}" : "#{who} may no longer ask"
+      scope_label = Api::Scope.label(key).downcase
+      app_label = app ? app.name : "Every app"
+      granted ? "#{app_label} may ask about #{scope_label}" : "#{app_label} may no longer ask"
     end
 
-    def refuse(why)
-      redirect_to settings_permissions_path, alert: why
+    def redirect_with_alert(message)
+      redirect_to settings_permissions_path, alert: message
     end
   end
 end

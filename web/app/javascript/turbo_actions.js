@@ -1,17 +1,17 @@
 import { Turbo } from "@hotwired/turbo-rails"
 
-function fullReload(frame, want) {
-  if (want && frame.getAttribute("src") !== want) {
-    frame.setAttribute("src", want)
+function fullReload(frame, targetSrc) {
+  if (targetSrc && frame.getAttribute("src") !== targetSrc) {
+    frame.setAttribute("src", targetSrc)
     return
   }
 
   if (frame.getAttribute("src")) frame.reload()
 }
 
-async function fetchChanges(frame, want, held) {
-  const url = new URL(want, window.location.href)
-  url.searchParams.set("since", held)
+async function fetchChanges(frame, targetSrc, currentVersion) {
+  const url = new URL(targetSrc, window.location.href)
+  url.searchParams.set("since", currentVersion)
 
   try {
     const response = await fetch(url, {
@@ -19,11 +19,11 @@ async function fetchChanges(frame, want, held) {
       credentials: "same-origin"
     })
     if (response.status === 204) return
-    if (!response.ok) return fullReload(frame, want)
+    if (!response.ok) return fullReload(frame, targetSrc)
 
     Turbo.renderStreamMessage(await response.text())
   } catch {
-    fullReload(frame, want)
+    fullReload(frame, targetSrc)
   } finally {
     delete frame.dataset.pendingVersion
   }
@@ -32,63 +32,72 @@ async function fetchChanges(frame, want, held) {
 export function reloadFrame(frame, src = null, version = null) {
   if (!frame) return
 
-  const want = src || frame.dataset.src
+  const targetSrc = src || frame.dataset.src
 
   if (version) {
-    const held = frame.querySelector("[data-version]")?.dataset.version
-    if (held === version || frame.dataset.pendingVersion === version) return
+    const currentVersion = frame.querySelector("[data-version]")?.dataset.version
+    if (currentVersion === version || frame.dataset.pendingVersion === version) return
 
     frame.dataset.pendingVersion = version
-    if (held && want) return fetchChanges(frame, want, held)
+    if (currentVersion && targetSrc) return fetchChanges(frame, targetSrc, currentVersion)
 
     frame.addEventListener("turbo:frame-load", () => delete frame.dataset.pendingVersion,
       { once: true })
   }
 
-  fullReload(frame, want)
+  fullReload(frame, targetSrc)
 }
 
 export function catchUp(frame) {
   if (!frame || frame.dataset.pendingVersion) return
 
-  const want = frame.dataset.src
-  const held = frame.querySelector("[data-version]")?.dataset.version
-  if (!want) return
-  if (!held) return fullReload(frame, want)
+  const targetSrc = frame.dataset.src
+  const currentVersion = frame.querySelector("[data-version]")?.dataset.version
+  if (!targetSrc) return
+  if (!currentVersion) return fullReload(frame, targetSrc)
 
-  frame.dataset.pendingVersion = held
-  fetchChanges(frame, want, held)
+  frame.dataset.pendingVersion = currentVersion
+  fetchChanges(frame, targetSrc, currentVersion)
 }
 
-const KEEPS_SCROLL = ".views a, .segmented a, .member-record-tabs a"
+const SCROLL_PRESERVING_LINKS = ".views a, .segmented a, .member-record-tabs a"
 const SCROLLERS = [".scrollarea", ".pane-list", ".member-record-content", ".case-tab-body"]
-let heldScroll = null
+let savedScrollTops = null
 
 document.addEventListener("click", (event) => {
-  const link = event.target.closest(KEEPS_SCROLL)
+  const link = event.target.closest(SCROLL_PRESERVING_LINKS)
   if (!link || link.target === "_blank" || link.dataset.turboFrame) return
 
-  heldScroll = SCROLLERS.map((selector) => document.querySelector(selector)?.scrollTop ?? null)
+  savedScrollTops = SCROLLERS.map((selector) => document.querySelector(selector)?.scrollTop ?? null)
 })
 
 document.addEventListener("turbo:render", () => {
-  if (!heldScroll) return
+  if (!savedScrollTops) return
 
-  const held = heldScroll
-  heldScroll = null
+  const savedTops = savedScrollTops
+  savedScrollTops = null
   SCROLLERS.forEach((selector, at) => {
     const box = document.querySelector(selector)
-    if (box && held[at] !== null) box.scrollTop = held[at]
+    if (box && savedTops[at] !== null) box.scrollTop = savedTops[at]
   })
 })
 
 document.addEventListener("turbo:visit", (event) => {
-  if (heldScroll && event.detail?.action === "restore") heldScroll = null
+  if (savedScrollTops && event.detail?.action === "restore") savedScrollTops = null
 })
 
 Turbo.StreamActions.reload_frame = function () {
   reloadFrame(document.getElementById(this.target), this.getAttribute("src"),
     this.getAttribute("version"))
+}
+
+Turbo.StreamActions.audit_event = function () {
+  try {
+    const detail = JSON.parse(this.getAttribute("payload") || "{}")
+    document.dispatchEvent(new CustomEvent("audit:event", { detail }))
+  } catch {
+    document.dispatchEvent(new CustomEvent("audit:event", { detail: { truncated: true } }))
+  }
 }
 
 Turbo.StreamActions.refresh_frame = function () {
@@ -103,8 +112,8 @@ Turbo.StreamActions.upsert = function () {
   this.targetElements.forEach((target) => {
     if (version) target.dataset.version = version
     rows.forEach((row) => {
-      const had = row.id && document.getElementById(row.id)
-      if (had) had.replaceWith(row)
+      const existing = row.id && document.getElementById(row.id)
+      if (existing) existing.replaceWith(row)
       else target.appendChild(row)
     })
     target.dispatchEvent(new CustomEvent("chat:changed", { bubbles: true }))

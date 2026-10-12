@@ -2,9 +2,9 @@ module Fd
   class ReplyEcho
     def self.flush_pending(case_id)
       thread_ts = SlackPost.thread_for(case_id)
-      return 0 if thread_ts.nil? || SlackPost.room.nil?
+      return 0 if thread_ts.nil? || SlackPost.log_channel_id.nil?
 
-      waiting(case_id).count { |queued| carry(queued, thread_ts) }
+      waiting(case_id).count { |queued| post_to_thread(queued, thread_ts) }
     end
 
     def self.waiting(case_id)
@@ -13,28 +13,28 @@ module Fd
         .order(:sent_at)
     end
 
-    def self.carry(queued, thread_ts)
-      grant = StaffSlack.held_by(queued.requested_by)
+    def self.post_to_thread(queued, thread_ts)
+      grant = StaffSlack.active_for(queued.requested_by)
       return false if grant.nil?
       return false unless claim(queued)
 
-      answer = Slack::Chat.post_message(token: grant.user_token, channel: SlackPost.room,
+      response = Slack::Chat.post_message(token: grant.user_token, channel: SlackPost.log_channel_id,
         thread_ts: thread_ts, text: payload_for(queued))
-      return release_after_error(queued, grant, answer["error"]) unless answer["ok"]
+      return release_after_error(queued, grant, response["error"]) unless response["ok"]
 
-      queued.update!(echoed_ts: answer["ts"], echoed_as: "user")
+      queued.update!(echoed_ts: response["ts"], echoed_as: "user")
       grant.used!
       true
-    rescue Slack::Chat::UnavailableError => failure
-      release_after_error(queued, grant, failure.message)
+    rescue Slack::Chat::UnavailableError => error
+      release_after_error(queued, grant, error.message)
     rescue StandardError
       release(queued)
       raise
     end
 
     def self.payload_for(queued)
-      mark = queued.mode == "signed" ? "?" : "~?"
-      "#{mark}#{SlackPost.escape_markup(queued.body)}"
+      prefix = queued.mode == "signed" ? "?" : "~?"
+      "#{prefix}#{SlackPost.escape_markup(queued.body)}"
     end
 
     def self.claim(queued)
@@ -42,8 +42,8 @@ module Fd
         .update_all(echoed_at: Time.current) == 1
     end
 
-    def self.release_after_error(queued, grant, why)
-      grant&.record_error!(why)
+    def self.release_after_error(queued, grant, error_message)
+      grant&.record_error!(error_message)
       release(queued)
     end
 

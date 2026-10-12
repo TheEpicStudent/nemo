@@ -6,7 +6,7 @@ const RADIUS = 6
 const PIN_INSET = 1
 const TIP_OFFSET = 10
 const SANS = '"Geist", ui-sans-serif, system-ui, sans-serif'
-const RULER = typeof document === "undefined"
+const MEASURE_CTX = typeof document === "undefined"
   ? null
   : document.createElement("canvas").getContext("2d")
 
@@ -18,24 +18,24 @@ export const N = (v) => v == null ? "n/a" : Number(v).toLocaleString("en-US")
 export const PC = (v, d = 1) => v == null ? "n/a" : `${Number(v).toFixed(d)}%`
 
 export function fit(text, size, weight = 600) {
-  if (!RULER) return text.length * size * 0.6
+  if (!MEASURE_CTX) return text.length * size * 0.6
 
-  RULER.font = `${weight} ${size}px ${SANS}`
-  return RULER.measureText(text).width
+  MEASURE_CTX.font = `${weight} ${size}px ${SANS}`
+  return MEASURE_CTX.measureText(text).width
 }
 
-export function clip(text, size, room, weight) {
-  if (room <= 0) return null
-  if (fit(text, size, weight) <= room) return text
+export function clip(text, size, maxWidth, weight) {
+  if (maxWidth <= 0) return null
+  if (fit(text, size, weight) <= maxWidth) return text
 
   for (let n = text.length - 1; n >= 2; n--) {
-    const cut = `${text.slice(0, n)}…`
-    if (fit(cut, size, weight) <= room) return cut
+    const truncated = `${text.slice(0, n)}…`
+    if (fit(truncated, size, weight) <= maxWidth) return truncated
   }
   return null
 }
 
-const withoutPin = ({ pin: _pin, ...rest }) => JSON.stringify(rest)
+const withoutPin = ({ pin: _pin, ...view }) => JSON.stringify(view)
 
 export class TileChart extends Controller {
   static values = { tiles: Array, height: Number, view: Object }
@@ -50,8 +50,8 @@ export class TileChart extends Controller {
       data-action="${hover}keydown->${name}#key"
       ><div class="tip"></div><span class="chart-caption" aria-live="polite"></span></div>`
     this.box = this.element.querySelector(".tree")
-    this.watcher = new ResizeObserver(() => this.measure())
-    this.watcher.observe(this.box)
+    this.observer = new ResizeObserver(() => this.measure())
+    this.observer.observe(this.box)
     this.measure()
     this.ready = true
     if (this.hasViewValue) this.dispatch("ready", { prefix: "chart" })
@@ -59,7 +59,7 @@ export class TileChart extends Controller {
 
   disconnect() {
     this.ready = false
-    this.watcher?.disconnect()
+    this.observer?.disconnect()
   }
 
   viewValueChanged(value, previous) {
@@ -129,7 +129,7 @@ export class TileChart extends Controller {
     }
 
     let cells = ""
-    let ring = ""
+    let pinOutline = ""
     squarify(items, 0, 0, wide, high, []).forEach((item) => {
       const w = Math.max(0, item.w - GAP)
       const h = Math.max(0, item.h - GAP)
@@ -141,7 +141,7 @@ export class TileChart extends Controller {
         x="${tile.x.toFixed(1)}" y="${tile.y.toFixed(1)}"
         width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="${tile.rx.toFixed(1)}"/>${
         this.showLabels ? this.labelMarkup(tile) : ""}</g>`
-      if (item.i === this.pinned) ring = this.pinMarkup(tile)
+      if (item.i === this.pinned) pinOutline = this.pinMarkup(tile)
 
       this.zones.push({ i: item.i, row: item.row, tone, cx: item.x + item.w / 2, cy: item.y + item.h / 2,
         x0: item.x, y0: item.y, x1: item.x + item.w, y1: item.y + item.h })
@@ -149,7 +149,7 @@ export class TileChart extends Controller {
 
     this.box.insertAdjacentHTML("afterbegin",
       `<svg width="${wide}" height="${high}" viewBox="0 0 ${wide} ${high}" role="img"
-        aria-label="${esc(this.summary())}">${cells}${ring}</svg>`)
+        aria-label="${esc(this.summary())}">${cells}${pinOutline}</svg>`)
 
     if (this.at == null) return
     if (this.zoneFor(this.at)) this.show(this.at, { silent: true })
@@ -183,7 +183,7 @@ export class TileChart extends Controller {
     return { labels: true }
   }
 
-  spot(event) {
+  indexAtPointer(event) {
     const svg = this.box?.querySelector("svg")
     if (!svg || !this.zones?.length) return null
 
@@ -195,7 +195,7 @@ export class TileChart extends Controller {
   }
 
   track(event) {
-    const i = this.spot(event)
+    const i = this.indexAtPointer(event)
     if (i == null) return this.clear()
 
     this.show(i)
@@ -267,7 +267,7 @@ export class TileChart extends Controller {
     this.box.querySelector(".tip")?.classList.remove("on")
     this.box.classList.remove("lit")
     this.box.querySelectorAll(".cell.on").forEach((cell) => cell.classList.remove("on"))
-    const say = this.box.querySelector(".chart-caption")
-    if (say) say.textContent = ""
+    const caption = this.box.querySelector(".chart-caption")
+    if (caption) caption.textContent = ""
   }
 }

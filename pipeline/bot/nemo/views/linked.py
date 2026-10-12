@@ -28,16 +28,16 @@ def occurrence(url, matched):
 
 
 def occurrences(text):
-    found = []
+    results = []
     for part in LINK_TOKEN.split(text or ""):
         if LINK_TOKEN.fullmatch(part):
             matched = message_link(part)
             if matched:
-                found.append(occurrence(target(part), matched))
+                results.append(occurrence(target(part), matched))
             continue
         for matched in parse.ARCHIVE_LINK.finditer(part):
-            found.append(occurrence(matched.group(0), matched))
-    return found
+            results.append(occurrence(matched.group(0), matched))
+    return results
 
 
 def numbering(text, shares, start):
@@ -60,7 +60,7 @@ def size(numbered):
 
 def forwarded_lines(numbered):
     first = numbered["start"] + len(numbered["links"])
-    return [f"forwarded ({first + seen})" for seen in range(len(numbered["forwards"]))]
+    return [f"forwarded ({first + offset})" for offset in range(len(numbered["forwards"]))]
 
 
 def numbered_quote(block, numbered):
@@ -69,16 +69,16 @@ def numbered_quote(block, numbered):
 
     count = len(numbered["links"])
     runs = []
-    seen = 0
+    link_index = 0
     for element in block["elements"][0]["elements"] if block else []:
         runs.append(element)
         if (
-            seen < count
+            link_index < count
             and element.get("type") in MESSAGE_RUNS
             and parse.ARCHIVE_LINK.match(element.get("url") or "")
         ):
-            runs.append({"type": "text", "text": f" ({numbered['start'] + seen})"})
-            seen += 1
+            runs.append({"type": "text", "text": f" ({numbered['start'] + link_index})"})
+            link_index += 1
 
     for line in forwarded_lines(numbered):
         runs.append({"type": "text", "text": f"\n{line}" if runs else line})
@@ -105,12 +105,12 @@ def numbered_text(text, numbered):
 
     count = len(numbered["links"])
     parts = []
-    seen = 0
+    link_index = 0
     for part in LINK_TOKEN.split(text or ""):
         parts.append(part)
-        if seen < count and LINK_TOKEN.fullmatch(part) and message_link(part):
-            parts.append(f" ({numbered['start'] + seen})")
-            seen += 1
+        if link_index < count and LINK_TOKEN.fullmatch(part) and message_link(part):
+            parts.append(f" ({numbered['start'] + link_index})")
+            link_index += 1
 
     return "\n".join(line for line in ["".join(parts), *forwarded_lines(numbered)] if line)
 
@@ -146,9 +146,9 @@ def items(numbered, shares):
 
 
 def channel_ref(share, channel_id=None):
-    held = share.get("source_channel_id") or channel_id
-    if held:
-        return f"<#{held}>"
+    source_channel = share.get("source_channel_id") or channel_id
+    if source_channel:
+        return f"<#{source_channel}>"
     named = share.get("source_channel_name")
     return f"#{named}" if named else None
 
@@ -173,17 +173,17 @@ def file_ids(share):
     return [one["id"] for one in raw.get("files") or [] if isinstance(one, dict) and one.get("id")]
 
 
-def carried(share, held):
-    found = [held[one] for one in file_ids(share) if one in (held or {})]
+def file_blocks(share, files_by_id):
+    files = [files_by_id[one] for one in file_ids(share) if one in (files_by_id or {})]
     pictures = [
         {"type": "image", "slack_file": {"id": one["id"]}, "alt_text": one["name"]}
-        for one in found if one["image"]
+        for one in files if one["image"]
     ]
-    named = [one["name"] for one in found if not one["image"]]
+    named = [one["name"] for one in files if not one["image"]]
     return pictures + ([context(":paperclip: " + ", ".join(named))] if named else [])
 
 
-def item_blocks(item, held=None):
+def item_blocks(item, files_by_id=None):
     share = item["share"]
     number = item["number"]
     head = (
@@ -199,21 +199,21 @@ def item_blocks(item, held=None):
 
     return [
         {"type": "rich_text", "elements": parts},
-        *carried(share, held),
+        *file_blocks(share, files_by_id),
         context(by_whom(share, item["channel_id"]) if readable(share) else "Message not accessible"),
     ]
 
 
-def reply_blocks(found, held=None):
+def reply_blocks(link_items, files_by_id=None):
     blocks = []
-    for at, item in enumerate(found):
-        made = item_blocks(item, held)
+    for at, item in enumerate(link_items):
+        made = item_blocks(item, files_by_id)
         if len(blocks) + len(made) > BLOCK_LIMIT - 1:
-            blocks.append(context(f"{len(found) - at} more in Fire Engine"))
+            blocks.append(context(f"{len(link_items) - at} more in Fire Engine"))
             return blocks
         blocks += made
     return blocks
 
 
-def fallback(found):
-    return "1 linked message" if len(found) == 1 else f"{len(found)} linked messages"
+def fallback(link_items):
+    return "1 linked message" if len(link_items) == 1 else f"{len(link_items)} linked messages"

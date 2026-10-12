@@ -1,5 +1,5 @@
 <% s = activity_series(activity_trend, granularity) %>
-<% was = prior_trend.any? ? activity_series(prior_trend, granularity) : nil %>
+<% prior_series = prior_trend.any? ? activity_series(prior_trend, granularity) : nil %>
 
 <section class="section">
 
@@ -41,14 +41,14 @@
             labels: s[:labels],
             datasets: [
               { label: "public share", data: s[:public_share] },
-              (was ? { label: "previous period", data: was[:public_share],
+              (prior_series ? { label: "previous period", data: prior_series[:public_share],
                        color: "var(--ink-4)", ghost: true } : nil)
             ].compact
           }.to_json %>"
         ></div>
         <div class="legend chart-legend-under">
           <span><i class="ser-1"></i>public share</span>
-          <% if was %><span><i class="ghost"></i>previous period</span><% end %>
+          <% if prior_series %><span><i class="ghost"></i>previous period</span><% end %>
         </div>
       </div>
     </div>

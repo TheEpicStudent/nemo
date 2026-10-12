@@ -42,13 +42,13 @@ def redacted(key):
         return True
     return any(part in name for part in REDACT_SUBSTRING)
 
-USER_KEPT = ("id", "team_id", "is_bot", "is_admin", "deleted", "updated")
+USER_FIELDS = ("id", "team_id", "is_bot", "is_admin", "deleted", "updated")
 
 
 def thin_user(value):
     if not isinstance(value, dict):
         return value
-    return {k: v for k, v in value.items() if k in USER_KEPT}
+    return {k: v for k, v in value.items() if k in USER_FIELDS}
 
 
 def redact(value):
@@ -89,12 +89,12 @@ def derived(text):
 
 def normalize(message):
     reactions = message.get("reactions") or []
-    counted = derived(message.get("text"))
-    counted.update({
+    fields = derived(message.get("text"))
+    fields.update({
         "block_count": len(message.get("blocks") or []),
         "attachment_count": len(message.get("attachments") or []),
         "file_count": len(message.get("files") or []),
         "reaction_count": sum(r.get("count") or 0 for r in reactions),
         "reactor_count": len({u for r in reactions for u in (r.get("users") or [])}),
     })
-    return counted
+    return fields

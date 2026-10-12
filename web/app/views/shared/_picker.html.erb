@@ -2,7 +2,7 @@
   <%= render layout: "shared/dropdown", locals: { label: label, trigger_css: "btn daterange-preset",
         pop_css: "menu-compact",
         trigger: capture {
-          concat tag.span(chosen)
+          concat tag.span(selected_label)
           concat(tag.svg(width: 16, height: 16, viewBox: "0 0 24 24", fill: "none",
             stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round",
             "stroke-linejoin": "round", class: "daterange-chev", aria: { hidden: true }) do

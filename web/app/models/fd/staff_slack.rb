@@ -7,15 +7,15 @@ module Fd
 
     SCOPE = "chat:write".freeze
     SLACK = "slack".freeze
-    GONE = %w[token_revoked invalid_auth account_inactive not_authed].freeze
+    REVOKED_ERRORS = %w[token_revoked invalid_auth account_inactive not_authed].freeze
 
     scope :live, -> { where(revoked_at: nil) }
 
-    def self.held_by(user_id)
+    def self.active_for(user_id)
       live.find_by(staff_user_id: user_id)
     end
 
-    def self.keep!(user_id, token:, team_id:, scopes:)
+    def self.store!(user_id, token:, team_id:, scopes:)
       row = find_or_initialize_by(staff_user_id: user_id)
       row.update!(user_token: token, team_id: team_id, scopes: scopes,
         granted_at: Time.current, last_used_at: nil, last_error: nil, last_error_at: nil,
@@ -27,7 +27,7 @@ module Fd
       revoked_at.nil?
     end
 
-    def stumbled?
+    def errored?
       last_error.present?
     end
 
@@ -36,17 +36,17 @@ module Fd
     end
 
     def record_error!(message)
-      return mark_gone!(message) if GONE.include?(message.to_s)
+      return mark_revoked!(message) if REVOKED_ERRORS.include?(message.to_s)
 
       update_columns(last_error: message.to_s.first(200), last_error_at: Time.current)
     end
 
-    def mark_gone!(message)
+    def mark_revoked!(message)
       update_columns(last_error: message.to_s.first(200), last_error_at: Time.current,
         revoked_at: Time.current, revoked_by: SLACK)
     end
 
-    def given_up?
+    def revoked_by_slack?
       revoked_by == SLACK
     end
 

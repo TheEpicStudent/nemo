@@ -11,7 +11,7 @@ NOTE_LIMIT = 2900
 
 CURSOR = "SELECT last_id FROM fd.bot_cursor WHERE name = %s FOR UPDATE SKIP LOCKED"
 
-MOVED = "UPDATE fd.bot_cursor SET last_id = %s WHERE name = %s"
+ADVANCE_CURSOR = "UPDATE fd.bot_cursor SET last_id = %s WHERE name = %s"
 
 ENTRIES = """
 SELECT id, actor_user_id, entity_type, entity_id, verb, before, after, request_id
@@ -32,13 +32,13 @@ def user_of(payload):
 
 
 def grouped(rows, key):
-    found = {}
+    groups = {}
     for row in rows:
-        found.setdefault(key(row), []).append(row)
-    return found
+        groups.setdefault(key(row), []).append(row)
+    return groups
 
 
-def said(conn, rows):
+def announcement_lines(conn, rows):
     out = []
     by_request = grouped(rows, lambda row: (row[7] or f"row-{row[0]}", row[2], row[4], row[1]))
     for (_, entity, verb, actor), group in by_request.items():
@@ -55,9 +55,9 @@ def said(conn, rows):
                 out.append((case_id, lines.unassigned(actor, case_id, users)))
         elif entity == "note":
             for row in group:
-                held = conn.execute(NOTE, (row[3],)).fetchone()
-                if held and held[0]:
-                    out.append((held[0], lines.note_added(actor, held[1][:NOTE_LIMIT])))
+                note = conn.execute(NOTE, (row[3],)).fetchone()
+                if note and note[0]:
+                    out.append((note[0], lines.note_added(actor, note[1][:NOTE_LIMIT])))
         elif entity == "case" and verb == "reopened":
             out += [(row[3], lines.reopened(actor, row[3])) for row in group]
         elif entity == "case" and verb == "resolved":
@@ -72,9 +72,9 @@ def merges(actor, rows):
         if after.get("resolution") == "duplicate" and after.get("duplicate_of"):
             into.setdefault(int(after["duplicate_of"]), []).append(row[3])
     out = []
-    for keep, folded in into.items():
-        text = lines.merged(actor, sorted(folded), keep, channel.case_url)
-        out += [(case_id, text) for case_id in (keep, *sorted(folded))]
+    for primary_id, duplicate_ids in into.items():
+        text = lines.merged(actor, sorted(duplicate_ids), primary_id, channel.case_url)
+        out += [(case_id, text) for case_id in (primary_id, *sorted(duplicate_ids))]
     return out
 
 
@@ -86,10 +86,10 @@ def announce(client, conn):
     if not rows:
         return 0
     posted = 0
-    for case_id, text in said(conn, rows):
+    for case_id, text in announcement_lines(conn, rows):
         if channel.post_line(client, conn, case_id, text):
             posted += 1
-    conn.execute(MOVED, (rows[-1][0], CURSOR_NAME))
+    conn.execute(ADVANCE_CURSOR, (rows[-1][0], CURSOR_NAME))
     if posted:
         log.info("nemo: %s fire engine change(s) told to their threads", posted)
     return posted

@@ -29,17 +29,17 @@ def plain(name):
 
 def root_of(client, channel_id, ts):
     try:
-        found = client.conversations_replies(
+        response = client.conversations_replies(
             channel=channel_id, ts=ts, limit=1, inclusive=True
         )
-        message = (found.get("messages") or [{}])[0]
+        message = (response.get("messages") or [{}])[0]
     except Exception as failure:
         log.info("nemo: could not read the thread above %s: %s", ts, failure)
         return ts, {}
     return message.get("thread_ts") or message.get("ts") or ts, message
 
 
-def wanted(ctx, marks, needs):
+def reaction_target(ctx, marks, needs):
     event = ctx.payload or {}
     item = event.get("item") or {}
     if item.get("type") != "message":
@@ -66,35 +66,35 @@ def wanted(ctx, marks, needs):
     return channel_id, thread_ts, message, who
 
 
-def worth_keeping(message):
+def is_storable(message):
     return bool(
         message.get("ts") and message.get("user") and (message.get("text") or message.get("blocks"))
     )
 
 
-def keep_the_root(conn, case_id, channel_id, message):
-    if not worth_keeping(message):
+def store_root_message(conn, case_id, channel_id, message):
+    if not is_storable(message):
         return None
 
-    chat_id, _ = chat.keep(conn, case_id, dict(message, channel=channel_id))
+    chat_id, _ = chat.store_message(conn, case_id, dict(message, channel=channel_id))
     return chat_id
 
 
 @on_event("reaction_added", open_to_all=True)
 def opened(ctx):
-    asked = wanted(ctx, OPENS, "case.open")
-    if asked is None:
+    target = reaction_target(ctx, OPENS, "case.open")
+    if target is None:
         return None
-    channel_id, thread_ts, message, who = asked
+    channel_id, thread_ts, message, who = target
 
     with session() as conn:
-        standing = case_queue.case_on(conn, channel_id, thread_ts)
-        if standing is not None:
-            log.info("nemo: %s in %s is already case %s", thread_ts, channel_id, standing)
-            return standing
+        existing_case_id = case_queue.case_on(conn, channel_id, thread_ts)
+        if existing_case_id is not None:
+            log.info("nemo: %s in %s is already case %s", thread_ts, channel_id, existing_case_id)
+            return existing_case_id
 
         case_id = case_actions.open_case(conn, None, None, who)
-        keep_the_root(conn, case_id, channel_id, message)
+        store_root_message(conn, case_id, channel_id, message)
         case_queue.post(ctx.client, conn, case_id, channel_id, thread_ts)
 
     log.info("nemo: case %s opened on %s in %s by %s", case_id, thread_ts, channel_id, who)
@@ -152,10 +152,10 @@ def closed_on_card(ctx):
 
 @on_event("reaction_added", open_to_all=True)
 def closed(ctx):
-    asked = wanted(ctx, ENDS, "case.resolve")
-    if asked is None:
+    target = reaction_target(ctx, ENDS, "case.resolve")
+    if target is None:
         return None
-    channel_id, thread_ts, _, who = asked
+    channel_id, thread_ts, _, who = target
     mark = plain((ctx.payload or {}).get("reaction"))
 
     with session() as conn:
@@ -222,7 +222,7 @@ def banned(ctx):
                 if not opens:
                     return None
                 case_id = case_actions.open_case(conn, None, None, who)
-                keep_the_root(conn, case_id, channel_id, message)
+                store_root_message(conn, case_id, channel_id, message)
                 case_queue.post(ctx.client, conn, case_id, channel_id, thread_ts)
 
     with session() as conn:

@@ -43,7 +43,7 @@
                   <td colspan="5"><%= label %> &middot; <%= channels.size %></td>
                 </tr>
                 <% channels.each do |channel| %>
-                  <% named = @grants[channel.channel_id] || [] %>
+                  <% channel_grants = @grants[channel.channel_id] || [] %>
                   <tr>
                     <td>
                       <span class="two-line">
@@ -57,11 +57,11 @@
                         <span class="chip chip-good">Activity</span>
                       <% end %>
                     </td>
-                    <td><%= named_faces(named, kind) %></td>
+                    <td><%= grant_faces(channel_grants, kind) %></td>
                     <td class="<%= "sub" unless channel.last_active_at %>"><%= ago_label(channel.last_active_at, none: "Never") %></td>
                     <td class="col-btn">
                       <%= render "admin/channels/row_menu", channel: channel, kind: kind,
-                            named: named %>
+                            named: channel_grants %>
                     </td>
                   </tr>
                 <% end %>

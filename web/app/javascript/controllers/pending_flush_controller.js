@@ -5,7 +5,7 @@ export default class extends Controller {
   static values = { frame: String }
 
   connect() {
-    this.dropped = false
+    this.streamDisconnected = false
     this.onChange = this.onChange.bind(this)
     this.onVisible = this.onVisible.bind(this)
 
@@ -14,13 +14,13 @@ export default class extends Controller {
     const source = this.source
     if (!source) return
 
-    this.watch = new MutationObserver(this.onChange)
-    this.watch.observe(source, { attributeFilter: ["connected"] })
+    this.observer = new MutationObserver(this.onChange)
+    this.observer.observe(source, { attributeFilter: ["connected"] })
   }
 
   disconnect() {
     document.removeEventListener("visibilitychange", this.onVisible)
-    if (this.watch) this.watch.disconnect()
+    if (this.observer) this.observer.disconnect()
   }
 
   get source() {
@@ -32,13 +32,13 @@ export default class extends Controller {
     if (!source) return
 
     if (!source.hasAttribute("connected")) {
-      this.dropped = true
+      this.streamDisconnected = true
       return
     }
 
-    if (!this.dropped) return
+    if (!this.streamDisconnected) return
 
-    this.dropped = false
+    this.streamDisconnected = false
     this.catchUp()
   }
 

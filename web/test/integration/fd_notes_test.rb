@@ -137,12 +137,12 @@ class FdNotesTest < ActionDispatch::IntegrationTest
 
   test "a note belonging to another case cannot be removed through this one" do
     other = make_case(subject: "UELSE", opened_at: 1.day.ago)
-    theirs = Fd::Note.create!(case_id: other.id, body: "somewhere else", author: "UME")
+    other_note = Fd::Note.create!(case_id: other.id, body: "somewhere else", author: "UME")
 
     sign_in_as(@me)
-    delete fd_case_note_path(@kase, theirs)
+    delete fd_case_note_path(@kase, other_note)
 
-    assert_nil theirs.reload.deleted_at, "the case in the url must own the note"
+    assert_nil other_note.reload.deleted_at, "the case in the url must own the note"
   end
 
   test "removing twice does not write a second trail entry" do

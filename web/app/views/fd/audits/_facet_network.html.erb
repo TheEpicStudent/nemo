@@ -1,0 +1,10 @@
+<% selected = @query.search.of("network") %>
+<%= link_to "Any", fd_audit_path(@query.set_params("network")), class: "btn",
+      aria: { current: ("true" if selected.empty?) } %>
+<div class="menu-sep"></div>
+<% audit_ordered(Fd::AuditSearch::NETWORKS.keys, counts).each do |key| %>
+  <%= link_to fd_audit_path(@query.set_params("network", key)), class: "btn",
+        aria: { current: ("true" if selected.include?(key)) } do %>
+    <span><%= Fd::AuditSearch::NETWORKS.fetch(key) %></span><%= audit_count(counts&.fetch(key, 0)) %>
+  <% end %>
+<% end %>

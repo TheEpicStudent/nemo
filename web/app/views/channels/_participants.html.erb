@@ -2,7 +2,7 @@
 <% picker = capture do %>
   <% if crowd.months.many? %>
     <%= render "shared/picker", label: "month",
-          chosen: crowd.month.strftime("%b %Y"),
+          selected_label: crowd.month.strftime("%b %Y"),
           groups: [{ options: crowd.months.map { |m| {
             label: m.strftime("%b %Y"), current: m == crowd.month,
             href: channel_view_path(month: m.iso8601) } } }] %>

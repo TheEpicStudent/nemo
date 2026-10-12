@@ -17,15 +17,15 @@
           </tr>
         </thead>
         <tbody>
-          <% @links.each do |one| %>
+          <% @links.each do |link| %>
             <tr>
-              <td><%= member_face(one.a_user_id) %></td>
-              <td><%= member_face(one.b_user_id) %></td>
-              <td><%= link_score_chip(one.score) %></td>
-              <td class="link-why"><%= link_reasons(Fd::MemberLink.evidence_of(one.signals)) %></td>
-              <td class="sub2"><%= one.last_seen ? on_day(one.last_seen) : "n/a" %></td>
-              <% judged = Fd::LinkVerdict.of(@verdicts, one.a_user_id, one.b_user_id) %>
-              <td><%= verdict_cell(one.a_user_id, one.b_user_id, judged) %></td>
+              <td><%= member_face(link.a_user_id) %></td>
+              <td><%= member_face(link.b_user_id) %></td>
+              <td><%= link_score_chip(link.score) %></td>
+              <td class="link-why"><%= link_reasons(Fd::MemberLink.evidence_of(link.signals)) %></td>
+              <td class="sub2"><%= link.last_seen ? on_day(link.last_seen) : "n/a" %></td>
+              <% verdict = Fd::LinkVerdict.of(@verdicts, link.a_user_id, link.b_user_id) %>
+              <td><%= verdict_cell(link.a_user_id, link.b_user_id, verdict) %></td>
             </tr>
           <% end %>
         </tbody>

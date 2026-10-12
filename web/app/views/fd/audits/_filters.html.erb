@@ -1,42 +1,30 @@
 <% search = @query.search %>
 <% categories = search.of("category") %>
 <% actions = search.of("action") %>
-<% after = search.one("after") %>
-<% last = search.one("last") %>
-<% doer = search.one("is") %>
-<% busy = search.one("show") == "high_volume" %>
+<% networks = search.of("network") %>
+<% after = search.first_value("after") %>
+<% last = search.first_value("last") %>
+<% actor_type = search.first_value("is") %>
+<% high_volume = search.first_value("show") == "high_volume" %>
 <div class="audit-filters">
   <% if @query.may_slack? %>
     <%= render layout: "shared/dropdown", locals: {
           label: "Category", trigger_css: "btn",
           trigger: audit_filter_trigger("Category", categories.first && Fd::AuditCatalogue.category_label(categories.first)) } do %>
-      <%= link_to "Any", fd_audit_path(@query.set_params("category")), aria: { current: ("true" if categories.empty?) } %>
-      <div class="menu-sep"></div>
-      <% Fd::AuditCatalogue::CATEGORIES.each do |key, label| %>
-        <%= link_to label, fd_audit_path(@query.set_params("category", key)),
-              aria: { current: ("true" if categories.include?(key)) } %>
-      <% end %>
+      <%= render "facet_frame", facet: "category" %>
     <% end %>
 
     <%= render layout: "shared/dropdown", locals: {
-          label: "Action", trigger_css: "btn", pop_css: "audit-filter-pop",
-          trigger: audit_filter_trigger("Action", actions.first && Fd::AuditCatalogue.action_label(actions.first)) } do %>
-      <%= link_to "Any", fd_audit_path(@query.set_params("action")), aria: { current: ("true" if actions.empty?) } %>
-      <% Fd::AuditCatalogue.grouped(categories.presence || Fd::AuditCatalogue::CATEGORIES.keys).each do |_key, label, keys| %>
-        <div class="menu-sep"></div>
-        <div class="menu-group"><%= label %></div>
-        <% keys.each do |action| %>
-          <%= link_to Fd::AuditCatalogue.action_label(action), fd_audit_path(@query.set_params("action", action)),
-                aria: { current: ("true" if actions.include?(action)) } %>
-        <% end %>
-      <% end %>
+          label: "Event", trigger_css: "btn", pop_css: "audit-filter-pop",
+          trigger: audit_filter_trigger("Event", actions.first && Fd::AuditCatalogue.action_label(actions.first)) } do %>
+      <%= render "facet_frame", facet: "action" %>
     <% end %>
   <% end %>
 
-  <% before = search.one("before") %>
+  <% before = search.first_value("before") %>
   <% from = after && Date.iso8601(after[0, 10]) %>
   <% upto = before ? Date.iso8601(before[0, 10]) - (before.include?("T") ? 0 : 1) : (from && Date.current) %>
-  <%= render "shared/date_range", url: fd_audit_path, title: "When",
+  <%= render "shared/date_range", url: fd_audit_path, title: "Time",
         start_on: from, end_on: upto, min: AuditHelper::FIRST_DAY, max: Date.current,
         carry: @query.set_params(%w[after before last]),
         presets: [{ label: "Any time", href: fd_audit_path(@query.set_params(%w[after before last])),
@@ -46,14 +34,18 @@
               current: last == window && after.nil? && before.nil? }
           } %>
 
-  <%= render layout: "shared/dropdown", locals: {
-        label: "Done by", trigger_css: "btn",
-        trigger: audit_filter_trigger("Done by", AuditHelper::DOERS.key(doer)) } do %>
-    <%= link_to "Anyone", fd_audit_path(@query.set_params("is")), aria: { current: ("true" if doer.nil?) } %>
-    <div class="menu-sep"></div>
-    <% AuditHelper::DOERS.each do |label, key| %>
-      <%= link_to label, fd_audit_path(@query.set_params("is", key)), aria: { current: ("true" if doer == key) } %>
+  <% if @query.may_slack? %>
+    <%= render layout: "shared/dropdown", locals: {
+          label: "Network", trigger_css: "btn",
+          trigger: audit_filter_trigger("Network", networks.map { |key| Fd::AuditSearch::NETWORKS.fetch(key) }.join(", ").presence) } do %>
+      <%= render "facet_frame", facet: "network" %>
     <% end %>
+  <% end %>
+
+  <%= render layout: "shared/dropdown", locals: {
+        label: "Actor type", trigger_css: "btn",
+        trigger: audit_filter_trigger("Actor type", AuditHelper::ACTOR_TYPES.key(actor_type)) } do %>
+    <%= render "facet_frame", facet: "is" %>
   <% end %>
 
   <%= render layout: "shared/dropdown", locals: {
@@ -70,9 +62,9 @@
   <% if @query.may_slack? %>
     <%= render layout: "shared/dropdown", locals: {
           label: "High-volume actions", trigger_css: "btn",
-          trigger: audit_filter_trigger("High-volume", busy ? "Shown" : "Hidden") } do %>
-      <%= link_to "Hidden", fd_audit_path(@query.set_params("show")), aria: { current: ("true" unless busy) } %>
-      <%= link_to "Shown", fd_audit_path(@query.set_params("show", "high_volume")), aria: { current: ("true" if busy) } %>
+          trigger: audit_filter_trigger("High-volume", high_volume ? "Shown" : "Hidden") } do %>
+      <%= link_to "Hidden", fd_audit_path(@query.set_params("show")), aria: { current: ("true" unless high_volume) } %>
+      <%= link_to "Shown", fd_audit_path(@query.set_params("show", "high_volume")), aria: { current: ("true" if high_volume) } %>
     <% end %>
   <% end %>
 </div>

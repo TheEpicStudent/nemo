@@ -2,14 +2,14 @@ require "test_helper"
 
 class AdminApiSettingsTest < ActionDispatch::IntegrationTest
   setup do
-    @boss = hold_role!("UBOSS9", "community_manager")
+    @manager = hold_role!("UBOSS9", "community_manager")
     hold_role!("UFIRE9", "firefighter")
     @client = make_app!("UOWNER9")
     @token, = Api::Token.mint!(@client, "Toolbox")
-    sign_in_as(@boss)
+    sign_in_as(@manager)
   end
 
-  def dials
+  def setting_values
     Api::Setting::DEFAULTS.keys.index_with { |key| Api::Setting.value(key) }
   end
 
@@ -18,7 +18,7 @@ class AdminApiSettingsTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_select ".data-table td", text: "Toolbox"
-    assert_select ".data-table .tag", text: @token.shown
+    assert_select ".data-table .tag", text: @token.display_prefix
     assert_select ".setlist .setname", text: "Requests a minute, per key"
   end
 
@@ -29,12 +29,12 @@ class AdminApiSettingsTest < ActionDispatch::IntegrationTest
 
     assert_equal 250, Api::Setting.value("rate_per_minute")
     event = Api::Event.last
-    assert_equal ["setting_changed", @boss.user_id, "20 to 250"],
+    assert_equal ["setting_changed", @manager.user_id, "20 to 250"],
       [event.verb, event.actor_user_id, event.detail]
   end
 
   test "a dial that does not exist, or a silly number, changes nothing" do
-    was = dials
+    original_values = setting_values
 
     patch admin_api_setting_path, params: { key: "wingspan", value: 5 }
     assert_match(/not a setting/, flash[:alert])
@@ -45,7 +45,7 @@ class AdminApiSettingsTest < ActionDispatch::IntegrationTest
     patch admin_api_setting_path, params: { key: "rate_per_minute", value: 999_999_999 }
     assert_match(/exceeds the maximum/, flash[:alert])
 
-    assert_equal was, dials
+    assert_equal original_values, setting_values
     assert_equal 0, Api::Event.count
   end
 
@@ -63,7 +63,7 @@ class AdminApiSettingsTest < ActionDispatch::IntegrationTest
     delete admin_api_token_path(@token)
 
     assert_predicate @token.reload, :revoked?
-    assert_equal @boss.user_id, @token.revoked_by
+    assert_equal @manager.user_id, @token.revoked_by
     event = Api::Event.where(verb: "token_revoked").sole
     assert_match(/owned by UOWNER9/, event.detail)
   end

@@ -10,10 +10,10 @@ module Fd
       about = params[:about].to_s
       standing = about.present? && about != "case"
 
-      problem = objection(kase, body, standing, about)
-      if problem
+      error = validation_error(kase, body, standing, about)
+      if error
         return redirect_to(back_to(kase, standing, about),
-          alert: (problem unless flash[:field_error]))
+          alert: (error unless flash[:field_error]))
       end
 
       writing do
@@ -76,7 +76,7 @@ module Fd
         .or(Note.standing.where(subject_user_id: kase.subject_user_ids))
     end
 
-    def objection(kase, body, standing, about)
+    def validation_error(kase, body, standing, about)
       return wrong!(:body, "Write the note before saving it.") if body.blank?
       if body.length > MAX_LENGTH
         return wrong!(:body,

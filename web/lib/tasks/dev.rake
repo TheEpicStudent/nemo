@@ -27,18 +27,18 @@ namespace :dev do
     channels = Analytics::DimChannel.where(archived: false)
       .joins(Admin::ChannelsController::SPAN)
       .order(Arel.sql("s.total_members DESC NULLS LAST, dim_channel.name"))
-      .limit(PEOPLE.sum { |one| one[:channels].to_i + one[:appointed].to_i } + GARDENER_SET)
+      .limit(PEOPLE.sum { |person| person[:channels].to_i + person[:appointed].to_i } + GARDENER_SET)
       .pluck(:channel_id, :name)
 
     remember_members(PEOPLE)
     pool = channels.dup
 
-    PEOPLE.each do |one|
-      settle_person(one, pool, by)
-      puts "#{one[:id]}  #{one[:name].ljust(28)} #{said(one)}"
+    PEOPLE.each do |person|
+      seed_person(person, pool, by)
+      puts "#{person[:id]}  #{person[:name].ljust(28)} #{person_summary(person)}"
     end
 
-    settle_gardener_set(pool.shift(GARDENER_SET), by)
+    seed_gardener_set(pool.shift(GARDENER_SET), by)
     puts "\ngardener set: #{Channels::Audience::Grant.live.where(role: 'gardener').count} channels"
     puts "sign in with http://localhost:3000/dev/be/UDEVMGR01 (swap the id)"
   end
@@ -47,7 +47,7 @@ namespace :dev do
   task unpeople: :environment do
     abort "dev:unpeople only runs in development" unless Rails.env.development?
 
-    ids = PEOPLE.map { |one| one[:id] }
+    ids = PEOPLE.map { |person| person[:id] }
     Authz::Grant.live.where(user_id: ids).find_each { |row| row.revoke!(by: "dev:people") }
     Channels::Audience::Grant.live.where(user_id: ids).find_each do |row|
       row.update!(revoked_by: "dev:people", revoked_at: Time.current)
@@ -58,47 +58,47 @@ namespace :dev do
     puts "took back every dev grant, the #{ids.size} accounts still exist"
   end
 
-  def settle_person(one, pool, by)
-    Account.find_or_create_by!(user_id: one[:id])
-    settle_role(one, by)
-    Array(one[:added]).each do |key|
-      Authz::Grant.grant!(one[:id], kind: "capability", name: key, by: by, reason: "dev seed")
+  def seed_person(person, pool, by)
+    Account.find_or_create_by!(user_id: person[:id])
+    seed_role(person, by)
+    Array(person[:added]).each do |key|
+      Authz::Grant.grant!(person[:id], kind: "capability", name: key, by: by, reason: "dev seed")
     end
-    Array(one[:denied]).each do |key|
-      Authz::Grant.grant!(one[:id], kind: "capability", name: key, effect: "deny", by: by,
+    Array(person[:denied]).each do |key|
+      Authz::Grant.grant!(person[:id], kind: "capability", name: key, effect: "deny", by: by,
         reason: "dev seed")
     end
-    name_channels(one, pool, by)
-    appoint_channels(one, pool)
+    name_channels(person, pool, by)
+    appoint_channels(person, pool)
   end
 
-  def settle_role(one, by)
-    return if one[:role].blank?
+  def seed_role(person, by)
+    return if person[:role].blank?
 
-    Authz::Grant.grant!(one[:id], kind: "role", name: one[:role], by: by, reason: "dev seed")
+    Authz::Grant.grant!(person[:id], kind: "role", name: person[:role], by: by, reason: "dev seed")
   end
 
-  def name_channels(one, pool, by)
-    pool.shift(one[:channels].to_i).each do |channel_id, _name|
+  def name_channels(person, pool, by)
+    pool.shift(person[:channels].to_i).each do |channel_id, _name|
       next if Channels::Audience::Grant.live
-        .where(user_id: one[:id], channel_id: channel_id).exists?
+        .where(user_id: person[:id], channel_id: channel_id).exists?
 
-      Channels::Audience::Grant.create!(user_id: one[:id], channel_id: channel_id,
+      Channels::Audience::Grant.create!(user_id: person[:id], channel_id: channel_id,
         granted_by: by, granted_at: Time.current, reason: "dev seed")
     end
   end
 
-  def appoint_channels(one, pool)
-    rows = pool.shift(one[:appointed].to_i).map do |channel_id, _name|
-      { user_id: one[:id], channel_id: channel_id, role: "manager", seen_at: Time.current }
+  def appoint_channels(person, pool)
+    rows = pool.shift(person[:appointed].to_i).map do |channel_id, _name|
+      { user_id: person[:id], channel_id: channel_id, role: "manager", seen_at: Time.current }
     end
     return if rows.empty?
 
-    Prometheus::Appointment.for_person(one[:id]).delete_all
+    Prometheus::Appointment.for_person(person[:id]).delete_all
     Prometheus::Appointment.insert_all!(rows)
   end
 
-  def settle_gardener_set(channels, by)
+  def seed_gardener_set(channels, by)
     channels.each do |channel_id, _name|
       next if Channels::Audience::Grant.live
         .where(role: "gardener", channel_id: channel_id).exists?
@@ -108,12 +108,12 @@ namespace :dev do
     end
   end
 
-  def said(one)
-    parts = [one[:role] || (one[:appointed] ? "promethean" : "no role")]
-    parts << "+#{one[:added].join(' +')}" if one[:added]
-    parts << "-#{one[:denied].join(' -')}" if one[:denied]
-    parts << "#{one[:channels]} named channels" if one[:channels]
-    parts << "#{one[:appointed]} prometheus channels" if one[:appointed]
+  def person_summary(person)
+    parts = [person[:role] || (person[:appointed] ? "promethean" : "no role")]
+    parts << "+#{person[:added].join(' +')}" if person[:added]
+    parts << "-#{person[:denied].join(' -')}" if person[:denied]
+    parts << "#{person[:channels]} named channels" if person[:channels]
+    parts << "#{person[:appointed]} prometheus channels" if person[:appointed]
     parts.join("  ")
   end
 
@@ -127,8 +127,8 @@ namespace :dev do
 
   def remember_members(people)
     owner = owner_connection
-    people.each do |one|
-      owner.exec_query(MEMBER_INSERT, "dev:people", [one[:id], one[:handle], one[:name]])
+    people.each do |person|
+      owner.exec_query(MEMBER_INSERT, "dev:people", [person[:id], person[:handle], person[:name]])
     end
   rescue ActiveRecord::StatementInvalid, ActiveRecord::NoDatabaseError,
          ActiveRecord::ConnectionNotEstablished => e

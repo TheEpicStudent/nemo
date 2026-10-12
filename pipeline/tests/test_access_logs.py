@@ -25,12 +25,12 @@ class FakeClient:
         self.params = params
 
         def entries():
-            seen = 0
+            item_count = 0
             for page in self.pages:
                 yield from page
-                seen += len(page)
+                item_count += len(page)
                 if on_page:
-                    on_page("next", seen)
+                    on_page("next", item_count)
 
         return entries()
 
@@ -49,8 +49,8 @@ class FakeConn:
         pass
 
 
-def entry(first_seen):
-    return {"user_id": "U1", "date_first": first_seen, "date_last": first_seen}
+def entry(timestamp):
+    return {"user_id": "U1", "date_first": timestamp, "date_last": timestamp}
 
 
 @pytest.fixture
@@ -58,10 +58,10 @@ def walk(monkeypatch):
     state = {"marker": None, "saved": []}
 
     @contextmanager
-    def bookkeeping(*_args, **_kwargs):
+    def fake_ingest_run(*_args, **_kwargs):
         yield Counts()
 
-    monkeypatch.setattr(access_logs_pull, "ingest_run", bookkeeping)
+    monkeypatch.setattr(access_logs_pull, "ingest_run", fake_ingest_run)
     monkeypatch.setattr(access_logs_pull, "insert_rows", lambda _conn, logins, _counts: len(logins))
     monkeypatch.setattr(access_logs_pull, "get_cursor",
                         lambda _conn, _key, max_age_hours=None: state["marker"])
@@ -95,12 +95,12 @@ def test_row_matches_the_insert_placeholders():
 def test_a_sign_in_lands_in_the_utc_hour_of_its_last_sighting():
     row = access_logs_pull.row_for({"user_id": "U1", "date_first": FIRST, "date_last": LAST,
                                     "ip": "1.2.3.4", "user_agent": "Mozilla/5.0 agent"})
-    landed = access_logs_pull.landing_row(row, {user_agents.digest("Mozilla/5.0 agent"): 7})
+    row_values = access_logs_pull.landing_row(row, {user_agents.digest("Mozilla/5.0 agent"): 7})
 
     last = datetime.fromtimestamp(LAST, tz=UTC)
-    assert landed[1] == last.replace(minute=0, second=0)
-    assert landed[3] == 7
-    assert landed[4:6] == (last, last)
+    assert row_values[1] == last.replace(minute=0, second=0)
+    assert row_values[3] == 7
+    assert row_values[4:6] == (last, last)
 
 
 def test_upsert_keeps_the_earliest_first_seen_at():
@@ -146,9 +146,9 @@ def test_backfill_saves_the_oldest_first_seen_after_each_page(walk):
     walk["marker"] = str(MARKER)
     client = FakeClient([[entry(MARKER - 10), entry(MARKER - 20)], [entry(MARKER - 30)]])
 
-    landed = access_logs_pull.backfill(FakeConn(), client)
+    inserted = access_logs_pull.backfill(FakeConn(), client)
 
-    assert landed == 3
+    assert inserted == 3
     assert walk["saved"][:2] == [str(MARKER - 20), str(MARKER - 30)]
     assert walk["saved"][-1] == access_logs_pull.BACKFILL_COMPLETE
 
@@ -159,9 +159,9 @@ def test_a_capped_pass_keeps_its_place_and_stays_incomplete(walk, monkeypatch):
     walk["marker"] = str(MARKER)
     client = FakeClient([[entry(MARKER - 10), entry(MARKER - 20)], [entry(MARKER - 30)]])
 
-    landed = access_logs_pull.backfill(FakeConn(), client)
+    inserted = access_logs_pull.backfill(FakeConn(), client)
 
-    assert landed == 2
+    assert inserted == 2
     assert walk["saved"][-1] == str(MARKER - 20)
     assert access_logs_pull.BACKFILL_COMPLETE not in walk["saved"]
 
@@ -169,9 +169,9 @@ def test_a_capped_pass_keeps_its_place_and_stays_incomplete(walk, monkeypatch):
 def test_an_empty_walk_marks_the_backfill_complete(walk):
     walk["marker"] = str(MARKER)
 
-    landed = access_logs_pull.backfill(FakeConn(), FakeClient([[]]))
+    inserted = access_logs_pull.backfill(FakeConn(), FakeClient([[]]))
 
-    assert landed == 0
+    assert inserted == 0
     assert walk["saved"] == [access_logs_pull.BACKFILL_COMPLETE]
 
 

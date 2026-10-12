@@ -6,7 +6,7 @@ module Fd
 
     def show
       file = IntakeFile.find(params[:id])
-      return head :not_found unless file.kept?
+      return head :not_found unless file.stored?
 
       body = IntakeFileBlob.bytes_for(file.stored_key)
       return head :not_found if body.nil?
@@ -14,7 +14,7 @@ module Fd
       response.headers["Cache-Control"] = "private, max-age=300"
       send_data body,
         type: file.inline? ? file.mimetype : FALLBACK,
-        filename: file.shown_name,
+        filename: file.display_name,
         disposition: file.inline? ? "inline" : "attachment"
     end
   end

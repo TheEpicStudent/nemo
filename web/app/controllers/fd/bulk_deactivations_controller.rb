@@ -3,49 +3,49 @@ module Fd
     permit "member.deactivate"
 
     MEMBER_ID = /\A[UW][A-Z0-9]{2,}\z/
-    MOST = 100
+    MAX_ACCOUNTS = 100
     NO_REASON = "deactivated in bulk from the new members page".freeze
 
     def create
-      problem = objection
-      return refuse(problem) if problem
+      error = validation_error
+      return redirect_with_alert(error) if error
 
       opened = 0
       writing do
-        opened = wanted.count { |user_id| open_one(user_id) }
+        opened = requested_ids.count { |user_id| open_guard(user_id) }
       end
 
-      redirect_to here, notice: notice_for(opened)
+      redirect_to return_path, notice: notice_for(opened)
     end
 
     private
 
-    def wanted
-      @wanted ||= Array(params[:user_ids]).map { |one| one.to_s.strip.upcase }
-        .select { |one| one.match?(MEMBER_ID) }.uniq
+    def requested_ids
+      @requested_ids ||= Array(params[:user_ids]).map { |user_id| user_id.to_s.strip.upcase }
+        .select { |user_id| user_id.match?(MEMBER_ID) }.uniq
     end
 
     def reason = params[:reason].to_s.strip.presence || NO_REASON
 
     def cluster_id
-      asked = params[:cluster_id].to_s.strip.upcase
-      asked if asked.match?(MEMBER_ID)
+      requested_id = params[:cluster_id].to_s.strip.upcase
+      requested_id if requested_id.match?(MEMBER_ID)
     end
 
-    def here
+    def return_path
       return fd_cluster_path(cluster_id) if cluster_id
 
       fd_new_members_path(params.permit(*NewMemberQuery::KEYS).to_h.compact_blank)
     end
 
-    def objection
-      return "pick who this is about" if wanted.empty?
-      return "that is more than #{MOST} accounts at once" if wanted.size > MOST
+    def validation_error
+      return "pick who this is about" if requested_ids.empty?
+      return "that is more than #{MAX_ACCOUNTS} accounts at once" if requested_ids.size > MAX_ACCOUNTS
 
       nil
     end
 
-    def open_one(user_id)
+    def open_guard(user_id)
       guard = MemberGuard.open!(kind: MemberGuard::DEACTIVATION, subject_id: user_id,
         by: current_account.user_id, reason: reason)
       return false if guard.nil?
@@ -55,14 +55,14 @@ module Fd
     end
 
     def notice_for(opened)
-      one = "#{helpers.pluralize(opened, 'account')} sent to nemo to deactivate"
-      return one if opened == wanted.size
+      summary = "#{helpers.pluralize(opened, 'account')} sent to nemo to deactivate"
+      return summary if opened == requested_ids.size
 
-      "#{one}, #{wanted.size - opened} already had one standing"
+      "#{summary}, #{requested_ids.size - opened} already had one standing"
     end
 
-    def refuse(one)
-      redirect_to here, alert: (one unless flash[:field_error])
+    def redirect_with_alert(message)
+      redirect_to return_path, alert: (message unless flash[:field_error])
     end
   end
 end

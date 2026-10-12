@@ -41,28 +41,28 @@ def columns_of(conn, table):
         return {r[0] for r in cur.fetchall()}
 
 
-def newest_stamp(conn, table, wrote_as):
+def newest_stamp(conn, table, prefixes):
     schema, name = table.split(".", 1)
-    have = columns_of(conn, table)
-    column = next((c for c in STAMPS if c in have), None)
+    table_columns = columns_of(conn, table)
+    column = next((c for c in STAMPS if c in table_columns), None)
     if column is None:
         return None
     where, args = "", ()
-    if "source" in have and wrote_as:
+    if "source" in table_columns and prefixes:
         where = " where source = any(%s)"
-        args = (wrote_as,)
+        args = (prefixes,)
     with conn.cursor() as cur:
         cur.execute(f"select max({column}) from {schema}.{name}{where}", args)
         return cur.fetchone()[0]
 
 
-def wrote_as(key):
-    seen = []
+def source_prefixes(key):
+    prefixes = []
     for name in sources.runs_as(key):
         head = name.split(":", 1)[0]
-        if head not in seen:
-            seen.append(head)
-    return seen
+        if head not in prefixes:
+            prefixes.append(head)
+    return prefixes
 
 
 def last_produced(conn, key):
@@ -71,7 +71,7 @@ def last_produced(conn, key):
         if not table.startswith("raw.") or table.count(".") != 1:
             continue
         try:
-            stamp = newest_stamp(conn, table, wrote_as(key))
+            stamp = newest_stamp(conn, table, source_prefixes(key))
         except Exception:
             conn.rollback()
             continue
@@ -96,14 +96,14 @@ def check_source_freshness(pipe_conn):
         if window is None:
             continue
         produced = last_produced(pipe_conn, key)
-        ran = last_ok_run(pipe_conn, key)
-        seen = max([x for x in (produced, ran) if x], default=None)
+        last_ok_at = last_ok_run(pipe_conn, key)
+        last_activity = max([x for x in (produced, last_ok_at) if x], default=None)
         allowed = window.total_seconds() / 3600
-        if seen is None:
+        if last_activity is None:
             rows.append((f"{key}, hours since it last produced", "fresh",
                          f"{cadence}, and nothing on record", None, allowed))
             continue
-        age = (now - seen).total_seconds() / 3600
+        age = (now - last_activity).total_seconds() / 3600
         rows.append((f"{key}, hours since it last produced", "fresh",
                      f"{cadence}, so {allowed:.0f}h", round(age, 1), allowed))
     return rows
@@ -289,10 +289,10 @@ def check_channel_members_against_slack(conn, client):
 
 
 def check_dimension_join_coverage(conn, client):
-    walked = one(conn, "select count(*) from analytics.fct_channel_range")
-    listed = one(conn, "select count(*) from analytics.mart_channel_range")
+    fct_count = one(conn, "select count(*) from analytics.fct_channel_range")
+    mart_count = one(conn, "select count(*) from analytics.mart_channel_range")
     return ("channels the dimension join drops", "cross",
-            "0, every walked channel should reach the mart", walked - listed, 0)
+            "0, every walked channel should reach the mart", fct_count - mart_count, 0)
 
 
 def check_archived_flags_against_slack(conn, client):
@@ -322,9 +322,9 @@ def check_archived_flags_against_slack(conn, client):
 
 
 def check_channel_count_against_slack(conn, client):
-    _, found = channel_page(client, count=1)
+    _, slack_count = channel_page(client, count=1)
     ours = one(conn, "select count(*) from analytics.mart_channel_range")
-    return "mart_channel_range, row count", "slack", "getChannelAnalytics num_found", ours, found
+    return "mart_channel_range, row count", "slack", "getChannelAnalytics num_found", ours, slack_count
 
 
 def check_top_poster_against_slack(conn, client):
@@ -496,9 +496,9 @@ def bound_verdict(name, ours, theirs):
     if ours is None or theirs is None:
         return "no data", None
     ours, theirs = float(ours), float(theirs)
-    held = ours >= theirs if BOUNDS[name] == AT_LEAST else ours <= theirs
+    within_bound = ours >= theirs if BOUNDS[name] == AT_LEAST else ours <= theirs
     delta = None if theirs == 0 else (ours - theirs) / theirs
-    return ("ok" if held else "differs"), delta
+    return ("ok" if within_bound else "differs"), delta
 
 
 def verdict(name, ours, theirs, tolerance):
@@ -540,13 +540,13 @@ def collect(only=None, tolerance=TOLERANCE, cross_only=False):
                 skipped += 1
                 continue
             try:
-                got = check(conn, client)
+                outcome = check(conn, client)
             except Exception as exc:
                 conn.rollback()
                 results.append((check.__name__, "error", str(exc).splitlines()[0][:70],
                                 None, None, "error", None))
                 continue
-            for name, kind, source, ours, theirs in (got if isinstance(got, list) else [got]):
+            for name, kind, source, ours, theirs in (outcome if isinstance(outcome, list) else [outcome]):
                 if name in BOUNDS:
                     state, delta = bound_verdict(name, ours, theirs)
                 else:
@@ -578,7 +578,7 @@ VALUES (%s, 'headline', %s, %s, %s, %s, %s)
 """
 
 
-def shown(value):
+def format_value(value):
     if value is None:
         return None
     return f"{value:,.2f}" if isinstance(value, float) else str(value)
@@ -589,9 +589,9 @@ def record_verdicts(conn, run_id, results):
         for name, kind, source, ours, theirs, state, delta in results:
             status = STATUS_OF.get(state, "warn")
             severity = "info" if status == "pass" else ("error" if status == "fail" else "warn")
-            observed = shown(ours) if delta is None else f"{shown(ours)} ({delta * 100:+.2f}%)"
+            observed = format_value(ours) if delta is None else f"{format_value(ours)} ({delta * 100:+.2f}%)"
             cur.execute(RECORD_SQL, (run_id, f"{kind}:{name}", severity, status, observed,
-                                     f"{shown(theirs)} from {source}"))
+                                     f"{format_value(theirs)} from {source}"))
     conn.commit()
     return len(results)
 
@@ -605,10 +605,10 @@ def run(only=None, tolerance=TOLERANCE, cross_only=False, record=False, run_id=N
     width = max(len(r[0]) for r in results)
     print(f"{'headline':<{width}}  {'kind':<6}{'ours':>14}{'second source':>16}{'delta':>9}  state")
     print("-" * (width + 52))
-    bad = 0
+    failed_count = 0
     for name, kind, source, ours, theirs, state, delta in results:
         if state not in ("ok", "known"):
-            bad += 1
+            failed_count += 1
         d = "" if delta is None else f"{delta * 100:+.2f}%"
         o = "n/a" if ours is None else (f"{ours:,.1f}" if isinstance(ours, float) else f"{int(ours):,}")
         t = "n/a" if theirs is None else (f"{theirs:,.0f}" if isinstance(theirs, float) else f"{int(theirs):,}")
@@ -619,11 +619,11 @@ def run(only=None, tolerance=TOLERANCE, cross_only=False, record=False, run_id=N
             if state == "known" and note:
                 print(f"{'':<{width}}  known: {note[1]}")
     print()
-    print(f"{len(results) - bad} of {len(results)} agree within {tolerance * 100:g}%"
+    print(f"{len(results) - failed_count} of {len(results)} agree within {tolerance * 100:g}%"
           f" (known differences counted as agreeing)")
     if skipped:
         print(f"{skipped} check(s) that need Slack were skipped")
-    return bad
+    return failed_count
 
 
 def main():

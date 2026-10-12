@@ -2,8 +2,8 @@ require "test_helper"
 
 class JourneyRoutesTest < ActionDispatch::IntegrationTest
   setup do
-    @boss = hold_role!("UJRBOSS", "community_manager")
-    sign_in_as(@boss)
+    @manager = hold_role!("UJRBOSS", "community_manager")
+    sign_in_as(@manager)
   end
 
   test "every stage answers under /journey" do
@@ -14,10 +14,10 @@ class JourneyRoutesTest < ActionDispatch::IntegrationTest
   end
 
   test "the old top level paths still land, permanently" do
-    ApplicationHelper::MOVED.each do |was, now|
-      get "/#{was}"
-      assert_redirected_to "/journey/#{now}"
-      assert_response :moved_permanently, "/#{was} must not become a soft redirect"
+    ApplicationHelper::LEGACY_JOURNEY_PATHS.each do |old_path, new_path|
+      get "/#{old_path}"
+      assert_redirected_to "/journey/#{new_path}"
+      assert_response :moved_permanently, "/#{old_path} must not become a soft redirect"
     end
   end
 

@@ -4,7 +4,7 @@ module Fd
 
     FORWARD = "forward".freeze
 
-    WHAT_IT_IS = {
+    KIND_LABELS = {
       "forward" => "forwarded",
       "unfurl" => "linked",
       "link" => "linked"
@@ -18,8 +18,8 @@ module Fd
       is_reachable && source_body.present?
     end
 
-    def word
-      WHAT_IT_IS.fetch(kind, "linked")
+    def kind_label
+      KIND_LABELS.fetch(kind, "linked")
     end
 
     def why_not
@@ -27,18 +27,18 @@ module Fd
     end
 
     def file_ids
-      held = raw.is_a?(Hash) ? raw["files"] : nil
-      Array(held).filter_map { |one| one["id"] if one.is_a?(Hash) }
+      files = raw.is_a?(Hash) ? raw["files"] : nil
+      Array(files).filter_map { |file| file["id"] if file.is_a?(Hash) }
     end
 
     Cited = Struct.new(:case_id, :body, :kind, :author, :channel, :permalink,
       keyword_init: true) do
       def forwarded? = kind == "forward"
 
-      def word = forwarded? ? "forwarded" : "linked"
+      def kind_label = forwarded? ? "forwarded" : "linked"
     end
 
-    FIRST_WORDS = <<~SQL.freeze
+    FIRST_SHARE_SQL = <<~SQL.freeze
       SELECT DISTINCT ON (r.case_id) r.case_id, s.source_body, s.kind,
              s.source_author_user_id, s.source_channel_id, s.permalink
       FROM fd.intake_shares s
@@ -51,11 +51,11 @@ module Fd
       ORDER BY r.case_id, m.posted_at, s.id
     SQL
 
-    def self.first_words_for(case_ids)
+    def self.first_shares_for(case_ids)
       ids = Array(case_ids).compact.uniq
       return {} if ids.empty?
 
-      rows = connection.select_all(sanitize_sql([FIRST_WORDS, { case_ids: ids }]))
+      rows = connection.select_all(sanitize_sql([FIRST_SHARE_SQL, { case_ids: ids }]))
       rows.to_a.to_h { |row|
         [row["case_id"], Cited.new(case_id: row["case_id"], body: row["source_body"],
           kind: row["kind"], author: row["source_author_user_id"],

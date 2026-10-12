@@ -10,7 +10,7 @@ export default class extends Controller {
   connect() {
     this.apply = this.apply.bind(this)
     this.element.addEventListener("turbo:frame-load", this.apply)
-    this.only = this.held
+    this.only = this.storedOnlyReplies
     this.apply()
   }
 
@@ -19,18 +19,18 @@ export default class extends Controller {
   }
 
   showAll() {
-    this.pick(false)
+    this.setOnlyReplies(false)
   }
 
   onlyReplies() {
-    this.pick(true)
+    this.setOnlyReplies(true)
   }
 
-  pick(only) {
+  setOnlyReplies(only) {
     this.only = only
-    this.keep()
+    this.persist()
     this.apply()
-    this.pin()
+    this.scrollToBottom()
   }
 
   apply() {
@@ -47,33 +47,33 @@ export default class extends Controller {
     if (!log) return
 
     let rule = null
-    let shown = 0
+    let visibleCount = 0
     let total = 0
 
     for (const node of log.children) {
       if (node.dataset.earlier !== undefined || node.dataset.nothing !== undefined) continue
       if (node.classList.contains("dayrule")) {
-        if (rule) rule.hidden = shown === 0
+        if (rule) rule.hidden = visibleCount === 0
         rule = node
-        shown = 0
+        visibleCount = 0
         continue
       }
-      if (node.classList.contains("msg") && !this.dropped(node)) {
-        shown += 1
+      if (node.classList.contains("msg") && !this.isHidden(node)) {
+        visibleCount += 1
         total += 1
       }
     }
-    if (rule) rule.hidden = shown === 0
+    if (rule) rule.hidden = visibleCount === 0
 
     const note = log.querySelector("[data-nothing]")
     if (note) note.hidden = !this.only || total > 0 || log.querySelector(".msg") === null
   }
 
-  dropped(node) {
+  isHidden(node) {
     return this.only && node.dataset.kind === INTERNAL
   }
 
-  pin() {
+  scrollToBottom() {
     const log = this.log
     if (log) log.scrollTop = log.scrollHeight
   }
@@ -86,7 +86,7 @@ export default class extends Controller {
     return `mn-chat-replies-${this.keyValue}`
   }
 
-  get held() {
+  get storedOnlyReplies() {
     try {
       return localStorage.getItem(this.store) === "1"
     } catch {
@@ -94,7 +94,7 @@ export default class extends Controller {
     }
   }
 
-  keep() {
+  persist() {
     try {
       localStorage.setItem(this.store, this.only ? "1" : "0")
     } catch {

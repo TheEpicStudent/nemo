@@ -14,11 +14,11 @@ class FdActionStandingTest < ActionDispatch::IntegrationTest
     }.merge(over))
   end
 
-  def look(**params)
+  def get_standing(**params)
     get fd_case_standing_path(@kase), params: { target_user_id: "USUB" }.merge(params)
   end
 
-  def offered
+  def offered_guard_ids
     response.body.scan(/name="standing_guard_id" value="(\d*)"/).flatten
   end
 
@@ -27,26 +27,26 @@ class FdActionStandingTest < ActionDispatch::IntegrationTest
   end
 
   test "a channel-scoped guard is named by its channel, not left unnamed" do
-    room = a_named_channel
-    guard!(kind: "channel_ban", channel_id: room.channel_id)
-    look
+    channel = a_named_channel
+    guard!(kind: "channel_ban", channel_id: channel.channel_id)
+    get_standing
 
-    assert_match(/##{room.name}/, response.body)
+    assert_match(/##{channel.name}/, response.body)
     assert_no_match(/unnamed channel/, response.body)
   end
 
   test "the case page names the channel a standing guard is scoped to" do
-    room = a_named_channel
-    guard!(kind: "channel_ban", channel_id: room.channel_id, case_id: @kase.id)
+    channel = a_named_channel
+    guard!(kind: "channel_ban", channel_id: channel.channel_id, case_id: @kase.id)
     get fd_case_path(@kase, do: "action")
 
-    assert_match(/##{room.name}/, response.body)
+    assert_match(/##{channel.name}/, response.body)
     assert_no_match(/unnamed channel/, response.body)
   end
 
   test "a guard already on this case is offered but cannot be picked" do
     guard = guard!(case_id: @kase.id)
-    look
+    get_standing
 
     assert_select %(input[name="standing_guard_id"][value="#{guard.id}"][disabled])
     assert_match(/already on this case/, response.body)
@@ -57,7 +57,7 @@ class FdActionStandingTest < ActionDispatch::IntegrationTest
     guard = guard!(case_id: other.id)
     post fd_case_actions_path(@kase),
       params: { standing_guard_id: guard.id, target_user_id: "USUB" }
-    look
+    get_standing
 
     assert_select %(input[name="standing_guard_id"][value="#{guard.id}"][disabled])
     assert_match(/already logged on this case/, response.body)
@@ -66,65 +66,65 @@ class FdActionStandingTest < ActionDispatch::IntegrationTest
   test "a guard on another case stays pickable here" do
     other = make_case
     guard = guard!(case_id: other.id)
-    look
+    get_standing
 
     assert_select %(input[name="standing_guard_id"][value="#{guard.id}"][disabled]), false
   end
 
   test "nobody named yet offers nothing" do
     guard!
-    look(target_user_id: "")
+    get_standing(target_user_id: "")
     assert_response :success
-    assert_empty offered
+    assert_empty offered_guard_ids
   end
 
   test "somebody with nothing standing is offered nothing" do
-    look
+    get_standing
     assert_response :success
-    assert_empty offered
+    assert_empty offered_guard_ids
   end
 
   test "everything standing on them is offered, whatever kind" do
     one = guard!
     two = guard!(kind: "channel_ban", channel_id: "C0266FRGV")
-    look
+    get_standing
 
-    assert_equal [one.id.to_s, two.id.to_s, ""], offered
+    assert_equal [one.id.to_s, two.id.to_s, ""], offered_guard_ids
     assert_match(/None of these/, response.body)
   end
 
   test "a lifted guard is not offered" do
     guard!(state: "lifted", lifted_at: Time.current, lifted_by: "UMOD")
-    look
-    assert_empty offered
+    get_standing
+    assert_empty offered_guard_ids
   end
 
   test "one still being lifted is still offered" do
-    held = guard!(state: "lifting", lifted_by: "UMOD")
-    look
-    assert_includes offered, held.id.to_s
+    lifting_guard = guard!(state: "lifting", lifted_by: "UMOD")
+    get_standing
+    assert_includes offered_guard_ids, lifting_guard.id.to_s
   end
 
   test "each one says which case it sits on" do
     guard!
-    look
+    get_standing
     assert_match(/on no case/, response.body)
 
     other = make_case
     Fd::MemberGuard.update_all(case_id: other.id)
-    look
+    get_standing
     assert_match(/on case #{other.id}/, response.body)
   end
 
   test "one on this case says so" do
     guard!(case_id: @kase.id)
-    look
+    get_standing
     assert_match(/on this case/, response.body)
   end
 
   test "the note says which case and until when, and nothing about nemo" do
     guard!(enforcement_status: "failed", expires_at: Time.utc(2026, 3, 10))
-    look
+    get_standing
 
     assert_match(/on no case/, response.body)
     assert_match(/until 10 Mar/, response.body)
@@ -133,23 +133,23 @@ class FdActionStandingTest < ActionDispatch::IntegrationTest
 
   test "one with no end date says so" do
     guard!(expires_at: nil)
-    look
+    get_standing
     assert_match(/no end date/, response.body)
   end
 
   test "the list is asked for by member alone, not by kind" do
     guard!(kind: "channel_ban", channel_id: "C0266FRGV")
-    look
-    assert_equal 1, offered.count { |one| one.present? },
+    get_standing
+    assert_equal 1, offered_guard_ids.count { |one| one.present? },
       "a channel ban shows even though no kind was named"
   end
 
   test "a signed out visitor is told nothing about who is standing" do
     guard!
     delete logout_path
-    look
+    get_standing
     assert_redirected_to login_path
-    assert_empty offered
+    assert_empty offered_guard_ids
   end
   test "the modal asks who first, then what is standing, then the fields" do
     guard!
@@ -167,9 +167,9 @@ class FdActionStandingTest < ActionDispatch::IntegrationTest
     body = response.body
 
     assert_match(/data-action-standing-target="fields"/, body)
-    assert_match(/action-standing#fit/, body) if Fd::MemberGuard.any?
-    assert_match(/combobox:picked->action-standing#look/, body)
-    assert_match(/turbo:frame-load->action-standing#fit/, body)
+    assert_match(/action-standing#toggleFields/, body) if Fd::MemberGuard.any?
+    assert_match(/combobox:selected->action-standing#reloadStanding/, body)
+    assert_match(/turbo:frame-load->action-standing#toggleFields/, body)
   end
 
   test "a case with one subject already shows what is standing on them" do
@@ -207,7 +207,7 @@ class FdActionStandingTest < ActionDispatch::IntegrationTest
 
     assert_match(/data-action-standing-target="expiry" hidden/, body)
     assert_match(/data-action-standing-target="channel" hidden/, body)
-    assert_match(/action-standing#shape/, body)
+    assert_match(/action-standing#toggleKindFields/, body)
   end
   test "the channel field searches rather than asking for an id" do
     get fd_case_path(@kase, do: "action")
@@ -220,7 +220,7 @@ class FdActionStandingTest < ActionDispatch::IntegrationTest
 
   test "each option is a house radio row, not a browser one" do
     guard!
-    look
+    get_standing
 
     assert_match(/class="opt-dot"/, response.body)
     assert_match(/class="opt-label"/, response.body)

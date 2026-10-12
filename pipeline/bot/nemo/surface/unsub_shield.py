@@ -16,18 +16,18 @@ EXPLANATION = (
 WITH_LINK = "{text} <{link}|See how>"
 
 
-def asked_to_stop(event):
+def is_unsubscribe_request(event):
     return (event.get("text") or "").strip().upper() == KEYWORD
 
 
 @on_event("message", open_to_all=True)
-def seen(ctx):
+def on_message(ctx):
     event = ctx.payload or {}
     if not responses.shielding():
         return None
 
-    channel_id, subject_id, ts = notify.ours(event)
-    if not channel_id or not event.get("thread_ts") or not asked_to_stop(event):
+    channel_id, subject_id, ts = notify.message_target(event)
+    if not channel_id or not event.get("thread_ts") or not is_unsubscribe_request(event):
         return None
 
     try:

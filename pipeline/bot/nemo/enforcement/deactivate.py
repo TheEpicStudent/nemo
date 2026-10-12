@@ -13,13 +13,13 @@ REACTIVATED = privileged.REACTIVATED
 FAILED = "failed"
 
 
-def carried(how, wanted):
-    return how in (wanted, "off", "would")
+def succeeded(how, expected):
+    return how in (expected, "off", "would")
 
 
 def take_up(client, conn, guard):
     how = privileged.deactivate(guard["subject_id"])
-    if not carried(how, DEACTIVATED):
+    if not succeeded(how, DEACTIVATED):
         memberguards.dropped(conn, guard["id"], how)
         memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], None,
                               FAILED, detail=how)
@@ -27,7 +27,7 @@ def take_up(client, conn, guard):
                     guard["id"], guard["subject_id"], how)
         return False
 
-    memberguards.holding(conn, guard["id"])
+    memberguards.mark_enforced(conn, guard["id"])
     memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], None,
                           DEACTIVATED, detail=how)
     log.warning("nemo: deactivation %s is now held on %s (%s)",
@@ -37,7 +37,7 @@ def take_up(client, conn, guard):
 
 def lift(client, conn, guard, notify_member=True):
     how = privileged.reactivate(guard["subject_id"])
-    if not carried(how, REACTIVATED):
+    if not succeeded(how, REACTIVATED):
         memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], None,
                               FAILED, detail=how)
         log.warning("nemo: deactivation %s could not put %s back: %s",

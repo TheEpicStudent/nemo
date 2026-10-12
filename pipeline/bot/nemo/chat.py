@@ -15,7 +15,7 @@ ORDER BY rank
 LIMIT 1
 """
 
-KEEP = """
+INSERT_CHAT = """
 INSERT INTO fd.case_chat
     (case_id, author_user_id, body, blocks, posted_at, channel_id, ts, thread_ts, source_app)
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'nemo')
@@ -101,10 +101,10 @@ def attach_backfilled_message(conn, case_id, event):
     return None
 
 
-def keep(conn, case_id, event):
-    ours = attach_message(conn, case_id, event)
-    if ours:
-        return ours, False
+def store_message(conn, case_id, event):
+    attached_id = attach_message(conn, case_id, event)
+    if attached_id:
+        return attached_id, False
 
     return insert(conn, case_id, event)
 
@@ -112,7 +112,7 @@ def keep(conn, case_id, event):
 def insert(conn, case_id, event):
     blocks = event.get("blocks")
     row = conn.execute(
-        KEEP,
+        INSERT_CHAT,
         (
             case_id,
             event.get("user"),

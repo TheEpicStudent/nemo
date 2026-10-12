@@ -6,24 +6,24 @@ from bot.nemo import channel, chat
 class Conn:
     def __init__(self, rows=None):
         self.rows = rows or {}
-        self.ran = []
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def fetchone(self):
         for mark, row in self.rows.items():
-            if mark in self.ran[-1][0]:
+            if mark in self.executed[-1][0]:
                 return row
         return None
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.executed if mark in sql]
 
 
 @pytest.fixture(autouse=True)
-def forget(monkeypatch):
+def reset_channel_cache(monkeypatch):
     monkeypatch.setattr(channel, "_internal_log", {})
     monkeypatch.setattr(channel, "_react", {})
 
@@ -57,7 +57,7 @@ def test_a_thread_on_no_case_names_none():
 def test_the_thread_is_asked_for_by_name_not_by_position():
     conn = Conn({"SELECT case_id FROM (": (6,)})
     assert chat.case_of_thread(conn, "100.000") == 6
-    assert conn.did("SELECT case_id FROM (")[0] == {"ts": "100.000"}
+    assert conn.args_for("SELECT case_id FROM (")[0] == {"ts": "100.000"}
 
 
 def test_thread_for_a_case_with_a_report_uses_its_forwarded_ts():
@@ -99,7 +99,7 @@ def test_an_action_echo_quotes_a_report_thread(monkeypatch):
     assert posted["channel"] == "CROOM"
     assert posted["thread_ts"] == "100.000"
     assert posted["blocks"][0]["text"]["text"] == "Warning"
-    recorded = conn.did("INSERT INTO fd.case_chat")[0]
+    recorded = conn.args_for("INSERT INTO fd.case_chat")[0]
     assert recorded[0] == 412
     assert recorded[1] == "UMOD"
     assert recorded[2].obj == posted["blocks"]
@@ -123,7 +123,7 @@ def test_a_channel_ban_echo_names_its_channel_and_end_date(monkeypatch):
 
     posted = client.posted[0]
     assert posted["blocks"][0]["text"]["text"] == "Channel ban from #general until 10 Mar"
-    assert conn.did("SELECT name FROM raw.channel_dim")[0] == ("CGEN",)
+    assert conn.args_for("SELECT name FROM raw.channel_dim")[0] == ("CGEN",)
 
 
 def test_an_action_echo_with_nowhere_to_go_posts_nothing(monkeypatch):
@@ -143,7 +143,7 @@ def test_an_action_echo_slack_refuses_is_not_recorded(monkeypatch):
 
     assert channel.post_action_echo(client, conn, 412,
         {"type_key": "warning", "target_user_id": "USUB", "reason": "kept at it"}, "UMOD") is None
-    assert conn.did("INSERT INTO fd.case_chat") == []
+    assert conn.args_for("INSERT INTO fd.case_chat") == []
 
 
 def test_a_resolution_echo_quotes_a_report_thread(monkeypatch):
@@ -162,7 +162,7 @@ def test_a_resolution_echo_quotes_a_report_thread(monkeypatch):
     assert posted["channel"] == "CROOM"
     assert posted["thread_ts"] == "100.000"
     assert posted["text"] == "No action needed"
-    recorded = conn.did("INSERT INTO fd.case_chat")[0]
+    recorded = conn.args_for("INSERT INTO fd.case_chat")[0]
     assert recorded[0] == 412
     assert recorded[1] == "UMOD"
     assert recorded[2].obj == posted["blocks"]
@@ -189,10 +189,10 @@ class FetchallConn:
 
 
 def test_a_follow_up_that_will_not_carry_does_not_block_the_rest(monkeypatch):
-    tried = []
+    shared_ids = []
 
     def fake_post_follow_up(client, conn, message_id, channel_id):
-        tried.append(message_id)
+        shared_ids.append(message_id)
         if message_id == 46:
             raise RuntimeError("invalid_blocks")
         return "9.9"
@@ -201,14 +201,14 @@ def test_a_follow_up_that_will_not_carry_does_not_block_the_rest(monkeypatch):
     conn = FetchallConn([(46,), (47,), (48,)])
 
     assert channel.carry_follow_ups(Slack(), conn, 19) == 2
-    assert tried == [46, 47, 48]
+    assert shared_ids == [46, 47, 48]
 
 
 def test_a_file_that_will_not_carry_does_not_block_the_rest(monkeypatch):
-    tried = []
+    shared_ids = []
 
-    def fake_share(client, conn, message_id, channel_id, forwarded_ts, wearing=None):
-        tried.append(message_id)
+    def fake_share(client, conn, message_id, channel_id, forwarded_ts, author_fields=None):
+        shared_ids.append(message_id)
         if message_id == 46:
             raise RuntimeError("invalid_blocks")
         return "9.9"
@@ -221,7 +221,7 @@ def test_a_file_that_will_not_carry_does_not_block_the_rest(monkeypatch):
     ])
 
     assert channel.carry_files(Slack(), conn, 19, "CROOM") == 1
-    assert tried == [46, 47]
+    assert shared_ids == [46, 47]
 
 
 def report_case(**over):
@@ -246,7 +246,7 @@ def test_posting_a_report_points_its_message_at_the_new_card(monkeypatch):
     ts = channel.post_report(Slack(), conn, 2, "CNEW")
 
     assert ts == "9.9"
-    assert conn.did("UPDATE fd.intake_messages")[0] == ("9.9", 3)
+    assert conn.args_for("UPDATE fd.intake_messages")[0] == ("9.9", 3)
 
 
 def test_rebuilding_a_card_in_a_new_channel_repoints_an_already_mirrored_message(monkeypatch):
@@ -258,7 +258,7 @@ def test_rebuilding_a_card_in_a_new_channel_repoints_an_already_mirrored_message
 
     channel.post_report(Slack(), conn, 2, "CNEW")
 
-    assert conn.did("UPDATE fd.intake_messages")[0] == ("9.9", 3)
+    assert conn.args_for("UPDATE fd.intake_messages")[0] == ("9.9", 3)
 
 
 def test_a_card_sitting_in_a_thread_can_name_its_case():

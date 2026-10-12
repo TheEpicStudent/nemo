@@ -97,11 +97,11 @@ class Fd::MemberStandingTest < ActiveSupport::TestCase
   end
 
   test "the newest wins when two of the same kind are in force" do
-    old = hold(kind: "channel_ban", channel_id: "COLD", opened_at: 10.days.ago)
-    fresh = hold(kind: "channel_ban", channel_id: "CNEW", opened_at: 1.day.ago)
+    older = hold(kind: "channel_ban", channel_id: "COLD", opened_at: 10.days.ago)
+    newer = hold(kind: "channel_ban", channel_id: "CNEW", opened_at: 1.day.ago)
 
-    assert_equal fresh.id, standing.worst.id
-    assert_not_equal old.id, standing.worst.id
+    assert_equal newer.id, standing.worst.id
+    assert_not_equal older.id, standing.worst.id
   end
 
   test "an open case is named, with whoever holds it" do
@@ -109,12 +109,12 @@ class Fd::MemberStandingTest < ActiveSupport::TestCase
 
     standing_row = standing
     assert_equal kase.id, standing_row.open_case.id
-    assert_equal "UFF1", standing_row.held_by
+    assert_equal "UFF1", standing_row.holder_id
   end
 
   test "a case nobody holds has no holder" do
     make_case(subject: SUBJECT)
-    assert_nil standing.held_by
+    assert_nil standing.holder_id
   end
 
   test "a resolved case is not the open one" do

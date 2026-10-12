@@ -108,7 +108,7 @@ def walk_channel(conn, client, channel_id, oldest=None, counts=None, latest=None
     params = walk_params(channel_id, oldest, latest)
     state = {"threads": [], "kept": [],
              "oldest_ts": None, "newest_ts": None, "pages": 0}
-    seen = 0
+    message_count = 0
     exhausted = True
 
     def checkpoint(done, page=True):
@@ -141,13 +141,13 @@ def walk_channel(conn, client, channel_id, oldest=None, counts=None, latest=None
         thread = thread_row(channel_id, message)
         if thread:
             state["threads"].append(thread)
-        seen += 1
+        message_count += 1
         ts = message["ts"]
         state["oldest_ts"] = ts if state["oldest_ts"] is None or ts < state["oldest_ts"] else state["oldest_ts"]
         state["newest_ts"] = ts if state["newest_ts"] is None or ts > state["newest_ts"] else state["newest_ts"]
 
     checkpoint(exhausted and oldest is None, page=bool(state["kept"]))
-    return seen, state["pages"], exhausted
+    return message_count, state["pages"], exhausted
 
 
 BACKFILL_KIND = "channel_backfill"
@@ -210,7 +210,7 @@ WHERE i.work_item_id IS NULL
        AND i.settled_at < now() - make_interval(secs => l.every_seconds))
 """
 
-WALK_LEFT_SQL = """
+UNWALKED_SQL = """
 SELECT count(*)
 FROM raw.channel_dim d
 LEFT JOIN raw.channel_walk w ON w.channel_id = d.channel_id
@@ -258,19 +258,19 @@ def enqueue_tail(conn):
                                requeue_settled_after=0)
 
 
-def backfill_share(limit, left, full=False):
-    return limit if full or left else max(1, limit // 4)
+def backfill_share(limit, remaining, full=False):
+    return limit if full or remaining else max(1, limit // 4)
 
 
-def pass_order(left, channels=None):
+def pass_order(remaining, channels=None):
     if channels:
         return ("backfill",)
-    return ("backfill", "tail") if left else ("tail", "backfill")
+    return ("backfill", "tail") if remaining else ("tail", "backfill")
 
 
-def walk_left(conn):
+def count_unwalked(conn):
     with conn.cursor() as cur:
-        cur.execute(WALK_LEFT_SQL)
+        cur.execute(UNWALKED_SQL)
         return cur.fetchone()[0]
 
 
@@ -289,7 +289,7 @@ def cursors(conn, channel_id):
     return row if row else (None, None, False)
 
 
-def remember_error(conn, channel_id, fault):
+def record_walk_error(conn, channel_id, fault):
     with conn.cursor() as cur:
         cur.execute(ERROR_SQL, (channel_id, f"{fault.name}: {fault.detail[:380]}"))
     conn.commit()
@@ -304,22 +304,22 @@ def drain_tail(conn, client, counts, limit, targets=None):
         _, newest, _ = cursors(conn, channel_id)
 
         def on_fault(fault, item=item, channel_id=channel_id):
-            remember_error(conn, channel_id, fault)
+            record_walk_error(conn, channel_id, fault)
             work.fail(conn, item, fault.detail)
 
         def renew(page, item=item):
             work.renew(conn, item, LEASE_SECONDS)
 
         with per_entity(conn, SOURCE, counts, {"channel_id": channel_id, "kind": TAIL_KIND}, on_fault=on_fault):
-            seen, pages, _ = walk_channel(
+            message_count, pages, _ = walk_channel(
                 conn, client, channel_id,
                 oldest=revisit_from(newest, days) if newest else None,
                 counts=counts, max_pages=None if newest else BACKFILL_PAGES,
                 on_page=renew)
-            work.settle(conn, item, "complete", fetched=seen, note=f"{pages} page(s)")
+            work.settle(conn, item, "complete", fetched=message_count, note=f"{pages} page(s)")
             conn.commit()
-            messages += seen
-            counts.rows_in += seen
+            messages += message_count
+            counts.rows_in += message_count
         counts.progress()
     return len(items), messages
 
@@ -336,26 +336,26 @@ def drain_backfill(conn, client, counts, limit, pages=BACKFILL_PAGES, targets=No
             continue
 
         def on_fault(fault, item=item, channel_id=channel_id):
-            remember_error(conn, channel_id, fault)
+            record_walk_error(conn, channel_id, fault)
             work.fail(conn, item, fault.detail)
 
         def renew(page, item=item):
             work.renew(conn, item, LEASE_SECONDS)
 
         with per_entity(conn, SOURCE, counts, {"channel_id": channel_id, "kind": BACKFILL_KIND}, on_fault=on_fault):
-            seen, walked_pages, exhausted = walk_channel(
+            message_count, walked_pages, exhausted = walk_channel(
                 conn, client, channel_id, latest=oldest, counts=counts, max_pages=pages, on_page=renew)
             if exhausted:
-                work.settle(conn, item, "complete", fetched=seen, note=f"{walked_pages} page(s), reached the start")
+                work.settle(conn, item, "complete", fetched=message_count, note=f"{walked_pages} page(s), reached the start")
                 finished += 1
             else:
-                work.settle(conn, item, "short", fetched=seen, note=f"{walked_pages} page(s), more behind")
+                work.settle(conn, item, "short", fetched=message_count, note=f"{walked_pages} page(s), more behind")
             conn.commit()
             if not exhausted:
                 work.enqueue_select(conn, BACKFILL_KIND, BACKFILL_SELECT + " AND d.channel_id = %(p0)s",
                                     (channel_id,), requested_by=SOURCE, requeue_settled_after=0)
-            messages += seen
-            counts.rows_in += seen
+            messages += message_count
+            counts.rows_in += message_count
         counts.progress()
     return len(items), messages, finished
 
@@ -366,16 +366,16 @@ def run(conn, limit=200, full=False, channels=None, backfill_limit=None):
     work.reclaim(conn, BACKFILL_KIND)
     work.revive(conn, TAIL_KIND)
     work.revive(conn, BACKFILL_KIND)
-    tidied = settle_walked(conn)
+    settled_elsewhere = settle_walked(conn)
     if channels:
         queued_tail = 0
         queued_back = enqueue_backfill(conn, channels, priority=0)
     else:
         queued_tail = enqueue_tail(conn)
         queued_back = enqueue_backfill(conn)
-    left = 0 if channels else walk_left(conn)
+    remaining = 0 if channels else count_unwalked(conn)
     if backfill_limit is None:
-        backfill_limit = backfill_share(limit, left, full)
+        backfill_limit = backfill_share(limit, remaining, full)
 
     with ingest_run(conn, SOURCE) as counts:
         tails, tail_messages = 0, 0
@@ -391,7 +391,7 @@ def run(conn, limit=200, full=False, channels=None, backfill_limit=None):
                 conn, client, counts, backfill_limit, targets=channels)
 
         runners = {"tail": tail_pass, "backfill": backfill_pass}
-        for name in pass_order(left, channels):
+        for name in pass_order(remaining, channels):
             runners[name]()
 
         touched = tails + backfills
@@ -403,8 +403,8 @@ def run(conn, limit=200, full=False, channels=None, backfill_limit=None):
 
     print(f"{SOURCE}: {tails} tail walk(s), {tail_messages} messages; {backfills} backfill unit(s), "
           f"{back_messages} messages, {finished} channel(s) reached their start; "
-          f"queued {queued_tail} tail, {queued_back} backfill; {tidied} settled by another unit; "
-          f"{left} channel(s) still to walk; {counts.rows_rejected} failed")
+          f"queued {queued_tail} tail, {queued_back} backfill; {settled_elsewhere} settled by another unit; "
+          f"{remaining} channel(s) still to walk; {counts.rows_rejected} failed")
     return counts.rows_in
 
 

@@ -19,7 +19,7 @@ from lib.db import (
     instance_lock,
     clear_stale_sessions,
 )
-from lib.heartbeat import heartbeat_loop, hold
+from lib.heartbeat import heartbeat_loop, pause_stale_lane
 from lib.paths import ENV_FILE
 
 WORKER = "archive_worker"
@@ -44,16 +44,16 @@ def seconds(name, fallback):
 
 
 def batch(conn):
-    asked = os.environ.get("ARCHIVE_HISTORY_BATCH")
-    if asked:
-        return int(asked)
+    override = os.environ.get("ARCHIVE_HISTORY_BATCH")
+    if override:
+        return int(override)
     return settings.limit(conn, "channel_history", "batch") or DEFAULT_HISTORY_BATCH
 
 
 def budget():
-    asked = os.environ.get("ARCHIVE_REPLIES_BUDGET")
-    if asked:
-        return int(asked)
+    override = os.environ.get("ARCHIVE_REPLIES_BUDGET")
+    if override:
+        return int(override)
     pace = shards.expected_per_minute()
     return int(pace * PASS_MINUTES) if pace else DEFAULT_REPLIES_BUDGET
 
@@ -66,15 +66,15 @@ def spare(conn):
 
 
 def fetchers(conn=None):
-    asked = os.environ.get("ARCHIVE_REPLIES_FETCHERS")
-    if asked:
-        return int(asked)
+    override = os.environ.get("ARCHIVE_REPLIES_FETCHERS")
+    if override:
+        return int(override)
     pace = shards.expected_per_minute()
     if not pace:
         return DEFAULT_REPLIES_FETCHERS
-    wanted = -(-int(pace) // FETCHER_PER_MINUTE)
-    room = FETCHER_CEILING if conn is None else spare(conn)
-    return max(DEFAULT_REPLIES_FETCHERS, min(FETCHER_CEILING, wanted, room))
+    required = -(-int(pace) // FETCHER_PER_MINUTE)
+    available = FETCHER_CEILING if conn is None else spare(conn)
+    return max(DEFAULT_REPLIES_FETCHERS, min(FETCHER_CEILING, required, available))
 
 
 def history(conn):
@@ -100,20 +100,20 @@ def note(state):
 def lane(name, work, state, stopping, poll):
     def loop():
         while not stopping.is_set():
-            if hold(WORKER, name, state, stopping):
+            if pause_stale_lane(WORKER, name, state, stopping):
                 continue
-            moved = 0
+            processed = 0
             try:
                 with connect() as conn, cancel_scope(stopping.is_set):
-                    moved = work(conn)
-                state[name] = f"idle after {moved}" if moved else "idle"
+                    processed = work(conn)
+                state[name] = f"idle after {processed}" if processed else "idle"
             except SyncCancelled:
                 state[name] = "stopped mid-pass"
                 return
             except Exception as failure:
                 state[name] = f"failed, {type(failure).__name__}"
                 print(f"{WORKER}: the {name} lane failed, trying again after the poll: {failure}")
-            if stopping.wait(BUSY_POLL_SECONDS if moved else poll):
+            if stopping.wait(BUSY_POLL_SECONDS if processed else poll):
                 return
         state[name] = "stopped"
 
@@ -129,8 +129,8 @@ def main():
     try:
         with instance_lock(WORKER):
             return serve()
-    except AlreadyRunningError as clash:
-        print(f"{WORKER}: {clash}")
+    except AlreadyRunningError as error:
+        print(f"{WORKER}: {error}")
         return 1
 
 
@@ -138,9 +138,9 @@ def serve():
     with connect() as conn:
         try:
             refuse_if_seeded(conn)
-        except SeededDeployment as refusal:
-            print(f"{WORKER}: {refusal}")
-            raise SystemExit(1) from refusal
+        except SeededDeployment as error:
+            print(f"{WORKER}: {error}")
+            raise SystemExit(1) from error
         for orphan, source in clear_stale_sessions(conn):
             print(f"{WORKER}: swept run {orphan} ({source}), left running by an earlier boot")
 

@@ -12,7 +12,7 @@ class Fd::CaseFamilyTest < ActiveSupport::TestCase
     assert_equal [kase.id], kase.family_ids
     assert_empty kase.merged_in
     assert_not kase.merged?
-    assert_not kase.folded?
+    assert_not kase.duplicate?
     assert_equal kase.id, kase.root.id
   end
 
@@ -28,11 +28,11 @@ class Fd::CaseFamilyTest < ActiveSupport::TestCase
 
   test "a folded case knows it is folded, and where it went" do
     root = make_case(opened_at: 10.days.ago)
-    folded = fold(make_case(opened_at: 2.days.ago), into: root)
+    duplicate = fold(make_case(opened_at: 2.days.ago), into: root)
 
-    assert folded.folded?
-    assert_equal root.id, folded.root.id
-    assert_equal [folded.id], folded.family_ids, "a folded case holds nothing itself"
+    assert duplicate.duplicate?
+    assert_equal root.id, duplicate.root.id
+    assert_equal [duplicate.id], duplicate.family_ids, "a folded case holds nothing itself"
   end
 
   test "a case folded into a case that was later folded is still in the family" do
@@ -66,9 +66,9 @@ class Fd::CaseFamilyTest < ActiveSupport::TestCase
 
   test "family_of takes a bare id, for callers that have no record" do
     root = make_case(opened_at: 10.days.ago)
-    folded = fold(make_case(opened_at: 2.days.ago), into: root)
+    duplicate = fold(make_case(opened_at: 2.days.ago), into: root)
 
-    assert_equal [root.id, folded.id].sort, Fd::Case.family_of(root.id).sort
+    assert_equal [root.id, duplicate.id].sort, Fd::Case.family_of(root.id).sort
   end
 
   test "somebody else's duplicate is not in this family" do

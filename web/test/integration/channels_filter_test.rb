@@ -6,7 +6,7 @@ class ChannelsFilterTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
   end
 
-  def ask(**params)
+  def get_channels(**params)
     get channels_path(params)
   end
 
@@ -31,7 +31,7 @@ class ChannelsFilterTest < ActionDispatch::IntegrationTest
     broken = pairs.reject do |field, op|
       arity = Channels::Filter::OPS.fetch(field.kind).fetch(op).last
       values = Array.new(arity) { value_for(field, op) }
-      ask(c: { "0" => { "f" => field.key, "op" => op, "v" => values } })
+      get_channels(c: { "0" => { "f" => field.key, "op" => op, "v" => values } })
       response.status == 200
     end
 
@@ -39,13 +39,13 @@ class ChannelsFilterTest < ActionDispatch::IntegrationTest
   end
 
   test "a date filter given the wrong shape of value drops the condition instead of breaking" do
-    ask(c: { "0" => { "f" => "created", "op" => "within", "v" => ["2026-01-01"] } })
+    get_channels(c: { "0" => { "f" => "created", "op" => "within", "v" => ["2026-01-01"] } })
 
     assert_response :success
   end
 
   test "the rolled window joins its own alias without colliding with the mart joins" do
-    ask(days: Channels::Window::PRESETS.first)
+    get_channels(days: Channels::Window::PRESETS.first)
 
     assert_response :success
   end
@@ -54,7 +54,7 @@ class ChannelsFilterTest < ActionDispatch::IntegrationTest
     refute_empty ChannelsController::SORT_SQL
 
     broken = ChannelsController::SORT_SQL.keys.reject do |key|
-      ask(sort: key, direction: "asc")
+      get_channels(sort: key, direction: "asc")
       response.status == 200
     end
 

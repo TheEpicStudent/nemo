@@ -7,24 +7,24 @@
           <tr><th>Account</th><th>Score</th><th>On</th><th>Last seen</th><th>Verdict</th></tr>
         </thead>
         <tbody>
-          <% links.each do |side| %>
+          <% links.each do |link| %>
             <tr>
-              <td><%= member_face(side.other_id) %></td>
-              <td><%= link_band_chip(side) %>
-                <span class="sub2"><%= number_with_precision(side.score, precision: 1) %></span>
+              <td><%= member_face(link.other_id) %></td>
+              <td><%= link_band_chip(link) %>
+                <span class="sub2"><%= number_with_precision(link.score, precision: 1) %></span>
               </td>
               <td class="link-why">
-                <% side.evidence.each do |one| %>
+                <% link.evidence.each do |evidence_item| %>
                   <div class="sub2">
-                    <%= one["label"] %>
-                    <span class="mono"><%= one["value"] %></span>
-                    <%= "shared with #{one['people']}" if one["people"].to_i > 2 %>
+                    <%= evidence_item["label"] %>
+                    <span class="mono"><%= evidence_item["value"] %></span>
+                    <%= "shared with #{evidence_item['people']}" if evidence_item["people"].to_i > 2 %>
                   </div>
                 <% end %>
               </td>
-              <td class="sub2"><%= side.last_seen ? on_day(side.last_seen) : "n/a" %></td>
-              <% judged = Fd::LinkVerdict.of(verdicts, user_id, side.other_id) %>
-              <td><%= verdict_cell(user_id, side.other_id, judged) %></td>
+              <td class="sub2"><%= link.last_seen ? on_day(link.last_seen) : "n/a" %></td>
+              <% verdict = Fd::LinkVerdict.of(verdicts, user_id, link.other_id) %>
+              <td><%= verdict_cell(user_id, link.other_id, verdict) %></td>
             </tr>
           <% end %>
         </tbody>
@@ -32,38 +32,38 @@
     </div>
   <% end %>
 
-  <% if mates.any? %>
-    <% gone = mates.count { |_, active| !active } %>
+  <% if cluster_members.any? %>
+    <% deactivated_count = cluster_members.count { |_, active| !active } %>
     <section class="link-mates">
       <div class="link-mates-head">
         <h3 class="link-mates-title">Same cluster</h3>
         <span class="sub2">
-          <%= pluralize(number_with_delimiter(mates.size), "other account") %><%= ", #{number_with_delimiter(gone)} deactivated" if gone.positive? %>
+          <%= pluralize(number_with_delimiter(cluster_members.size), "other account") %><%= ", #{number_with_delimiter(deactivated_count)} deactivated" if deactivated_count.positive? %>
         </span>
         <%= link_to "Open cluster", fd_cluster_path(cluster_of), class: "btn btn-sm link-mates-open" if cluster_of %>
       </div>
       <div class="facepile">
-        <% mates.first(Fd::MemberLink::MATES_SHOWN).each do |mate, active| %>
-          <%= link_to fd_member_path(mate), class: ["facepile-face", ("is-gone" unless active)],
-                title: active ? names[mate] : "#{names[mate]}, deactivated",
-                aria: { label: names[mate] }, data: { turbo_frame: "person-drawer" } do %>
-            <%= face(mate, css: "facepile-img") %>
+        <% cluster_members.first(Fd::MemberLink::CLUSTER_MEMBER_LIMIT).each do |member_user_id, active| %>
+          <%= link_to fd_member_path(member_user_id), class: ["facepile-face", ("is-gone" unless active)],
+                title: active ? names[member_user_id] : "#{names[member_user_id]}, deactivated",
+                aria: { label: names[member_user_id] }, data: { turbo_frame: "person-drawer" } do %>
+            <%= avatar(member_user_id, css: "facepile-img") %>
           <% end %>
         <% end %>
-        <% if mates.size > Fd::MemberLink::MATES_SHOWN %>
-          <span class="facepile-more">+<%= number_with_delimiter(mates.size - Fd::MemberLink::MATES_SHOWN) %></span>
+        <% if cluster_members.size > Fd::MemberLink::CLUSTER_MEMBER_LIMIT %>
+          <span class="facepile-more">+<%= number_with_delimiter(cluster_members.size - Fd::MemberLink::CLUSTER_MEMBER_LIMIT) %></span>
         <% end %>
       </div>
     </section>
   <% end %>
 
-  <% if cluster_of && mates.none? %>
+  <% if cluster_of && cluster_members.none? %>
     <div class="pane-foot">
       <%= link_to "Open cluster", fd_cluster_path(cluster_of), class: "btn btn-sm" %>
     </div>
   <% end %>
 
-  <% if links.none? && mates.none? %>
+  <% if links.none? && cluster_members.none? %>
     <div class="empty">
       <p class="empty-title">No linked accounts</p>
     </div>

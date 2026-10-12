@@ -1,14 +1,14 @@
-<% content_for :page_title, @found.term.presence || "Search" %>
+<% content_for :page_title, @search.term.presence || "Search" %>
 
-<% if @found.asked? %>
+<% if @search.searching? %>
   <% content_for :page_tabs do %>
     <%= link_to fd_search_path(q: params[:q]), class: "view",
-          aria: { current: ("true" if @found.scope.nil?) } do %>
+          aria: { current: ("true" if @search.scope.nil?) } do %>
       All <span class="view-count"><%= @counts.values.sum %></span>
     <% end %>
     <% @counts.each do |key, count| %>
       <%= link_to fd_search_path(q: params[:q], scope: key), class: "view",
-            aria: { current: ("true" if @found.scope == key) } do %>
+            aria: { current: ("true" if @search.scope == key) } do %>
         <%= Fd::Search::LABELS.fetch(key) %>
         <span class="view-count"><%= count %></span>
       <% end %>
@@ -22,9 +22,9 @@
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
     </span>
     <p class="empty-title">
-      <%= @found.asked? ? "Nothing matches #{@found.term}" : "Search the Fire Engine" %>
+      <%= @search.searching? ? "Nothing matches #{@search.term}" : "Search the Fire Engine" %>
     </p>
-    <% unless @found.asked? %>
+    <% unless @search.searching? %>
       <div class="empty-keys">
         <span><kbd class="kbd">@</kbd> Member</span>
         <span><kbd class="kbd">#</kbd> Case</span>
@@ -32,7 +32,7 @@
         <span><kbd class="kbd">r:</kbd> Report</span>
       </div>
     <% end %>
-    <% if @found.asked? %>
+    <% if @search.searching? %>
       <div class="empty-do">
         <%= link_to "Every case", fd_cases_path, class: "btn" %>
         <%= link_to "Every member", fd_members_path, class: "btn" %>

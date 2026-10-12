@@ -20,10 +20,10 @@ class Authz
 
       transaction do
         Account.find_or_create_by!(user_id: user_id)
-        live.for_person(user_id).where(kind: kind, name: name).find_each do |held|
-          held.revoke!(by: by)
+        live.for_person(user_id).where(kind: kind, name: name).find_each do |grant|
+          grant.revoke!(by: by)
         end
-        live.for_person(user_id).roles.find_each { |held| held.revoke!(by: by) } if
+        live.for_person(user_id).roles.find_each { |grant| grant.revoke!(by: by) } if
           kind.to_s == "role"
         create!(user_id: user_id, kind: kind, name: name, effect: effect,
           granted_by: by, granted_at: Time.current, reason: reason.presence)
@@ -42,7 +42,7 @@ class Authz
     end
 
     def self.take_back_all!(user_id, by:)
-      live.for_person(user_id).find_each { |held| held.revoke!(by: by) }
+      live.for_person(user_id).find_each { |grant| grant.revoke!(by: by) }
     end
 
     def revoke!(by:, at: Time.current)
@@ -63,12 +63,12 @@ class Authz
       role? ? Authz.role_label(name) : Authz.label(name)
     end
 
-    def self.refuse(why)
-      raise NotAllowedError, why
+    def self.refuse(message)
+      raise NotAllowedError, message
     end
 
-    def refuse(why)
-      self.class.refuse(why)
+    def refuse(message)
+      self.class.refuse(message)
     end
   end
 end

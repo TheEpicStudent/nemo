@@ -28,23 +28,23 @@ class FdAuditPagingTest < ActionDispatch::IntegrationTest
     second = page(first.next_params)
     third = page(second.next_params)
 
-    back = page(third.back_params)
-    assert_equal second.rows.map(&:id), back.rows.map(&:id)
-    assert page(back.back_params).rows.map(&:id) == first.rows.map(&:id)
+    previous_page = page(third.back_params)
+    assert_equal second.rows.map(&:id), previous_page.rows.map(&:id)
+    assert page(previous_page.back_params).rows.map(&:id) == first.rows.map(&:id)
   end
 
   test "the first page reached by going back has nowhere further back to go" do
     first = page
     second = page(first.next_params)
-    back = page(second.back_params)
+    previous_page = page(second.back_params)
 
-    assert_equal first.rows.map(&:id), back.rows.map(&:id)
-    assert_nil back.back_params
+    assert_equal first.rows.map(&:id), previous_page.rows.map(&:id)
+    assert_nil previous_page.back_params
   end
 
   test "going to a date shows the newest events up to the end of that day" do
-    jumped = page("on" => "2026-10-01")
-    assert_equal @ids.first(100), jumped.rows.map(&:id)
+    dated_page = page("on" => "2026-10-01")
+    assert_equal @ids.first(100), dated_page.rows.map(&:id)
 
     assert_empty page("on" => "2026-09-30").rows, "a day before every event holds none of them"
   end

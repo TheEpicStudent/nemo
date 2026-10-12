@@ -4,7 +4,7 @@ class FdSessionsTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   WHO = "USUB".freeze
-  ALSO = "UALT".freeze
+  ALT = "UALT".freeze
 
   setup do
     @me = hold_role!("UME", "community_manager")
@@ -21,8 +21,8 @@ class FdSessionsTest < ActionDispatch::IntegrationTest
   def signed_in!(user_id, at:, ip: "81.2.69.144", ua_app: "Chrome 141",
     ua_os: "Windows 10 or 11", action: "user_login", source: "audit_logs",
     country: "GB", isp: "Sky", seen: 1)
-    counted = %w[user_login user_login_failed anomaly].map { |one| action == one ? 1 : 0 }
-    values = [user_id, source, at, ip, agent!(ua_app, ua_os), at, at, *counted, country, isp, seen]
+    outcome_counts = %w[user_login user_login_failed anomaly].map { |one| action == one ? 1 : 0 }
+    values = [user_id, source, at, ip, agent!(ua_app, ua_os), at, at, *outcome_counts, country, isp, seen]
     as_pipeline(<<~SQL.squish, *values)
       INSERT INTO fd.login_event AS held
         (user_id, source, hour, ip, ua_id, first_at, last_at, logins, failures, anomalies,
@@ -39,12 +39,12 @@ class FdSessionsTest < ActionDispatch::IntegrationTest
     seeded!("fd.member_trait", "user_id", user_id)
   end
 
-  def crowd!(host, people)
-    as_pipeline(<<~SQL.squish, host, people)
+  def shared_ip_prefix!(prefix, member_count)
+    as_pipeline(<<~SQL.squish, prefix, member_count)
       INSERT INTO fd.member_trait (user_id, kind, value)
       SELECT 'UCROWD' || n, 'ip_prefix', ? FROM generate_series(1, ?) n
     SQL
-    seeded!("fd.member_trait", "value", host)
+    seeded!("fd.member_trait", "value", prefix)
   end
 
   test "sign-ins are grouped by the device they came from" do
@@ -69,17 +69,17 @@ class FdSessionsTest < ActionDispatch::IntegrationTest
 
   test "somebody else on a small range is named, because that is the whole point" do
     signed_in!(WHO, at: 1.hour.ago)
-    signed_in!(ALSO, at: 2.hours.ago)
+    signed_in!(ALT, at: 2.hours.ago)
 
     address = Fd::MemberSessions.new(WHO).addresses.first
     assert address.shared?
-    assert_equal [ALSO], address.alongside
+    assert_equal [ALT], address.alongside
   end
 
   test "a range a crowd shares names nobody, so a school cannot accuse a class" do
     signed_in!(WHO, at: 1.hour.ago)
-    signed_in!(ALSO, at: 2.hours.ago)
-    crowd!("81.2.69.0", 1_240)
+    signed_in!(ALT, at: 2.hours.ago)
+    shared_ip_prefix!("81.2.69.0", 1_240)
 
     address = Fd::MemberSessions.new(WHO).addresses.first
     assert address.crowded?

@@ -6,13 +6,13 @@ from bot.nemo.surface import on_event
 
 log = logging.getLogger("bot.nemo")
 
-CARRIES = (None, "file_share", "me_message", "thread_broadcast")
+HANDLED_SUBTYPES = (None, "file_share", "me_message", "thread_broadcast")
 
 
 @on_event("message", open_to_all=True)
 def watched(ctx):
     event = ctx.payload or {}
-    if event.get("subtype") not in CARRIES or event.get("bot_id"):
+    if event.get("subtype") not in HANDLED_SUBTYPES or event.get("bot_id"):
         return None
 
     channel_id = event.get("channel")
@@ -29,7 +29,7 @@ def watched(ctx):
 
     who = event.get("user")
     with session() as conn:
-        guard = guards.held(conn, channel_id, thread_ts)
+        guard = guards.active_guard(conn, channel_id, thread_ts)
         if guard is None:
             guards.refresh(conn)
             return None

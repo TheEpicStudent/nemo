@@ -3,9 +3,9 @@ from datetime import datetime, timezone
 from lib import member_seen
 from lib.message import author_kind, redact, normalize
 
-GONE = "message_deleted"
+DELETED_SUBTYPE = "message_deleted"
 CHANGED = "message_changed"
-WRAPPERS = frozenset({GONE, CHANGED})
+WRAPPERS = frozenset({DELETED_SUBTYPE, CHANGED})
 FETCHED = 1
 
 FIELDS = (
@@ -17,7 +17,7 @@ FIELDS = (
     "reactor_count", "edited_at", "edited_by", "client_msg_id", "team_id",
 )
 
-KEPT_WHEN_ABSENT = (
+COALESCED_FIELDS = (
     "author_id", "bot_id", "app_id", "parent_user_id", "subtype", "text_length", "has_text",
     "block_count", "attachment_count", "file_count", "mention_count", "mentioned_ids",
     "is_question", "is_substantive", "has_link", "emoji_only", "reaction_count",
@@ -42,7 +42,7 @@ COLUMNS = (*FIELDS, "settled")
 
 def _merged(new, old):
     merged = {name: new(name) for name in ALWAYS}
-    merged.update({name: f"coalesce({new(name)}, {old}.{name})" for name in KEPT_WHEN_ABSENT})
+    merged.update({name: f"coalesce({new(name)}, {old}.{name})" for name in COALESCED_FIELDS})
     merged["settled"] = f"{old}.settled OR {new('settled')}"
     return merged
 
@@ -56,16 +56,16 @@ def _changes(new, old):
 
 def _upsert():
     excluded = "EXCLUDED.{}".format
-    given = "%({})s".format
+    placeholder = "%({})s".format
     sets = ", ".join([f"{name} = {value}"
                       for name, value in _merged(excluded, "archive.message").items()]
                      + ["updated_at = now()"])
     return (
         f"INSERT INTO archive.message ({', '.join(COLUMNS)}) "
-        f"SELECT {', '.join(given(name) for name in COLUMNS)} "
+        f"SELECT {', '.join(placeholder(name) for name in COLUMNS)} "
         f"WHERE NOT EXISTS (SELECT 1 FROM archive.message held "
         f"WHERE held.channel_id = %(channel_id)s AND held.ts = %(ts)s "
-        f"AND ({_changes(given, 'held')}) IS NOT TRUE) "
+        f"AND ({_changes(placeholder, 'held')}) IS NOT TRUE) "
         f"ON CONFLICT (channel_id, ts) DO UPDATE SET {sets} "
         f"WHERE {_changes(excluded, 'archive.message')}"
     )
@@ -85,7 +85,7 @@ def stamp(ts):
 def body_of(envelope):
     if envelope.get("type") not in (None, "message"):
         return None
-    if envelope.get("subtype") == GONE:
+    if envelope.get("subtype") == DELETED_SUBTYPE:
         return None
     if envelope.get("subtype") == CHANGED:
         changed = envelope.get("message")
@@ -93,7 +93,7 @@ def body_of(envelope):
     return envelope
 
 
-def hold(conn, channel_id):
+def lock_channel(conn, channel_id):
     with conn.cursor() as cur:
         cur.execute(LOCK_SQL, (channel_id,))
 
@@ -109,7 +109,7 @@ def message_row(channel_id, ts, revision, envelope, measured):
 
     thread_root = body.get("thread_ts")
     edited = body.get("edited") or {}
-    counted = measured or {}
+    stats = measured or {}
     wrapper = envelope.get("subtype")
     subtype = body.get("subtype") or (None if wrapper in WRAPPERS else wrapper)
     return (
@@ -126,19 +126,19 @@ def message_row(channel_id, ts, revision, envelope, measured):
         body.get("reply_count"),
         body.get("reply_users_count"),
         body.get("latest_reply"),
-        counted.get("text_length"),
-        counted.get("has_text"),
-        counted.get("block_count"),
-        counted.get("attachment_count"),
-        counted.get("file_count"),
-        counted.get("mention_count"),
-        counted.get("mentioned_ids"),
-        counted.get("is_question"),
-        counted.get("is_substantive"),
-        counted.get("has_link"),
-        counted.get("emoji_only"),
-        counted.get("reaction_count"),
-        counted.get("reactor_count"),
+        stats.get("text_length"),
+        stats.get("has_text"),
+        stats.get("block_count"),
+        stats.get("attachment_count"),
+        stats.get("file_count"),
+        stats.get("mention_count"),
+        stats.get("mentioned_ids"),
+        stats.get("is_question"),
+        stats.get("is_substantive"),
+        stats.get("has_link"),
+        stats.get("emoji_only"),
+        stats.get("reaction_count"),
+        stats.get("reactor_count"),
         stamp(edited.get("ts")) if edited.get("ts") else None,
         edited.get("user"),
         body.get("client_msg_id"),
@@ -147,27 +147,27 @@ def message_row(channel_id, ts, revision, envelope, measured):
 
 
 def record_many(conn, channel_id, entries, method, transport, settled, on_reject=None):
-    def refuse(ts, reason):
+    def reject(ts, reason):
         if on_reject is not None:
             on_reject(ts, reason)
 
     messages = []
     for ts, envelope, measured in entries:
         if not channel_id or not ts or not isinstance(envelope, dict):
-            refuse(ts, "no channel, no ts, or the envelope is not an object")
+            reject(ts, "no channel, no ts, or the envelope is not an object")
             continue
         if body_of(envelope) is None:
-            refuse(ts, "the envelope carries no message body")
+            reject(ts, "the envelope carries no message body")
             continue
-        built = message_row(channel_id, ts, FETCHED, envelope, measured)
-        if built is None:
-            refuse(ts, "the envelope would not build a message row")
+        row_values = message_row(channel_id, ts, FETCHED, envelope, measured)
+        if row_values is None:
+            reject(ts, "the envelope would not build a message row")
             continue
-        messages.append((*built, settled))
+        messages.append((*row_values, settled))
     if not messages:
         return 0
 
-    hold(conn, channel_id)
+    lock_channel(conn, channel_id)
     with conn.cursor() as cur:
         cur.executemany(MESSAGE_SQL, [dict(zip(COLUMNS, row)) for row in messages])
         member_seen.posted(cur, member_posts(messages))

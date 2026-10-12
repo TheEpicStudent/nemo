@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdFlagSwitchTest < ActionDispatch::IntegrationTest
   setup do
-    @boss = hold_role!("UBOSS", "community_manager")
+    @manager = hold_role!("UBOSS", "community_manager")
     Fd::Flag.delete_all
     Current.forget_flags
   end
@@ -13,7 +13,7 @@ class FdFlagSwitchTest < ActionDispatch::IntegrationTest
   end
 
   test "one table names every section by the routes that stop resolving" do
-    sign_in_as(@boss)
+    sign_in_as(@manager)
     get admin_flags_path
 
     assert_response :success
@@ -24,7 +24,7 @@ class FdFlagSwitchTest < ActionDispatch::IntegrationTest
   end
 
   test "a manager can turn one off and back on from the page" do
-    sign_in_as(@boss)
+    sign_in_as(@manager)
 
     patch fd_flag_path, params: { key: "fire_engine", on: "0" }
     assert_redirected_to admin_flags_path
@@ -38,9 +38,9 @@ class FdFlagSwitchTest < ActionDispatch::IntegrationTest
   end
 
   test "a firefighter cannot flip anything" do
-    hand = Account.create!(user_id: "UHAND")
+    firefighter = Account.create!(user_id: "UHAND")
     hold_role!("UHAND", "firefighter")
-    sign_in_as(hand)
+    sign_in_as(firefighter)
 
     patch fd_flag_path, params: { key: "analytics", on: "0" }
 
@@ -49,7 +49,7 @@ class FdFlagSwitchTest < ActionDispatch::IntegrationTest
   end
 
   test "a flip is written to the trail" do
-    sign_in_as(@boss)
+    sign_in_as(@manager)
 
     patch fd_flag_path, params: { key: "analytics", on: "0" }
 
@@ -59,7 +59,7 @@ class FdFlagSwitchTest < ActionDispatch::IntegrationTest
   end
 
   test "a section the file does not know is refused" do
-    sign_in_as(@boss)
+    sign_in_as(@manager)
 
     patch fd_flag_path, params: { key: "teleporter", on: "0" }
 

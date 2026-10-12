@@ -11,7 +11,7 @@ SHORTCUT = "destroy_thread"
 
 
 @on_shortcut(SHORTCUT, needs="thread.guard")
-def asked(ctx):
+def open_destroy_modal(ctx):
     if not ctx.thread_ts:
         return ctx.post_ephemeral("that is not a thread")
 
@@ -43,9 +43,9 @@ def note_toggled(ctx):
 @on_view(card.DESTROY_CALLBACK, needs="thread.guard", refuse_block=card.REASON)
 def confirmed(ctx):
     values = card.submitted_values(ctx.view.get("state") or {})
-    wrong = card.validation_errors(values)
-    if wrong:
-        return ctx.ack(response_action="errors", errors=wrong)
+    errors = card.validation_errors(values)
+    if errors:
+        return ctx.ack(response_action="errors", errors=errors)
 
     ctx.ack()
     channel_id, thread_ts = card.opened(ctx.view)
@@ -57,7 +57,7 @@ def confirmed(ctx):
             conn, guards.DESTROY, channel_id, thread_ts, ctx.user_id, values["reason"]
         )
         if guard_id is not None and values.get("note"):
-            guards.keep_note(conn, guard_id, values["note_body"], card.note_text(values))
+            guards.set_note(conn, guard_id, values["note_body"], card.note_text(values))
 
     if guard_id is None:
         return ctx.post_ephemeral("that thread is already held", channel_id, thread_ts)

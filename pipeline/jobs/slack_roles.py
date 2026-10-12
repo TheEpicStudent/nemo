@@ -35,10 +35,10 @@ def api(token):
 
 def whoami(client):
     try:
-        found = client.auth_test().data
+        identity = client.auth_test().data
     except SlackApiError as exc:
         exit_with_error(f"auth.test failed: {exc.response.get('error', 'unknown_error')}")
-    return found
+    return identity
 
 
 def call(client, **params):
@@ -56,14 +56,14 @@ def call(client, **params):
 
 def walk(client, pages=None, **params):
     cursor = ""
-    seen = 0
+    page_count = 0
     while True:
         page = call(client, cursor=cursor or None, **params)
         for one in page.get("role_assignments", []):
             yield one
-        seen += 1
+        page_count += 1
         cursor = page.get("response_metadata", {}).get("next_cursor") or ""
-        if not cursor or (pages is not None and seen >= pages):
+        if not cursor or (pages is not None and page_count >= pages):
             return
 
 
@@ -72,21 +72,21 @@ def kind_of(entity_id):
 
 
 def gather(client, pages):
-    found = defaultdict(lambda: {"count": 0, "entities": set(), "kinds": set(), "users": set()})
+    roles = defaultdict(lambda: {"count": 0, "entities": set(), "kinds": set(), "users": set()})
     for one in walk(client, pages=pages):
         entity = one.get("entity_id", "")
-        role = found[one.get("role_id", "?")]
+        role = roles[one.get("role_id", "?")]
         role["count"] += 1
         role["entities"].add(entity)
         role["kinds"].add(kind_of(entity))
         role["users"].add(one.get("user_id", ""))
-    return found
+    return roles
 
 
-def report(found, capped):
+def report(roles, capped):
     print()
     print(f"  {'role_id':<10}{'assigned':>10}{'entities':>10}  {'kind':<14}samples")
-    for role_id, one in sorted(found.items(), key=lambda pair: -pair[1]["count"]):
+    for role_id, one in sorted(roles.items(), key=lambda pair: -pair[1]["count"]):
         kinds = ", ".join(sorted(one["kinds"]))
         samples = ", ".join(sorted(one["entities"])[:SAMPLES])
         print(f"  {role_id:<10}{one['count']:>10}{len(one['entities']):>10}  {kinds:<14}{samples}")
@@ -94,14 +94,14 @@ def report(found, capped):
         print(f"\n  counts cover the first {capped} pages only. pass --all to sweep everything.")
 
 
-def channel_role(found):
-    named = [role for role, one in found.items() if "channel" in one["kinds"]]
-    if len(named) == 1:
-        return named[0]
-    if not named:
+def channel_role(roles):
+    candidates = [role for role, one in roles.items() if "channel" in one["kinds"]]
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
         print("\n  no role has channel entities. nothing here maps to channel manager.")
         return None
-    print(f"\n  more than one role has channel entities: {', '.join(sorted(named))}")
+    print(f"\n  more than one role has channel entities: {', '.join(sorted(candidates))}")
     print("  pass --role to check one of them against a channel you know.")
     return None
 
@@ -112,12 +112,12 @@ def check_filter(client, role_id, channel_id):
     if not rows:
         print("  nothing came back. the filter may not combine, or nobody manages that channel.")
         return
-    stray = {row.get("entity_id") for row in rows} - {channel_id}
+    unexpected = {row.get("entity_id") for row in rows} - {channel_id}
     users = sorted({row.get("user_id", "") for row in rows})
     print(f"  {len(rows)} assignments, {len(users)} people")
     print(f"  managers: {', '.join(users[:8])}{' ...' if len(users) > 8 else ''}")
-    if stray:
-        print(f"  WARNING entity_ids did not narrow it. also returned: {', '.join(sorted(stray)[:5])}")
+    if unexpected:
+        print(f"  WARNING entity_ids did not narrow it. also returned: {', '.join(sorted(unexpected)[:5])}")
     else:
         print("  every row is on that channel, so one call answers one channel")
 
@@ -137,24 +137,24 @@ def main():
 
     load_dotenv(ENV_FILE)
     client = api(args.token or os.environ.get("SLACK_TOKEN", "").strip())
-    who = whoami(client)
-    print(f"admin.roles.listAssignments as {who.get('user')} ({who.get('user_id')}) "
-          f"on {who.get('team')} / {who.get('team_id')}")
+    identity = whoami(client)
+    print(f"admin.roles.listAssignments as {identity.get('user')} ({identity.get('user_id')}) "
+          f"on {identity.get('team')} / {identity.get('team_id')}")
 
     role_id = args.role
     channel_id = args.channel
 
     if role_id is None:
         pages = None if args.all else args.pages
-        found = gather(client, pages)
-        if not found:
+        roles = gather(client, pages)
+        if not roles:
             exit_with_error("no role assignments came back at all")
-        report(found, None if args.all else args.pages)
-        role_id = channel_role(found)
+        report(roles, None if args.all else args.pages)
+        role_id = channel_role(roles)
         if role_id is None:
             return
         if channel_id is None:
-            channel_id = sorted(found[role_id]["entities"])[0]
+            channel_id = sorted(roles[role_id]["entities"])[0]
         print(f"\n  channel manager looks like {role_id}")
         print(f"  pin it:  SLACK_CHANNEL_MANAGER_ROLE_ID={role_id}")
 

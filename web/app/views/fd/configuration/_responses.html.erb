@@ -26,12 +26,12 @@
           <label class="field-label">
             Cooldown days
             <%= number_field_tag :cooldown_days, @autoresponse_cooldown, class: "input",
-                  id: nil, min: 1, max: Fd::ResponsesController::SLOWEST %>
+                  id: nil, min: 1, max: Fd::ResponsesController::MAX_COOLDOWN_DAYS %>
           </label>
           <label class="field-label">
             Reply
             <%= text_area_tag :body, @autoresponse_body, rows: 10, class: "textarea", id: nil,
-                  maxlength: Fd::ResponsesController::LONGEST %>
+                  maxlength: Fd::ResponsesController::MAX_BODY_LENGTH %>
           </label>
           <div><%= submit_tag "Save", class: "btn btn-primary" %></div>
         </div>

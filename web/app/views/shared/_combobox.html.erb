@@ -3,7 +3,7 @@
 <% trigger = local_assigns[:trigger] %>
 <% placeholder = local_assigns[:placeholder] || (channel ? "Search channels" : "Search by name or Slack ID") %>
 <% actions = "input->combobox#type keydown->combobox#keys" %>
-<% actions += " focus->combobox#wake" unless trigger %>
+<% actions += " focus->combobox#openOnFocus" unless trigger %>
 <%= tag.div class: ["combo", ("combo-menu" if trigger)],
       data: { controller: "combobox", action: "focusout->combobox#leave",
               combobox_kind_value: kind,

@@ -6,10 +6,10 @@
         data-datepicker-min-value="<%= AuditHelper::FIRST_DAY.iso8601 %>"
         data-datepicker-max-value="<%= Date.current.iso8601 %>"
         data-datepicker-submit-value="true">
-    <%= hidden_field_tag :on, @query.jump_on&.iso8601, id: nil, data: { datepicker_target: "input" } %>
+    <%= hidden_field_tag :on, @query.jump_date&.iso8601, id: nil, data: { datepicker_target: "input" } %>
     <button type="button" class="btn datepicker-trigger" data-datepicker-target="trigger"
             data-action="datepicker#toggle" aria-haspopup="dialog" aria-expanded="false">
-      <%= @query.jump_on ? @query.jump_on.strftime("%b %-d, %Y") : "Go to date" %>
+      <%= @query.jump_date ? @query.jump_date.strftime("%b %-d, %Y") : "Go to date" %>
     </button>
     <span class="datepicker-pop" popover="manual" role="dialog" aria-label="Go to a date"
           data-datepicker-target="pop"></span>

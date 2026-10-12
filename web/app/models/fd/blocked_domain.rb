@@ -30,11 +30,11 @@ module Fd
       text = domain.to_s.strip.downcase
       return [] if text.blank?
 
-      active.select { |one| one.holds?(text) }
+      active.select { |rule| rule.holds?(text) }
     end
 
     def self.worst_for(domain)
-      holds(domain).max_by { |one| EFFECTS.index(one.effect) }
+      holds(domain).max_by { |rule| EFFECTS.index(rule.effect) }
     end
 
     def self.valid_domain?(text)
@@ -72,8 +72,8 @@ module Fd
 
     def shipped? = SHIPPED_EFFECTS.include?(effect)
 
-    def people_here
-      @people_here ||= self.class.people_on(domain, match_mode: match_mode)
+    def account_count
+      @account_count ||= self.class.people_on(domain, match_mode: match_mode)
     end
 
     def people_named = [added_by, retired_by].compact

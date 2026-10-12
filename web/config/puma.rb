@@ -30,10 +30,10 @@ threads threads_count, threads_count
 
 clustered = Integer(ENV.fetch("WEB_CONCURRENCY", 0)).positive?
 on_worker_boot do |index|
-  Fd::ChatListener.start if index.zero? && Fd::ChatListener.wanted?
+  Fd::ChatListener.start if index.zero? && Fd::ChatListener.enabled?
 end
 on_booted do
-  Fd::ChatListener.start if !clustered && Fd::ChatListener.wanted?
+  Fd::ChatListener.start if !clustered && Fd::ChatListener.enabled?
 end
 
 # Specifies the `port` that Puma will listen on to receive requests; default is 3000.

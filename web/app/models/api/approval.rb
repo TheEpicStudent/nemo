@@ -7,7 +7,7 @@ module Api
 
     scope :live, -> { where(revoked_at: nil) }
 
-    def self.held?(app_id)
+    def self.active?(app_id)
       live.exists?(app_id: app_id)
     end
 

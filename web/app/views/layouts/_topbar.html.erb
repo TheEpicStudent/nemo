@@ -1,4 +1,4 @@
-<% place, icon, place_path = shell_place(fire_engine: fire_engine) %>
+<% place, icon, place_path = current_section(fire_engine: fire_engine) %>
 <% page = strip_tags(content_for(:page_title).to_s).squish.presence %>
 <header class="topbar">
   <button type="button" class="btn btn-ghost btn-only btn-sm topbar-trigger" data-action="sidebar#toggle"

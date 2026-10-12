@@ -11,10 +11,10 @@ class Analytics::MartCohortSurvivalTest < ActiveSupport::TestCase
   end
 
   test "a cohort that has aged through the whole horizon is not partial" do
-    ladder = (0..3).to_a
+    horizon = (0..3).to_a
 
-    assert_not curve([100.0, 80.0, 60.0, 40.0]).partial?(ladder)
-    assert curve([100.0, 80.0, nil, nil]).partial?(ladder)
+    assert_not curve([100.0, 80.0, 60.0, 40.0]).partial?(horizon)
+    assert curve([100.0, 80.0, nil, nil]).partial?(horizon)
   end
 
   test "an unobserved day reads as nothing, never as zero" do

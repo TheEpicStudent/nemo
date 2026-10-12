@@ -1,9 +1,9 @@
 module ChannelsHelper
   def channel_query(**overrides)
     base = { q: @q.presence, sort: @sort, direction: @direction,
-             days: @window&.asked,
-             start: @window&.asked_start,
-             end: @window&.asked_end,
+             days: @window&.requested_days,
+             start: @window&.requested_start,
+             end: @window&.requested_end,
              match: (@filter.match if @filter&.any?),
              c: (@filter.to_params.values if @filter&.any?),
              measure: (@measure unless @measure == @default_measure),
@@ -27,7 +27,7 @@ module ChannelsHelper
   def channels_empty_title
     return "No channel matches that search" if @q.present?
     return "No channel matches those conditions" if @filter&.any?
-    return "No channel is shared with you" if @mine_total.to_i.zero?
+    return "No channel is shared with you" if @visible_total.to_i.zero?
 
     "No channel yet"
   end
@@ -71,14 +71,14 @@ module ChannelsHelper
     end
   end
 
-  def time_ago_parts(at)
-    seen = time_ago(at)
-    return nil if seen.nil?
+  def time_ago_parts(time)
+    label = time_ago(time)
+    return nil if label.nil?
 
-    split = seen.match(/\A(\d[\w.]*)\s+(.+)\z/)
-    return seen if split.nil?
+    parts = label.match(/\A(\d[\w.]*)\s+(.+)\z/)
+    return label if parts.nil?
 
-    safe_join([split[1], tag.small(" #{split[2]}")])
+    safe_join([parts[1], tag.small(" #{parts[2]}")])
   end
 
   def channel_read_ratio(read, posted)
@@ -108,7 +108,7 @@ module ChannelsHelper
     window_note(lo, hi)
   end
 
-  def channel_voice_tone(channel)
+  def channel_participation_tone(channel)
     return "" if channel.range_posters.nil? || channel.range_members.to_i.zero?
 
     share = channel.range_posters.to_f / channel.range_members * 100
@@ -136,7 +136,7 @@ module ChannelsHelper
     number_to_percentage(posted.to_f / members * 100, precision: 1)
   end
 
-  TENURE_INK = { "under_90d" => 1, "under_1y" => 2, "under_3y" => 3,
+  TENURE_COLOR = { "under_90d" => 1, "under_1y" => 2, "under_3y" => 3,
                  "over_3y" => 4, "unknown" => 0 }.freeze
 
   def channel_view_path(**overrides)
@@ -144,7 +144,7 @@ module ChannelsHelper
              days: (@range_preset unless @range_preset == ChannelsController::DEFAULT_RANGE_DAYS),
              start: (@start_date if @range_preset.nil?),
              end: (@end_date if @range_preset.nil?),
-             month: (@crowd&.month&.iso8601 unless @crowd&.month == @crowd&.months&.first) }
+             month: (@member_counts&.month&.iso8601 unless @member_counts&.month == @member_counts&.months&.first) }
     text = base.merge(overrides)
     text[:view] = nil if text[:view] == ChannelsController::DEFAULT_VIEW
     text = text.except(:start, :end) if text[:days]
@@ -152,10 +152,10 @@ module ChannelsHelper
     channel_path(@channel, **text.compact)
   end
 
-  def pulse_delta(pct, against = nil)
+  def pulse_delta(pct, comparison = nil)
     return tag.span("n/a", class: "sub2") if pct.nil?
 
-    safe_join([delta_tag(pct), against].compact, " ")
+    safe_join([delta_tag(pct), comparison].compact, " ")
   end
 
   def duration_label(seconds)
@@ -169,14 +169,14 @@ module ChannelsHelper
     "#{seconds / 86_400}d"
   end
 
-  def tenure_ink(band)
-    "ser-#{TENURE_INK.fetch(band, 0)}"
+  def tenure_color(band)
+    "ser-#{TENURE_COLOR.fetch(band, 0)}"
   end
 
-  COMPOSITION_INK = { "spoke" => "ser-1", "read" => "ser-2", "never" => "ser-none" }.freeze
+  COMPOSITION_COLOR = { "spoke" => "ser-1", "read" => "ser-2", "never" => "ser-none" }.freeze
 
-  def composition_ink(key)
-    COMPOSITION_INK.fetch(key, "ser-0")
+  def composition_color(key)
+    COMPOSITION_COLOR.fetch(key, "ser-0")
   end
 
   def channel_standing(standing)
@@ -206,16 +206,16 @@ module ChannelsHelper
     window_note(from, to)
   end
 
-  def time_ago(at)
-    return nil if at.nil?
+  def time_ago(time)
+    return nil if time.nil?
 
-    gap = (Time.current - at).to_i
+    gap = (Time.current - time).to_i
     return "just now" if gap < 60
     return "#{gap / 60} min ago" if gap < 3600
     return "#{gap / 3600}h ago" if gap < 86_400
     return "#{gap / 86_400}d ago" if gap < 2_592_000
 
-    at.to_date.strftime("%-d %b %Y")
+    time.to_date.strftime("%-d %b %Y")
   end
 
   def channel_age(created)
@@ -223,10 +223,10 @@ module ChannelsHelper
 
     months = ((Date.current.year * 12 + Date.current.month) -
               (created.year * 12 + created.month))
-    years, rest = months.divmod(12)
-    return "#{years}y #{rest}m" if years.positive?
+    years, remaining_months = months.divmod(12)
+    return "#{years}y #{remaining_months}m" if years.positive?
 
-    "#{rest}m"
+    "#{remaining_months}m"
   end
 
   def slack_channel_url(channel_id)

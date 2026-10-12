@@ -30,7 +30,7 @@ def remove_from_channel(conn, guard):
                     guard["id"], guard["subject_id"], guard["channel_id"], how)
         return False
 
-    memberguards.holding(conn, guard["id"])
+    memberguards.mark_enforced(conn, guard["id"])
     memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], guard["channel_id"], KICKED)
     return True
 
@@ -63,9 +63,9 @@ def reapply(conn, guard, why):
 
 
 @on_event("message", open_to_all=True)
-def seen(ctx):
+def on_message(ctx):
     event = ctx.payload or {}
-    channel_id, subject_id, ts = notify.ours(event)
+    channel_id, subject_id, ts = notify.message_target(event)
     if not channel_id:
         return None
 

@@ -10,7 +10,7 @@ module Admin
     def index
       @role = Authz.role_names.include?(params[:role]) ? params[:role] : nil
       @term = params[:q].to_s.strip
-      @people = everyone
+      @people = granted_user_ids
       @names = Fd::Names.for(@people)
       @roles_of = roles_of(@people)
       @extras_of = extras_of(@people)
@@ -18,17 +18,17 @@ module Admin
       @acted = Fd::AuditEntry.where(occurred_at: WINDOW.ago..)
         .where(actor_user_id: @people).group(:actor_user_id).count
       @busiest = @acted.values.max || 0
-      @bands = band(narrow(@people))
-      @moved = Authz.keys.select { |key| Authz::Override.moved?(key) }
+      @bands = band(filter_people(@people))
+      @overridden_keys = Authz.keys.select { |key| Authz::Override.changed?(key) }
       @dark = Fd::Flag::KEYS.reject { |key| Fd::Flag.on?(key) }
     end
 
     def search
-      found = PeopleSearch.call(params[:q]).map do |row|
+      members = PeopleSearch.call(params[:q]).map do |row|
         { id: row.id, name: row.name, handle: row.handle,
           initial: row.initial, deleted: row.deleted }
       end
-      render json: { members: found }
+      render json: { members: members }
     end
 
     def show
@@ -37,7 +37,7 @@ module Admin
       @names = Fd::Names.for([@user_id] + @history.map(&:granted_by) +
         Channels::Audience::Grant.live.where(user_id: @user_id).pluck(:granted_by))
       @audit_rows = Fd::AuditTrail.new(@user_id, since: WINDOW.ago).rows.first(20)
-      @held_since = @history.filter_map(&:granted_at).min
+      @access_since = @history.filter_map(&:granted_at).min
       @last_acted = @audit_rows.first&.at
       @identity_reads = AccessLog.where(actor_id: @user_id, field_class: "identity")
         .where(looked_at: WINDOW.ago..).count
@@ -49,8 +49,8 @@ module Admin
 
     def load_capabilities
       @account = Account.find_by(user_id: @user_id) || Account.new(user_id: @user_id)
-      @roles = Authz.roles_held(@user_id)
-      @effective = Authz.held(@user_id)
+      @roles = Authz.effective_roles(@user_id)
+      @effective = Authz.effective_capabilities(@user_id)
       @baseline = @roles.flat_map { |role| Authz.baseline(role) }.uniq
       @deviations = Authz::Grant.live.for_person(@user_id).capabilities
         .pluck(:name, :effect).to_h
@@ -60,9 +60,9 @@ module Admin
         Channels::Audience::Grant.live.where(role: role).pluck(:channel_id)
       }
       @appointments = ::Prometheus::Appointment.managing.for_person(@user_id).order(:channel_id).to_a
-      named = (@channel_rows.map(&:channel_id) + @role_channels.values.flatten +
+      channel_ids = (@channel_rows.map(&:channel_id) + @role_channels.values.flatten +
         @appointments.map(&:channel_id)).uniq
-      @channel_names = Analytics::DimChannel.where(channel_id: named).index_by(&:channel_id)
+      @channel_names = Analytics::DimChannel.where(channel_id: channel_ids).index_by(&:channel_id)
       @grant_rows = Authz::Grant.for_person(@user_id).newest_first.to_a
     end
 
@@ -76,7 +76,7 @@ module Admin
     end
     helper_method :standing
 
-    def everyone
+    def granted_user_ids
       (Authz::Grant.live.pluck(:user_id) +
         Channels::Audience::Grant.live.where.not(user_id: nil).pluck(:user_id) +
         ::Prometheus::Appointment.managing.distinct.pluck(:user_id)).compact.uniq
@@ -91,7 +91,7 @@ module Admin
     def roles_of(people)
       return {} if people.empty?
 
-      ask(ROLES_OF, people).group_by(&:first).transform_values { |group|
+      query_rows(ROLES_OF, people).group_by(&:first).transform_values { |group|
         group.map(&:last).sort
       }
     end
@@ -99,10 +99,10 @@ module Admin
     def granters(people)
       return Set.new if people.empty?
 
-      ask(GRANTERS, people).flatten.to_set
+      query_rows(GRANTERS, people).flatten.to_set
     end
 
-    def ask(sql, people)
+    def query_rows(sql, people)
       ApplicationRecord.connection.select_rows(ApplicationRecord.sanitize_sql([sql, people]))
     end
 
@@ -113,11 +113,11 @@ module Admin
         .group(:user_id).count
     end
 
-    def narrow(people)
-      kept = people
-      kept = kept.select { |id| (@roles_of[id] || []).include?(@role) } if @role
-      kept = kept.select { |id| matches?(id) } if @term.present?
-      kept.sort_by { |id| @names[id].to_s.downcase }
+    def filter_people(people)
+      filtered = people
+      filtered = filtered.select { |id| (@roles_of[id] || []).include?(@role) } if @role
+      filtered = filtered.select { |id| matches?(id) } if @term.present?
+      filtered.sort_by { |id| @names[id].to_s.downcase }
     end
 
     def matches?(user_id)

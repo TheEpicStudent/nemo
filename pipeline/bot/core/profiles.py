@@ -24,10 +24,10 @@ def fetch(user_id):
         f"{HOST}/{quote(user_id, safe='')}", headers={"Accept": "application/json"}
     )
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as answer:
-            body = json.loads(answer.read())
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as trouble:
-        log.warning("profiles: could not ask cachet about %s: %s", user_id, trouble)
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            body = json.loads(response.read())
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
+        log.warning("profiles: could not ask cachet about %s: %s", user_id, error)
         return None
 
     display = body.get("displayName")
@@ -41,7 +41,7 @@ def name(user_id):
         if user_id in KNOWN:
             return KNOWN[user_id]
 
-    found = fetch(user_id)
+    display_name = fetch(user_id)
     with LOCK:
-        KNOWN[user_id] = found
-    return found
+        KNOWN[user_id] = display_name
+    return display_name

@@ -36,7 +36,7 @@ class SessionsController < ApplicationController
   private
 
   def welcome(staff)
-    roles = Authz.roles_held(staff.user_id).map { |role| Authz.role_label(role) }
+    roles = Authz.effective_roles(staff.user_id).map { |role| Authz.role_label(role) }
     extras = Authz::Grant.live.for_person(staff.user_id).capabilities
       .where(effect: "allow").count
     return "Signed in" if roles.empty? && extras.zero?

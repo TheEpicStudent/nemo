@@ -62,15 +62,15 @@ def compile_one(word, match_mode):
 
 def refresh(conn):
     global _loaded
-    found = []
+    rules = []
     for row in conn.execute(LIVE).fetchall():
         watch = WordRule(*row)
         if watch.pattern is not None:
-            found.append(watch)
+            rules.append(watch)
     with _lock:
-        _watching[:] = found
+        _watching[:] = rules
         _loaded = True
-    return len(found)
+    return len(rules)
 
 
 def watching():
@@ -79,10 +79,10 @@ def watching():
 
 
 def caught(text):
-    held = watching()
-    if not held or not text:
+    rules = watching()
+    if not rules or not text:
         return []
-    return [one for one in held if one.hits(text)]
+    return [one for one in rules if one.hits(text)]
 
 
 def record(conn, watch, message):

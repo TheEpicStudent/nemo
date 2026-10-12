@@ -85,16 +85,16 @@ class ApplicationController < ActionController::Base
   def require_reading
     return if may_community?("analytics.workspace.read")
 
-    refuse_community("analytics.workspace.read")
+    redirect_forbidden("analytics.workspace.read")
   end
 
   def require_operating
     return if may_community?("ops.engine")
 
-    refuse_community("ops.engine")
+    redirect_forbidden("ops.engine")
   end
 
-  def refuse_community(key, record = nil)
+  def redirect_forbidden(key, record = nil)
     return head :forbidden if request.format.json?
 
     redirect_to root_path, alert: Community::Access.why_not(current_account, key, record)

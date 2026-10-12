@@ -3,42 +3,42 @@ import pytest
 from bot.nemo import automod
 from bot.nemo.surface import automod_watch
 
-WHO = "U1"
-ROOM = "C1"
+USER_ID = "U1"
+CHANNEL_ID = "C1"
 TS = "1700000000.000100"
 
 
 class Conn:
-    def __init__(self, rows=(), keeps=True):
+    def __init__(self, rows=(), returns_id=True):
         self.rows = list(rows)
-        self.keeps = keeps
-        self.ran = []
+        self.returns_id = returns_id
+        self.executed = []
         self.next_id = 0
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def fetchall(self):
         return self.rows
 
     def fetchone(self):
-        if not self.keeps:
+        if not self.returns_id:
             return None
         self.next_id += 1
         return (self.next_id,)
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.executed if mark in sql]
 
 
 class Slack:
     def __init__(self, link="https://hackclub.slack.com/archives/C1/p1700000000000100"):
         self.link = link
-        self.asked = []
+        self.calls = []
 
     def chat_getPermalink(self, **kwargs):
-        self.asked.append(kwargs)
+        self.calls.append(kwargs)
         if self.link is None:
             raise RuntimeError("no permalink")
         return {"permalink": self.link}
@@ -51,15 +51,15 @@ class Ctx:
 
 
 def message(text, **over):
-    return {"user": WHO, "channel": ROOM, "ts": TS, "text": text, **over}
+    return {"user": USER_ID, "channel": CHANNEL_ID, "ts": TS, "text": text, **over}
 
 
 def edited(text, **over):
     return {
         "subtype": "message_changed",
-        "channel": ROOM,
+        "channel": CHANNEL_ID,
         "ts": "1700000009.000000",
-        "message": {"user": WHO, "ts": TS, "text": text, **over},
+        "message": {"user": USER_ID, "ts": TS, "text": text, **over},
     }
 
 
@@ -151,102 +151,102 @@ def test_a_match_is_recorded_with_the_message_kept():
     watch = automod.caught("a badword here")[0]
     automod.record(conn, watch, message("a badword here"))
 
-    kept = conn.did("INSERT INTO fd.automod_matches")[0]
-    assert kept[1] == "badword"
-    assert kept[3] == WHO
-    assert kept[4] == ROOM
-    assert kept[7] == "a badword here"
+    match_row = conn.args_for("INSERT INTO fd.automod_matches")[0]
+    assert match_row[1] == "badword"
+    assert match_row[3] == USER_ID
+    assert match_row[4] == CHANNEL_ID
+    assert match_row[7] == "a badword here"
 
 
 def test_the_watcher_records_what_it_catches(monkeypatch):
     load((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _held(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
 
     assert automod_watch.watched(Ctx(message("a badword here"))) == 1
-    assert conn.did("INSERT INTO fd.automod_matches")
+    assert conn.args_for("INSERT INTO fd.automod_matches")
 
 
 def test_the_watcher_leaves_a_clean_message_alone(monkeypatch):
     load((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _held(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
 
     assert automod_watch.watched(Ctx(message("nothing to see"))) is None
-    assert not conn.did("INSERT INTO fd.automod_matches")
+    assert not conn.args_for("INSERT INTO fd.automod_matches")
 
 
 def test_the_watcher_ignores_a_bot(monkeypatch):
     load((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _held(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
 
     assert automod_watch.watched(Ctx(message("badword", bot_id="B1"))) is None
-    assert not conn.did("INSERT INTO fd.automod_matches")
+    assert not conn.args_for("INSERT INTO fd.automod_matches")
 
 
 def test_an_edit_that_adds_a_word_is_caught(monkeypatch):
     load((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _held(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
 
     assert automod_watch.watched(Ctx(edited("now with a badword"))) == 1
-    kept = conn.did("INSERT INTO fd.automod_matches")[0]
-    assert kept[5] == TS
-    assert kept[7] == "now with a badword"
+    match_row = conn.args_for("INSERT INTO fd.automod_matches")[0]
+    assert match_row[5] == TS
+    assert match_row[7] == "now with a badword"
 
 
 def test_an_edit_records_against_the_message_not_the_edit():
     load((1, "badword", "word", "flag", None))
-    held = automod_watch.message_in(edited("a badword"))
+    normalized = automod_watch.message_in(edited("a badword"))
 
-    assert held["ts"] == TS
-    assert held["user"] == WHO
-    assert held["channel"] == ROOM
+    assert normalized["ts"] == TS
+    assert normalized["user"] == USER_ID
+    assert normalized["channel"] == CHANNEL_ID
 
 
 def test_a_clean_edit_records_nothing(monkeypatch):
     load((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _held(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
 
     assert automod_watch.watched(Ctx(edited("all tidied up now"))) is None
-    assert not conn.did("INSERT INTO fd.automod_matches")
+    assert not conn.args_for("INSERT INTO fd.automod_matches")
 
 
 def test_an_edit_by_a_bot_is_left_alone(monkeypatch):
     load((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _held(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
 
     assert automod_watch.watched(Ctx(edited("badword", bot_id="B1"))) is None
 
 
 def test_an_unfurl_that_matches_nothing_new_costs_no_permalink(monkeypatch):
     load((1, "badword", "word", "flag", None))
-    conn = Conn(keeps=False)
+    conn = Conn(returns_id=False)
     client = Slack()
-    monkeypatch.setattr(automod_watch, "session", lambda: _held(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
     automod_watch.watched(Ctx(edited("a badword here"), client))
 
-    assert client.asked == []
+    assert client.calls == []
 
 
 def test_the_watcher_says_nothing_to_the_author(monkeypatch):
     load((1, "badword", "word", "flag", None))
     conn = Conn()
     client = Slack()
-    monkeypatch.setattr(automod_watch, "session", lambda: _held(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
     automod_watch.watched(Ctx(message("a badword here"), client))
 
     assert not hasattr(client, "posted")
-    assert not conn.did("DELETE")
+    assert not conn.args_for("DELETE")
 
 
 def test_a_message_already_recorded_is_not_counted_twice(monkeypatch):
     load((1, "badword", "word", "flag", None))
-    conn = Conn(keeps=False)
-    monkeypatch.setattr(automod_watch, "session", lambda: _held(conn))
+    conn = Conn(returns_id=False)
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
 
     assert automod_watch.watched(Ctx(message("a badword here"))) is None
 
@@ -254,35 +254,35 @@ def test_a_message_already_recorded_is_not_counted_twice(monkeypatch):
 def test_a_missing_permalink_does_not_stop_the_record(monkeypatch):
     load((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _held(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
     automod_watch.watched(Ctx(message("a badword here"), Slack(link=None)))
 
-    assert conn.did("INSERT INTO fd.automod_matches")
-    assert not conn.did("SET permalink")
+    assert conn.args_for("INSERT INTO fd.automod_matches")
+    assert not conn.args_for("SET permalink")
 
 
 def test_a_permalink_is_only_fetched_for_a_fresh_match(monkeypatch):
     load((1, "badword", "word", "flag", None))
-    conn = Conn(keeps=False)
+    conn = Conn(returns_id=False)
     client = Slack()
-    monkeypatch.setattr(automod_watch, "session", lambda: _held(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
     automod_watch.watched(Ctx(message("a badword here"), client))
 
-    assert client.asked == []
+    assert client.calls == []
 
 
 def test_a_fresh_match_is_linked(monkeypatch):
     load((1, "badword", "word", "flag", None))
     conn = Conn()
     client = Slack()
-    monkeypatch.setattr(automod_watch, "session", lambda: _held(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
     automod_watch.watched(Ctx(message("a badword here"), client))
 
-    assert client.asked == [{"channel": ROOM, "message_ts": TS}]
-    assert conn.did("SET permalink")[0][0] == client.link
+    assert client.calls == [{"channel": CHANNEL_ID, "message_ts": TS}]
+    assert conn.args_for("SET permalink")[0][0] == client.link
 
 
-class _held:
+class _conn_context:
     def __init__(self, conn):
         self.conn = conn
 

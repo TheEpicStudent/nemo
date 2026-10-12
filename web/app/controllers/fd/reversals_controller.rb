@@ -13,8 +13,8 @@ module Fd
 
       reason = params[:reversal_reason].to_s.strip
 
-      problem = objection(reason)
-      if problem
+      error = validation_error(reason)
+      if error
         return redirect_to(fd_case_path(kase, tab: "actions", do: "reverse-#{params[:action_id]}"))
       end
 
@@ -37,7 +37,7 @@ module Fd
             "reversed_by" => action.reversed_by,
             "reason" => reason
           })
-        lifted = lift_what_it_held(action, reason)
+        lifted = lift_linked_guard(action, reason)
       end
 
       if reversed
@@ -50,16 +50,16 @@ module Fd
 
     private
 
-    def lift_what_it_held(action, reason)
+    def lift_linked_guard(action, reason)
       guard = action.guard
       return nil if guard.nil? || !MemberGuard::STILL_ON.include?(guard.state)
       return nil if Action.live.exists?(guard_id: guard.id)
 
-      was = guard.state
+      previous_state = guard.state
       lift_reason = "the action was reversed: #{reason}"
       return nil unless guard.lift!(by: current_account.user_id, reason: lift_reason)
 
-      audit(guard, "lifted", before: { "state" => was },
+      audit(guard, "lifted", before: { "state" => previous_state },
         after: { "state" => guard.state, "lift_reason" => lift_reason })
       guard
     end
@@ -72,7 +72,7 @@ module Fd
 
     def guard_label_text(guard) = FdHelper::ACTION_LABELS.fetch(guard.kind, guard.kind).downcase
 
-    def objection(reason)
+    def validation_error(reason)
       if reason.blank?
         return wrong!(:reversal_reason, "Say why it is being reversed. It goes on the record.")
       end

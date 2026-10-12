@@ -36,26 +36,26 @@ def shows_inline(mimetype):
     return (mimetype or "").lower() in IN_BLOCKS
 
 
-def held_in_slack(client, name, body, channel_id=None, thread_ts=None):
+def upload_file(client, name, body, channel_id=None, thread_ts=None):
     where = {"channel": channel_id, "thread_ts": thread_ts} if channel_id else {}
-    answer = client.files_upload_v2(content=body, filename=name, title=name, **where)
-    return (answer.get("files") or [{}])[0].get("id")
+    response = client.files_upload_v2(content=body, filename=name, title=name, **where)
+    return (response.get("files") or [{}])[0].get("id")
 
 
 def gather(conn, message_id):
     inline, on_their_own = [], []
     for file_id, name, mimetype, sha, _ in conn.execute(TO_SHARE, (message_id,)).fetchall():
-        body, kept_type = blobs.body_of(conn, sha)
+        body, stored_type = blobs.body_of(conn, sha)
         if body is None:
             log.warning("nemo: file %s says stored but has no bytes", file_id)
             continue
-        kind = mimetype or kept_type
-        held = (file_id, name or f"{sha[:12]}", kind, body)
-        (inline if shows_inline(kind) else on_their_own).append(held)
+        kind = mimetype or stored_type
+        entry = (file_id, name or f"{sha[:12]}", kind, body)
+        (inline if shows_inline(kind) else on_their_own).append(entry)
     return inline, on_their_own
 
 
-def share(client, conn, message_id, channel_id, thread_ts, wearing=None, body=None,
+def share(client, conn, message_id, channel_id, thread_ts, author_fields=None, body=None,
           unfurl=True):
     inline, on_their_own = gather(conn, message_id)
     text = (body or "").strip()
@@ -64,12 +64,12 @@ def share(client, conn, message_id, channel_id, thread_ts, wearing=None, body=No
 
     ts = post(
         client, conn, message_id, channel_id, thread_ts, inline, text, on_their_own,
-        wearing or {}, unfurl,
+        author_fields or {}, unfurl,
     )
 
     for file_id, name, _, body in on_their_own:
         try:
-            uploaded = held_in_slack(client, name, body, channel_id, thread_ts)
+            uploaded = upload_file(client, name, body, channel_id, thread_ts)
         except Exception:
             log.exception("nemo: could not carry file %s into the thread", file_id)
             continue
@@ -79,31 +79,31 @@ def share(client, conn, message_id, channel_id, thread_ts, wearing=None, body=No
     return ts
 
 
-def post(client, conn, message_id, channel_id, thread_ts, inline, text, alongside, wearing,
+def post(client, conn, message_id, channel_id, thread_ts, inline, text, alongside, author_fields,
          unfurl=True):
-    kept = []
+    uploaded_files = []
     for file_id, name, kind, body in inline:
         try:
-            uploaded = held_in_slack(client, name, body)
+            uploaded = upload_file(client, name, body)
         except Exception:
             log.exception("nemo: could not keep file %s for the thread", file_id)
             continue
         if uploaded:
-            kept.append((file_id, name, kind, uploaded))
+            uploaded_files.append((file_id, name, kind, uploaded))
 
-    if inline and not kept:
+    if inline and not uploaded_files:
         raise RuntimeError("slack would not keep any of the pictures, so this is not settled")
 
-    if kept:
+    if uploaded_files:
         time.sleep(FILE_INDEX_DELAY)
 
-    if text and not kept and not alongside:
-        return post_text(client, channel_id, thread_ts, text, wearing, unfurl)
+    if text and not uploaded_files and not alongside:
+        return post_text(client, channel_id, thread_ts, text, author_fields, unfurl)
 
     blocks = []
     if text:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
-    for _, name, kind, uploaded in kept:
+    for _, name, kind, uploaded in uploaded_files:
         blocks.append({
             "type": "image",
             "slack_file": {"id": uploaded},
@@ -118,28 +118,28 @@ def post(client, conn, message_id, channel_id, thread_ts, inline, text, alongsid
     sent = client.chat_postMessage(
         channel=channel_id,
         thread_ts=thread_ts,
-        text=text or attachment_summary(kept or alongside),
+        text=text or attachment_summary(uploaded_files or alongside),
         blocks=blocks,
         unfurl_links=False,
         unfurl_media=False,
-        **wearing,
+        **author_fields,
     )
     ts = sent["ts"]
-    for file_id, _, _, uploaded in kept:
+    for file_id, _, _, uploaded in uploaded_files:
         conn.execute(MIRRORED, (uploaded, message_id, file_id))
-    if kept:
-        log.info("nemo: carried %d file(s) into the internal_log", len(kept))
+    if uploaded_files:
+        log.info("nemo: carried %d file(s) into the internal_log", len(uploaded_files))
     return ts
 
 
-def post_text(client, channel_id, thread_ts, text, wearing, unfurl=True):
+def post_text(client, channel_id, thread_ts, text, author_fields, unfurl=True):
     sent = client.chat_postMessage(
         channel=channel_id,
         thread_ts=thread_ts,
         text=text,
         unfurl_links=unfurl,
         unfurl_media=unfurl,
-        **wearing,
+        **author_fields,
     )
     return sent["ts"]
 
@@ -149,10 +149,10 @@ def named(alongside):
     return {"type": "section", "text": {"type": "mrkdwn", "text": f":paperclip: {names}"}}
 
 
-def attachment_summary(kept):
-    if len(kept) == 1:
-        return kept[0][1]
-    return f"{len(kept)} attachments"
+def attachment_summary(files):
+    if len(files) == 1:
+        return files[0][1]
+    return f"{len(files)} attachments"
 
 
 def fetch(url, token, limit):
@@ -162,9 +162,9 @@ def fetch(url, token, limit):
 
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as answer:
-            body = answer.read(limit + 1)
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            body = response.read(limit + 1)
             return body if len(body) <= limit else None
-    except (urllib.error.URLError, TimeoutError, OSError) as trouble:
-        log.warning("nemo: could not fetch %s: %s", url, trouble)
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        log.warning("nemo: could not fetch %s: %s", url, error)
         return None

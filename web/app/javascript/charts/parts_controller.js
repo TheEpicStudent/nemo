@@ -14,7 +14,7 @@ export default class extends TileChart {
   }
 
   get total() {
-    return this.tilesValue.reduce((at, t) => at + Number(t.value || 0), 0)
+    return this.tilesValue.reduce((sum, t) => sum + Number(t.value || 0), 0)
   }
 
   toneIndex(i) {
@@ -48,32 +48,32 @@ export default class extends TileChart {
 
   labelMarkup({ row, x, y, w, h }) {
     const share = this.shareOf(row)
-    const room = w - 10
+    const maxWidth = w - 10
     const cx = x + w / 2
 
     let pcSize = Math.max(10, Math.min(16, Math.round(Math.min(w / 4.2, h / 3.6))))
-    while (pcSize > 10 && fit(share, pcSize, 500) > room) pcSize -= 1
-    const shownPc = clip(share, pcSize, room, 500)
+    while (pcSize > 10 && fit(share, pcSize, 500) > maxWidth) pcSize -= 1
+    const pcLabel = clip(share, pcSize, maxWidth, 500)
 
     let nameSize = Math.max(9, Math.round(pcSize * 0.9))
-    while (nameSize > 9 && fit(row.label, nameSize) > room) nameSize -= 1
-    let shownName = clip(row.label, nameSize, room)
+    while (nameSize > 9 && fit(row.label, nameSize) > maxWidth) nameSize -= 1
+    let nameLabel = clip(row.label, nameSize, maxWidth)
     const pair = nameSize + pcSize + 4
-    if (pair > h - 8) shownName = null
+    if (pair > h - 8) nameLabel = null
 
-    if (shownName && shownPc) {
+    if (nameLabel && pcLabel) {
       const first = y + h / 2 - pair / 2 + nameSize
       return `<text class="t-n" x="${cx.toFixed(1)}" y="${first.toFixed(1)}"
         text-anchor="middle" font-size="${nameSize}"
-        style="fill: var(--parts-ink)">${esc(shownName)}</text>` +
+        style="fill: var(--parts-ink)">${esc(nameLabel)}</text>` +
         `<text class="t-v" x="${cx.toFixed(1)}" y="${
           (first + pcSize + 4).toFixed(1)}" text-anchor="middle" font-size="${pcSize}"
-        style="fill: var(--parts-ink)">${esc(shownPc)}</text>`
+        style="fill: var(--parts-ink)">${esc(pcLabel)}</text>`
     }
-    if (shownPc) {
+    if (pcLabel) {
       return `<text class="t-v" x="${cx.toFixed(1)}" y="${
         (y + h / 2 + pcSize / 3).toFixed(1)}" text-anchor="middle" font-size="${pcSize}"
-        style="fill: var(--parts-ink)">${esc(shownPc)}</text>`
+        style="fill: var(--parts-ink)">${esc(pcLabel)}</text>`
     }
     return ""
   }

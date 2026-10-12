@@ -7,20 +7,20 @@ export default class extends Controller {
     if (!this.hasTocTarget || !this.hasBodyTarget) return
 
     const sections = [...this.bodyTarget.querySelectorAll(".doc-sec[id]")]
-    this.watch = new IntersectionObserver((entries) => {
+    this.observer = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
-        if (entry.isIntersecting) this.mark(entry.target.id)
+        if (entry.isIntersecting) this.setCurrent(entry.target.id)
       })
     }, { rootMargin: "0px 0px -70% 0px" })
-    sections.forEach((section) => this.watch.observe(section))
-    if (sections[0]) this.mark(location.hash.slice(1) || sections[0].id)
+    sections.forEach((section) => this.observer.observe(section))
+    if (sections[0]) this.setCurrent(location.hash.slice(1) || sections[0].id)
   }
 
   disconnect() {
-    this.watch?.disconnect()
+    this.observer?.disconnect()
   }
 
-  mark(id) {
+  setCurrent(id) {
     this.tocTarget.querySelectorAll("a").forEach((link) => {
       link.toggleAttribute("aria-current", link.dataset.id === id)
     })
@@ -35,12 +35,12 @@ export default class extends Controller {
     if (!section) return
 
     event.preventDefault()
-    section.scrollIntoView({ behavior: this.easing, block: "start" })
+    section.scrollIntoView({ behavior: this.scrollBehavior, block: "start" })
     history.replaceState(history.state, "", `#${id}`)
-    this.mark(id)
+    this.setCurrent(id)
   }
 
-  get easing() {
+  get scrollBehavior() {
     return matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
   }
 }

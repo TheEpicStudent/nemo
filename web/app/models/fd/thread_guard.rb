@@ -17,12 +17,12 @@ module Fd
     scope :for_case, ->(case_id) { where(case_id: case_id) }
     scope :newest_first, -> { order(created_at: :desc) }
 
-    def self.pickable_locks(case_ids)
-      wanted = Array(case_ids).compact
+    def self.selectable_locks(case_ids)
+      case_ids_to_prefer = Array(case_ids).compact
       still_on.locks
         .order(Arel.sql("case_id IS NULL, created_at DESC"))
         .to_a
-        .partition { |guard| wanted.include?(guard.case_id) }
+        .partition { |guard| case_ids_to_prefer.include?(guard.case_id) }
         .flatten
     end
 
@@ -35,9 +35,9 @@ module Fd
     def on_case?(case_ids) = case_id.present? && Array(case_ids).include?(case_id)
 
     def attach_to!(case_id)
-      won = self.class.still_on.where(id: id, case_id: nil)
+      updated_count = self.class.still_on.where(id: id, case_id: nil)
         .update_all(case_id: case_id, updated_at: Time.current)
-      won.positive? ? reload : nil
+      updated_count.positive? ? reload : nil
     end
 
     def left_a_note? = note_text.present?

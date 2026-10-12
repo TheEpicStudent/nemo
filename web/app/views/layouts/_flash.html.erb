@@ -1,7 +1,7 @@
 <% tone ||= alert ? "warn" : "good" %>
-<% holds = tone != "good" %>
+<% persistent = tone != "good" %>
 <div class="topbar-msg topbar-msg-<%= tone %>"
-     data-controller="toast" data-toast-delay-value="<%= holds ? 0 : 3000 %>">
+     data-controller="toast" data-toast-delay-value="<%= persistent ? 0 : 3000 %>">
   <span class="flash-mark" aria-hidden="true">
     <% if tone == "good" %>
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg>

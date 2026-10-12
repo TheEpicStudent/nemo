@@ -29,15 +29,15 @@ def digest(body, blocks, attachments):
 
 
 def thread_of(query):
-    found = THREAD_TS.search(query or "")
-    return found.group(1) if found else None
+    match = THREAD_TS.search(query or "")
+    return match.group(1) if match else None
 
 
 def link_target(url):
-    found = ARCHIVE_LINK.search(url or "")
-    if not found:
+    match = ARCHIVE_LINK.search(url or "")
+    if not match:
         return None
-    channel_id, seconds, micros, query = found.groups()
+    channel_id, seconds, micros, query = match.groups()
     return channel_id, f"{seconds}.{micros}", thread_of(query)
 
 
@@ -45,8 +45,8 @@ RICHEST = ("forward", "unfurl", "link")
 
 
 def points_at(share):
-    found = link_target(share["permalink"]) if share["permalink"] else None
-    return {share["source_ts"], found[1] if found else None} - {None}
+    target = link_target(share["permalink"]) if share["permalink"] else None
+    return {share["source_ts"], target[1] if target else None} - {None}
 
 
 def same_message(one, other):
@@ -60,23 +60,23 @@ def same_message(one, other):
     return one["permalink"] == other["permalink"]
 
 
-def merge(into, found):
-    for field, value in found.items():
+def merge(into, share):
+    for field, value in share.items():
         if field in ("kind", "is_reachable"):
             continue
         if into.get(field) is None and value is not None:
             into[field] = value
 
-    into["is_reachable"] = into["is_reachable"] or found["is_reachable"]
-    into["kind"] = min(into["kind"], found["kind"], key=RICHEST.index)
+    into["is_reachable"] = into["is_reachable"] or share["is_reachable"]
+    into["kind"] = min(into["kind"], share["kind"], key=RICHEST.index)
 
 
-def gather(out, found):
+def gather(out, share):
     for already in out:
-        if same_message(already, found):
-            merge(already, found)
+        if same_message(already, share):
+            merge(already, share)
             return
-    out.append(found)
+    out.append(share)
 
 
 def shares(event):
@@ -143,7 +143,7 @@ def shares(event):
     return out
 
 
-def carried_files(event):
+def iter_files(event):
     for entry in event.get("files") or []:
         yield entry, False
     for attachment in event.get("attachments") or []:
@@ -154,13 +154,13 @@ def carried_files(event):
 
 def files(event):
     out = []
-    seen = set()
-    for entry, forwarded in carried_files(event):
+    processed_ids = set()
+    for entry, forwarded in iter_files(event):
         if not isinstance(entry, dict) or not entry.get("id"):
             continue
-        if entry["id"] in seen:
+        if entry["id"] in processed_ids:
             continue
-        seen.add(entry["id"])
+        processed_ids.add(entry["id"])
 
         mode = entry.get("mode")
         external = bool(entry.get("is_external")) or mode == "external"
@@ -184,8 +184,8 @@ def files(event):
                 "filetype": entry.get("filetype"),
                 "mode": mode,
                 "size_bytes": entry.get("size"),
-                "original_w": whole(entry.get("original_w")),
-                "original_h": whole(entry.get("original_h")),
+                "original_w": to_int(entry.get("original_w")),
+                "original_h": to_int(entry.get("original_h")),
                 "is_external": external,
                 "external_type": entry.get("external_type"),
                 "external_url": entry.get("external_url"),
@@ -203,7 +203,7 @@ def files(event):
     return out
 
 
-def whole(value):
+def to_int(value):
     try:
         return int(value)
     except (TypeError, ValueError):

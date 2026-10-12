@@ -2,11 +2,11 @@ class HomeController < ApplicationController
   before_action :fire_engine_first, only: :index
   before_action { needs(:analytics) }
 
-  OPEN_SHOWN = 25
+  OPEN_LIMIT = 25
 
   def index
     @panels = Panel.visible_to(current_account)
-    return front_door if @panels.empty?
+    return render_landing if @panels.empty?
 
     workspace
   end
@@ -20,10 +20,10 @@ class HomeController < ApplicationController
     redirect_to fd_root_path
   end
 
-  def front_door
+  def render_landing
     @open_channels = Channels::Audience.open_to_all
       .order(Arel.sql("dim_channel.name"))
-      .limit(OPEN_SHOWN)
+      .limit(OPEN_LIMIT)
       .to_a
     render :front_door
   end

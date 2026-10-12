@@ -22,14 +22,14 @@ const esc = (s) =>
 
 const F = (n) => (n == null ? "n/a" : Number(n).toLocaleString("en-US"))
 
-const axl = (v) =>
+const axisLabel = (v) =>
   Math.abs(v) >= 1000 ? `${+(v / 1000).toFixed(v % 1000 ? 1 : 0)}k` : `${Math.round(v)}`
 
 const clamp = (value, low, high) => Math.min(Math.max(value, low), high)
 
-const groupKey = (point) => `g${point.ink == null ? 1 : point.ink}`
+const groupKey = (point) => `g${point.seriesColor == null ? 1 : point.seriesColor}`
 
-const withoutViewport = ({ window: _window, pin: _pin, ...rest }) => JSON.stringify(rest)
+const withoutViewport = ({ window: _window, pin: _pin, ...view }) => JSON.stringify(view)
 
 function median(values) {
   const sorted = values.filter((value) => value != null).map(Number).sort((a, b) => a - b)
@@ -71,8 +71,8 @@ export default class extends Controller {
       data-action="${hover}keydown->scatter#key"
       ><div class="tip"></div><span class="chart-caption" aria-live="polite"></span></div>`
     const chart = this.element.querySelector(".chart")
-    this.watcher = new ResizeObserver(() => this.measure())
-    this.watcher.observe(chart)
+    this.observer = new ResizeObserver(() => this.measure())
+    this.observer.observe(chart)
     this.measure()
     this.ready = true
     if (this.hasViewValue) this.dispatch("ready", { prefix: "chart" })
@@ -80,7 +80,7 @@ export default class extends Controller {
 
   disconnect() {
     this.ready = false
-    this.watcher?.disconnect()
+    this.observer?.disconnect()
   }
 
   viewValueChanged(value, previous) {
@@ -148,11 +148,11 @@ export default class extends Controller {
   }
 
   extent(values, mid, share, floorAtZero) {
-    const seen = values.filter((v) => v != null && Number.isFinite(v))
-    if (!seen.length) return [0, 1]
+    const finiteValues = values.filter((v) => v != null && Number.isFinite(v))
+    if (!finiteValues.length) return [0, 1]
 
-    let lo = Math.min(...seen)
-    let hi = Math.max(...seen)
+    let lo = Math.min(...finiteValues)
+    let hi = Math.max(...finiteValues)
     if (mid != null) {
       lo = Math.min(lo, mid)
       hi = Math.max(hi, mid)
@@ -161,12 +161,12 @@ export default class extends Controller {
       hi += 1
       lo -= 1
     }
-    const room = (hi - lo) * share
-    return [floorAtZero && lo >= 0 ? Math.max(0, lo - room) : lo - room, hi + room]
+    const padding = (hi - lo) * share
+    return [floorAtZero && lo >= 0 ? Math.max(0, lo - padding) : lo - padding, hi + padding]
   }
 
   yTick(v) {
-    return this.yPctValue ? `${Math.round(v)}%` : axl(v)
+    return this.yPctValue ? `${Math.round(v)}%` : axisLabel(v)
   }
 
   format(v, pct) {
@@ -199,11 +199,11 @@ export default class extends Controller {
     if (!window) return true
 
     const full = this.fullWindow()
-    const near = (a, b, span) => Math.abs(a - b) <= span * 1e-4
+    const approxEqual = (a, b, span) => Math.abs(a - b) <= span * 1e-4
     const xSpan = full.x[1] - full.x[0]
     const ySpan = full.y[1] - full.y[0]
-    return near(window.x[0], full.x[0], xSpan) && near(window.x[1], full.x[1], xSpan) &&
-      near(window.y[0], full.y[0], ySpan) && near(window.y[1], full.y[1], ySpan)
+    return approxEqual(window.x[0], full.x[0], xSpan) && approxEqual(window.x[1], full.x[1], xSpan) &&
+      approxEqual(window.y[0], full.y[0], ySpan) && approxEqual(window.y[1], full.y[1], ySpan)
   }
 
   canZoomIn(window) {
@@ -319,22 +319,22 @@ export default class extends Controller {
   }
 
   windowLabel(window) {
-    const shown = this.visibleIndices(window).length
-    return { label: "Zoomed", detail: `${shown} of ${this.pointsValue.length}` }
+    const visibleCount = this.visibleIndices(window).length
+    return { label: "Zoomed", detail: `${visibleCount} of ${this.pointsValue.length}` }
   }
 
   groups() {
-    const seen = new Map()
+    const groupsByKey = new Map()
     this.pointsValue.forEach((point) => {
       const key = groupKey(point)
-      if (!seen.has(key)) seen.set(key, { key, ink: point.ink == null ? 1 : point.ink, label: point.phase || "points" })
+      if (!groupsByKey.has(key)) groupsByKey.set(key, { key, seriesColor: point.seriesColor == null ? 1 : point.seriesColor, label: point.phase || "points" })
     })
-    return [...seen.values()].sort((a, b) => a.ink - b.ink)
+    return [...groupsByKey.values()].sort((a, b) => a.seriesColor - b.seriesColor)
   }
 
   legendEntries() {
     return this.groups().map((group) => ({
-      key: group.key, label: group.label, colorClass: `ser-${group.ink}`, color: null, shape: "dot"
+      key: group.key, label: group.label, colorClass: `ser-${group.seriesColor}`, color: null, shape: "dot"
     }))
   }
 
@@ -355,7 +355,7 @@ export default class extends Controller {
     const point = this.pointsValue[i]
     if (!point) return null
 
-    const colorClass = `ser-${point.ink == null ? 1 : point.ink}`
+    const colorClass = `ser-${point.seriesColor == null ? 1 : point.seriesColor}`
     const value = (label, text) => ({ label, colorClass, color: null, shape: "dot", value: text, change: null, share: null })
     return {
       title: `#${point.name}`,
@@ -440,21 +440,21 @@ export default class extends Controller {
     const xTicks = this.logX
       ? logTicks(Math.max(1, 10 ** window.x[0]), 10 ** window.x[1]).map((v) => [Math.log10(v), v])
       : x.ticks(Math.max(2, Math.floor((plotRight - plotLeft) / 76))).map((v) => [v, v])
-    const rungs = xTicks
+    const xTickLabels = xTicks
       .filter(([position]) => x(position) >= plotLeft - 1 && x(position) <= plotRight + 1)
       .map(([position, v]) => `<text class="ax" x="${x(position).toFixed(1)}" y="${plotBottom + 22}" text-anchor="middle">${
-        axl(v)}</text>`).join("")
+        axisLabel(v)}</text>`).join("")
 
-    const cuts = this.showNotes ? [
+    const midLines = this.showNotes ? [
       xMid == null ? "" : `<line class="mark-rule" x1="${x(this.scaleX(xMid)).toFixed(1)}" y1="${
         plotTop}" x2="${x(this.scaleX(xMid)).toFixed(1)}" y2="${plotBottom.toFixed(1)}"/>`,
       yMid == null ? "" : `<line class="mark-rule" x1="${plotLeft}" y1="${
         y(yMid).toFixed(1)}" x2="${plotRight}" y2="${y(yMid).toFixed(1)}"/>`
     ].join("") : ""
 
-    const named = this.hasCornersValue && this.showNotes ? this.cornersValue : {}
+    const cornerLabels = this.hasCornersValue && this.showNotes ? this.cornersValue : {}
     const corners = CORNERS.map((corner) => {
-      const label = named[corner]
+      const label = cornerLabels[corner]
       if (!label) return ""
 
       const left = corner[1] === "l"
@@ -478,13 +478,13 @@ export default class extends Controller {
 
     const dots = visible.map(({ point, index }) => {
       const [cx, cy] = at(point)
-      return `<circle class="scatter-point ser-${point.ink == null ? 1 : point.ink}" data-i="${index}" data-series="${
+      return `<circle class="scatter-point ser-${point.seriesColor == null ? 1 : point.seriesColor}" data-i="${index}" data-series="${
         groupKey(point)}" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r(Number(point.n) || 0).toFixed(1)}"/>`
     }).join("")
 
     const pin = this.viewValue.pin
     const pinned = visible.find(({ index }) => index === pin)
-    const pinRing = pinned
+    const pinOutline = pinned
       ? (() => {
         const [cx, cy] = at(pinned.point)
         return `<circle class="pin-ring" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${
@@ -498,7 +498,7 @@ export default class extends Controller {
         high - X_TITLE_INSET}" text-anchor="middle">${esc(this.xLabelValue)}${this.logX ? ", log scale" : ""}</text>`
       : ""
 
-    const stood = this.yLabelValue
+    const yTitle = this.yLabelValue
       ? `<text class="ax cap-note" transform="translate(${Y_TITLE_INSET},${
         ((plotTop + plotBottom) / 2).toFixed(1)}) rotate(-90)" text-anchor="middle">${
         esc(this.yLabelValue)}</text>`
@@ -515,7 +515,7 @@ export default class extends Controller {
         aria-label="${esc(this.summary(visible.map(({ point }) => point)))}"><defs>${clipPath}</defs>${grid}` +
       `<line class="base" x1="${plotLeft}" y1="${plotBottom.toFixed(1)}" x2="${
         plotRight}" y2="${plotBottom.toFixed(1)}"/>` +
-      `<g clip-path="url(#${clipId})">${cuts}${dots}${pinRing}${labels}</g>${corners}${rungs}${caption}${stood}${
+      `<g clip-path="url(#${clipId})">${midLines}${dots}${pinOutline}${labels}</g>${corners}${xTickLabels}${caption}${yTitle}${
         selection}</svg>`)
 
     this.geom = { x, y, r, at, wide, high, plotLeft, plotRight, plotTop, plotBottom, visible: visible.map(({ index }) => index) }
@@ -528,9 +528,9 @@ export default class extends Controller {
   pointLabels(visible, pinned, { at, r, plotRight }) {
     if (!this.showLabels && !pinned) return ""
 
-    const chosen = this.showLabels ? (visible.length <= LABEL_LIMIT ? visible : visible.slice(0, LABEL_TOP)) : []
-    const ordered = pinned && !chosen.includes(pinned) ? [pinned, ...chosen] : chosen
-    const placed = []
+    const labelCandidates = this.showLabels ? (visible.length <= LABEL_LIMIT ? visible : visible.slice(0, LABEL_TOP)) : []
+    const ordered = pinned && !labelCandidates.includes(pinned) ? [pinned, ...labelCandidates] : labelCandidates
+    const occupiedBoxes = []
     return ordered.map(({ point, index }) => {
       const [cx, cy] = at(point)
       const radius = r(Number(point.n) || 0)
@@ -539,11 +539,11 @@ export default class extends Controller {
       const flip = cx + radius + 6 + width > plotRight
       const left = flip ? cx - radius - 5 - width : cx + radius + 5
       const box = { left: left - 2, right: left + width + 2, top: cy - 8, bottom: cy + 8 }
-      const overlaps = placed.some((other) =>
+      const overlaps = occupiedBoxes.some((other) =>
         box.left < other.right && box.right > other.left && box.top < other.bottom && box.bottom > other.top)
       if (overlaps && index !== pinned?.index) return ""
 
-      placed.push(box)
+      occupiedBoxes.push(box)
       return `<text class="point-label" data-series="${groupKey(point)}" x="${left.toFixed(1)}" y="${(cy + 4).toFixed(1)}">${
         esc(text)}</text>`
     }).join("")
@@ -559,29 +559,29 @@ export default class extends Controller {
       this.format(worst.y, this.yPctValue)} to ${best.name} at ${this.format(best.y, this.yPctValue)}`
   }
 
-  spot(event) {
+  indexAtPointer(event) {
     const g = this.geom
     if (!g) return null
 
     const box = this.element.querySelector(".chart").getBoundingClientRect()
     const mx = event.clientX - box.left
     const my = event.clientY - box.top
-    let best = null
-    let near = Infinity
+    let nearestIndex = null
+    let nearestGap = Infinity
     g.visible.forEach((index) => {
       const point = this.pointsValue[index]
       const [cx, cy] = g.at(point)
       const gap = Math.hypot(cx - mx, cy - my) - g.r(Number(point.n) || 0)
-      if (gap < near) {
-        near = gap
-        best = index
+      if (gap < nearestGap) {
+        nearestGap = gap
+        nearestIndex = index
       }
     })
-    return best != null && near <= HIT_DISTANCE ? best : null
+    return nearestIndex != null && nearestGap <= HIT_DISTANCE ? nearestIndex : null
   }
 
   track(event) {
-    const i = this.spot(event)
+    const i = this.indexAtPointer(event)
     if (i == null) return this.clear()
 
     this.show(i)
@@ -635,16 +635,16 @@ export default class extends Controller {
       dot.classList.toggle("lit", Number(dot.dataset.i) === i))
 
     const rows = [
-      [this.xLabelValue, this.format(p.x, false), p.ink],
-      [this.yLabelValue, this.format(p.y, this.yPctValue), p.ink],
+      [this.xLabelValue, this.format(p.x, false), p.seriesColor],
+      [this.yLabelValue, this.format(p.y, this.yPctValue), p.seriesColor],
       [this.nLabelValue, F(p.n), 0]
     ].filter(([label]) => label)
 
     const tip = chart.querySelector(".tip")
     tip.innerHTML = `<div class="t">#${esc(p.name)}${
       p.phase ? ` <span class="t-note">${esc(p.phase)}</span>` : ""}</div>` +
-      rows.map(([label, value, ink]) =>
-        `<div class="row"><i class="ser-${ink == null ? 1 : ink}"></i>${
+      rows.map(([label, value, seriesColor]) =>
+        `<div class="row"><i class="ser-${seriesColor == null ? 1 : seriesColor}"></i>${
           esc(label)}<b>${value}</b></div>`).join("")
     tip.classList.add("on")
 
@@ -669,7 +669,7 @@ export default class extends Controller {
     chart.querySelectorAll(".scatter-point.lit").forEach((dot) => dot.classList.remove("lit"))
     chart.querySelector(".tip")?.classList.remove("on")
     chart.querySelector(".selection-area")?.setAttribute("display", "none")
-    const say = chart.querySelector(".chart-caption")
-    if (say) say.textContent = ""
+    const caption = chart.querySelector(".chart-caption")
+    if (caption) caption.textContent = ""
   }
 }

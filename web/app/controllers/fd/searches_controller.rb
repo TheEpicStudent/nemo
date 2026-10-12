@@ -5,7 +5,7 @@ module Fd
               "report" => "report" }.freeze
 
     PAGE_LIMIT = 20
-    CLUSTERS_SHOWN = 3
+    CLUSTER_LIMIT = 3
     AUDIT_WINDOW = "last:30d".freeze
     EMAIL_TERM = /\A[^@\s]+@[^@\s]+\.[a-z]+\z/i
 
@@ -19,26 +19,26 @@ module Fd
     private
 
     def payload
-      return commanding if commanding?
+      return command_payload if command_query?
 
-      found = Search.new(params[:q], scope: params[:scope], actor: current_account)
-      groups = found.asked? ? shown(found) : resting
-      { term: found.term, scope: found.scope, groups: found.scope ? groups : widened(groups, found) }
+      search = Search.new(params[:q], scope: params[:scope], actor: current_account)
+      groups = search.searching? ? result_groups(search) : default_groups
+      { term: search.term, scope: search.scope, groups: search.scope ? groups : with_extra_groups(groups, search) }
     end
 
-    def widened(groups, found)
-      people, rest = groups.partition { |group| group[:key] == "member" }
-      [*people, clusters_group(found), *rest, audit_group(found), pages_group(found.term)]
+    def with_extra_groups(groups, search)
+      member_groups, other_groups = groups.partition { |group| group[:key] == "member" }
+      [*member_groups, clusters_group(search), *other_groups, audit_group(search), pages_group(search.term)]
         .compact.reject { |group| group[:rows].empty? }
     end
 
-    def clusters_group(found)
-      return nil unless found.searching? && current_account.may?("member.links")
+    def clusters_group(search)
+      return nil unless search.searching? && current_account.may?("member.links")
 
-      clusters = MemberLink.clusters_of(found.matched_member_ids, limit: CLUSTERS_SHOWN)
+      clusters = MemberLink.clusters_for_members(search.matched_member_ids, limit: CLUSTER_LIMIT)
       names = Names.for(clusters.map(&:cluster_id))
       { key: "cluster", label: "Clusters", total: clusters.size,
-        rows: clusters.map { |one| cluster_row(one, names) } }
+        rows: clusters.map { |cluster| cluster_row(cluster, names) } }
     end
 
     def cluster_row(cluster, names)
@@ -48,16 +48,16 @@ module Fd
         url: fd_cluster_path(cluster.cluster_id) }
     end
 
-    def audit_group(found)
-      return nil unless found.searching? && audit_reader?
+    def audit_group(search)
+      return nil unless search.searching? && audit_reader?
 
-      token = audit_token(found.term)
+      token = audit_token(search.term)
       return nil if token.nil?
 
-      asked = "#{token} #{AUDIT_WINDOW}"
+      audit_query = "#{token} #{AUDIT_WINDOW}"
       { key: "audit", label: "Audit log", total: 1,
-        rows: [{ kind: "audit", svg: helpers.nav_icon("history").to_s, title: "Audit log: #{found.term}",
-                 sub: asked, url: fd_audit_path(q: asked) }] }
+        rows: [{ kind: "audit", svg: helpers.nav_icon("history").to_s, title: "Audit log: #{search.term}",
+                 sub: audit_query, url: fd_audit_path(q: audit_query) }] }
     end
 
     def audit_reader?
@@ -81,36 +81,36 @@ module Fd
     end
 
     def pages_group(term)
-      wanted = term.to_s.downcase
-      return nil if wanted.present? && wanted.length < Search::MIN_TERM
+      query = term.to_s.downcase
+      return nil if query.present? && query.length < Search::MIN_TERM
 
-      stops = helpers.fd_nav_groups.flat_map { |_, held| held }
-        .select { |stop| wanted.empty? || stop.label.downcase.split.any? { |word| word.start_with?(wanted) } }
+      stops = helpers.fd_nav_groups.flat_map { |_, group_stops| group_stops }
+        .select { |stop| query.empty? || stop.label.downcase.split.any? { |word| word.start_with?(query) } }
       { key: "page", label: "Go to", total: stops.size,
         rows: stops.map { |stop| { kind: "page", svg: helpers.nav_icon(stop.icon).to_s, title: stop.label, url: stop.path } } }
     end
 
     def page
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      @found = Search.new(params[:q], scope: params[:scope], limit: PAGE_LIMIT,
+      @search = Search.new(params[:q], scope: params[:scope], limit: PAGE_LIMIT,
         actor: current_account)
-      @groups = @found.asked? ? shown(@found) : []
+      @groups = @search.searching? ? result_groups(@search) : []
       @took = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
-      @counts = every_count
+      @counts = group_counts
     end
 
-    def every_count
-      whole = @found.scope ? Search.new(params[:q], limit: 1, actor: current_account) : @found
-      return {} unless whole.asked?
+    def group_counts
+      unscoped_search = @search.scope ? Search.new(params[:q], limit: 1, actor: current_account) : @search
+      return {} unless unscoped_search.searching?
 
-      whole.groups.to_h { |group| [group.key, group.total] }
+      unscoped_search.groups.to_h { |group| [group.key, group.total] }
     end
 
-    def commanding?
+    def command_query?
       params[:q].to_s.start_with?(">") || params[:scope] == "command"
     end
 
-    def commanding
+    def command_payload
       term = params[:q].to_s.delete_prefix(">").strip
       rows = commands.select { |row| term.blank? || row[:title].downcase.include?(term.downcase) }
 
@@ -121,13 +121,13 @@ module Fd
     def gated(rows)
       rows.map do |row|
         key = row.delete(:key)
-        on = row.delete(:on)
-        row.merge(why: key && Access.why_not(current_account, key, on))
+        target = row.delete(:on)
+        row.merge(why: key && Access.why_not(current_account, key, target))
       end
     end
 
     def commands
-      here + [
+      case_commands + [
         { kind: "do", icon: "plus", title: "Open a case", sub: nil, key: "case.open",
           url: fd_cases_path(open: "1") },
         { kind: "do", icon: "case", title: "Go to the cases", sub: nil, url: fd_cases_path },
@@ -135,35 +135,35 @@ module Fd
       ].compact
     end
 
-    def here
+    def case_commands
       kase = Case.find_by(id: params[:on_case])
       return [] if kase.nil?
 
-      on = "on case #{kase.id}"
+      case_label = "on case #{kase.id}"
       [
-        { kind: "do", icon: "resolve", title: "Resolve this case", sub: on,
+        { kind: "do", icon: "resolve", title: "Resolve this case", sub: case_label,
           key: "case.resolve", on: kase, url: fd_case_path(kase, do: "resolve") },
-        { kind: "do", icon: "action", title: "Log an action", sub: on,
+        { kind: "do", icon: "action", title: "Log an action", sub: case_label,
           key: "case.act", on: kase, url: fd_case_path(kase, do: "action") },
-        { kind: "do", icon: "note", title: "Add a note", sub: on,
+        { kind: "do", icon: "note", title: "Add a note", sub: case_label,
           key: "case.note", url: fd_case_path(kase, do: "note") }
       ].compact
     end
 
-    def shown(found)
-      @names = Names.for(found.groups.flat_map { |group| named_in(group) })
-      people = member_ids(found)
+    def result_groups(search)
+      @names = Names.for(search.groups.flat_map { |group| named_in(group) })
+      people = member_ids(search)
       @context = MemberContext.for(people)
       @priors = Case.prior_counts_for(people)
       @open = Case.open_counts_for(people)
 
-      found.groups.map do |group|
+      search.groups.map do |group|
         { key: group.key, label: group.label, total: group.total,
           rows: group.rows.map { |row| row_for(row) } }
       end
     end
 
-    def resting
+    def default_groups
       [
         { key: "waiting", label: "Waiting on you", total: 1, rows: waiting },
         { key: "do", label: "Do", total: 1, rows: gated([
@@ -201,8 +201,8 @@ module Fd
       end.compact
     end
 
-    def member_ids(found)
-      found.groups.flat_map { |group| group.rows.map(&:record) }
+    def member_ids(search)
+      search.groups.flat_map { |group| group.rows.map(&:record) }
         .grep(Member).map(&:user_id)
     end
 
@@ -239,12 +239,12 @@ module Fd
     end
 
     def member_sub(member)
-      seen = @context[member.user_id]
+      member_context = @context[member.user_id]
       parts = [member.user_id]
       parts << "@#{member.handle}" if member.handle.present? && "@#{member.handle}" != @names[member.user_id]
-      parts << helpers.tenure_label(seen&.tenure_days)
-      parts << "#{helpers.number_with_delimiter(seen.messages_posted)} messages" if
-        seen&.messages_posted
+      parts << helpers.tenure_label(member_context&.tenure_days)
+      parts << "#{helpers.number_with_delimiter(member_context.messages_posted)} messages" if
+        member_context&.messages_posted
       priors = @priors.fetch(member.user_id, 0)
       parts << helpers.pluralize(priors, "prior") if priors.positive?
       open = @open.fetch(member.user_id, 0)
@@ -264,8 +264,8 @@ module Fd
     end
 
     def report_sub(report)
-      who = report.anonymous? ? "Anonymous" : @names[report.reporter_user_id]
-      "#{who} · #{report.received_at.strftime('%-d %b')}"
+      reporter_name = report.anonymous? ? "Anonymous" : @names[report.reporter_user_id]
+      "#{reporter_name} · #{report.received_at.strftime('%-d %b')}"
     end
 
     def url_for_record(record)

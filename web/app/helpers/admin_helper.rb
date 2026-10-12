@@ -1,21 +1,21 @@
 module AdminHelper
   def role_capability_switch(role, key, override)
-    held = override ? override.allowed : Authz.baseline(role).include?(key)
+    allowed = override ? override.allowed : Authz.baseline(role).include?(key)
     label = "#{Authz.role_label(role)}: #{key}"
-    why = Authz.locked?(key) ? "#{key} is FD only, it cannot be moved" : why_not("access.grant")
-    if why
+    disabled_reason = Authz.locked?(key) ? "#{key} is FD only, it cannot be moved" : why_not("access.grant")
+    if disabled_reason
       return tag.span(class: "switch", role: "switch", tabindex: "0",
-        aria: { checked: held.to_s, disabled: "true", label: label, description: why })
+        aria: { checked: allowed.to_s, disabled: "true", label: label, description: disabled_reason })
     end
 
-    button_to held ? "On" : "Off",
-      fd_role_permission_path(role: role, key: key, allowed: held ? "0" : "1"),
+    button_to allowed ? "On" : "Off",
+      fd_role_permission_path(role: role, key: key, allowed: allowed ? "0" : "1"),
       method: :patch, class: "switch", form: { class: "contents" },
-      role: "switch", aria: { checked: held.to_s, label: label }
+      role: "switch", aria: { checked: allowed.to_s, label: label }
   end
 
   def role_standing(user_id, roles: nil, extras: nil)
-    roles ||= Authz.roles_held(user_id)
+    roles ||= Authz.effective_roles(user_id)
     extras ||= Authz::Grant.live.for_person(user_id).capabilities.where(effect: "allow").count
     text = roles.any? ? roles.map { |role| Authz.role_label(role) }.to_sentence : "No role"
 
@@ -47,18 +47,18 @@ module AdminHelper
     "everyone" => "anyone signed in, no grant needed"
   }.freeze
 
-  FACES_SHOWN = 4
+  FACE_LIMIT = 4
 
   def audience_chip(kind)
     tag.span(kind.to_s.upcase_first, class: AUDIENCE_TONE.fetch(kind, "chip chip-off"))
   end
 
-  def named_faces(named, kind)
+  def grant_faces(grants, kind)
     return tag.span("Anyone signed in", class: "sub") if
       Channels::Audience::OPEN.include?(kind)
 
-    people = named.select { |grant| grant.user_id.present? }
-    roles = named.filter_map { |grant| grant.role.presence }.uniq
+    people = grants.select { |grant| grant.user_id.present? }
+    roles = grants.filter_map { |grant| grant.role.presence }.uniq
     return tag.span("Nobody", class: "sub") if people.empty? && roles.empty?
 
     safe_join([role_chips(roles), face_stack(people)].compact, " ")
@@ -77,22 +77,22 @@ module AdminHelper
   def face_stack(people)
     return nil if people.empty?
 
-    shown = people.first(FACES_SHOWN)
+    visible = people.first(FACE_LIMIT)
     stack = tag.span(class: "avatar-stack") do
-      safe_join(shown.map { |grant| face(grant.user_id) })
+      safe_join(visible.map { |grant| avatar(grant.user_id) })
     end
-    return stack if people.size <= FACES_SHOWN
+    return stack if people.size <= FACE_LIMIT
 
-    stack + tag.span("+#{people.size - FACES_SHOWN}", class: "chip chip-off")
+    stack + tag.span("+#{people.size - FACE_LIMIT}", class: "chip chip-off")
   end
 
-  def channel_cell(channel_id, named)
+  def channel_cell(channel_id, channel)
     marks = [tag.span(channel_id)]
-    marks << tag.span("· private") if named&.visibility == "private"
-    marks << tag.span("· archived") if named&.archived
+    marks << tag.span("· private") if channel&.visibility == "private"
+    marks << tag.span("· archived") if channel&.archived
 
     tag.span(class: "two-line") do
-      tag.b("##{named&.name.presence || channel_id}") +
+      tag.b("##{channel&.name.presence || channel_id}") +
         tag.span(safe_join(marks, " "), class: "mono")
     end
   end

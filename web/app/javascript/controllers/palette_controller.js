@@ -50,7 +50,7 @@ export default class extends Controller {
     this.scopeTarget.textContent = kind
     this.scopeTarget.hidden = false
     this.inputTarget.value = this.inputTarget.value.trim().slice(word.length).trim()
-    this.look()
+    this.search()
   }
 
   unscope(event) {
@@ -59,14 +59,14 @@ export default class extends Controller {
     event.preventDefault()
     this.only = null
     this.scopeTarget.hidden = true
-    this.look()
+    this.search()
   }
 
   open() {
     this.hostTarget.hidden = false
     this.inputTarget.focus()
     this.inputTarget.select()
-    this.look()
+    this.search()
   }
 
   close() {
@@ -76,21 +76,21 @@ export default class extends Controller {
 
   type() {
     clearTimeout(this.timer)
-    this.timer = setTimeout(() => this.look(), 120)
+    this.timer = setTimeout(() => this.search(), 120)
   }
 
-  async look() {
+  async search() {
     const term = this.inputTarget.value.trim()
-    const asked = new URLSearchParams({ q: term })
-    if (this.only) asked.set("scope", this.only)
+    const params = new URLSearchParams({ q: term })
+    if (this.only) params.set("scope", this.only)
     if (this.hasOnValue && this.onValue) {
       const [, id] = this.onValue.split(":")
-      asked.set("on_case", id)
+      params.set("on_case", id)
     }
 
     let payload
     try {
-      const response = await fetch(`${this.urlValue}?${asked}`, {
+      const response = await fetch(`${this.urlValue}?${params}`, {
         headers: { Accept: "application/json" },
       })
       if (!response.ok) throw new Error(response.status)
@@ -99,7 +99,7 @@ export default class extends Controller {
       return this.failed()
     }
 
-    this.adopt(payload.scope)
+    this.applyScope(payload.scope)
     this.draw(payload.groups, term)
   }
 
@@ -113,18 +113,18 @@ export default class extends Controller {
     this.resultsTarget.append(row)
   }
 
-  adopt(scope) {
+  applyScope(scope) {
     if (!scope || scope === this.only || scope === "command") return
 
-    const marks = { "@": "member", "#": "case", "n:": "note", "r:": "report" }
-    const typed = this.inputTarget.value.toLowerCase()
-    const mark = Object.keys(marks).find((one) => typed.startsWith(one) && marks[one] === scope)
-    if (!mark) return
+    const prefixes = { "@": "member", "#": "case", "n:": "note", "r:": "report" }
+    const inputValue = this.inputTarget.value.toLowerCase()
+    const prefix = Object.keys(prefixes).find((candidate) => inputValue.startsWith(candidate) && prefixes[candidate] === scope)
+    if (!prefix) return
 
     this.only = scope
     this.scopeTarget.textContent = `${scope}s`
     this.scopeTarget.hidden = false
-    this.inputTarget.value = this.inputTarget.value.slice(mark.length).trim()
+    this.inputTarget.value = this.inputTarget.value.slice(prefix.length).trim()
   }
 
   draw(groups, term) {
@@ -149,11 +149,11 @@ export default class extends Controller {
       }
     }
 
-    const held = groups.reduce((sum, group) => sum + group.rows.length, 0)
-    const all = groups.reduce((sum, group) => sum + group.total, 0)
-    if (term.length > 0 && all > held) {
+    const returnedCount = groups.reduce((sum, group) => sum + group.rows.length, 0)
+    const totalCount = groups.reduce((sum, group) => sum + group.total, 0)
+    if (term.length > 0 && totalCount > returnedCount) {
       this.resultsTarget.append(this.line({
-        icon: "arrow", title: `See all ${all}`, sub: null, sub_note: null,
+        icon: "arrow", title: `See all ${totalCount}`, sub: null, sub_note: null,
         url: `/fd/search?q=${encodeURIComponent(term)}${this.only ? `&scope=${this.only}` : ""}`,
       }, term))
     }
@@ -191,34 +191,34 @@ export default class extends Controller {
       icon.innerHTML = this.icon(row.icon)
     }
 
-    const what = document.createElement("span")
-    what.className = "pal-what"
+    const content = document.createElement("span")
+    content.className = "pal-what"
     const title = document.createElement("b")
     title.className = "pal-t"
     title.textContent = row.title
     if (row.kind === "member" && row.id && row.title === `@${row.id}`) title.dataset.cachetName = row.id
-    what.append(title)
+    content.append(title)
 
     if (row.why || row.sub) {
       const sub = document.createElement("span")
       sub.className = "sub"
       sub.textContent = row.why || row.sub
-      what.append(sub)
+      content.append(sub)
     }
 
     if (row.sub_note) {
       const sub_note = document.createElement("span")
       sub_note.className = "line2"
-      sub_note.append(...this.lit(row.sub_note, term))
-      what.append(sub_note)
+      sub_note.append(...this.highlight(row.sub_note, term))
+      content.append(sub_note)
     }
 
-    line.append(icon, what, document.createElement("span"))
+    line.append(icon, content, document.createElement("span"))
     this.rows.push(line)
     return line
   }
 
-  lit(text, term) {
+  highlight(text, term) {
     const word = term.split(/\s+/)[0]
     const at = word ? text.toLowerCase().indexOf(word.toLowerCase()) : -1
     if (at < 0) return [document.createTextNode(text)]

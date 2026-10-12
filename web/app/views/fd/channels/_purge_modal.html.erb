@@ -12,11 +12,11 @@
       <label class="field-label">
         Why
         <%= text_area_tag :reason, nil, rows: 3, class: "textarea", id: nil,
-              maxlength: Fd::ChannelPurgesController::LONGEST_REASON %>
+              maxlength: Fd::ChannelPurgesController::MAX_REASON_LENGTH %>
       </label>
     </div>
     <div class="modal-foot">
-      <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Cancel</button>
+      <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
       <%= submit_tag "Take them down", class: "btn btn-danger" %>
     </div>
   <% end %>

@@ -2,9 +2,9 @@ require "test_helper"
 
 class Fd::CaseQueryTest < ActiveSupport::TestCase
   setup do
-    @fresh = make_case(opened_at: 1.hour.ago)
+    @recent = make_case(opened_at: 1.hour.ago)
     @stale = make_case(opened_at: 6.days.ago)
-    @taken = make_case(opened_at: 1.hour.ago, assign: "UME")
+    @assigned = make_case(opened_at: 1.hour.ago, assign: "UME")
     @done = make_case(opened_at: 20.days.ago, resolved_at: 1.day.ago, resolution: "no_action")
   end
 
@@ -13,8 +13,8 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
   end
 
   def ids(viewer: "UME", **params)
-    mine = [@fresh, @stale, @taken, @done].map(&:id)
-    query(viewer: viewer, **params).relation.where(id: mine).ids
+    case_ids = [@recent, @stale, @assigned, @done].map(&:id)
+    query(viewer: viewer, **params).relation.where(id: case_ids).ids
   end
 
   test "an empty request lands on the open cases" do
@@ -34,20 +34,20 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
   end
 
   test "needs attention keeps every open case, claimed or not" do
-    found = ids
-    assert_includes found, @fresh.id, "unassigned"
-    assert_includes found, @stale.id, "six days old"
-    assert_includes found, @taken.id, "somebody is on it, but it is still open"
-    assert_not_includes found, @done.id, "resolved, so it is off the queue"
+    listed_ids = ids
+    assert_includes listed_ids, @recent.id, "unassigned"
+    assert_includes listed_ids, @stale.id, "six days old"
+    assert_includes listed_ids, @assigned.id, "somebody is on it, but it is still open"
+    assert_not_includes listed_ids, @done.id, "resolved, so it is off the queue"
   end
 
   test "aging only keeps what has sat past five days" do
-    found = ids(view: "aging")
-    assert_equal [@stale.id], found
+    listed_ids = ids(view: "aging")
+    assert_equal [@stale.id], listed_ids
   end
 
   test "mine follows the viewer, and is empty for somebody else" do
-    assert_equal [@taken.id], ids(view: "mine")
+    assert_equal [@assigned.id], ids(view: "mine")
     assert_empty ids(view: "mine", viewer: "USOMEBODY")
   end
 
@@ -61,24 +61,24 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
   end
 
   test "a facet turns the view off, they are never both in force" do
-    both = query(view: "mine", category: "spam")
-    assert_nil both.view, "filtering wins, so no view is current"
-    assert_equal "spam", both["category"]
-    assert_equal "any", both["status"], "the view's implied status goes with it"
+    filtered_query = query(view: "mine", category: "spam")
+    assert_nil filtered_query.view, "filtering wins, so no view is current"
+    assert_equal "spam", filtered_query["category"]
+    assert_equal "any", filtered_query["status"], "the view's implied status goes with it"
   end
 
   test "a view sets the facets it implies, so the pills agree with the tab" do
-    mine = query(view: "mine")
-    assert_equal "me", mine["assignee"]
-    assert_equal "open", mine["status"]
-    assert mine.facets.find { |f| f.key == "assignee" }.on
+    mine_view_query = query(view: "mine")
+    assert_equal "me", mine_view_query["assignee"]
+    assert_equal "open", mine_view_query["status"]
+    assert mine_view_query.facets.find { |f| f.key == "assignee" }.on
   end
 
   test "changing a facet from inside a view expands that view into plain filters" do
-    from_mine = query(view: "mine").facet_params("category" => "spam")
+    expanded_params = query(view: "mine").facet_params("category" => "spam")
 
-    assert_equal({ "status" => "open", "assignee" => "me", "category" => "spam" }, from_mine)
-    assert_not from_mine.key?("view"), "the link must not carry the view it just left"
+    assert_equal({ "status" => "open", "assignee" => "me", "category" => "spam" }, expanded_params)
+    assert_not expanded_params.key?("view"), "the link must not carry the view it just left"
   end
 
   test "the title names the view, or reads as a sentence once filtering takes over" do
@@ -95,13 +95,13 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
   end
 
   test "clearing the last facet a view implied leaves the view rather than landing back in it" do
-    leaving = query(view: "attention").facet_params("status" => "any")
-    assert_equal({ "view" => "none" }, leaving,
+    facet_params = query(view: "attention").facet_params("status" => "any")
+    assert_equal({ "view" => "none" }, facet_params,
       "an empty link would be read as a bare queue, which defaults straight back to a view")
 
-    landed = query(view: "none")
-    assert_nil landed.view
-    assert_equal "Every case", landed.title
+    none_query = query(view: "none")
+    assert_nil none_query.view
+    assert_equal "Every case", none_query.title
     assert_equal 4, ids(view: "none").size
   end
 
@@ -114,9 +114,9 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
     assert_equal %w[status age assignee sort], bare.inline_facets.map(&:key)
     assert_equal %w[category subject actions opened resolved], bare.more_facets.map(&:key)
 
-    narrowed = query(category: "spam")
-    assert_equal %w[category status age assignee sort], narrowed.inline_facets.map(&:key)
-    assert_equal %w[subject actions opened resolved], narrowed.more_facets.map(&:key)
+    filtered_query = query(category: "spam")
+    assert_equal %w[category status age assignee sort], filtered_query.inline_facets.map(&:key)
+    assert_equal %w[subject actions opened resolved], filtered_query.more_facets.map(&:key)
   end
 
   test "every view reports a count" do
@@ -125,7 +125,7 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
     assert counts.values.all? { |n| n.is_a?(Integer) }
   end
 
-  def counted_one_by_one(viewer)
+  def counts_per_view(viewer)
     Fd::CaseQuery::VIEWS.keys.index_with do |key|
       Fd::CaseQuery.new(ActionController::Parameters.new("view" => key), viewer: viewer)
         .relation.count
@@ -138,13 +138,13 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
     make_case(opened_at: 2.hours.ago, assign: "UOTHER")
     make_case(opened_at: 3.days.ago, resolved_at: Time.current, resolution: "no_action")
 
-    assert_equal counted_one_by_one("UME"), Fd::CaseQuery.view_counts("UME")
+    assert_equal counts_per_view("UME"), Fd::CaseQuery.view_counts("UME")
   end
 
   test "the counts still agree when nobody is signed in" do
     make_case(opened_at: 1.hour.ago, assign: "UOTHER")
 
-    assert_equal counted_one_by_one(nil), Fd::CaseQuery.view_counts(nil)
+    assert_equal counts_per_view(nil), Fd::CaseQuery.view_counts(nil)
   end
 
   def act_on(kase, category:, **attrs)
@@ -183,7 +183,7 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
     assert_equal ["spam"], kase.violations
   end
 
-  def found_under(category)
+  def ids_in_category(category)
     query(view: "everything", category: category).relation.ids
   end
 
@@ -191,16 +191,16 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
     kase = make_case(category_key: "spam")
     act_on(kase, category: "harassment_general")
 
-    assert_includes found_under("harassment_general"), kase.id,
+    assert_includes ids_in_category("harassment_general"), kase.id,
       "the filter must find what the queue shows"
-    assert_not_includes found_under("spam"), kase.id,
+    assert_not_includes ids_in_category("spam"), kase.id,
       "the case column no longer speaks once an action has"
   end
 
   test "filtering still finds a case that has no actions" do
     kase = make_case(category_key: "spam")
 
-    assert_includes found_under("spam"), kase.id
+    assert_includes ids_in_category("spam"), kase.id
   end
 
   test "the batch lookup agrees with the one built per case" do
@@ -216,16 +216,16 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
   end
 
   test "the queue opens with the oldest case first" do
-    assert_equal [@stale.id, @fresh.id, @taken.id], ids(view: "everything") - [@done.id],
+    assert_equal [@stale.id, @recent.id, @assigned.id], ids(view: "everything") - [@done.id],
       "the case that has waited longest is the one that needs somebody"
   end
 
   test "the resolved view opens with the most recently closed first" do
     older = make_case(opened_at: 30.days.ago, resolved_at: 9.days.ago, resolution: "no_action")
     newer = make_case(opened_at: 2.days.ago, resolved_at: 1.hour.ago, resolution: "no_action")
-    shown = query(view: "resolved").relation.where(id: [older.id, newer.id, @done.id]).ids
+    resolved_ids = query(view: "resolved").relation.where(id: [older.id, newer.id, @done.id]).ids
 
-    assert_equal [newer.id, @done.id, older.id], shown,
+    assert_equal [newer.id, @done.id, older.id], resolved_ids,
       "nobody scrolls to the bottom of a resolved list to see what just closed"
     assert_equal "resolved", query(view: "resolved")["sort"]
     assert_equal "desc", query(view: "resolved")["dir"]

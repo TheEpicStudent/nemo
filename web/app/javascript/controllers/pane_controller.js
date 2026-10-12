@@ -13,8 +13,8 @@ export default class extends Controller {
   }
 
   sync() {
-    const back = this.element.querySelector(".backbtn")
-    if (back) back.hidden = !this.narrow.matches
+    const backButton = this.element.querySelector(".backbtn")
+    if (backButton) backButton.hidden = !this.narrow.matches
   }
 
   show() {

@@ -4,7 +4,7 @@
     var LIGHT = <%= raw Appearance::DEFAULT_LIGHT.to_json %>;
     var DARK = <%= raw Appearance::DEFAULT_DARK.to_json %>;
     var ACCENT = <%= raw Appearance::ACCENT.to_json %>;
-    var WAS_DARK = <%= raw (Appearance::RETIRED + ["ash", "slate", "midnight", "ember",
+    var LEGACY_DARK_THEMES = <%= raw (Appearance::RETIRED + ["ash", "slate", "midnight", "ember",
       "moss", "dim", "void", "dracula", "mocha", "nord", "tokyo-night", "gruvbox",
       "one-dark", "rose-pine", "github-dark", "contrast"]).to_json %>;
 
@@ -27,17 +27,17 @@
         accent: get("mn-accent", ACCENT) === ACCENT ? ACCENT : null
       };
     }
-    function resolve(now) {
-      now = now || state();
-      if (now.pinned) return now.pinned;
+    function resolve(themeState) {
+      themeState = themeState || state();
+      if (themeState.pinned) return themeState.pinned;
       return query().matches ? DARK : LIGHT;
     }
     function apply() {
-      var now = state();
-      var key = resolve(now);
+      var themeState = state();
+      var key = resolve(themeState);
       var root = document.documentElement;
       root.setAttribute("data-theme", key);
-      if (now.accent) root.setAttribute("data-accent", now.accent);
+      if (themeState.accent) root.setAttribute("data-accent", themeState.accent);
       else root.removeAttribute("data-accent");
       return key;
     }
@@ -46,8 +46,8 @@
     }
     function migrate() {
       if (get("mn-theme-v", "") === "6") return;
-      var was = get("mn-theme", "");
-      if (was && !known(was)) put("mn-theme", WAS_DARK.indexOf(was) >= 0 ? DARK : LIGHT);
+      var storedTheme = get("mn-theme", "");
+      if (storedTheme && !known(storedTheme)) put("mn-theme", LEGACY_DARK_THEMES.indexOf(storedTheme) >= 0 ? DARK : LIGHT);
       put("mn-theme-v", "6");
     }
     function swap(at) {
@@ -64,7 +64,7 @@
         root.style.removeProperty("--mn-y");
       });
     }
-    function pick(key, at) {
+    function select(key, at) {
       if (!known(key)) return apply();
       put("mn-theme", key);
       if (key === document.documentElement.getAttribute("data-theme")) {
@@ -75,8 +75,8 @@
       swap(at);
       return key;
     }
-    function tint(on, at) {
-      put("mn-accent", on ? ACCENT : "none");
+    function tint(enabled, at) {
+      put("mn-accent", enabled ? ACCENT : "none");
       swap(at);
     }
 
@@ -86,7 +86,7 @@
       /Mac|iPhone|iPad/.test(navigator.platform) ? "meta" : "ctrl";
     query().addEventListener("change", function () { apply(); announce() });
 
-    return { state: state, resolve: resolve, apply: apply, pick: pick, tint: tint };
+    return { state: state, resolve: resolve, apply: apply, select: select, tint: tint };
   })();
 
   (function () {

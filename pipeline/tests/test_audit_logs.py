@@ -7,7 +7,7 @@ from ingest import audit_logs_pull as pull
 from lib import audit_actions, user_agents, useragent
 from lib.proxy_client import ProxyError, stamped
 
-WHO = "U1"
+USER_ID = "U1"
 APP = "A0BJDDB42N7"
 OTHER_ID = "0dc5d1ec-1111-2222-3333-444455556667"
 
@@ -17,8 +17,8 @@ def entry(**over):
         "id": "0dc5d1ec-1111-2222-3333-444455556666",
         "date_create": 1790680410,
         "action": "user_login",
-        "actor": {"type": "user", "user": {"id": WHO, "name": "zev"}},
-        "entity": {"type": "user", "user": {"id": WHO}},
+        "actor": {"type": "user", "user": {"id": USER_ID, "name": "zev"}},
+        "entity": {"type": "user", "user": {"id": USER_ID}},
         "context": {
             "location": {"type": "workspace", "id": "T0266FRGM", "name": "Hack Club"},
             "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/141.0.0.0 Safari/537.36",
@@ -42,8 +42,8 @@ def test_an_entry_becomes_a_row_the_database_will_take():
     assert str(row[0]) == entry()["id"]
     assert row[1] == dt.datetime.fromtimestamp(1790680410, tz=dt.UTC)
     assert row[2] == "user_login"
-    assert row[4:6] == ("user", WHO)
-    assert row[7:9] == ("user", WHO)
+    assert row[4:6] == ("user", USER_ID)
+    assert row[7:9] == ("user", USER_ID)
 
 
 def test_an_entry_with_no_id_or_no_date_is_refused_rather_than_landed():
@@ -67,7 +67,7 @@ def test_our_own_reads_are_marked_so_they_can_be_told_apart():
 def test_a_login_carries_the_address_the_agent_and_the_session():
     row = pull.login_row(entry())
 
-    assert row[0] == WHO
+    assert row[0] == USER_ID
     assert row[2] == "user_login"
     assert row[3] == "157.51.215.171"
     assert row[4] == entry()["context"]["ua"]
@@ -156,16 +156,16 @@ class Refusing:
 
     def __init__(self, bad="message_deleted"):
         self.bad = bad
-        self.asked = []
+        self.requested_actions = []
 
     def call(self, _method, params, **_over):
-        self.asked.append(params.get("action"))
+        self.requested_actions.append(params.get("action"))
         if self.bad in str(params.get("action", "")).split(","):
             raise refusal()
         return {"entries": [], "response_metadata": {"next_cursor": ""}}
 
     def paginate(self, _method, params, _key, **_over):
-        self.asked.append(params.get("action"))
+        self.requested_actions.append(params.get("action"))
         if self.bad in str(params.get("action", "")).split(","):
             raise refusal()
         return iter(())
@@ -178,48 +178,48 @@ def refusal():
 
 
 def test_one_action_slack_will_not_take_does_not_stop_the_rest(monkeypatch):
-    pull.forget_refusals()
+    pull.clear_refusals()
     client = Refusing()
     counts = Counts()
 
-    landed, seated = pull.walk(client, Conn(), "k", counts,
-                               actions=("user_login", "message_deleted", "anomaly"))
+    inserted, logins = pull.walk(client, Conn(), "k", counts,
+                                 actions=("user_login", "message_deleted", "anomaly"))
 
-    assert (landed, seated) == (0, 0)
+    assert (inserted, logins) == (0, 0)
     assert "message_deleted" in pull.refused_actions()
     assert "user_login" not in pull.refused_actions()
-    assert client.asked[-1] == "user_login,anomaly", "it walks again without the refused one"
-    pull.forget_refusals()
+    assert client.requested_actions[-1] == "user_login,anomaly", "it walks again without the refused one"
+    pull.clear_refusals()
 
 
 def test_an_action_once_refused_is_not_asked_for_again(monkeypatch):
-    pull.forget_refusals()
+    pull.clear_refusals()
     client = Refusing()
     pull.walk(client, Conn(), "k", counts_for(), actions=("user_login", "message_deleted"))
 
-    client.asked.clear()
+    client.requested_actions.clear()
     pull.walk(client, Conn(), "k", counts_for(), actions=("user_login", "message_deleted"))
-    assert all("message_deleted" not in str(one) for one in client.asked)
-    pull.forget_refusals()
+    assert all("message_deleted" not in str(one) for one in client.requested_actions)
+    pull.clear_refusals()
 
 
 def test_a_pass_where_every_action_is_refused_lands_nothing_rather_than_everything():
-    pull.forget_refusals()
+    pull.clear_refusals()
     client = Refusing(bad="user_login")
     assert pull.walk(client, Conn(), "k", counts_for(), actions=("user_login",)) == (0, 0)
     assert pull.walk(client, Conn(), "k", counts_for(), actions=("user_login",)) == (0, 0)
-    pull.forget_refusals()
+    pull.clear_refusals()
 
 
 def test_a_refusal_with_no_action_filter_is_not_swallowed():
-    pull.forget_refusals()
+    pull.clear_refusals()
 
-    class Always:
+    class AlwaysRefusing:
         def paginate(self, *_args, **_over):
             raise refusal()
 
     with pytest.raises(ProxyError):
-        pull.walk(Always(), Conn(), "k", counts_for())
+        pull.walk(AlwaysRefusing(), Conn(), "k", counts_for())
 
 
 def counts_for():
@@ -334,7 +334,7 @@ def test_the_access_log_walk_stops_at_what_we_already_hold():
     from ingest import access_logs_pull
 
     src = pathlib.Path(access_logs_pull.__file__).read_text()
-    assert "newest_held(conn)" in src
+    assert "newest_login_at(conn)" in src
     assert "caught_up = True" in src and "break" in src, \
         "slack hands the access log back newest first, so the walk stops at the watermark"
     assert "walk.close()" in src, "the generator is closed so no further page is asked for"
@@ -347,19 +347,19 @@ def test_the_tail_laps_back_a_second_so_the_seam_cannot_drop_an_event():
 
 
 def test_the_window_always_bounds_the_walk_even_when_resuming():
-    held = []
+    calls = []
 
     class Client:
-        def paginate(self, _method, asked, *_args, **kwargs):
-            held.append((dict(asked), kwargs.get("start_cursor")))
+        def paginate(self, _method, params, *_args, **kwargs):
+            calls.append((dict(params), kwargs.get("start_cursor")))
             return []
 
     when = dt.datetime(2026, 9, 29, tzinfo=dt.UTC)
     pull.walk(Client(), Conn(), "k", Counts(), oldest=when, start_cursor="abc")
 
-    asked, cursor = held[0]
+    params, cursor = calls[0]
     assert cursor == "abc"
-    assert asked["oldest"] == int(when.timestamp()), \
+    assert params["oldest"] == int(when.timestamp()), \
         "slack pages newest first, so oldest is the stop; without it the walk never ends"
 
 
@@ -369,21 +369,21 @@ def test_a_resumed_walk_keeps_the_window_the_cursor_was_minted_for(monkeypatch):
                         lambda _conn, _key, value: saved.update(value=value))
 
     when = dt.datetime(2026, 9, 29, 12, tzinfo=dt.UTC)
-    pull.keep_place(Conn(), pull.TAIL, when, "abc")
+    pull.save_window_cursor(Conn(), pull.TAIL, when, "abc")
     assert saved["value"] == f"{int(when.timestamp())}|abc"
 
     monkeypatch.setattr(pull, "get_cursor", lambda _conn, _key: saved["value"])
-    cursor, window = pull.held_place(Conn(), pull.TAIL)
+    cursor, window = pull.load_window_cursor(Conn(), pull.TAIL)
     assert cursor == "abc"
     assert window == when, "an interrupted walk resumes on its own window, not a fresh one"
 
 
 def test_a_cursor_with_no_window_is_not_resumed(monkeypatch):
     monkeypatch.setattr(pull, "get_cursor", lambda _conn, _key: "bare-cursor-no-mark")
-    assert pull.held_place(Conn(), pull.TAIL) == (None, None)
+    assert pull.load_window_cursor(Conn(), pull.TAIL) == (None, None)
 
     monkeypatch.setattr(pull, "get_cursor", lambda _conn, _key: "")
-    assert pull.held_place(Conn(), pull.TAIL) == (None, None)
+    assert pull.load_window_cursor(Conn(), pull.TAIL) == (None, None)
 
 
 def test_a_cursor_slack_will_not_take_is_dropped_so_the_tail_can_recover(monkeypatch):
@@ -396,15 +396,15 @@ def test_a_cursor_slack_will_not_take_is_dropped_so_the_tail_can_recover(monkeyp
     monkeypatch.setattr(pull, "watermark", lambda _conn: None)
 
     @contextlib.contextmanager
-    def bookkeeping(*_args, **_kwargs):
+    def fake_ingest_run(*_args, **_kwargs):
         yield Counts()
 
-    monkeypatch.setattr(pull, "ingest_run", bookkeeping)
+    monkeypatch.setattr(pull, "ingest_run", fake_ingest_run)
 
-    def refuse(*_args, **_kwargs):
+    def refusing_walk(*_args, **_kwargs):
         raise stamped(ProxyError("audit 400: refused"), 400, False)
 
-    monkeypatch.setattr(pull, "walk", refuse)
+    monkeypatch.setattr(pull, "walk", refusing_walk)
 
     with pytest.raises(ProxyError):
         pull.tail(Conn(), client=object())
@@ -422,15 +422,15 @@ def test_a_failure_that_is_not_a_refusal_leaves_the_cursor_where_it_was(monkeypa
     monkeypatch.setattr(pull, "watermark", lambda _conn: None)
 
     @contextlib.contextmanager
-    def bookkeeping(*_args, **_kwargs):
+    def fake_ingest_run(*_args, **_kwargs):
         yield Counts()
 
-    monkeypatch.setattr(pull, "ingest_run", bookkeeping)
+    monkeypatch.setattr(pull, "ingest_run", fake_ingest_run)
 
-    def blew_up(*_args, **_kwargs):
+    def failing_walk(*_args, **_kwargs):
         raise stamped(ProxyError("audit 500: slack fell over"), 500, False)
 
-    monkeypatch.setattr(pull, "walk", blew_up)
+    monkeypatch.setattr(pull, "walk", failing_walk)
 
     with pytest.raises(ProxyError):
         pull.tail(Conn(), client=object())
@@ -440,7 +440,7 @@ def test_a_failure_that_is_not_a_refusal_leaves_the_cursor_where_it_was(monkeypa
 
 class Conn:
     def __init__(self):
-        self.ran = []
+        self.executed = []
 
     def cursor(self):
         return self
@@ -452,14 +452,14 @@ class Conn:
         return False
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def executemany(self, sql, rows, returning=False):
-        self.ran.append((sql, rows))
-        self.returned = [row[0] for row in rows if returning and row[0] not in self.held_ids]
+        self.executed.append((sql, rows))
+        self.returned = [row[0] for row in rows if returning and row[0] not in self.existing_ids]
 
-    held_ids = frozenset()
+    existing_ids = frozenset()
     returned = ()
 
     def results(self):
@@ -479,30 +479,30 @@ class Conn:
     def fetchall(self):
         return list(self.answer)
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.executed if mark in sql]
 
 
 def test_landing_writes_the_event_and_the_login_from_one_pass():
     conn, counts = Conn(), Counts()
     later = entry(id=OTHER_ID, action="user_logout", date_create=entry()["date_create"] + 60)
-    landed, seated = pull.insert_rows(conn, [entry(), later], "audit_logs_tail", frozenset(), counts)
+    inserted, logins = pull.insert_rows(conn, [entry(), later], "audit_logs_tail", frozenset(), counts)
 
-    assert (landed, seated) == (2, 2)
+    assert (inserted, logins) == (2, 2)
     assert counts.rows_in == 2
-    assert len(conn.did("INSERT INTO slack.audit_event")[0]) == 2
-    [hour] = conn.did("INSERT INTO fd.login_event")[0]
+    assert len(conn.args_for("INSERT INTO slack.audit_event")[0]) == 2
+    [hour] = conn.args_for("INSERT INTO fd.login_event")[0]
     assert hour[6:] == (2, 1, 0, 0, 2)
-    assert conn.did("INSERT INTO fd.login_session")[0] == [(SESSION, WHO, pull.stamp(entry()["date_create"]))]
+    assert conn.args_for("INSERT INTO fd.login_session")[0] == [(SESSION, USER_ID, pull.stamp(entry()["date_create"]))]
 
 
 def test_an_event_already_held_adds_no_sighting():
     conn, counts = Conn(), Counts()
-    conn.held_ids = frozenset({pull.event_uuid(entry()["id"])})
+    conn.existing_ids = frozenset({pull.event_uuid(entry()["id"])})
 
     pull.insert_rows(conn, [entry()], "audit_logs_tail", frozenset(), counts)
 
-    assert conn.did("INSERT INTO fd.login_event") == []
+    assert conn.args_for("INSERT INTO fd.login_event") == []
 
 
 def test_sightings_are_counted_per_member_address_agent_and_hour():
@@ -512,25 +512,25 @@ def test_sightings_are_counted_per_member_address_agent_and_hour():
 
     def row(minute, action="file_downloaded", ip="1.2.3.4", hour=12):
         when = at.replace(hour=hour, minute=minute)
-        return (WHO, when, action, ip, ua, None, None)
+        return (USER_ID, when, action, ip, ua, None, None)
 
     rows = pull.hourly([row(10, "user_login"), row(10), row(40, "user_login_failed"), row(50, "anomaly"),
                         row(20, ip="5.6.7.8"), row(5, hour=13)], agents)
 
     assert rows == [
-        (WHO, at.replace(minute=0), "1.2.3.4", 7, at.replace(minute=10), at.replace(minute=50), 3, 0, 1, 1, 3),
-        (WHO, at.replace(minute=0), "5.6.7.8", 7, at.replace(minute=20), at.replace(minute=20), 1, 0, 0, 0, 1),
-        (WHO, at.replace(hour=13, minute=0), "1.2.3.4", 7, at.replace(hour=13, minute=5),
+        (USER_ID, at.replace(minute=0), "1.2.3.4", 7, at.replace(minute=10), at.replace(minute=50), 3, 0, 1, 1, 3),
+        (USER_ID, at.replace(minute=0), "5.6.7.8", 7, at.replace(minute=20), at.replace(minute=20), 1, 0, 0, 0, 1),
+        (USER_ID, at.replace(hour=13, minute=0), "1.2.3.4", 7, at.replace(hour=13, minute=5),
          at.replace(hour=13, minute=5), 1, 0, 0, 0, 1),
     ]
 
 
 def test_a_sign_in_names_the_owner_of_its_session_once():
-    signed_in = pull.login_row(entry())
-    again = pull.login_row(entry(date_create=entry()["date_create"] + 5))
+    login = pull.login_row(entry())
+    repeat_login = pull.login_row(entry(date_create=entry()["date_create"] + 5))
     downloaded = pull.login_row(entry(action="file_downloaded"))
 
-    assert pull.session_rows([again, signed_in, downloaded]) == [(SESSION, WHO, signed_in[1])]
+    assert pull.session_rows([repeat_login, login, downloaded]) == [(SESSION, USER_ID, login[1])]
 
 
 def test_only_a_login_that_worked_counts_as_being_seen():
@@ -539,7 +539,7 @@ def test_only_a_login_that_worked_counts_as_being_seen():
     pull.insert_rows(conn, [entry(), entry(id=OTHER_ID, action="user_login_failed", actor=failed)],
                      "audit_logs_tail", frozenset(), counts)
 
-    assert [ids for ids, _ in conn.did("INSERT INTO fd.member_seen")] == [[WHO]]
+    assert [ids for ids, _ in conn.args_for("INSERT INTO fd.member_seen")] == [[USER_ID]]
 
 
 def test_a_landed_event_is_never_written_twice():
@@ -552,16 +552,16 @@ def test_a_landed_event_is_never_written_twice():
 
 def test_an_address_slack_carried_fills_an_identity_we_never_had():
     row = pull.identity_row(entry(actor={"type": "user", "user": {
-        "id": WHO, "name": "Aleksa Lutovac", "email": "kid@throwaway.example"}}))
+        "id": USER_ID, "name": "Aleksa Lutovac", "email": "kid@throwaway.example"}}))
 
-    assert row[0] == WHO
+    assert row[0] == USER_ID
     assert row[1] == "Aleksa Lutovac"
     assert row[2] == "kid@throwaway.example"
 
 
 def test_an_actor_with_no_address_leaves_the_identity_alone():
     assert pull.identity_row(entry()) is None
-    assert pull.identity_row(entry(actor={"type": "user", "user": {"id": WHO}})) is None
+    assert pull.identity_row(entry(actor={"type": "user", "user": {"id": USER_ID}})) is None
     assert pull.identity_row(entry(actor={"type": "app", "app": {"id": "A1"}})) is None
 
 
@@ -573,18 +573,18 @@ def test_an_identity_we_already_hold_is_never_written_over():
 
 def test_one_write_per_member_a_page_however_often_they_appear():
     conn, counts = Conn(), Counts()
-    actor = {"type": "user", "user": {"id": WHO, "name": "Zev", "email": "z@throwaway.example"}}
+    actor = {"type": "user", "user": {"id": USER_ID, "name": "Zev", "email": "z@throwaway.example"}}
     pull.insert_rows(conn, [entry(actor=actor), entry(id="b", actor=actor), entry(id="c", actor=actor)],
               "audit_logs_tail", frozenset(), counts)
 
-    assert len(conn.did("INSERT INTO fd.member_identity")[0]) == 1
+    assert len(conn.args_for("INSERT INTO fd.member_identity")[0]) == 1
 
 
-ROOM = {"type": "channel", "channel": {"id": "C1", "name": "lounge", "privacy": "public"}}
+CHANNEL_ENTITY = {"type": "channel", "channel": {"id": "C1", "name": "lounge", "privacy": "public"}}
 
 
 def joined(**over):
-    row = {"action": "user_channel_join", "entity": ROOM, "details": {"is_workflow": False}}
+    row = {"action": "user_channel_join", "entity": CHANNEL_ENTITY, "details": {"is_workflow": False}}
     row.update(over)
     return entry(**row)
 
@@ -592,7 +592,7 @@ def joined(**over):
 def test_a_room_somebody_walks_into_is_written_down_with_the_room_it_was():
     row = pull.channel_row(joined())
 
-    assert row[2] == WHO
+    assert row[2] == USER_ID
     assert row[3] == "C1"
     assert row[4] == "lounge"
     assert row[5] == "public"
@@ -601,7 +601,7 @@ def test_a_room_somebody_walks_into_is_written_down_with_the_room_it_was():
 
 
 def test_leaving_is_kept_apart_from_arriving():
-    assert pull.channel_row(joined(action="user_channel_leave"))[6] == pull.LEFT
+    assert pull.channel_row(joined(action="user_channel_leave"))[6] == pull.DEPARTED
     assert pull.channel_row(joined(action="user_login")) is None
 
 
@@ -621,9 +621,9 @@ def test_landing_projects_the_rooms_alongside_the_events():
     pull.insert_rows(conn, [joined(), joined(id=OTHER_ID, action="user_channel_leave"), entry()],
               "audit_logs_tail", frozenset(), counts)
 
-    rooms = conn.did("INSERT INTO fd.member_channel_join")[0]
-    assert len(rooms) == 2
-    assert {one[6] for one in rooms} == {pull.JOINED, pull.LEFT}
+    channel_rows = conn.args_for("INSERT INTO fd.member_channel_join")[0]
+    assert len(channel_rows) == 2
+    assert {one[6] for one in channel_rows} == {pull.JOINED, pull.DEPARTED}
 
 
 def test_the_rooms_are_projected_org_wide_not_only_where_nemo_sits():
@@ -654,9 +654,9 @@ def test_the_rooms_are_projected_org_wide_not_only_where_nemo_sits():
      "Firefox 127.0", "iOS 17.5"),
 ])
 def test_the_agent_string_is_read_into_an_app_and_a_system(agent, app, system):
-    seen = useragent.parse(agent)
-    assert seen["ua_app"] == app
-    assert seen["ua_os"] == system
+    parsed = useragent.parse(agent)
+    assert parsed["ua_app"] == app
+    assert parsed["ua_os"] == system
 
 
 def test_an_agent_string_nobody_recognises_does_not_blow_up():
@@ -671,20 +671,20 @@ def test_the_agent_string_is_kept_whole_however_long_it_is():
 
 
 def test_a_version_is_kept_whole_rather_than_cut_to_its_first_number():
-    seen = useragent.parse("Mozilla/5.0 (Windows NT 10.0) Chrome/154.0.8037.55 Safari/537.36")
-    assert seen["ua_app"] == "Chrome 154.0.8037.55"
+    parsed = useragent.parse("Mozilla/5.0 (Windows NT 10.0) Chrome/154.0.8037.55 Safari/537.36")
+    assert parsed["ua_app"] == "Chrome 154.0.8037.55"
     assert not hasattr(useragent, "major"), "nothing should be rounding a version down"
     assert not hasattr(useragent, "short"), "nothing should be cutting a string short"
 
 
 def test_the_slack_phone_apps_are_told_apart_from_a_browser_on_the_phone():
-    phone = useragent.parse("com.tinyspeck.chatlyio/26.09.20 (iPhone; iOS 26.6.2; Scale/3.00)")
+    ios_agent = useragent.parse("com.tinyspeck.chatlyio/26.09.20 (iPhone; iOS 26.6.2; Scale/3.00)")
     browser = useragent.parse(
         "Mozilla/5.0 (iPhone; CPU iPhone OS 26_4_2 like Mac OS X) CriOS/154.0.8037.55 Safari/604.1")
 
-    assert phone["ua_app"].startswith("Slack iOS")
+    assert ios_agent["ua_app"].startswith("Slack iOS")
     assert browser["ua_app"].startswith("Chrome")
-    assert phone["ua_os"] == "iOS 26.6.2"
+    assert ios_agent["ua_os"] == "iOS 26.6.2"
     assert browser["ua_os"] == "iOS 26.4.2"
 
 
@@ -706,7 +706,7 @@ class Owners(Conn):
         self.answer = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         if sql == pull.OWNERS_SQL:
             self.answer = self.owners
         return self
@@ -722,24 +722,24 @@ def test_an_action_in_another_member_s_session_is_dropped():
     downloaded = pull.login_row(entry(action="file_downloaded"))
 
     assert pull.own_sessions(Owners(owners=[(SESSION, "U9")]), [downloaded]) == []
-    assert pull.own_sessions(Owners(owners=[(SESSION, WHO)]), [downloaded]) == [downloaded]
+    assert pull.own_sessions(Owners(owners=[(SESSION, USER_ID)]), [downloaded]) == [downloaded]
     assert pull.own_sessions(Owners(), [downloaded]) == [downloaded]
 
 
 def test_a_session_signed_into_in_the_same_batch_has_an_owner():
     other = {"type": "user", "user": {"id": "U9", "name": "other"}}
-    signed_in = pull.login_row(entry(actor=other))
+    login = pull.login_row(entry(actor=other))
     downloaded = pull.login_row(entry(action="file_downloaded"))
 
-    assert pull.own_sessions(Owners(), [signed_in, downloaded]) == [signed_in]
+    assert pull.own_sessions(Owners(), [login, downloaded]) == [login]
 
 
 def test_an_address_slack_redacted_is_never_written_as_one():
     redacted = {"ip_address": "redacted", "ua": entry()["context"]["ua"]}
 
     assert pull.login_row(entry(action="file_downloaded", context=redacted)) is None
-    signed_in = pull.login_row(entry(context=redacted))
-    assert signed_in is not None and signed_in[3] is None
+    login = pull.login_row(entry(context=redacted))
+    assert login is not None and login[3] is None
 
 
 def test_addresses_are_checked_and_written_in_one_form():
@@ -761,7 +761,7 @@ class Shape(Conn):
         self.answer = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         self.answer = {pull.VIEW_CODES_SQL: self.codes, user_agents.IDS_SQL: self.agents}.get(sql, [])
         return self
 
@@ -770,7 +770,7 @@ class Shape(Conn):
 
 
 def test_a_full_event_gets_typed_columns_and_its_category():
-    actor = {"type": "user", "user": {"id": WHO, "name": "zev", "email": "Zev@Example.COM"}}
+    actor = {"type": "user", "user": {"id": USER_ID, "name": "zev", "email": "Zev@Example.COM"}}
     entity = {"type": "channel", "channel": {"id": "C0APH2MMHH7", "name": "lounge"}}
     agent = entry()["context"]["ua"]
     row = pull.monthly_row(entry(action="user_channel_join", actor=actor, entity=entity), "audit_logs_tail",
@@ -808,28 +808,28 @@ def test_high_volume_actions_go_to_the_slim_table_and_the_rest_to_the_monthly_on
     downloaded = entry(id="0dc5d1ec-1111-2222-3333-444455556667", action="file_downloaded",
                        entity={"type": "file", "file": {"id": "F123"}})
 
-    fresh, agents = pull.write_new_shape(conn, [entry(), downloaded], "audit_logs_tail", frozenset())
+    inserted_ids, agents = pull.write_new_shape(conn, [entry(), downloaded], "audit_logs_tail", frozenset())
 
-    assert fresh == {pull.event_uuid(entry()["id"]), pull.event_uuid(downloaded["id"])}
+    assert inserted_ids == {pull.event_uuid(entry()["id"]), pull.event_uuid(downloaded["id"])}
     assert agents == {user_agents.digest(agent): 7}
 
-    [view] = conn.did("INSERT INTO slack.audit_view")
-    assert view[0][2:5] == (3, WHO, "F123")
+    [view] = conn.args_for("INSERT INTO slack.audit_view")
+    assert view[0][2:5] == (3, USER_ID, "F123")
     assert view[0][6] == 7
-    [monthly] = conn.did("INSERT INTO slack.audit_event")
+    [monthly] = conn.args_for("INSERT INTO slack.audit_event")
     assert monthly[0][2] == "user_login"
-    [ensure] = conn.did("slack.ensure_months")
+    [ensure] = conn.args_for("slack.ensure_months")
     assert ensure["first"].day == 1 and ensure["ahead"] == pull.MONTHS_AHEAD
 
 
 def test_an_entry_without_a_uuid_is_dead_lettered_not_landed():
     conn, counts = Conn(), Counts()
 
-    landed, _ = pull.insert_rows(conn, [entry(), entry(id="b")], "audit_logs_tail", frozenset(), counts)
+    inserted, _ = pull.insert_rows(conn, [entry(), entry(id="b")], "audit_logs_tail", frozenset(), counts)
 
-    assert landed == 1
+    assert inserted == 1
     assert counts.rows_rejected == 1
-    assert len(conn.did("INSERT INTO slack.audit_event")[0]) == 1
+    assert len(conn.args_for("INSERT INTO slack.audit_event")[0]) == 1
 
 
 def test_the_move_to_hours_keeps_every_count_the_finder_reads():
@@ -852,15 +852,15 @@ def test_months_are_created_by_their_owner_and_only_for_the_audit_tables():
 def test_the_move_copies_every_held_event_then_takes_the_old_name():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
            / "0192_move_audit_events.sql").read_text()
-    copy, rest = sql.split("DROP TABLE slack.audit_event;")
-    assert "INSERT INTO slack.audit_event_monthly" in copy and "INSERT INTO slack.audit_view" in copy
-    assert "ALTER TABLE slack.audit_event_monthly RENAME TO audit_event;" in rest
-    assert "parent NOT IN ('slack.audit_event'::regclass, 'slack.audit_view'::regclass)" in rest
-    assert "SECURITY DEFINER" in rest
+    before_drop, after_drop = sql.split("DROP TABLE slack.audit_event;")
+    assert "INSERT INTO slack.audit_event_monthly" in before_drop and "INSERT INTO slack.audit_view" in before_drop
+    assert "ALTER TABLE slack.audit_event_monthly RENAME TO audit_event;" in after_drop
+    assert "parent NOT IN ('slack.audit_event'::regclass, 'slack.audit_view'::regclass)" in after_drop
+    assert "SECURITY DEFINER" in after_drop
 
 
 def test_the_move_carries_the_category_of_every_catalogued_action():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
            / "0192_move_audit_events.sql").read_text()
-    for action, held in audit_actions.catalogue()["actions"].items():
-        assert f"('{action}', '{held['category']}')" in sql
+    for action, definition in audit_actions.catalogue()["actions"].items():
+        assert f"('{action}', '{definition['category']}')" in sql

@@ -1,4 +1,4 @@
-<tr class="audit-row">
+<tr class="audit-row" data-row-id="<%= row.source %>:<%= row.id %>">
   <td class="audit-when">
     <%= audit_stamp(row.at) %>
   </td>
@@ -28,10 +28,15 @@
 
   <td class="audit-about"><%= audit_about(row) %></td>
 
-  <td class="audit-tail">
+  <td class="audit-ip">
     <% if row.ip.present? %>
-      <span class="audit-ip mono"><%= row.ip %></span>
+      <span class="mono"><%= row.ip %></span>
+    <% elsif row.addressed %>
+      <%= locked_note("Hidden") %>
     <% end %>
+  </td>
+
+  <td class="audit-tail">
     <% pivots = audit_pivots(@query, row) %>
     <% if pivots.any? %>
       <%= render layout: "shared/dropdown", locals: {

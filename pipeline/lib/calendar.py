@@ -8,9 +8,9 @@ _cache = {}
 
 
 def available(client, kind="member", clock=time.monotonic):
-    held = _cache.get(kind)
-    if held is not None and clock() - held[0] < TTL_SECONDS:
-        return held[1]
+    cached = _cache.get(kind)
+    if cached is not None and clock() - cached[0] < TTL_SECONDS:
+        return cached[1]
     resp = client.call(METHOD, {"type": kind})
     rng = resp.get("available_date_range") or resp
     window = date.fromisoformat(rng["start_date"]), date.fromisoformat(rng["end_date"])

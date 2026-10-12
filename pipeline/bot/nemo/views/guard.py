@@ -139,11 +139,11 @@ def lock_view(channel_id, thread_ts):
 
 def submitted_values(state):
     values = state.get("values", {})
-    ticked = values.get(NOTE, {}).get(NOTE, {}).get("selected_options") or []
+    checked_options = values.get(NOTE, {}).get(NOTE, {}).get("selected_options") or []
     return {
         "reason": (values.get(REASON, {}).get(REASON, {}).get("value") or "").strip(),
         "until": values.get(UNTIL, {}).get(UNTIL, {}).get("selected_date_time"),
-        "note": bool(ticked),
+        "note": bool(checked_options),
         "note_body": values.get(NOTE_TEXT, {}).get(NOTE_TEXT, {}).get("rich_text_value"),
     }
 

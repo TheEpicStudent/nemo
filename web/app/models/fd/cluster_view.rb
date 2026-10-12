@@ -1,6 +1,6 @@
 module Fd
   class ClusterView
-    DAYS_SHOWN = 60
+    TIMELINE_DAYS = 60
 
     Member = Struct.new(:user_id, :joined_at, :active, :deactivated, keyword_init: true)
     Edge = Struct.new(:a_user_id, :b_user_id, :score, :top_signal, :signals, :label, :verdict,
@@ -81,7 +81,7 @@ module Fd
 
     def since
       oldest = members.filter_map(&:joined_at).min
-      floor = DAYS_SHOWN.days.ago.beginning_of_day
+      floor = TIMELINE_DAYS.days.ago.beginning_of_day
       oldest && oldest > floor ? oldest.beginning_of_hour : floor
     end
 
@@ -93,7 +93,7 @@ module Fd
     end
 
     def shared_ips
-      @shared_ips ||= sightings.group_by(&:ip).select { |_ip, seen| seen.map(&:user_id).uniq.size > 1 }
+      @shared_ips ||= sightings.group_by(&:ip).select { |_ip, ip_sightings| ip_sightings.map(&:user_id).uniq.size > 1 }
         .keys.sort
     end
 
@@ -108,13 +108,13 @@ module Fd
     def map_data
       joined = members.filter_map(&:joined_at)
       {
-        nodes: members.map do |one|
-          { id: one.user_id, joined: one.joined_at&.iso8601, active: one.active,
-            deactivated: one.deactivated, oldest: one.user_id == cluster_id }
+        nodes: members.map do |member|
+          { id: member.user_id, joined: member.joined_at&.iso8601, active: member.active,
+            deactivated: member.deactivated, oldest: member.user_id == cluster_id }
         end,
-        edges: edges.map do |one|
-          { a: one.a_user_id, b: one.b_user_id, score: one.score, verdict: one.verdict,
-            band: band_of(one.score) }
+        edges: edges.map do |edge|
+          { a: edge.a_user_id, b: edge.b_user_id, score: edge.score, verdict: edge.verdict,
+            band: band_of(edge.score) }
         end,
         first: joined.min&.iso8601, last: joined.max&.iso8601
       }
@@ -126,7 +126,7 @@ module Fd
         since: since.iso8601,
         until: Time.current.iso8601,
         shared: shared_ips,
-        marks: sightings.map { |one| { user: one.user_id, hour: one.hour.iso8601, ip: one.ip, hits: one.hits } }
+        marks: sightings.map { |sighting| { user: sighting.user_id, hour: sighting.hour.iso8601, ip: sighting.ip, hits: sighting.hits } }
       }
     end
 

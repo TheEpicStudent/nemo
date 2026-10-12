@@ -14,7 +14,7 @@
             <div class="tstack"><b><%= dial[:label] %></b></div>
             <div class="tcell">
               <%= render "setting_value", source: Engine::Setting::ENGINE, name: name,
-                    may_tune: may_tune, show_was: true %>
+                    may_edit_setting: may_edit_setting, show_default: true %>
             </div>
             <div class="sub align-right">
               <% row = Engine::Setting.find_by(source: Engine::Setting::ENGINE, name: name) %>
@@ -25,7 +25,7 @@
       </div>
     </div>
 
-    <%= render "limits", sources: sources, may_tune: may_tune %>
+    <%= render "limits", sources: sources, may_edit_setting: may_edit_setting %>
   </div>
 </div>
 
@@ -48,15 +48,15 @@
           <div class="tstack"><b><%= source.key %></b><span><%= source.label %></span></div>
           <div class="tcell">
             <%= render "setting_value", source: source.key, name: Engine::Setting::CADENCE,
-                  may_tune: may_tune, show_was: true %>
+                  may_edit_setting: may_edit_setting, show_default: true %>
           </div>
           <div class="tcell">
             <%= render "setting_value", source: source.key, name: Engine::Setting::RETENTION,
-                  may_tune: may_tune, show_was: true %>
+                  may_edit_setting: may_edit_setting, show_default: true %>
           </div>
           <div class="tcell">
             <%= render "setting_value", source: source.key, name: Engine::Setting::ENABLED,
-                  may_tune: may_tune, show_was: true %>
+                  may_edit_setting: may_edit_setting, show_default: true %>
           </div>
         </div>
       <% end %>

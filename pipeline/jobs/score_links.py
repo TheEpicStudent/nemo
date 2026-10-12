@@ -52,10 +52,10 @@ def links_table(name):
     return sql.Identifier(*match.groups())
 
 
-def band_of(score, marks):
-    if score >= marks["certain"]:
+def band_of(score, thresholds):
+    if score >= thresholds["certain"]:
         return "certain"
-    if score >= marks["strong"]:
+    if score >= thresholds["strong"]:
         return "strong"
     return "worth a look"
 
@@ -75,13 +75,13 @@ def hub(person, pairs):
 
 
 def together(person, links):
-    inside = [(a, b) for a, b in links if a in person and b in person]
-    groups = components(inside)
+    internal_links = [(a, b) for a, b in links if a in person and b in person]
+    groups = components(internal_links)
     return len(groups[0]) if groups else 0
 
 
-def found(pairs, scores, marks):
-    bands = Counter(band_of(scores[pair], marks) for pair in pairs if pair in scores)
+def band_summary(pairs, scores, thresholds):
+    bands = Counter(band_of(scores[pair], thresholds) for pair in pairs if pair in scores)
     return {"pairs": len(pairs), "linked": sum(bands.values()), "bands": bands}
 
 
@@ -93,32 +93,32 @@ def labelled(rows):
 def suggest_cutoffs(pairs, targets):
     right = sum(1 for _score, good in pairs if good)
     wrong = len(pairs) - right
-    least = targets["least_verdicts"]
-    found = {"right": right, "wrong": wrong, "enough": right >= least and wrong >= least, "cuts": {}}
-    if not found["enough"]:
-        return found
+    minimum = targets["least_verdicts"]
+    summary = {"right": right, "wrong": wrong, "enough": right >= minimum and wrong >= minimum, "cuts": {}}
+    if not summary["enough"]:
+        return summary
     scored = sorted({score for score, _good in pairs if score is not None})
     for name, target in targets["precision"].items():
         for cut in scored:
             above = [good for score, good in pairs if score is not None and score >= cut]
             precision = sum(above) / len(above)
             if precision >= target:
-                found["cuts"][name] = {"cut": cut, "precision": precision, "recall": sum(above) / right}
+                summary["cuts"][name] = {"cut": cut, "precision": precision, "recall": sum(above) / right}
                 break
-    return found
+    return summary
 
 
 def measure(conn, links_name=LINKS):
-    marks = scoring()
-    held = catalogue()
-    staff = held.get("staff_domains", [])
-    targets = held.get("band_targets")
+    thresholds = scoring()
+    config = catalogue()
+    staff = config.get("staff_domains", [])
+    targets = config.get("band_targets")
     links = links_table(links_name)
 
     def query(text, params=None):
         return conn.execute(sql.SQL(text).format(links=links), params).fetchall()
 
-    banded = query(BANDS_SQL, marks)[0]
+    banded = query(BANDS_SQL, thresholds)[0]
     rows = query(VERDICTS_SQL)
 
     by_verdict = defaultdict(set)
@@ -127,17 +127,17 @@ def measure(conn, links_name=LINKS):
         by_verdict[verdict].add((a, b))
         if score is not None:
             scores[(a, b)] = float(score)
-    verdicts = {verdict: found(by_verdict[verdict], scores, marks) for verdict in VERDICTS}
+    verdicts = {verdict: band_summary(by_verdict[verdict], scores, thresholds) for verdict in VERDICTS}
 
     confirmed = by_verdict["same_person"]
     groups = components(confirmed)
     accounts = sorted(set().union(*groups)) if groups else []
-    among = query(AMONG_SQL, {"ids": accounts}) if accounts else []
-    every = [(a, b) for a, b, _score in among]
-    strong = [(a, b) for a, b, score in among if float(score) >= marks["strong"]]
+    account_links = query(AMONG_SQL, {"ids": accounts}) if accounts else []
+    all_pairs = [(a, b) for a, b, _score in account_links]
+    strong_pairs = [(a, b) for a, b, score in account_links if float(score) >= thresholds["strong"]]
     confirmed_people = [
         {"hub": hub(group, confirmed), "accounts": len(group),
-         "together": together(group, every), "strong_together": together(group, strong)}
+         "together": together(group, all_pairs), "strong_together": together(group, strong_pairs)}
         for group in groups
     ]
 
@@ -151,14 +151,14 @@ def measure(conn, links_name=LINKS):
         "bands": dict(zip(BAND_NAMES, banded, strict=True)),
         "verdicts": verdicts,
         "people": confirmed_people,
-        "aliases": found(aliases, alias_scores, marks),
-        "marks": marks,
+        "aliases": band_summary(aliases, alias_scores, thresholds),
+        "marks": thresholds,
         "cutoffs": suggest_cutoffs(labelled(rows), targets) if targets else None,
     }
 
 
-def share(part, whole):
-    return f"{round(100 * part / whole)}%" if whole else "n/a"
+def share(part, total):
+    return f"{round(100 * part / total)}%" if total else "n/a"
 
 
 def band_line(bands):
@@ -205,12 +205,12 @@ def render(result):
         lines.append("  not enough verdicts to suggest cutoffs yet")
         return lines
     for name in ("floor", "strong", "certain"):
-        now = result["marks"][name]
+        current = result["marks"][name]
         one = cutoffs["cuts"].get(name)
         if one is None:
-            lines.append(f"  {name:<8} now {now:g}, no score reaches the precision asked for")
+            lines.append(f"  {name:<8} now {current:g}, no score reaches the precision asked for")
             continue
-        lines.append(f"  {name:<8} now {now:g}, suggested {one['cut']:g} "
+        lines.append(f"  {name:<8} now {current:g}, suggested {one['cut']:g} "
                      f"(precision {share(one['precision'], 1)}, recall {share(one['recall'], 1)})")
     return lines
 
@@ -224,15 +224,15 @@ def main(argv=None):
     load_dotenv(ENV_FILE)
     try:
         links_table(args.links)
-    except ValueError as refusal:
-        print(f"check-links: {refusal}", file=sys.stderr)
+    except ValueError as error:
+        print(f"check-links: {error}", file=sys.stderr)
         return 2
     try:
         with connect(args.dsn) as conn:
             conn.read_only = True
             result = measure(conn, args.links)
-    except (errors.UndefinedTable, errors.UndefinedColumn) as refusal:
-        print(f"check-links: {str(refusal).splitlines()[0]}", file=sys.stderr)
+    except (errors.UndefinedTable, errors.UndefinedColumn) as error:
+        print(f"check-links: {str(error).splitlines()[0]}", file=sys.stderr)
         return 2
     print("\n".join(render(result)))
     return 0

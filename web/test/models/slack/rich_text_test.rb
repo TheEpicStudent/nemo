@@ -115,7 +115,7 @@ class Slack::RichTextTest < ActiveSupport::TestCase
     assert_match(/&lt;script&gt;/, html)
   end
 
-  def wrapped(part)
+  def rich_text_for(part)
     Slack::RichText.for({ "blocks" => [{ "type" => "rich_text", "elements" => [part] }] })
   end
 
@@ -140,33 +140,33 @@ class Slack::RichTextTest < ActiveSupport::TestCase
   def row(text) = { "type" => "rich_text_section", "elements" => [{ "type" => "text", "text" => text }] }
 
   test "a bullet list is a ul, an ordered list an ol" do
-    bullets = wrapped({ "type" => "rich_text_list", "style" => "bullet", "elements" => [row("one")] })
+    bullets = rich_text_for({ "type" => "rich_text_list", "style" => "bullet", "elements" => [row("one")] })
     assert_match(%r{<ul class="richtext-list richtext-indent-0"><li>}, bullets)
 
-    ordered = wrapped({ "type" => "rich_text_list", "style" => "ordered", "elements" => [row("one")] })
+    ordered = rich_text_for({ "type" => "rich_text_list", "style" => "ordered", "elements" => [row("one")] })
     assert_match(%r{<ol class="richtext-list richtext-indent-0">}, ordered)
   end
 
   test "an indented list says how deep it is, within reason" do
-    html = wrapped({ "type" => "rich_text_list", "style" => "bullet", "indent" => 99,
+    html = rich_text_for({ "type" => "rich_text_list", "style" => "bullet", "indent" => 99,
                      "elements" => [row("deep")] })
 
     assert_match(/richtext-indent-5/, html)
   end
 
   test "an ordered list that starts late says where" do
-    html = wrapped({ "type" => "rich_text_list", "style" => "ordered", "offset" => 4,
+    html = rich_text_for({ "type" => "rich_text_list", "style" => "ordered", "offset" => 4,
                      "elements" => [row("five")] })
 
     assert_match(/start="5"/, html)
   end
 
   test "a quote is a blockquote and preformatted text is a pre" do
-    quote = wrapped({ "type" => "rich_text_quote",
+    quote = rich_text_for({ "type" => "rich_text_quote",
                       "elements" => [{ "type" => "text", "text" => "they said" }] })
     assert_match(%r{<blockquote class="richtext-quote">they said</blockquote>}, quote)
 
-    pre = wrapped({ "type" => "rich_text_preformatted",
+    pre = rich_text_for({ "type" => "rich_text_preformatted",
                     "elements" => [{ "type" => "text", "text" => "puts 1" }] })
     assert_match(%r{<pre class="richtext-pre"><code>puts 1</code></pre>}, pre)
   end

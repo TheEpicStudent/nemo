@@ -17,10 +17,10 @@ class Panel
   def self.open?(key) = needs(key).nil?
 
   def self.visible?(key, account)
-    want = needs(key)
-    return account.present? if want.nil?
+    required_capability = needs(key)
+    return account.present? if required_capability.nil?
 
-    Authz.may?(account, want)
+    Authz.may?(account, required_capability)
   end
 
   def self.visible_to(account)

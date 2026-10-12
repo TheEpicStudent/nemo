@@ -1,6 +1,6 @@
 class ChannelsController < ApplicationController
   before_action { needs(:analytics) }
-  before_action :freshen_appointments, only: :show
+  before_action :refresh_appointments, only: :show
 
   PER_PAGE = 50
   RANGE_PRESETS = [7, 30, 90].freeze
@@ -49,10 +49,10 @@ class ChannelsController < ApplicationController
     @window = Channels::Window.from(params)
     @filter = Channels::Filter.from(params, measures: @window.measures)
 
-    mine = Channels::Audience.for(current_account)
-    @mine_total = mine.count
+    visible_channels = Channels::Audience.for(current_account)
+    @visible_total = visible_channels.count
 
-    scope = mine.joins(RANGE_JOIN).joins(MOMENTUM_JOIN)
+    scope = visible_channels.joins(RANGE_JOIN).joins(MOMENTUM_JOIN)
     scope = scope.joins(@window.join) if @window.join
     scope = scope.where("#{Channels::Joins::SPINE}.name ILIKE ?", "%#{like_q}%") if @q.present?
     if (clause = @filter.clause)
@@ -79,7 +79,7 @@ class ChannelsController < ApplicationController
     @momentum_head = @momentum.first
     @cohorts = Analytics::MartChannelBands.cohorts
     @default_cohort = @cohorts.first
-    @cohort = asked_cohort || @default_cohort
+    @cohort = requested_cohort || @default_cohort
     @band_measures = @cohort ?
       Analytics::MartChannelBands.for_cohort(@cohort).to_a.group_by(&:measure) : {}
     @default_measure = @band_measures.keys.first
@@ -90,7 +90,7 @@ class ChannelsController < ApplicationController
   def show
     @channel = Channels::Audience.for(current_account).find_by(channel_id: params[:id])
     return unmeasured_channel if @channel.nil? && may_see_unmeasured?
-    return refuse_channel if @channel.nil?
+    return redirect_channel_denied if @channel.nil?
 
     id = @channel.channel_id
     @views = views_for(id)
@@ -103,9 +103,9 @@ class ChannelsController < ApplicationController
     coverage = Slack::Analytics.coverage
     proxy_edge = coverage ? Date.iso8601(coverage["end_date"]) : (Date.current - 2)
     last_available = Channels::Pulse.edge || proxy_edge
-    settle_range(last_available)
+    assign_date_range(last_available)
 
-    @crowd = Channels::Crowd.for(id, month: parse_range_date(params[:month]))
+    @member_counts = Channels::Crowd.for(id, month: parse_range_date(params[:month]))
     @member_count = @snapshot&.total_members
 
     case @view
@@ -138,13 +138,13 @@ class ChannelsController < ApplicationController
   end
 
   def opt_in_replies
-    return refuse_backfill unless may_community?("ops.channel.backfill")
+    return redirect_backfill_denied unless may_community?("ops.channel.backfill")
 
     channel = Channels::Audience.for(current_account).find_by(channel_id: params[:id])
-    return refuse_channel if channel.nil?
+    return redirect_channel_denied if channel.nil?
 
     estimate = ChannelBackfill.estimate(channel)
-    return refuse_spend(channel, estimate) if over_ceiling?(estimate)
+    return redirect_over_ceiling(channel, estimate) if over_ceiling?(estimate)
 
     row = ChannelBackfill.opt_in!(
       channel_id: channel.channel_id,
@@ -160,10 +160,10 @@ class ChannelsController < ApplicationController
   end
 
   def opt_out_replies
-    return refuse_backfill unless may_community?("ops.channel.backfill")
+    return redirect_backfill_denied unless may_community?("ops.channel.backfill")
 
     channel = Channels::Audience.for(current_account).find_by(channel_id: params[:id])
-    return refuse_channel if channel.nil?
+    return redirect_channel_denied if channel.nil?
 
     row = ChannelBackfill.find_by(channel_id: channel.channel_id)
     return redirect_to(channel_path(channel.channel_id), alert: "Not opted in") if row.nil?
@@ -179,7 +179,7 @@ class ChannelsController < ApplicationController
   private
 
   def views_for(channel_id)
-    return VIEWS if Channels::Activity.shown?(channel_id)
+    return VIEWS if Channels::Activity.visible?(channel_id)
 
     VIEWS.except(POSTS_VIEW)
   end
@@ -194,7 +194,7 @@ class ChannelsController < ApplicationController
 
   def emoji_in(posts)
     posts.flat_map do |post|
-      Slack::RichText.emoji_names(post.message) + post.reactions_label.map { |one| one["name"] }
+      Slack::RichText.emoji_names(post.message) + post.reactions_label.map { |reaction| reaction["name"] }
     end.uniq
   end
 
@@ -202,7 +202,7 @@ class ChannelsController < ApplicationController
     ActiveRecord::Base.sanitize_sql_like(@q.to_s)
   end
 
-  def refuse_backfill
+  def redirect_backfill_denied
     redirect_to channels_path,
       alert: Community::Access.why_not(current_account, "ops.channel.backfill")
   end
@@ -214,12 +214,12 @@ class ChannelsController < ApplicationController
     estimate > Engine::Setting.backfill_ceiling
   end
 
-  def refuse_spend(channel, estimate)
+  def redirect_over_ceiling(channel, estimate)
     redirect_to channel_path(channel.channel_id),
       alert: "#{helpers.number_with_delimiter(estimate)} requests requires engine.manage"
   end
 
-  def settle_range(last_available)
+  def assign_date_range(last_available)
     floor = [@channel.date_created&.to_date, last_available - 400].compact.max
     floor = [floor, last_available].min
     custom_start = parse_range_date(params[:start])
@@ -248,22 +248,22 @@ class ChannelsController < ApplicationController
     nil
   end
 
-  def asked_cohort
-    wanted = parse_range_date(params[:cohort])
-    wanted if wanted && @cohorts.include?(wanted)
+  def requested_cohort
+    cohort_date = parse_range_date(params[:cohort])
+    cohort_date if cohort_date && @cohorts.include?(cohort_date)
   end
 
-  def freshen_appointments
-    ::Prometheus::Mirror.freshen(current_account&.user_id)
+  def refresh_appointments
+    ::Prometheus::Mirror.refresh_if_due(current_account&.user_id)
   end
 
   def unmeasured_tail
     return [] if @has_more
 
-    held = Channels::Audience.unmeasured_for(current_account)
-    return held if @q.blank?
+    channel_ids = Channels::Audience.unmeasured_for(current_account)
+    return channel_ids if @q.blank?
 
-    held.select { |channel_id| channel_id.downcase.include?(@q.downcase) }
+    channel_ids.select { |channel_id| channel_id.downcase.include?(@q.downcase) }
   end
 
   def may_see_unmeasured?
@@ -279,9 +279,9 @@ class ChannelsController < ApplicationController
     render :unmeasured
   end
 
-  def refuse_channel
-    known = Channels::Audience.everything.exists?(channel_id: params[:id])
-    message = if known
+  def redirect_channel_denied
+    channel_exists = Channels::Audience.everything.exists?(channel_id: params[:id])
+    message = if channel_exists
       Community::Access.why_not(current_account, "analytics.channel.read") ||
         "that channel is not shared with you"
     else

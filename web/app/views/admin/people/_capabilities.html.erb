@@ -41,13 +41,13 @@
                 </td>
               </tr>
             <% end %>
-            <% @appointments.each do |one| %>
+            <% @appointments.each do |appointment| %>
               <tr>
                 <td>
-                  <%= link_to channel_path(one.channel_id) do %>
-                    #<%= @channel_names[one.channel_id]&.name || one.channel_id %>
+                  <%= link_to channel_path(appointment.channel_id) do %>
+                    #<%= @channel_names[appointment.channel_id]&.name || appointment.channel_id %>
                   <% end %>
-                  <span class="mono sub2"><%= one.channel_id %></span>
+                  <span class="mono sub2"><%= appointment.channel_id %></span>
                 </td>
                 <td><span class="sub">Promethean</span></td>
                 <td></td>

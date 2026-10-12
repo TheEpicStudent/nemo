@@ -23,7 +23,7 @@ module Fd
     def initialize(term, scope: nil, limit: nil, actor: nil)
       @actor = actor
       raw = term.to_s.strip
-      prefix = PREFIXES.keys.find { |mark| raw.downcase.start_with?(mark) }
+      prefix = PREFIXES.keys.find { |key| raw.downcase.start_with?(key) }
 
       @scope = SCOPES.find { |kind| kind == scope.to_s } || (prefix && PREFIXES[prefix])
       @term = prefix ? raw[prefix.length..].to_s.strip : raw
@@ -32,11 +32,11 @@ module Fd
 
     attr_reader :term, :scope
 
-    def asked? = searching? || scope.present? || thread.present?
+    def searching? = has_search_input? || scope.present? || thread.present?
 
-    def searching? = term.length >= MIN_TERM || case_id.present?
+    def has_search_input? = term.length >= MIN_TERM || case_id.present?
 
-    def matched_member_ids = searching? ? member_ids : []
+    def matched_member_ids = has_search_input? ? member_ids : []
 
     def thread
       return @thread if defined?(@thread)
@@ -45,7 +45,7 @@ module Fd
     end
 
     def groups
-      @groups ||= asked? ? built.reject { |group| group.rows.empty? } : []
+      @groups ||= searching? ? build_groups.reject { |group| group.rows.empty? } : []
     end
 
     def total
@@ -59,25 +59,25 @@ module Fd
       return text.truncate(WINDOW) if at.nil?
 
       from = [at - LEAD_IN, 0].max
-      cut = text[from, WINDOW].to_s
-      "#{'…' if from.positive?}#{cut}#{'…' if from + WINDOW < text.length}"
+      excerpt = text[from, WINDOW].to_s
+      "#{'…' if from.positive?}#{excerpt}#{'…' if from + WINDOW < text.length}"
     end
 
     private
 
-    def built
-      return holding_the_thread if thread
+    def build_groups
+      return thread_groups if thread
 
       all = [
-        group("member", members, total: (found_members.total if searching?)),
+        group("member", members, total: (member_matches.total if has_search_input?)),
         group("case", cases),
         group("note", notes) { |note| note.body },
         group("report", reports) { |report| report.body }
       ]
-      scope ? all.select { |one| one.key == scope } : all
+      scope ? all.select { |search_group| search_group.key == scope } : all
     end
 
-    def holding_the_thread
+    def thread_groups
       [
         group("case", Case.where(id: CaseThread.where(coordinates).select(:case_id)).newest_first)
       ]
@@ -87,13 +87,13 @@ module Fd
       { channel_id: thread.channel_id, thread_ts: thread.thread_ts }
     end
 
-    def group(kind, found, total: nil, &snippet)
-      rows = found.limit(@limit).map do |record|
+    def group(kind, relation, total: nil, &snippet)
+      rows = relation.limit(@limit).map do |record|
         Row.new(kind: kind, record: record,
-          snippet: searching? && snippet ? self.class.snippet(snippet.call(record), term) : nil)
+          snippet: has_search_input? && snippet ? self.class.snippet(snippet.call(record), term) : nil)
       end
       Group.new(key: kind, label: LABELS.fetch(kind), rows: rows,
-        total: total || (searching? ? found.count : rows.size))
+        total: total || (has_search_input? ? relation.count : rows.size))
     end
 
     CASE_ORDER = "(id = :asked) DESC, (resolved_at IS NOT NULL), opened_at DESC".freeze
@@ -102,16 +102,16 @@ module Fd
     MEMBERS_FOR_CASES = 10
 
     def members
-      return recent_members unless searching?
+      return recent_members unless has_search_input?
 
-      ids = found_members.ids
+      ids = member_matches.ids
       return Member.none if ids.empty?
 
       Member.where(user_id: ids).in_order_of(:user_id, ids)
     end
 
-    def found_members
-      @found_members ||= MemberFinder.new(term, actor: @actor)
+    def member_matches
+      @member_matches ||= MemberFinder.new(term, actor: @actor)
         .find(limit: [@limit, MEMBERS_FOR_CASES].max)
     end
 
@@ -132,7 +132,7 @@ module Fd
     end
 
     def cases
-      return Case.reorder(Arel.sql("(resolved_at IS NOT NULL), opened_at DESC")) unless searching?
+      return Case.reorder(Arel.sql("(resolved_at IS NOT NULL), opened_at DESC")) unless has_search_input?
 
       ids = Case.where(id: reason_matches).ids
       ids += Case.with_any_subject(member_ids).ids if member_ids.any?
@@ -150,7 +150,7 @@ module Fd
     end
 
     def notes
-      return Note.visible.recent_first unless searching?
+      return Note.visible.recent_first unless has_search_input?
 
       Note.visible.recent_first.where(<<~SQL.squish, q: term)
         to_tsvector('simple', coalesce(body, '')) @@ websearch_to_tsquery('simple', :q)
@@ -158,7 +158,7 @@ module Fd
     end
 
     def reports
-      return CaseReport.order(received_at: :desc) unless searching?
+      return CaseReport.order(received_at: :desc) unless has_search_input?
 
       CaseReport.order(received_at: :desc).where(<<~SQL.squish, q: term)
         to_tsvector('simple', coalesce(body, '')) @@ websearch_to_tsquery('simple', :q)

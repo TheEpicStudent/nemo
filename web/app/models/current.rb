@@ -1,5 +1,5 @@
 class Current < ActiveSupport::CurrentAttributes
-  attribute :moved, :flipped, :tuned, :effective_capabilities, :held_roles
+  attribute :moved, :flipped, :tuned, :effective_capabilities, :effective_roles
 
   def role_permissions
     self.moved ||= Authz::Override.pluck(:role, :capability, :allowed)
@@ -9,7 +9,7 @@ class Current < ActiveSupport::CurrentAttributes
   def forget_roles
     self.moved = nil
     self.effective_capabilities = nil
-    self.held_roles = nil
+    self.effective_roles = nil
   end
 
   def flags

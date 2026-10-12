@@ -1,49 +1,49 @@
 import { Controller } from "@hotwired/stimulus"
 import { cable } from "@hotwired/turbo-rails"
 
-const BEAT_EVERY = 30_000
+const HEARTBEAT_INTERVAL_MS = 30_000
 
 export default class extends Controller {
   static values = { case: Number, me: String }
 
   async connect() {
-    this.gone = false
-    this.hideMe = this.hideMe.bind(this)
-    this.watch = new MutationObserver(this.hideMe)
-    this.watch.observe(this.element, { childList: true, subtree: true })
-    this.hideMe()
+    this.disconnected = false
+    this.hideSelf = this.hideSelf.bind(this)
+    this.observer = new MutationObserver(this.hideSelf)
+    this.observer.observe(this.element, { childList: true, subtree: true })
+    this.hideSelf()
 
     const subscription = await cable.subscribeTo(
       { channel: "CaseChatPresenceChannel", case_id: this.caseValue }, {}
     )
-    if (this.gone) return subscription.unsubscribe()
+    if (this.disconnected) return subscription.unsubscribe()
 
     this.subscription = subscription
-    this.beating = setInterval(() => subscription.perform("beat"), BEAT_EVERY)
+    this.heartbeatTimer = setInterval(() => subscription.perform("beat"), HEARTBEAT_INTERVAL_MS)
   }
 
   disconnect() {
-    this.gone = true
-    if (this.beating) clearInterval(this.beating)
+    this.disconnected = true
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
     if (this.subscription) this.subscription.unsubscribe()
-    if (this.watch) this.watch.disconnect()
+    if (this.observer) this.observer.disconnect()
   }
 
-  hideMe() {
+  hideSelf() {
     const box = this.element.querySelector(".chat-here")
     if (!box) return
 
-    const others = []
-    box.querySelectorAll("[data-user]").forEach((who) => {
-      const me = who.dataset.user === this.meValue
-      who.hidden = me
-      if (!me) others.push(who.dataset.name)
+    const otherNames = []
+    box.querySelectorAll("[data-user]").forEach((userElement) => {
+      const isSelf = userElement.dataset.user === this.meValue
+      userElement.hidden = isSelf
+      if (!isSelf) otherNames.push(userElement.dataset.name)
     })
-    box.hidden = others.length === 0
-    box.setAttribute("aria-label", this.sentence(others))
+    box.hidden = otherNames.length === 0
+    box.setAttribute("aria-label", this.presenceLabel(otherNames))
   }
 
-  sentence(names) {
+  presenceLabel(names) {
     if (names.length === 0) return ""
     if (names.length === 1) return `${names[0]} is on this case`
     return `${names.slice(0, -1).join(", ")} and ${names.at(-1)} are on this case`

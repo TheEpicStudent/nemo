@@ -6,11 +6,11 @@ from bot.core import loops
 class Counter:
     def __init__(self, answers=()):
         self.answers = list(answers)
-        self.ran = 0
+        self.run_count = 0
         self.tick = threading.Semaphore(0)
 
     def __call__(self):
-        self.ran += 1
+        self.run_count += 1
         self.tick.release()
         return self.answers.pop(0) if self.answers else False
 
@@ -39,7 +39,7 @@ def test_wakes_that_arrive_together_drain_once():
 
     assert work.tick.acquire(timeout=1)
     assert not work.tick.acquire(timeout=0.3)
-    assert work.ran == 2
+    assert work.run_count == 2
     stopping.set()
     wake()
 

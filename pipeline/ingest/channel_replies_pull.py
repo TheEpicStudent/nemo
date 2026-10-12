@@ -23,7 +23,7 @@ DEFAULT_FETCHERS = 4
 PROGRESS_SECONDS = 5
 CONTENDED_ATTEMPTS = 20
 TOPUP_LIMIT = 20000
-FORGIVEN = frozenset({"contended", "throttle"})
+RETRYABLE_FAULTS = frozenset({"contended", "throttle"})
 
 CLAIM_SQL = """
 UPDATE app.channel_backfill
@@ -82,17 +82,17 @@ WHERE channel_id = %s AND state = 'draining'
 
 
 def fetch_thread(conn, client, channel_id, root_ts, item=None):
-    kept = []
-    total, through = 0, None
+    pending = []
+    total, last_ts = 0, None
 
     def flush():
-        nonlocal kept
+        nonlocal pending
         with conn.cursor() as cur:
-            cur.execute(THREAD_DONE_SQL, (total, through, channel_id, root_ts))
-        archive.from_api_many(conn, channel_id, kept, METHOD, TRANSPORT,
+            cur.execute(THREAD_DONE_SQL, (total, last_ts, channel_id, root_ts))
+        archive.from_api_many(conn, channel_id, pending, METHOD, TRANSPORT,
                               on_reject=lambda ts, why: reject(conn, channel_id, ts, why))
         conn.commit()
-        kept = []
+        pending = []
         if item is not None:
             work.renew(conn, item)
 
@@ -103,10 +103,10 @@ def fetch_thread(conn, client, channel_id, root_ts, item=None):
     ):
         if message.get("ts") == root_ts:
             continue
-        kept.append(message)
+        pending.append(message)
         total += 1
-        through = message["ts"]
-        if len(kept) >= PAGE_SIZE:
+        last_ts = message["ts"]
+        if len(pending) >= PAGE_SIZE:
             flush()
 
     flush()
@@ -115,7 +115,7 @@ def fetch_thread(conn, client, channel_id, root_ts, item=None):
 
 WALKED_SQL = "SELECT 1 FROM raw.channel_walk WHERE channel_id = %s"
 
-HOLD_SQL = """
+REQUEUE_SQL = """
 UPDATE app.channel_backfill
 SET state = 'queued', claimed_at = NULL, last_error = %s, updated_at = now()
 WHERE channel_id = %s
@@ -225,23 +225,23 @@ def enough_queued(conn, floor):
         return cur.fetchone() is not None
 
 
-def shared_queue(items, hands):
+def shared_queue(items, worker_count):
     shared = Queue()
     for item in items:
         shared.put(item)
-    return [shared] * max(1, hands)
+    return [shared] * max(1, worker_count)
 
 
 def record_failure(conn, item, fault):
-    limit = CONTENDED_ATTEMPTS if fault.name in FORGIVEN else work.MAX_ATTEMPTS
+    limit = CONTENDED_ATTEMPTS if fault.name in RETRYABLE_FAULTS else work.MAX_ATTEMPTS
     work.fail(conn, item, f"{fault.name}: {fault.detail}", max_attempts=limit)
 
 
-def drain(client, pending, tally, guard, halt, broken, check):
+def drain(client, pending, totals, lock, stop, errors, check):
     local = RunCounts()
     try:
         with connect() as conn, cancel_scope(check):
-            while not halt.is_set():
+            while not stop.is_set():
                 try:
                     item = pending.get_nowait()
                 except Empty:
@@ -260,24 +260,24 @@ def drain(client, pending, tally, guard, halt, broken, check):
                     work.settle(conn, item, "complete" if reached else "short", fetched=replies,
                                 note=None if reached else f"{replies} of {item.expected}")
                     conn.commit()
-                    with guard:
-                        tally["replies"] += replies
-                        tally["touched"].add(channel_id)
-                with guard:
-                    tally["rejected"] += local.rows_rejected - rejected
+                    with lock:
+                        totals["replies"] += replies
+                        totals["touched"].add(channel_id)
+                with lock:
+                    totals["rejected"] += local.rows_rejected - rejected
     except BaseException as failure:
-        broken.append(failure)
-        halt.set()
+        errors.append(failure)
+        stop.set()
 
 
 def run(conn, budget=500, fetchers=DEFAULT_FETCHERS, stale_hours=6):
-    client, carrier = shards.client_for(KIND)
+    client, transport = shards.client_for(KIND)
     LIVE["pool"] = getattr(client, "pool", None)
-    print(f"{KIND}: fetching replies on {carrier}")
+    print(f"{KIND}: fetching replies on {transport}")
     with conn.cursor() as cur:
         cur.execute(RELEASE_STALE_SQL, (stale_hours,))
-        for (stranded,) in cur.fetchall():
-            print(f"{SOURCE}: returned stranded channel {stranded} to the queue")
+        for (stale_channel,) in cur.fetchall():
+            print(f"{SOURCE}: returned stranded channel {stale_channel} to the queue")
     conn.commit()
 
     for channel_id in claim_channels(conn):
@@ -293,47 +293,47 @@ def run(conn, budget=500, fetchers=DEFAULT_FETCHERS, stale_hours=6):
             print(f"{SOURCE}: no thread waiting" + (f", {queued} newly queued" if queued else ""))
         return 0
 
-    spread = len({item.target_key for item in items})
-    hands = max(1, min(fetchers, len(items)))
+    channel_count = len({item.target_key for item in items})
+    worker_count = max(1, min(fetchers, len(items)))
     print(f"{SOURCE}: {len(items)} thread(s) claimed off the queue of a {budget} budget"
           + (f", {queued} newly queued" if queued else "")
-          + f", {spread} channel(s) over {hands} fetcher(s)")
+          + f", {channel_count} channel(s) over {worker_count} fetcher(s)")
 
-    shares = shared_queue(items, hands)
-    tally = {"replies": 0, "rejected": 0, "touched": set()}
-    guard, halt, broken = threading.Lock(), threading.Event(), []
+    worker_queues = shared_queue(items, worker_count)
+    totals = {"replies": 0, "rejected": 0, "touched": set()}
+    lock, stop, errors = threading.Lock(), threading.Event(), []
     check = current_cancel()
 
     with ingest_run(conn, SOURCE) as counts:
         counts.total_expected = len(items)
-        crew = [threading.Thread(target=drain, name=f"{SOURCE}-{hand}", daemon=True,
-                                 args=(client, share, tally, guard, halt, broken, check))
-                for hand, share in enumerate(shares)]
-        for hand in crew:
-            hand.start()
+        threads = [threading.Thread(target=drain, name=f"{SOURCE}-{index}", daemon=True,
+                                    args=(client, worker_queue, totals, lock, stop, errors, check))
+                   for index, worker_queue in enumerate(worker_queues)]
+        for thread in threads:
+            thread.start()
         try:
-            while any(hand.is_alive() for hand in crew):
-                with guard:
-                    counts.rows_in, counts.rows_rejected = tally["replies"], tally["rejected"]
+            while any(thread.is_alive() for thread in threads):
+                with lock:
+                    counts.rows_in, counts.rows_rejected = totals["replies"], totals["rejected"]
                 counts.progress()
                 time.sleep(PROGRESS_SECONDS)
         except BaseException:
-            halt.set()
+            stop.set()
             raise
         finally:
-            for hand in crew:
-                hand.join()
-        if broken:
-            raise broken[0]
-        with guard:
-            counts.rows_in, counts.rows_rejected = tally["replies"], tally["rejected"]
-        for channel_id in sorted(tally["touched"]):
+            for thread in threads:
+                thread.join()
+        if errors:
+            raise errors[0]
+        with lock:
+            counts.rows_in, counts.rows_rejected = totals["replies"], totals["rejected"]
+        for channel_id in sorted(totals["touched"]):
             done = settle_channel(conn, channel_id)
             print(f"{SOURCE}: {channel_id} {'complete' if done else 'still draining'}")
         counts.progress()
 
-    print(f"{SOURCE}: {tally['replies']} reply message(s) over {len(items)} thread(s)")
-    return tally["replies"]
+    print(f"{SOURCE}: {totals['replies']} reply message(s) over {len(items)} thread(s)")
+    return totals["replies"]
 
 
 def main():

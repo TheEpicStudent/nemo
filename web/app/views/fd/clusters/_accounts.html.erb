@@ -13,19 +13,19 @@
         </tr>
       </thead>
       <tbody>
-        <% cluster.members.each do |one| %>
-          <% here = cluster.edges.count { |edge| edge.score && [edge.a_user_id, edge.b_user_id].include?(one.user_id) } %>
+        <% cluster.members.each do |member| %>
+          <% link_count = cluster.edges.count { |edge| edge.score && [edge.a_user_id, edge.b_user_id].include?(member.user_id) } %>
           <tr>
-            <td><%= member_face(one.user_id) %></td>
-            <td class="sub2"><%= one.joined_at ? on_day(one.joined_at) : "n/a" %></td>
+            <td><%= member_face(member.user_id) %></td>
+            <td class="sub2"><%= member.joined_at ? on_day(member.joined_at) : "n/a" %></td>
             <td>
-              <% if one.deactivated %>
+              <% if member.deactivated %>
                 <span class="state state-crit">Deactivated</span>
               <% else %>
                 <span class="state state-good">Active</span>
               <% end %>
             </td>
-            <td class="col-num"><%= here %></td>
+            <td class="col-num"><%= link_count %></td>
           </tr>
         <% end %>
       </tbody>

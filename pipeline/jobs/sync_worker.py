@@ -89,25 +89,25 @@ def todays_run_elapsed():
     try:
         with connect() as conn, conn.cursor() as cur:
             cur.execute(RAN_TODAY_SQL, (SOURCE,))
-            stood, crashed = cur.fetchone()
-            return stood > 0, crashed
+            completed, abandoned = cur.fetchone()
+            return completed > 0, abandoned
     except Exception as exc:
         print(f"sync worker: cannot tell whether tonight's run ran, {type(exc).__name__}: {exc}")
         return True, MAX_CATCH_UPS
 
 
-def missed_tonight(at, now, already_ran, crashed=0):
-    if already_ran or crashed >= MAX_CATCH_UPS:
+def missed_today(at, now, already_ran, abandoned=0):
+    if already_ran or abandoned >= MAX_CATCH_UPS:
         return False
     return now >= slot_today(at, now)
 
 
-def boot_run(at, now, already_ran, crashed=0):
-    if crashed >= MAX_CATCH_UPS:
+def boot_run(at, now, already_ran, abandoned=0):
+    if abandoned >= MAX_CATCH_UPS:
         return None
     if run_at_start_enabled():
         return "startup"
-    return "catch-up" if missed_tonight(at, now, already_ran, crashed) else None
+    return "catch-up" if missed_today(at, now, already_ran, abandoned) else None
 
 
 def wait_seconds(poll, scheduled, now):
@@ -147,7 +147,7 @@ def cancel_watcher(request_id):
     listener.autocommit = True
     listener.execute(f"LISTEN {CANCEL_CHANNEL}")
     state = {"checked_at": time.monotonic(), "cancelled": False}
-    want = str(request_id)
+    expected_payload = str(request_id)
     lock = threading.Lock()
 
     def check():
@@ -156,7 +156,7 @@ def cancel_watcher(request_id):
                 return True
             try:
                 for note in listener.notifies(timeout=0):
-                    if note.payload == want:
+                    if note.payload == expected_payload:
                         state["cancelled"] = True
             except psycopg.Error:
                 pass
@@ -200,16 +200,16 @@ def serve(request_id, kind, stage):
 def expire_stale_runs(stale_after_hours=STALE_AFTER_HOURS):
     try:
         with connect() as conn, conn.cursor() as cur:
-            swept = sweep_stale_runs(conn)
+            abandoned_runs = sweep_stale_runs(conn)
             cur.execute(RELEASE_STALE_SQL, (stale_after_hours,))
-            stranded = [row[0] for row in cur.fetchall()]
+            failed_request_ids = [row[0] for row in cur.fetchall()]
             conn.commit()
     except psycopg.Error as exc:
         print(f"sync worker: reaper skipped after {type(exc).__name__}: {exc}")
         return
-    for run_id, source in swept:
+    for run_id, source in abandoned_runs:
         print(f"sync worker: abandoned stale run {run_id} ({source})")
-    for request_id in stranded:
+    for request_id in failed_request_ids:
         print(f"sync worker: failed stranded sync request {request_id}")
 
 
@@ -244,7 +244,7 @@ def proxy_note():
     faults = credential_faults(report)
     if faults:
         return "FAILED " + "; ".join(faults)
-    who = ", ".join(
+    credential_summary = ", ".join(
         f"{name} {state.get('user')}" for name, state in (report.get("credentials") or {}).items()
     )
     pacing = ", ".join(
@@ -252,7 +252,7 @@ def proxy_note():
         for key, rate in sorted((report.get("pacing") or {}).items())
     )
     build = (report.get("build") or {}).get("fingerprint")
-    return (f"ok, {who}"
+    return (f"ok, {credential_summary}"
             + (f" | build {build}" if build else "")
             + (f" | {pacing}" if pacing else ""))
 
@@ -302,21 +302,21 @@ def main():
         f"sync worker: listening on {CHANNEL}, {poll}s fallback poll, "
         f"next scheduled run at {scheduled:%Y-%m-%dT%H:%M}"
     )
-    waiting = listener()
+    listen_conn = listener()
     expire_stale_runs(stale_after_hours=0)
     state = {"note": waiting_note(scheduled)}
-    probed = NEVER
+    last_probe_at = NEVER
 
     with heartbeat_loop(WORKER, lambda: state["note"], every=BEAT_SECONDS):
-        why = boot_run(at, datetime.now(), *todays_run_elapsed())
-        if why:
-            state["note"] = f"{why} run"
-            run_scheduled(why)
+        boot_reason = boot_run(at, datetime.now(), *todays_run_elapsed())
+        if boot_reason:
+            state["note"] = f"{boot_reason} run"
+            run_scheduled(boot_reason)
             scheduled = next_run_at(at, datetime.now())
             print(f"sync worker: next scheduled run at {scheduled:%Y-%m-%dT%H:%M}")
 
         while True:
-            probed = probe_proxy(probed)
+            last_probe_at = probe_proxy(last_probe_at)
             state["note"] = waiting_note(scheduled)
             if datetime.now() >= scheduled:
                 state["note"] = "scheduled run"
@@ -334,11 +334,11 @@ def main():
                 continue
 
             try:
-                if not wait_for_request(waiting, wait_seconds(poll, scheduled, datetime.now())):
+                if not wait_for_request(listen_conn, wait_seconds(poll, scheduled, datetime.now())):
                     expire_stale_runs()
             except psycopg.OperationalError as exc:
                 print(f"sync worker: listener reconnecting after {type(exc).__name__}: {exc}")
-                waiting = listener()
+                listen_conn = listener()
 
 
 if __name__ == "__main__":

@@ -6,12 +6,12 @@
       <p class="community-nav-label"><%= group %></p>
       <div class="community-nav-group">
         <% topics.each do |topic| %>
-          <% here = @topic&.slug == topic.slug %>
+          <% current_topic = @topic&.slug == topic.slug %>
           <%= link_to doc_path(topic.slug),
-                aria: { current: ("page" if here) } do %>
+                aria: { current: ("page" if current_topic) } do %>
             <%= nav_icon("news") %><span class="trunc"><%= topic.title %></span>
           <% end %>
-          <% if here %>
+          <% if current_topic %>
             <div class="community-nav-sub" data-controller="docs-nav"
                  data-action="click->docs-nav#go">
               <% topic.sections.each do |section| %>

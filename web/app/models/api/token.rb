@@ -4,10 +4,10 @@ module Api
   class Token < ApplicationRecord
     self.table_name = "api.token"
 
-    LEAD = "nemo_live_".freeze
+    KEY_PREFIX = "nemo_live_".freeze
     ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz".chars.freeze
     LENGTH = 20
-    SHOWN = 4
+    PREFIX_SECRET_CHARS = 4
     MAX_NAME = 60
 
     class TooManyError < StandardError; end
@@ -15,21 +15,21 @@ module Api
 
     belongs_to :app, class_name: "Api::App", foreign_key: :app_id, inverse_of: :tokens
 
-    LIVES = {
+    LIFETIMES = {
       "30" => 30.days,
       "90" => 90.days,
       "365" => 365.days,
       "never" => nil
     }.freeze
 
-    LIFE_WORDS = {
+    LIFETIME_LABELS = {
       "30" => "30 days",
       "90" => "90 days",
       "365" => "a year",
       "never" => "no expiry"
     }.freeze
 
-    DEFAULT_LIFE = "90".freeze
+    DEFAULT_LIFETIME = "90".freeze
 
     scope :live, lambda {
       where(revoked_at: nil).where("expires_at IS NULL OR expires_at > now()")
@@ -52,27 +52,27 @@ module Api
     end
 
     def self.secret
-      LEAD + Array.new(LENGTH) { ALPHABET[SecureRandom.random_number(ALPHABET.size)] }.join
+      KEY_PREFIX + Array.new(LENGTH) { ALPHABET[SecureRandom.random_number(ALPHABET.size)] }.join
     end
 
-    def self.life_for(asked)
-      LIVES.key?(asked.to_s) ? asked.to_s : DEFAULT_LIFE
+    def self.life_for(requested)
+      LIFETIMES.key?(requested.to_s) ? requested.to_s : DEFAULT_LIFETIME
     end
 
-    def self.dies_on(asked)
-      span = LIVES.fetch(life_for(asked))
+    def self.expires_on(requested)
+      span = LIFETIMES.fetch(life_for(requested))
       span && span.from_now
     end
 
-    def self.mint!(app, name, lasting: DEFAULT_LIFE)
-      raise NotApprovedError unless Approval.held?(app.id)
+    def self.mint!(app, name, lifetime: DEFAULT_LIFETIME)
+      raise NotApprovedError unless Approval.active?(app.id)
       raise TooManyError unless room_for?(app.id)
 
       key = secret
       row = create!(app_id: app.id, owner_user_id: app.owner_user_id,
         name: name.to_s.strip.first(MAX_NAME),
-        prefix: key.first(LEAD.length + SHOWN), digest: digest_of(key),
-        expires_at: dies_on(lasting))
+        prefix: key.first(KEY_PREFIX.length + PREFIX_SECRET_CHARS), digest: digest_of(key),
+        expires_at: expires_on(lifetime))
       [row, key]
     end
 
@@ -82,7 +82,7 @@ module Api
 
     def expired? = expires_at.present? && expires_at <= Time.current
 
-    def spent? = revoked? || expired?
+    def inactive? = revoked? || expired?
 
     def used!
       return if last_used_at && last_used_at > TOUCH_EVERY.ago
@@ -96,9 +96,9 @@ module Api
 
     def rotate!(by:)
       key = self.class.secret
-      update!(prefix: key.first(LEAD.length + SHOWN), digest: self.class.digest_of(key),
+      update!(prefix: key.first(KEY_PREFIX.length + PREFIX_SECRET_CHARS), digest: self.class.digest_of(key),
         rotated_at: Time.current)
-      Event.record!("token_rotated", actor: by, subject: shown, detail: name)
+      Event.record!("token_rotated", actor: by, subject: display_prefix, detail: name)
       key
     end
 
@@ -106,11 +106,11 @@ module Api
       rate_limit || Setting.value("rate_per_minute")
     end
 
-    def shown
+    def display_prefix
       "#{prefix}…"
     end
 
-    def dies_in
+    def expires_in_label
       return "never" if expires_at.nil?
       return "expired" if expired?
 

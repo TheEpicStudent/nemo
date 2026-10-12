@@ -24,11 +24,11 @@
           <% backfills.each do |row| %>
             <tr>
               <td>
-                <% shown = "##{names[row.channel_id] || row.channel_id}" %>
+                <% channel_name = "##{names[row.channel_id] || row.channel_id}" %>
                 <% if may_open_channel?(row.channel_id) %>
-                  <%= link_to shown, channel_path(row.channel_id) %>
+                  <%= link_to channel_name, channel_path(row.channel_id) %>
                 <% else %>
-                  <%= shown %>
+                  <%= channel_name %>
                 <% end %>
               </td>
               <td>

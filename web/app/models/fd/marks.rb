@@ -9,16 +9,16 @@ module Fd
       def mode = signed ? "signed" : "body"
     end
 
-    def self.read(body, aimed: false)
+    def self.read(body, to_reporter: false)
       text = body.to_s.lstrip
-      anon = text.start_with?(ANON) && (aimed || OUT.include?(text[1, 1]))
+      anon = text.start_with?(ANON) && (to_reporter || OUT.include?(text[1, 1]))
       text = text[1..].lstrip if anon
 
       out = OUT.include?(text[0, 1])
       text = text[1..].lstrip if out
 
-      leaving = out || aimed
-      Read.new(body: text, to_reporter: leaving, signed: leaving && !anon)
+      outbound = out || to_reporter
+      Read.new(body: text, to_reporter: outbound, signed: outbound && !anon)
     end
   end
 end

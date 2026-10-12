@@ -54,72 +54,72 @@ def named(family, raw):
 
 
 def windows(raw):
-    found = version(raw)
-    return named("Windows", WINDOWS_NAMES.get(found, found))
+    normalized = version(raw)
+    return named("Windows", WINDOWS_NAMES.get(normalized, normalized))
 
 
 def system(ua):
     for family, pattern in SYSTEMS:
-        found = pattern.search(ua)
-        if not found:
+        match = pattern.search(ua)
+        if not match:
             continue
         if family == "Windows":
-            return windows(found.group(1))
-        raw = next((one for one in found.groups() if one), "")
+            return windows(match.group(1))
+        raw = next((one for one in match.groups() if one), "")
         return named(family, version(raw))
     return UNKNOWN
 
 
 def browser(ua):
     for family, pattern in BROWSERS:
-        found = pattern.search(ua)
-        if found:
-            return named(family, version(found.group(1)))
+        match = pattern.search(ua)
+        if match:
+            return named(family, version(match.group(1)))
     return UNKNOWN
 
 
 def app(ua):
-    found = SLACK_MOBILE.search(ua)
-    if found:
-        maker = found.group(2).strip()
+    match = SLACK_MOBILE.search(ua)
+    if match:
+        maker = match.group(2).strip()
         if not maker:
             return "Slack mobile"
         family = "Slack Android" if "android" in ua.lower() else "Slack mobile"
-        return named(family, version(found.group(1)))
+        return named(family, version(match.group(1)))
 
-    found = SLACK_DESKTOP.search(ua)
-    if found:
-        raw = next((one for one in found.groups() if one), "")
+    match = SLACK_DESKTOP.search(ua)
+    if match:
+        raw = next((one for one in match.groups() if one), "")
         return named("Slack Desktop", version(raw))
 
-    found = SLACK_IOS.search(ua)
-    if found:
-        return named("Slack iOS", version(found.group(1)))
+    match = SLACK_IOS.search(ua)
+    if match:
+        return named("Slack iOS", version(match.group(1)))
 
     if SLACK_SDK.search(ua):
         return "Slack SDK"
 
-    found = HUDDLE.search(ua)
-    if found:
-        return named("Slack huddle", version(found.group(1)))
+    match = HUDDLE.search(ua)
+    if match:
+        return named("Slack huddle", version(match.group(1)))
 
-    seen = browser(ua)
-    if seen:
-        return seen
+    browser_name = browser(ua)
+    if browser_name:
+        return browser_name
 
     for family, pattern in RUNTIMES:
-        found = pattern.search(ua)
-        if found:
-            return named(family, version(found.group(1)))
+        match = pattern.search(ua)
+        if match:
+            return named(family, version(match.group(1)))
 
     return UNKNOWN
 
 
 def device(ua):
-    found = SLACK_MOBILE.search(ua)
-    if not found:
+    match = SLACK_MOBILE.search(ua)
+    if not match:
         return UNKNOWN
-    return found.group(2).strip() or UNKNOWN
+    return match.group(2).strip() or UNKNOWN
 
 
 def api_client(ua):

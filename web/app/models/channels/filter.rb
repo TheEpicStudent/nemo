@@ -61,10 +61,10 @@ module Channels
         words = OPS.fetch(field.kind).fetch(op).first
         return "#{field.label} #{words}" if arity.zero?
 
-        "#{field.label} #{words} #{values.map { |v| shown(v) }.join(' and ')}"
+        "#{field.label} #{words} #{values.map { |v| format_value(v) }.join(' and ')}"
       end
 
-      def shown(value)
+      def format_value(value)
         return "#{value} days" if field.kind == :date && %w[within before_days].include?(op)
         return value.to_s if field.kind == :text
 
@@ -86,7 +86,7 @@ module Channels
 
     def initialize(rows:, match: nil, measures: {})
       @match = MATCHES.include?(match.to_s) ? match.to_s : "all"
-      @fields = rebound(measures)
+      @fields = fields_for(measures)
       @conditions = Array(rows).first(MAX_CONDITIONS).filter_map { |row| build(row) }
     end
 
@@ -114,7 +114,7 @@ module Channels
 
     private
 
-    def rebound(measures)
+    def fields_for(measures)
       return BY_KEY if measures.blank?
 
       BY_KEY.transform_values do |field|
@@ -133,12 +133,12 @@ module Channels
       op = row["op"].to_s
       return nil unless ops.key?(op)
 
-      wanted = ops.fetch(op).last
-      values = Array(row["v"]).reject { |v| v.to_s.strip.empty? }.first(wanted)
-      return nil unless values.size == wanted
+      arity = ops.fetch(op).last
+      values = Array(row["v"]).reject { |v| v.to_s.strip.empty? }.first(arity)
+      return nil unless values.size == arity
 
       cast = values.filter_map { |v| coerce(field, op, v) }
-      return nil unless cast.size == wanted
+      return nil unless cast.size == arity
 
       cast = cast.sort if op == "between"
       Condition.new(field: field, op: op, values: cast)
@@ -171,21 +171,21 @@ module Channels
 
     def condition_sql(condition)
       col = condition.field.sql
-      one = condition.values.first
+      first_value = condition.values.first
       case condition.op
-      when "gt" then ["#{col} > ?", one]
-      when "lt" then ["#{col} < ?", one]
-      when "eq" then ["#{col} = ?", one]
+      when "gt" then ["#{col} > ?", first_value]
+      when "lt" then ["#{col} < ?", first_value]
+      when "eq" then ["#{col} = ?", first_value]
       when "between" then ["#{col} BETWEEN ? AND ?", *condition.values]
       when "set" then ["#{col} IS NOT NULL"]
       when "unset" then unset_for(condition, col)
-      when "within" then ["#{col} >= now() - (? || ' days')::interval", one.to_i]
-      when "before_days" then ["#{col} < now() - (? || ' days')::interval", one.to_i]
-      when "after" then ["#{col} > ?", one]
-      when "before" then ["#{col} < ?", one]
-      when "contains" then ["#{col} ILIKE ?", "%#{sanitize_like(one)}%"]
-      when "not_contains" then ["#{col} NOT ILIKE ?", "%#{sanitize_like(one)}%"]
-      when "is" then ["lower(#{col}) = ?", one.to_s.downcase]
+      when "within" then ["#{col} >= now() - (? || ' days')::interval", first_value.to_i]
+      when "before_days" then ["#{col} < now() - (? || ' days')::interval", first_value.to_i]
+      when "after" then ["#{col} > ?", first_value]
+      when "before" then ["#{col} < ?", first_value]
+      when "contains" then ["#{col} ILIKE ?", "%#{sanitize_like(first_value)}%"]
+      when "not_contains" then ["#{col} NOT ILIKE ?", "%#{sanitize_like(first_value)}%"]
+      when "is" then ["lower(#{col}) = ?", first_value.to_s.downcase]
       end
     end
 

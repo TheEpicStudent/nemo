@@ -13,21 +13,21 @@ def profile(client, user_id):
     if user_id in KNOWN:
         return KNOWN[user_id]
 
-    seen = {"name": user_id, "icon": None}
+    member_profile = {"name": user_id, "icon": None}
     try:
-        answer = client.users_info(user=user_id)
-        profile = answer["user"].get("profile", {})
-        seen["name"] = (
+        response = client.users_info(user=user_id)
+        profile = response["user"].get("profile", {})
+        member_profile["name"] = (
             profile.get("display_name")
-            or answer["user"].get("real_name")
+            or response["user"].get("real_name")
             or user_id
         )
-        seen["icon"] = next((profile[key] for key in IMAGES if profile.get(key)), None)
+        member_profile["icon"] = next((profile[key] for key in IMAGES if profile.get(key)), None)
     except Exception as failure:
         log.warning("nemo: could not look up %s: %s", user_id, failure)
 
-    KNOWN[user_id] = seen
-    return seen
+    KNOWN[user_id] = member_profile
+    return member_profile
 
 
 def name(client, user_id):

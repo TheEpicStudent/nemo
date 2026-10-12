@@ -203,7 +203,7 @@ def run_dbt(conn=None, select=(), wait_seconds=None):
             build(counts)
 
 
-def tuned(conn, key, name):
+def limit_for(conn, key, name):
     return settings.limit(conn, key, name)
 
 
@@ -211,23 +211,23 @@ def stages():
     return [
         ("team_stats", lambda conn: pull_team_stats(conn)),
         ("member_days", lambda conn: backfill_days(
-            conn, MEMBER_DAY, "member", pull_member_day, tuned(conn, "member_days", "batch"))),
+            conn, MEMBER_DAY, "member", pull_member_day, limit_for(conn, "member_days", "batch"))),
         ("channel_days", lambda conn: backfill_days(
-            conn, CHANNEL_DAY, "channel", pull_channel_day, tuned(conn, "channel_days", "batch"))),
+            conn, CHANNEL_DAY, "channel", pull_channel_day, limit_for(conn, "channel_days", "batch"))),
         ("channel_roster", lambda conn: record_channel_names(conn, bot_client())),
         ("channel_names", lambda conn: name_unknown(conn, bot_client())),
         ("member_range", lambda conn: pull_member_range(conn)),
         ("channel_range", lambda conn: pull_channel_range(conn)),
         ("channel_span", lambda conn: pull_channel_span(conn)),
         ("channel_month", lambda conn: pull_channel_month(
-            conn, recent=tuned(conn, "channel_month", "months"))),
+            conn, recent=limit_for(conn, "channel_month", "months"))),
         ("users_list", lambda conn: pull_users_list(conn)),
         ("admin_users", lambda conn: pull_admin_users(conn)),
         ("dim_snapshot", lambda conn: snapshot_dimensions(conn)),
         ("channel_membership", lambda conn: pull_channel_membership(
             conn, bot_client(),
-            tuned(conn, "channel_membership", "batch"),
-            tuned(conn, "channel_membership", "cohort_days"))),
+            limit_for(conn, "channel_membership", "batch"),
+            limit_for(conn, "channel_membership", "cohort_days"))),
         ("member_links", lambda conn: refresh_links(conn)),
         ("prune", lambda conn: prune_rows(conn)),
         (PROMETHEANS, lambda conn: reconcile_prometheans(conn)),
@@ -261,14 +261,14 @@ def reap_orphaned_dbt(before, after_seconds=ORPHAN_AFTER_SECONDS):
     try:
         with connect() as conn, conn.cursor() as cur:
             cur.execute(ORPHANED_DBT_SQL, (after_seconds, before))
-            killed = cur.rowcount
+            terminated = cur.rowcount
             conn.commit()
     except Exception as exc:
         print(f"nightly: could not reap orphaned dbt backends, {type(exc).__name__}: {exc}")
         return 0
-    if killed > 0:
-        print(f"nightly: terminated {killed} dbt backend(s) left by an earlier attempt")
-    return killed
+    if terminated > 0:
+        print(f"nightly: terminated {terminated} dbt backend(s) left by an earlier attempt")
+    return terminated
 
 
 def retryable(exc):
@@ -312,7 +312,7 @@ def record_step_output(run_id, index, source, text):
         pass
 
 
-def discard(conn):
+def try_rollback(conn):
     try:
         conn.rollback()
     except Exception as exc:
@@ -328,23 +328,23 @@ def run_stage(conn, name, stage, run_id, index, total, budget=None, started=None
             with run_step(run_id, index, total), redirect_stdout(OutputTee(sys.stdout, buffer)):
                 stage(conn)
         except SyncCancelled:
-            torn = discard(conn)
-            if torn:
-                buffer.write(f"rollback failed, {torn}\n")
+            rollback_error = try_rollback(conn)
+            if rollback_error:
+                buffer.write(f"rollback failed, {rollback_error}\n")
             record_step_output(run_id, index, name, buffer.getvalue())
             raise
         except Exception as exc:
-            torn = discard(conn)
+            rollback_error = try_rollback(conn)
             detail = f"{type(exc).__name__}: {exc}"
-            if torn:
-                detail = f"{detail}, then rollback failed, {torn}"
-            over = started is not None and over_budget(
+            if rollback_error:
+                detail = f"{detail}, then rollback failed, {rollback_error}"
+            budget_reason = started is not None and over_budget(
                 (time.monotonic() - started) / 60, budget, 1, name)
-            if over:
-                detail = f"{detail}, {over}, not retrying"
+            if budget_reason:
+                detail = f"{detail}, {budget_reason}, not retrying"
             buffer.write(f"{detail}\n")
             record_step_output(run_id, index, name, buffer.getvalue())
-            if torn or over or attempt == STAGE_ATTEMPTS or not retryable(exc):
+            if rollback_error or budget_reason or attempt == STAGE_ATTEMPTS or not retryable(exc):
                 return detail
             if LOCK_TIMEOUT.search(str(exc)):
                 reap_orphaned_dbt(began)
@@ -365,31 +365,31 @@ def refresh_statistics(name):
     if not tables:
         return
 
-    refused = analyze(tables)
-    if refused:
-        print(f"{name}: statistics NOT refreshed, {refused}")
+    analyze_error = analyze(tables)
+    if analyze_error:
+        print(f"{name}: statistics NOT refreshed, {analyze_error}")
 
 
-def over_budget(spent_minutes, budget_minutes, ran, name):
+def over_budget(elapsed_minutes, budget_minutes, ran, name):
     if not budget_minutes or name == TRANSFORM:
         return None
     if ran < 1:
         return None
-    if spent_minutes < budget_minutes:
+    if elapsed_minutes < budget_minutes:
         return None
-    return f"over budget, {spent_minutes:.0f} of {budget_minutes} minutes spent"
+    return f"over budget, {elapsed_minutes:.0f} of {budget_minutes} minutes spent"
 
 
-LANDED_SQL = """
+ROWS_LOADED_SQL = """
 SELECT coalesce(sum(rows_in), 0)
   FROM raw.ingest_run
  WHERE parent_run_id = %s
 """
 
 
-def landed(conn, run_id):
+def rows_loaded(conn, run_id):
     with conn.cursor() as cur:
-        cur.execute(LANDED_SQL, (run_id,))
+        cur.execute(ROWS_LOADED_SQL, (run_id,))
         return int(cur.fetchone()[0] or 0)
 
 
@@ -398,10 +398,10 @@ def due_anyway(conn, run_id, name, why):
         return why
     if not settings.enabled(conn, name):
         return why
-    rows = landed(conn, run_id)
-    if not rows:
+    loaded_rows = rows_loaded(conn, run_id)
+    if not loaded_rows:
         return why
-    print(f"{name}: {why}, but {rows} rows landed tonight")
+    print(f"{name}: {why}, but {loaded_rows} rows landed tonight")
     return None
 
 
@@ -431,8 +431,8 @@ def run_stages(conn, plan, run_id, budget=None):
             why = settings.skip_reason(conn, name, datetime.now(timezone.utc))
         why = due_anyway(conn, run_id, name, why)
         if not why:
-            spent = (time.monotonic() - started) / 60
-            why = over_budget(spent, budget, ran, name)
+            elapsed_minutes = (time.monotonic() - started) / 60
+            why = over_budget(elapsed_minutes, budget, ran, name)
             if why:
                 cut += 1
         if not why:
@@ -477,11 +477,11 @@ def preflight(run_id):
     if faults:
         line = f"{PREFLIGHT}: credential FAILED, " + "; ".join(faults)
     else:
-        who = ", ".join(
+        credential_summary = ", ".join(
             f"{name} ok ({state.get('user')})"
             for name, state in (report.get("credentials") or {}).items()
         )
-        line = f"{PREFLIGHT}: {who}"
+        line = f"{PREFLIGHT}: {credential_summary}"
     print(line)
     record_step_output(run_id, 0, PREFLIGHT, line + "\n")
     return faults
@@ -520,9 +520,9 @@ def parent_status(cancelled, ran, skipped, cut, failed):
 
 def parent_fault(status, cancelled, failed):
     if failed:
-        named = ", ".join(name for name, _ in failed[:6])
+        failed_names = ", ".join(name for name, _ in failed[:6])
         more = f" and {len(failed) - 6} more" if len(failed) > 6 else ""
-        return "local", f"{len(failed)} stage(s) failed: {named}{more}"[:500]
+        return "local", f"{len(failed)} stage(s) failed: {failed_names}{more}"[:500]
     if status in CLEAN_PARENT_OUTCOMES:
         return None, None
     if cancelled:

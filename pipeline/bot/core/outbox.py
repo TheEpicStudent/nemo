@@ -142,11 +142,11 @@ def any_waiting(conn):
 
 
 def queue(conn, conversation_id, kind, body, requested_by, mode="signed",
-          files=None, asked_in=None, asked_at=None):
+          files=None, requested_in=None, requested_at=None):
     return conn.execute(
         QUEUE,
         (conversation_id, kind, body, mode, requested_by,
-         Jsonb(files or []), asked_in, asked_at),
+         Jsonb(files or []), requested_in, requested_at),
     ).fetchone()[0]
 
 

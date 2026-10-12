@@ -6,17 +6,17 @@ module Fd
 
     def create
       guard = live_guard
-      return refuse("This channel is not guarded") if guard.nil?
+      return redirect_with_alert("This channel is not guarded") if guard.nil?
 
-      wanted = asked_for
-      return refuse("Select who to allow") if wanted.empty?
-      unless wanted.all? { |id| id.match?(MEMBER_ID) }
-        return refuse("That is not a valid member id")
+      subject_ids = requested_subject_ids
+      return redirect_with_alert("Select who to allow") if subject_ids.empty?
+      unless subject_ids.all? { |id| id.match?(MEMBER_ID) }
+        return redirect_with_alert("That is not a valid member id")
       end
 
       added = []
       writing do
-        wanted.each do |subject_id|
+        subject_ids.each do |subject_id|
           next if guard.allows.exists?(subject_id: subject_id)
 
           allow = guard.allows.create!(subject_id: subject_id, label: label_for(subject_id),
@@ -26,15 +26,15 @@ module Fd
         end
       end
 
-      redirect_to fd_channel_path(channel_id, tab: kind), notice: allowed_notice(added, wanted)
+      redirect_to fd_channel_path(channel_id, tab: kind), notice: allowed_notice(added, subject_ids)
     end
 
     def destroy
       guard = live_guard
-      return refuse("This channel is not guarded") if guard.nil?
+      return redirect_with_alert("This channel is not guarded") if guard.nil?
 
       allow = guard.allows.find_by(subject_id: params[:id].to_s.strip.upcase)
-      return refuse("That bot is not on the list") if allow.nil?
+      return redirect_with_alert("That bot is not on the list") if allow.nil?
 
       writing do
         audit(allow, "removed", entity_id: guard.id,
@@ -60,7 +60,7 @@ module Fd
       @live_guard ||= ChannelGuard.live_for(channel_id, kind: kind)
     end
 
-    def asked_for
+    def requested_subject_ids
       raw = params[:subject_ids].presence || [params[:subject_id]]
       Array(raw).map { |id| id.to_s.strip.delete_prefix("@").upcase }.reject(&:blank?).uniq
     end
@@ -69,16 +69,16 @@ module Fd
       Member.find_by(user_id: subject_id)&.name
     end
 
-    def allowed_notice(added, wanted)
+    def allowed_notice(added, subject_ids)
       return "everything you picked was already allowed here" if added.empty?
 
-      who = added.map { |id| label_for(id) || id }.to_sentence
-      note = "#{who} may post here"
-      added.size < wanted.size ? "#{note}, the rest were already on the list" : note
+      names = added.map { |id| label_for(id) || id }.to_sentence
+      note = "#{names} may post here"
+      added.size < subject_ids.size ? "#{note}, the rest were already on the list" : note
     end
 
-    def refuse(why)
-      redirect_to fd_channel_path(channel_id, tab: kind), alert: why
+    def redirect_with_alert(message)
+      redirect_to fd_channel_path(channel_id, tab: kind), alert: message
     end
   end
 end

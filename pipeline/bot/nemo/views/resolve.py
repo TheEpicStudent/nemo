@@ -62,13 +62,13 @@ def line(one):
     return message
 
 
-def taken(live_actions):
+def live_actions_text(live_actions):
     return "\n".join(line(one) for one in live_actions)
 
 
 def reason_input_block(live_actions):
     if forced(live_actions):
-        return {"type": "section", "text": {"type": "mrkdwn", "text": taken(live_actions)}}
+        return {"type": "section", "text": {"type": "mrkdwn", "text": live_actions_text(live_actions)}}
 
     return {
         "type": "input",
@@ -156,16 +156,16 @@ def build_view(case_id, live_actions=(), open_reports=0):
 
 def submitted_values(view_state, live_actions=()):
     values = view_state.get("values", {})
-    chosen = (values.get(WHY, {}).get(WHY, {}).get("selected_option") or {}).get("value")
-    ticked = values.get(NOTIFY, {}).get(NOTIFY, {}).get("selected_options") or []
+    selected = (values.get(WHY, {}).get(WHY, {}).get("selected_option") or {}).get("value")
+    checked_options = values.get(NOTIFY, {}).get(NOTIFY, {}).get("selected_options") or []
     message = values.get(MESSAGE, {}).get(MESSAGE, {}).get("value")
 
     note = richtext.flatten(values.get(NOTE, {}).get(NOTE, {}).get("rich_text_value"))
 
     return {
-        "resolution": forced(live_actions) or chosen,
+        "resolution": forced(live_actions) or selected,
         "member_note": note or None,
-        "notify_reporter": any(one.get("value") == NOTIFY_REPORTER for one in ticked),
+        "notify_reporter": any(one.get("value") == NOTIFY_REPORTER for one in checked_options),
         "message": (message or "").strip() or default_message(),
     }
 
@@ -179,10 +179,10 @@ def validation_errors(values):
 
 
 def by_line(resolution, by, case_id=None):
-    shown = None if resolution == "action_taken" else label(resolution)
+    resolution_label = None if resolution == "action_taken" else label(resolution)
     if case_id is None:
-        return f"Resolved by <@{by}>" + (f" · {shown}" if shown else "")
-    return lines.resolved(by, case_id, shown)
+        return f"Resolved by <@{by}>" + (f" · {resolution_label}" if resolution_label else "")
+    return lines.resolved(by, case_id, resolution_label)
 
 
 def action_group_blocks(one):

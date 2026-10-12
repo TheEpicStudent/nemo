@@ -47,11 +47,11 @@
             <span class="src-floor">floor <%= source.prune_floor %></span>
           <% end %>
         </div>
-        <% shown_nights = nights.last(14) %>
+        <% recent_nights = nights.last(14) %>
         <div class="cells" role="group" aria-label="<%= source.key %>, the last 14 nights">
           <% cells.last(14).each_with_index do |cell, i| %><i class="<%= cell %>" role="img"
-             data-tip="<%= night_tip(source.key, shown_nights[i], cell) %>"
-             aria-label="<%= shown_nights[i]&.strftime("%-d %b") %>, <%= cell_label(cell) %>"></i><% end %>
+             data-tip="<%= night_tip(source.key, recent_nights[i], cell) %>"
+             aria-label="<%= recent_nights[i]&.strftime("%-d %b") %>, <%= cell_label(cell) %>"></i><% end %>
         </div>
         <div class="stat-value <%= "warn" if state == "stale" %>"><%= short_age(row.last_ok) %></div>
         <div class="stat-value"><%= row.typical ? "#{row.typical.round}s" : "n/a" %></div>
@@ -82,12 +82,12 @@
             <div class="dialrow">
               <div class="dial-name">Cadence<span>how often the night runs it</span></div>
               <div class="meta-fine">was <%= source.cadence %></div>
-              <%= render "setting_value", source: source.key, name: Engine::Setting::CADENCE, may_tune: may_tune %>
+              <%= render "setting_value", source: source.key, name: Engine::Setting::CADENCE, may_edit_setting: may_edit_setting %>
             </div>
             <div class="dialrow">
               <div class="dial-name">Retention<span>how many days of its rows are kept</span></div>
               <div class="meta-fine">was <%= Engine::Setting::KEEP %></div>
-              <%= render "setting_value", source: source.key, name: Engine::Setting::RETENTION, may_tune: may_tune %>
+              <%= render "setting_value", source: source.key, name: Engine::Setting::RETENTION, may_edit_setting: may_edit_setting %>
             </div>
           </div>
 

@@ -4,7 +4,7 @@ from ingest import channel_replies_pull
 from lib import faults, work
 
 
-def recorded(fault):
+def formatted(fault):
     return f"{fault.name}: {fault.detail}"
 
 
@@ -14,8 +14,8 @@ def test_gave_way_stores_the_fault_class_with_the_detail():
 
 
 def test_an_entity_fault_is_written_where_the_revive_guard_can_see_it():
-    gone = faults.fault("entity", "channel_not_found")
-    assert recorded(gone)[:7] == "entity:"
+    fault = faults.fault("entity", "channel_not_found")
+    assert formatted(fault)[:7] == "entity:"
 
 
 def test_the_web_client_sentence_alone_defeats_both_guards():
@@ -26,16 +26,16 @@ def test_the_web_client_sentence_alone_defeats_both_guards():
     assert detail[:7] != "entity:"
     assert detail not in work.REFUSALS
 
-    gone = faults.fault("entity", detail)
-    assert recorded(gone)[:7] == "entity:"
+    fault = faults.fault("entity", detail)
+    assert formatted(fault)[:7] == "entity:"
 
 
 def test_a_forgiven_fault_stays_revivable():
     slow = faults.fault("contended", "canceling statement due to lock timeout")
-    assert recorded(slow)[:7] != "entity:"
-    assert slow.name in channel_replies_pull.FORGIVEN
+    assert formatted(slow)[:7] != "entity:"
+    assert slow.name in channel_replies_pull.RETRYABLE_FAULTS
 
 
 def test_the_attempt_cap_still_reads_the_bare_fault_name():
     body = inspect.getsource(channel_replies_pull.record_failure)
-    assert "fault.name in FORGIVEN" in body
+    assert "fault.name in RETRYABLE_FAULTS" in body

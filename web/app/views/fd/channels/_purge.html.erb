@@ -26,8 +26,8 @@
                 <%= at_minute(purge.asked_at) %>
                 <% unless purge.waiting? %>
                   · <%= purge.taken_down %> taken down
-                  <% if purge.replies_taken.positive? %>
-                    · <%= purge.replies_taken %> in threads
+                  <% if purge.reply_count.positive? %>
+                    · <%= purge.reply_count %> in threads
                   <% end %>
                 <% end %>
                 <% if purge.failed? && purge.error.present? %>

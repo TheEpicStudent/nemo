@@ -8,7 +8,7 @@ module EngineHelper
     "abandoned" => "chip chip-warn"
   }.freeze
 
-  STATUS_INK = {
+  STATUS_COLORS = {
     "ok" => "good",
     "failed" => "crit",
     "partial" => "warn",
@@ -26,16 +26,16 @@ module EngineHelper
     tag.span status_word(row.status), class: STATUS_CHIP.fetch(row.status, "chip chip-off")
   end
 
-  def run_ink(row)
+  def run_status_color(row)
     return "warn" if row.nil?
 
-    STATUS_INK.fetch(row.status, "")
+    STATUS_COLORS.fetch(row.status, "")
   end
 
-  def short_age(at)
-    return "n/a" if at.nil?
+  def short_age(time)
+    return "n/a" if time.nil?
 
-    seconds = (Time.current - at).to_i
+    seconds = (Time.current - time).to_i
     return "#{seconds}s" if seconds < 60
     return "#{seconds / 60}m" if seconds < 3600
     return "#{seconds / 3600}h" if seconds < 86_400
@@ -133,19 +133,19 @@ module EngineHelper
     safe_join(chips, " ")
   end
 
-  def worker_state(beat)
-    return tag.span("Failed", class: "chip chip-crit") if beat.note.to_s.start_with?("FAILED")
-    return tag.span("Silent", class: "chip chip-warn") if beat.cold?
+  def worker_state(heartbeat)
+    return tag.span("Failed", class: "chip chip-crit") if heartbeat.note.to_s.start_with?("FAILED")
+    return tag.span("Silent", class: "chip chip-warn") if heartbeat.cold?
 
     tag.span("OK", class: "chip chip-good")
   end
 
-  def worker_note(beats)
-    cold = beats.count(&:cold?)
-    text = "#{pluralize(beats.size, 'worker')} reporting"
-    return text if cold.zero?
+  def worker_note(heartbeats)
+    silent_count = heartbeats.count(&:cold?)
+    text = "#{pluralize(heartbeats.size, 'worker')} reporting"
+    return text if silent_count.zero?
 
-    "#{text} · #{cold} silent"
+    "#{text} · #{silent_count} silent"
   end
 
   def worker_chip(worker)

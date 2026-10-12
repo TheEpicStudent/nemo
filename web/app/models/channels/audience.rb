@@ -4,10 +4,10 @@ module Channels
     DEFAULT = "granted".freeze
     OPEN_TO_ALL = "public".freeze
     OPEN = %w[public everyone].freeze
-    WAS = { "everyone" => "public", "shared" => "granted", "private" => "granted" }.freeze
+    LEGACY_AUDIENCES = { "everyone" => "public", "shared" => "granted", "private" => "granted" }.freeze
 
-    def self.settled(audience)
-      WAS.fetch(audience.to_s, audience.to_s)
+    def self.normalize(audience)
+      LEGACY_AUDIENCES.fetch(audience.to_s, audience.to_s)
     end
 
     def self.everything
@@ -50,7 +50,7 @@ module Channels
     end
 
     def self.granted_ids_for(staff)
-      roles = Authz.roles_held(staff.user_id)
+      roles = Authz.effective_roles(staff.user_id)
       Grant.live.where(user_id: staff.user_id)
         .or(Grant.live.where(role: roles))
         .select(:channel_id)
@@ -74,7 +74,7 @@ module Channels
     end
 
     def self.of(channel_id)
-      settled(Setting.where(channel_id: channel_id).pick(:audience) || DEFAULT)
+      normalize(Setting.where(channel_id: channel_id).pick(:audience) || DEFAULT)
     end
 
     class Setting < ApplicationRecord

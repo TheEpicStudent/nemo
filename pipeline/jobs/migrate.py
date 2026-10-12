@@ -8,7 +8,7 @@ from lib.db import connect_admin
 from lib.paths import ENV_FILE, MIGRATIONS_DIR, MIGRATIONS_POST_DIR
 
 SCHEMAS = ("raw", "analytics", "app", "fd", "ingest")
-BASELINE_WITNESS = "raw.member_dim"
+BASELINE_TABLE = "raw.member_dim"
 LOCK_ATTEMPTS = 3
 LOCK_WAIT_SECONDS = 5
 
@@ -37,9 +37,9 @@ def applied(conn):
     }
 
 
-def witness_exists(conn):
+def baseline_table_exists(conn):
     return bool(
-        conn.execute("SELECT to_regclass(%s)", (BASELINE_WITNESS,)).fetchone()[0]
+        conn.execute("SELECT to_regclass(%s)", (BASELINE_TABLE,)).fetchone()[0]
     )
 
 
@@ -56,7 +56,7 @@ def baseline(conn, files):
         stamp(conn, path)
     conn.commit()
     print(
-        f"migrate: {BASELINE_WITNESS} already exists, so this database predates version "
+        f"migrate: {BASELINE_TABLE} already exists, so this database predates version "
         f"tracking. stamped {len(files)} migration(s) as applied without running them"
     )
 
@@ -90,14 +90,14 @@ def main(stage="pre") -> None:
         conn.execute(VERSION_TABLE_SQL)
         conn.commit()
 
-        seen = applied(conn)
-        if not seen and witness_exists(conn):
+        applied_checksums = applied(conn)
+        if not applied_checksums and baseline_table_exists(conn):
             baseline(conn, files)
             return
 
         for path in files:
-            if path.name in seen:
-                if seen[path.name] != checksum(path):
+            if path.name in applied_checksums:
+                if applied_checksums[path.name] != checksum(path):
                     raise SystemExit(
                         f"migrate: {path.name} changed after it was applied. migrations are "
                         f"immutable once applied, add a new file instead"
@@ -105,7 +105,7 @@ def main(stage="pre") -> None:
                 continue
             apply(conn, path)
 
-    pending = [p.name for p in files if p.name not in seen]
+    pending = [p.name for p in files if p.name not in applied_checksums]
     if not pending:
         print(f"migrate: {stage} up to date, {len(files)} migration(s) applied")
 

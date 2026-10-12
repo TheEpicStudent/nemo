@@ -12,7 +12,7 @@ SHORTCUT = "lock_thread"
 
 
 @on_shortcut(SHORTCUT, needs="thread.guard")
-def asked(ctx):
+def open_lock_modal(ctx):
     if not ctx.thread_ts:
         return ctx.post_ephemeral("that is not a thread")
 
@@ -25,12 +25,12 @@ def asked(ctx):
 @on_view(card.LOCK_CALLBACK, needs="thread.guard", refuse_block=card.REASON)
 def confirmed(ctx):
     values = card.submitted_values(ctx.view.get("state") or {})
-    wrong = card.validation_errors(values, needs_until=True)
-    if wrong:
-        return ctx.ack(response_action="errors", errors=wrong)
+    errors = card.validation_errors(values, needs_until=True)
+    if errors:
+        return ctx.ack(response_action="errors", errors=errors)
 
-    lifts = dt.datetime.fromtimestamp(values["until"], dt.UTC)
-    if lifts <= dt.datetime.now(dt.UTC):
+    lock_until = dt.datetime.fromtimestamp(values["until"], dt.UTC)
+    if lock_until <= dt.datetime.now(dt.UTC):
         return ctx.ack(response_action="errors", errors={card.UNTIL: "That is in the past."})
 
     ctx.ack()
@@ -41,7 +41,7 @@ def confirmed(ctx):
     with session() as conn:
         guard_id = guards.open_guard(
             conn, guards.LOCK, channel_id, thread_ts, ctx.user_id, values["reason"],
-            expires_at=lifts,
+            expires_at=lock_until,
         )
 
     if guard_id is None:
@@ -52,5 +52,5 @@ def confirmed(ctx):
         guards.warn(ctx.client, conn, guard_id, channel_id, thread_ts, guards.LOCK)
         guards.refresh(conn)
 
-    log.info("nemo: %s locked %s until %s (guard %s)", ctx.user_id, thread_ts, lifts, guard_id)
+    log.info("nemo: %s locked %s until %s (guard %s)", ctx.user_id, thread_ts, lock_until, guard_id)
     return guard_id

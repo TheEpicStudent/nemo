@@ -29,13 +29,13 @@ def number(case_id, url=None):
     return f"<{url}|{case_id}>" if url else str(case_id)
 
 
-def merged(actor, folded, keep, url_of=lambda case_id: None):
-    numbers = [number(one, url_of(one)) for one in folded]
+def merged(actor, duplicate_ids, target_id, url_of=lambda case_id: None):
+    numbers = [number(one, url_of(one)) for one in duplicate_ids]
     if len(numbers) == 1:
         listed = f"case {numbers[0]}"
     else:
         listed = "cases " + ", ".join(numbers[:-1]) + f" and {numbers[-1]}"
-    return f"<@{actor}> merged {listed} into case {number(keep, url_of(keep))}"
+    return f"<@{actor}> merged {listed} into case {number(target_id, url_of(target_id))}"
 
 
 def resolved(actor, case_id, label=None):

@@ -4,10 +4,10 @@ export default class extends Controller {
   static targets = ["img"]
 
   connect() {
-    if (this.hasImgTarget && this.imgTarget.complete && this.imgTarget.naturalWidth === 0) this.gone()
+    if (this.hasImgTarget && this.imgTarget.complete && this.imgTarget.naturalWidth === 0) this.remove()
   }
 
-  gone() {
+  remove() {
     this.imgTarget.remove()
   }
 }

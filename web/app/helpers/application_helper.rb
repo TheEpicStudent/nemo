@@ -8,11 +8,11 @@ module ApplicationHelper
     @open_case_count ||= Fd::Case.unresolved.count
   end
 
-  def held_label(staff)
+  def role_summary(staff)
     return Fd::Access::MANAGER_LABEL if Fd::Access.manager?(staff)
     return "no access" if staff.nil?
 
-    roles = Authz.roles_held(staff.user_id)
+    roles = Authz.effective_roles(staff.user_id)
     return "no access" if roles.empty?
 
     roles.map { |role| Authz.role_label(role) }.to_sentence
@@ -43,7 +43,7 @@ module ApplicationHelper
     "active" => "distribution"
   }.freeze
 
-  MOVED = {
+  LEGACY_JOURNEY_PATHS = {
     "acquisition" => "joining",
     "response" => "replies", "retention" => "returning",
     "distribution" => "active"
@@ -163,7 +163,7 @@ module ApplicationHelper
     "#{CACHET_FACES}/#{ERB::Util.url_encode(user_id)}/r"
   end
 
-  RailStop = Struct.new(:key, :label, :icon, :path, :tally, :here, keyword_init: true)
+  RailStop = Struct.new(:key, :label, :icon, :path, :tally, :current, keyword_init: true)
 
   RAIL_ICONS = {
     "fire" => ["M12 3c.9 3 2.6 4 4.2 5.7A6.9 6.9 0 0 1 18.5 14a6.5 6.5 0 1 1-13 0c0-2 .8-3.6 2-5",
@@ -191,36 +191,36 @@ module ApplicationHelper
     end
   end
 
-  def rail_stops(fire_engine:)
-    return @rail_stops if defined?(@rail_stops)
+  def nav_items(fire_engine:)
+    return @nav_items if defined?(@nav_items)
 
     stops = []
     if fire_engine
       stops << RailStop.new(key: "fd", label: "Fire Engine", icon: "fire", path: fd_root_path,
-        tally: Fd::Case.unresolved.not_duplicate.unassigned.count, here: page_section == "fd")
+        tally: Fd::Case.unresolved.not_duplicate.unassigned.count, current: page_section == "fd")
     end
     if on?(:analytics)
       stops << RailStop.new(key: "mn", label: "Community", icon: "community",
-        path: community_path, here: page_section == "mn" && controller_name != "engine")
+        path: community_path, current: page_section == "mn" && controller_name != "engine")
     end
     if may_community?("ops.engine")
       stops << RailStop.new(key: "engine", label: "Engine", icon: "engine", path: engine_path,
-        here: controller_name == "engine")
+        current: controller_name == "engine")
     end
     if may_administer?
       stops << RailStop.new(key: "admin", label: "Admin", icon: "admin", path: admin_root_path,
-        here: page_section == "admin")
+        current: page_section == "admin")
     end
-    @rail_stops = stops
+    @nav_items = stops
   end
 
   SHELL_PLACES = {
     "admin" => ["Admin", "admin"], "settings" => ["Settings", "gear"], "docs" => ["Docs", "book"]
   }.freeze
 
-  def shell_place(fire_engine:)
-    here = nav_here(fire_engine: fire_engine)
-    return [here.label, here.icon, here.path] if here
+  def current_section(fire_engine:)
+    current_stop = current_nav_stop(fire_engine: fire_engine)
+    return [current_stop.label, current_stop.icon, current_stop.path] if current_stop
 
     label, icon = SHELL_PLACES.fetch(page_section, ["Community", "community"])
     path = { "settings" => account_path, "docs" => docs_path }.fetch(page_section, root_path)
@@ -231,8 +231,8 @@ module ApplicationHelper
     controller_name == "home" && action_name == "index"
   end
 
-  def nav_here(fire_engine:)
-    rail_stops(fire_engine: fire_engine).find(&:here)
+  def current_nav_stop(fire_engine:)
+    nav_items(fire_engine: fire_engine).find(&:current)
   end
 
   def section_pane

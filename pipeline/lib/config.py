@@ -197,7 +197,7 @@ DEFAULTS = {
     "NIGHTLY_AT": "03:00",
     "NIGHTLY_RUN_AT_START": "false",
     "ARCHIVE_POLL_SECONDS": "300",
-    "AUDIT_TAIL_SECONDS": "60",
+    "AUDIT_TAIL_SECONDS": "5",
     "AUDIT_BACKFILL_SECONDS": "120",
     "AUDIT_BACKFILL_SETS": "login_and_channel",
     "AUDIT_ACCESS_SECONDS": "3600",
@@ -261,8 +261,8 @@ def missing(role, env=None):
 def unexpected(role, env=None):
     env = env if env is not None else os.environ
     allowed = set(known(role))
-    named = {name for spec in ROLES.values() for name in spec["required"] + spec["optional"]}
-    return sorted(name for name in named - allowed if env.get(name))
+    all_names = {name for spec in ROLES.values() for name in spec["required"] + spec["optional"]}
+    return sorted(name for name in all_names - allowed if env.get(name))
 
 
 def forbidden(role, env=None):
@@ -274,13 +274,13 @@ POOLS = {"archive": shards.PREFIX}
 
 
 def report(role, env=None):
-    gone = missing(role, env)
+    missing_names = missing(role, env)
     extra = unexpected(role, env)
-    banned = forbidden(role, env)
+    forbidden_names = forbidden(role, env)
 
     print(f"role {role}")
     for name in ROLES[role]["required"]:
-        state = "MISSING" if name in gone else "set"
+        state = "MISSING" if name in missing_names else "set"
         print(f"  required  {name:28} {state}")
     if extra:
         print("  unexpected for this role, the repo does not read these here:")
@@ -288,15 +288,15 @@ def report(role, env=None):
             print(f"    {name}")
     if role in POOLS:
         print(f"  pool      {shards.describe(env)}")
-    if banned:
+    if forbidden_names:
         print("  MUST NOT be set for this role:")
-        for name in banned:
+        for name in forbidden_names:
             print(f"    {name}")
-    if gone:
-        print(f"{role}: {len(gone)} required variable(s) missing: {', '.join(gone)}")
-    if banned:
-        print(f"{role}: {len(banned)} variable(s) present that this role must never hold")
-    return 1 if gone or banned else 0
+    if missing_names:
+        print(f"{role}: {len(missing_names)} required variable(s) missing: {', '.join(missing_names)}")
+    if forbidden_names:
+        print(f"{role}: {len(forbidden_names)} variable(s) present that this role must never hold")
+    return 1 if missing_names or forbidden_names else 0
 
 
 def example(role):

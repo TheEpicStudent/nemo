@@ -52,10 +52,10 @@ def font(path, size, weight=400):
         return ImageFont.load_default(size * SCALE)
 
 
-def axis_ticks(top, wanted=4):
+def axis_ticks(top, target_count=4):
     if top <= 0:
         return [0, 1]
-    raw = top / wanted
+    raw = top / target_count
     magnitude = 10 ** math.floor(math.log10(raw))
     for step in (1, 2, 2.5, 5, 10):
         if raw <= step * magnitude:
@@ -165,12 +165,12 @@ def render(curve, span, viewers=None, age_seconds=None):
     spec = SPANS.get(span)
     if not spec or len(curve) < 2:
         return None
-    whole_span = (curve[-1][0] - curve[0][0]).total_seconds()
+    full_span = (curve[-1][0] - curve[0][0]).total_seconds()
     curve = trim_to_present(curve, age_seconds)
     if len(curve) < 2:
         return None
 
-    unit_label, unit, step, say = spec
+    unit_label, unit, step, format_tick = spec
     s = SCALE
     size = (WIDE * s, HIGH * s)
     image = Image.new("RGB", size, PAPER)
@@ -180,7 +180,7 @@ def render(curve, span, viewers=None, age_seconds=None):
     top, floor = PAD["t"] * s, (HIGH - PAD["b"]) * s
 
     start = curve[0][0]
-    span_seconds = whole_span or 1
+    span_seconds = full_span or 1
     counts = [count for _, count in curve]
     peak = max(counts)
     ticks = axis_ticks(peak * 1.12)
@@ -199,24 +199,24 @@ def render(curve, span, viewers=None, age_seconds=None):
         label = f"{int(tick):,}" if float(tick).is_integer() else f"{tick:g}"
         draw.text((left - 18 * s, y), label, font=small, fill=INK_4, anchor="rm")
 
-    whole = int(span_seconds // unit)
-    for k in range(0, whole + 1, step):
+    unit_count = int(span_seconds // unit)
+    for k in range(0, unit_count + 1, step):
         at = left + (right - left) * (k * unit / span_seconds)
         draw.line([(at, floor), (at, floor + 6 * s)], fill=GRID, width=s)
-        draw.text((at, floor + 14 * s), say(k), font=small, fill=INK_4, anchor="ma")
+        draw.text((at, floor + 14 * s), format_tick(k), font=small, fill=INK_4, anchor="ma")
     draw.text((right, floor + 40 * s), unit_label, font=small, fill=INK_4, anchor="ra")
 
     points = [(x_of(at), y_of(count)) for at, count in curve]
-    bend = smoothed(points)
-    bend = [(x, min(max(y, top), floor)) for x, y in bend]
+    smooth_points = smoothed(points)
+    smooth_points = [(x, min(max(y, top), floor)) for x, y in smooth_points]
 
-    under = gradient_fill(size, [(left, floor), *bend, (bend[-1][0], floor)], floor, top)
-    image.paste(under, (0, 0), under)
+    fill_layer = gradient_fill(size, [(left, floor), *smooth_points, (smooth_points[-1][0], floor)], floor, top)
+    image.paste(fill_layer, (0, 0), fill_layer)
     draw = ImageDraw.Draw(image, "RGBA")
     draw.line([(left, floor), (right, floor)], fill=GRID, width=s)
-    draw.line(bend, fill=LINE, width=int(3.2 * s), joint="curve")
+    draw.line(smooth_points, fill=LINE, width=int(3.2 * s), joint="curve")
 
-    if age_seconds is not None and age_seconds < whole_span:
+    if age_seconds is not None and age_seconds < full_span:
         now_x = x_of(curve[-1][0])
         for y in range(int(top), int(floor), 8 * s):
             draw.line([(now_x, y), (now_x, min(y + 4 * s, floor))], fill=INK_4, width=s)
@@ -228,15 +228,15 @@ def render(curve, span, viewers=None, age_seconds=None):
                  width=int(3 * s))
     peak_font = font(MONO, 16, 500)
     anchor = "ls" if px < (left + right) / 2 else "rs"
-    post_expiry_notice = 14 * s if anchor == "ls" else -14 * s
-    draw.text((px + post_expiry_notice, py - 12 * s), f"{peak:,}", font=peak_font, fill=LINE, anchor=anchor)
+    label_offset = 14 * s if anchor == "ls" else -14 * s
+    draw.text((px + label_offset, py - 12 * s), f"{peak:,}", font=peak_font, fill=LINE, anchor=anchor)
 
     title = font(SANS, 30, 620)
     sub = font(MONO, 16)
-    draw.text((left, 34 * s), f"Viewers over {format_span(whole_span)}", font=title, fill=INK,
+    draw.text((left, 34 * s), f"Viewers over {format_span(full_span)}", font=title, fill=INK,
               anchor="la")
-    seen = f"{sum(counts):,} of {viewers:,}" if viewers is not None else f"{sum(counts):,}"
-    draw.text((left, 74 * s), f"{seen} viewers · new viewers per {bucket_label(curve)}",
+    viewer_text = f"{sum(counts):,} of {viewers:,}" if viewers is not None else f"{sum(counts):,}"
+    draw.text((left, 74 * s), f"{viewer_text} viewers · new viewers per {bucket_label(curve)}",
               font=sub, fill=INK_2, anchor="la")
 
     shrunk = image.resize((WIDE, HIGH), Image.LANCZOS).filter(ImageFilter.SHARPEN)

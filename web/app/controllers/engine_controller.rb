@@ -26,7 +26,7 @@ class EngineController < ApplicationController
     @orphaned = orphaned?
     @auto_refresh = (@run&.running? || @active_request.present?) && !@orphaned
 
-    @may_tune = may_community?("ops.engine")
+    @may_edit_setting = may_community?("ops.engine")
     @progress = @run&.running? ? run_progress(@run) : nil
 
     if NIGHT_TABS.include?(@tab)
@@ -73,7 +73,7 @@ class EngineController < ApplicationController
   end
 
   def ack_incident
-    return refuse_tuning unless may_community?("ops.engine")
+    return redirect_tuning_denied unless may_community?("ops.engine")
 
     row = remember_incident(params[:source_key], params[:kind], muted_until: nil)
     redirect_to engine_path(tab: "faults"), notice: "#{row.source_key} acknowledged"
@@ -82,7 +82,7 @@ class EngineController < ApplicationController
   end
 
   def mute_incident
-    return refuse_tuning unless may_community?("ops.engine")
+    return redirect_tuning_denied unless may_community?("ops.engine")
 
     row = remember_incident(params[:source_key], params[:kind], muted_until: MUTE_FOR.from_now)
     redirect_to engine_path(tab: "faults"), notice: "#{row.source_key} muted for 24 hours"
@@ -91,7 +91,7 @@ class EngineController < ApplicationController
   end
 
   def override_breaker
-    return refuse_tuning unless may_community?("ops.engine")
+    return redirect_tuning_denied unless may_community?("ops.engine")
 
     row = remember_incident(params[:source_key], "breaker", muted_until: MUTE_FOR.from_now)
     redirect_to engine_path(tab: "faults"), notice: "Breaker #{row.source_key} suppressed for 24 hours"
@@ -99,7 +99,7 @@ class EngineController < ApplicationController
     redirect_to engine_path(tab: "faults"), alert: e.record.errors.full_messages.to_sentence
   end
 
-  HOLDING = [["Recurrence funnel, visit steps", 15], ["Retention, day 30", 30],
+  RETENTION_DAY_REQUIREMENTS = [["Recurrence funnel, visit steps", 15], ["Retention, day 30", 30],
              ["Retention, day 90", 90]].freeze
 
   def backfill_facts
@@ -116,13 +116,13 @@ class EngineController < ApplicationController
 
   def coverage_facts
     @day_coverage = day_coverage
-    @held = consecutive_member_days
+    @consecutive_days = consecutive_member_days
     @slices = slice_summary
     @day_strips = day_strips
   end
 
   def tune
-    return refuse_tuning unless may_community?("ops.engine")
+    return redirect_tuning_denied unless may_community?("ops.engine")
 
     row = Engine::Setting.set!(params[:source], params[:name], params[:value],
       by: current_account.user_id)
@@ -136,7 +136,7 @@ class EngineController < ApplicationController
   end
 
   def untune
-    return refuse_tuning unless may_community?("ops.engine")
+    return redirect_tuning_denied unless may_community?("ops.engine")
 
     row = Engine::Setting.reset!(params[:source], params[:name], by: current_account.user_id)
     if row
@@ -157,7 +157,7 @@ class EngineController < ApplicationController
   end
 
   def sync
-    return refuse_running unless may_community?("ops.engine")
+    return redirect_running_denied unless may_community?("ops.engine")
 
     if SyncRequest.active.exists?
       redirect_to engine_path, alert: "A sync is already queued or running"
@@ -172,20 +172,20 @@ class EngineController < ApplicationController
   end
 
   def cancel
-    return refuse_running unless may_community?("ops.engine")
+    return redirect_running_denied unless may_community?("ops.engine")
 
     @active_request = SyncRequest.active.recent_first.first
-    gone = orphaned?
-    if @active_request&.cancel!(worker_gone: gone)
-      audit(@active_request, "cancelled", "worker_gone" => gone)
-      redirect_to engine_path, notice: gone ? "released, no worker" : "cancel requested"
+    worker_missing = orphaned?
+    if @active_request&.cancel!(worker_unavailable: worker_missing)
+      audit(@active_request, "cancelled", "worker_gone" => worker_missing)
+      redirect_to engine_path, notice: worker_missing ? "released, no worker" : "cancel requested"
     else
       redirect_to engine_path, alert: "Nothing to cancel"
     end
   end
 
   def trigger_stage
-    return refuse_running unless may_community?("ops.engine")
+    return redirect_running_denied unless may_community?("ops.engine")
 
     if SyncRequest.active.exists?
       redirect_to engine_path, alert: "A sync is already queued or running"
@@ -238,7 +238,7 @@ class EngineController < ApplicationController
            sum(rows_in) FILTER (WHERE status IN ('ok', 'running'))        AS rows_in,
            sum(total_expected) FILTER (WHERE status IN ('ok', 'running')) AS total_expected,
            avg(progress_share) FILTER (WHERE status = 'running')          AS share,
-           #{STATUSES.map { |s| "count(*) FILTER (WHERE status = '#{s}') AS #{s}" }.join(",\n       ")}
+           #{STATUSES.map { |status| "count(*) FILTER (WHERE status = '#{status}') AS #{status}" }.join(",\n       ")}
     FROM   analytics.fct_ingest_run
     WHERE  parent_run_id = :parent
     GROUP  BY step_index
@@ -289,12 +289,12 @@ class EngineController < ApplicationController
     Progress.new(step_index: index, step_total: total)
   end
 
-  def refuse_tuning
+  def redirect_tuning_denied
     redirect_to engine_path(tab: "tuning"),
       alert: Community::Access.why_not(current_account, "ops.engine")
   end
 
-  def refuse_running
+  def redirect_running_denied
     redirect_to engine_path, alert: Community::Access.why_not(current_account, "ops.engine")
   end
 
@@ -396,7 +396,7 @@ class EngineController < ApplicationController
 
   COUNTED_SLICE_STATES = %w[complete unverified short claimed superseded unavailable].freeze
 
-  OTHER_SLICE_STATES = "array[#{COUNTED_SLICE_STATES.map { |s| "'#{s}'" }.join(', ')}]::text[]".freeze
+  OTHER_SLICE_STATES = "array[#{COUNTED_SLICE_STATES.map { |state| "'#{state}'" }.join(', ')}]::text[]".freeze
 
   def slice_summary
     Analytics::FctSliceCoverage.group(:source_key).pluck(

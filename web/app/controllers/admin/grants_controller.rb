@@ -1,26 +1,28 @@
 module Admin
   class GrantsController < BaseController
     def create
-      user_id = asked_for
-      return refuse("Search for a member, or paste their Slack user id") if user_id.blank?
-      return refuse("#{user_id} is not a Slack user id") unless user_id.match?(PeopleSearch::MEMBER_ID)
-      return refuse(Community::Access.why_not(current_account, "analytics.grant")) unless may_grant?
-      return refuse("Another administrator must revoke your own access") if dropping_myself?(user_id)
+      user_id = requested_user_id
+      return redirect_with_alert("Search for a member, or paste their Slack user id") if user_id.blank?
+      return redirect_with_alert("#{user_id} is not a Slack user id") unless user_id.match?(PeopleSearch::MEMBER_ID)
+      return redirect_with_alert(Community::Access.why_not(current_account, "analytics.grant")) unless may_grant?
+      return redirect_with_alert("Another administrator must revoke your own access") if self_demotion?(user_id)
 
-      changed = ActiveRecord::Base.transaction { settle_capability_model(user_id) }
+      changed = ActiveRecord::Base.transaction { apply_grant_changes(user_id) }
       return redirect_to(admin_person_path(user_id), notice: "Nothing changed") if changed.zero?
 
       redirect_to admin_person_path(user_id), notice: "#{changed} change(s) saved"
     rescue Authz::Grant::NotAllowedError => e
-      refuse(e.message)
+      redirect_with_alert(e.message)
     end
 
     def destroy
-      return refuse(Community::Access.why_not(current_account, "analytics.grant")) unless may_grant?
+      return redirect_with_alert(Community::Access.why_not(current_account, "analytics.grant")) unless may_grant?
 
       user_id = params[:id].to_s.strip.upcase
-      return refuse("#{user_id} is not a Slack user id") unless user_id.match?(PeopleSearch::MEMBER_ID)
-      return refuse("Another administrator must revoke your own access") if user_id == current_account.user_id
+      return redirect_with_alert("#{user_id} is not a Slack user id") unless user_id.match?(PeopleSearch::MEMBER_ID)
+      if user_id == current_account.user_id
+        return redirect_with_alert("Another administrator must revoke your own access")
+      end
 
       ActiveRecord::Base.transaction { revoke_all(user_id) }
       redirect_to admin_people_path, notice: "Access revoked"
@@ -28,14 +30,14 @@ module Admin
 
     private
 
-    def dropping_myself?(user_id)
+    def self_demotion?(user_id)
       return false unless user_id == current_account.user_id
       return false unless Fd::Access.manager?(current_account)
 
       params[:role].to_s != Fd::Access::MANAGER_ROLE
     end
 
-    def settle_capability_model(user_id)
+    def apply_grant_changes(user_id)
       Account.find_or_create_by!(user_id: user_id)
       changed = grant_role(user_id) + grant_scopes(user_id) + name_channels(user_id)
       Current.forget_roles
@@ -53,24 +55,24 @@ module Admin
       Current.forget_roles
     end
 
-    def new_model_holds?(user_id, asked)
-      Authz::Grant.live.for_person(user_id).roles.pluck(:name) == [asked]
+    def sole_role?(user_id, role)
+      Authz::Grant.live.for_person(user_id).roles.pluck(:name) == [role]
     end
 
-    def settled_role?(user_id, asked)
-      return Authz.roles_held(user_id).empty? if asked.blank?
+    def role_unchanged?(user_id, role)
+      return Authz.effective_roles(user_id).empty? if role.blank?
 
-      new_model_holds?(user_id, asked)
+      sole_role?(user_id, role)
     end
 
     def grant_role(user_id)
-      asked = params[:role].to_s
-      return 0 if settled_role?(user_id, asked)
+      role = params[:role].to_s
+      return 0 if role_unchanged?(user_id, role)
 
-      if asked.present?
-        Authz::Grant.grant!(user_id, kind: "role", name: asked,
+      if role.present?
+        Authz::Grant.grant!(user_id, kind: "role", name: role,
           by: current_account.user_id, reason: params[:reason].presence)
-        audit_grant(user_id, "role", asked, "granted")
+        audit_grant(user_id, "role", role, "granted")
       else
         Authz::Grant.live.for_person(user_id).roles.find_each do |row|
           row.revoke!(by: current_account.user_id)
@@ -81,12 +83,12 @@ module Admin
     end
 
     def grant_scopes(user_id)
-      wanted = Array(params[:scopes]).map(&:to_s).select { |key| Authz.keys.include?(key) }
-      wanted.reject! { |key| Authz.locked?(key) }
-      held = Authz::Grant.live.for_person(user_id).capabilities.where(effect: "allow")
+      requested = Array(params[:scopes]).map(&:to_s).select { |key| Authz.keys.include?(key) }
+      requested.reject! { |key| Authz.locked?(key) }
+      granted = Authz::Grant.live.for_person(user_id).capabilities.where(effect: "allow")
         .pluck(:name)
 
-      add_scopes(user_id, wanted - held) + drop_scopes(user_id, held - wanted)
+      add_scopes(user_id, requested - granted) + drop_scopes(user_id, granted - requested)
     end
 
     def add_scopes(user_id, keys)
@@ -110,11 +112,11 @@ module Admin
     end
 
     def name_channels(user_id)
-      wanted = Array(params[:channels]).map(&:to_s).reject(&:blank?)
-      known = Analytics::DimChannel.where(channel_id: wanted, archived: false).pluck(:channel_id)
-      return 0 if known.empty?
+      requested_ids = Array(params[:channels]).map(&:to_s).reject(&:blank?)
+      channel_ids = Analytics::DimChannel.where(channel_id: requested_ids, archived: false).pluck(:channel_id)
+      return 0 if channel_ids.empty?
 
-      known.each do |channel_id|
+      channel_ids.each do |channel_id|
         next if Channels::Audience::Grant.live
           .where(user_id: user_id, channel_id: channel_id).exists?
 
@@ -122,7 +124,7 @@ module Admin
           granted_by: current_account.user_id, granted_at: Time.current,
           reason: params[:reason].presence)
       end
-      known.size
+      channel_ids.size
     end
 
     def audit_grant(user_id, kind, name, verb)
@@ -132,14 +134,14 @@ module Admin
       audit(row, verb, after: { "user_id" => user_id, kind => name })
     end
 
-    def asked_for
+    def requested_user_id
       [params[:user_id], params[:user_id_raw]]
-        .map { |one| one.to_s.strip.delete_prefix("@").upcase }
+        .map { |value| value.to_s.strip.delete_prefix("@").upcase }
         .find(&:present?)
         .to_s
     end
 
-    def refuse(message)
+    def redirect_with_alert(message)
       redirect_to admin_people_path, alert: message
     end
   end

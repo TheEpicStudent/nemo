@@ -2,15 +2,15 @@ import logging
 
 from bot.core import blobs, intake, session
 from bot.relay import consent, intake_files
-from bot.relay.reply import GOT_IT, nemo_is_behind, not_taken, receipt
+from bot.relay.reply import GOT_IT, nemo_is_behind, handoff_failed, receipt
 
 log = logging.getLogger("bot.relay")
 
-CARRIES_CONTENT = (None, "file_share", "me_message", "thread_broadcast")
+CONTENT_SUBTYPES = (None, "file_share", "me_message", "thread_broadcast")
 
 DECLINED_BY = "relay:reporter declined"
 
-STANDING = """
+CONVERSATION_STATE = """
 SELECT c.handed_off_at IS NOT NULL,
        (SELECT m.ts FROM fd.intake_messages m
         WHERE m.conversation_id = c.id AND m.direction = 'outbound'
@@ -21,7 +21,7 @@ FROM fd.intake_conversations c
 WHERE c.id = %s
 """
 
-WHAT_THEY_SAID = """
+INBOUND_BODIES = """
 SELECT body
 FROM fd.intake_messages
 WHERE conversation_id = %s AND direction = 'inbound' AND deleted_at IS NULL
@@ -68,14 +68,14 @@ UPDATE fd.intake_conversations SET consent_choice = NULL WHERE id = %s
 """
 
 
-def preview(conn, conversation_id, held=None):
-    bodies = [row[0] for row in conn.execute(WHAT_THEY_SAID, (conversation_id,)).fetchall()]
-    files_held = conn.execute(HOW_MANY_FILES, (conversation_id,)).fetchone()[0]
+def preview(conn, conversation_id, saved_choice=None):
+    bodies = [row[0] for row in conn.execute(INBOUND_BODIES, (conversation_id,)).fetchall()]
+    file_count = conn.execute(HOW_MANY_FILES, (conversation_id,)).fetchone()[0]
     forwarded = conn.execute(WHAT_THEY_FORWARDED, (conversation_id,)).fetchall()
-    return consent.build_blocks(bodies, files_held, [row[0] for row in forwarded], held)
+    return consent.build_blocks(bodies, file_count, [row[0] for row in forwarded], saved_choice)
 
 
-def register(app, on_taken=None):
+def register(app, on_handoff=None):
     @app.event("message")
     def on_message(event, client):
         if event.get("channel_type") != "im":
@@ -86,7 +86,7 @@ def register(app, on_taken=None):
             return on_changed(event, client)
         if subtype == "message_deleted":
             return on_deleted(event)
-        if subtype not in CARRIES_CONTENT:
+        if subtype not in CONTENT_SUBTYPES:
             return
         if event.get("bot_id"):
             return
@@ -94,14 +94,14 @@ def register(app, on_taken=None):
         thread_ts = intake.root_ts(event)
 
         with session() as conn:
-            message_id, fresh = intake.record(conn, event)
+            message_id, inserted = intake.record(conn, event)
             conversation_id = intake.conversation(conn, event["channel"], thread_ts)
-            handed_off, prompt_ts, held = conn.execute(
-                STANDING, (consent.SUBTYPE, conversation_id)
+            handed_off, prompt_ts, saved_choice = conn.execute(
+                CONVERSATION_STATE, (consent.SUBTYPE, conversation_id)
             ).fetchone()
-            asking = None if handed_off else preview(conn, conversation_id, held)
+            prompt_blocks = None if handed_off else preview(conn, conversation_id, saved_choice)
 
-        if not fresh:
+        if not inserted:
             return
         log.info(
             "relay: took message %s in %s thread %s", message_id, event["channel"], thread_ts
@@ -109,22 +109,22 @@ def register(app, on_taken=None):
 
         if handed_off:
             if event.get("files"):
-                keep_files(client)
+                fetch_files(client)
             acknowledge(client, event["channel"], event["ts"])
-            if on_taken:
-                on_taken(conversation_id, message_id)
+            if on_handoff:
+                on_handoff(conversation_id, message_id)
             return
 
-        ask(client, event["channel"], thread_ts, prompt_ts, asking)
+        post_prompt(client, event["channel"], thread_ts, prompt_ts, prompt_blocks)
 
-    def keep_files(client):
+    def fetch_files(client):
         try:
             return intake_files.drain(client.token)
         except Exception:
             log.exception("relay: could not keep the files, they stay pending")
             return 0
 
-    def ask(client, channel_id, thread_ts, prompt_ts, blocks):
+    def post_prompt(client, channel_id, thread_ts, prompt_ts, blocks):
         if prompt_ts:
             client.chat_update(
                 channel=channel_id, ts=prompt_ts, text=consent.FALLBACK, blocks=blocks
@@ -158,10 +158,10 @@ def register(app, on_taken=None):
             log.warning("relay: could not tick their message: %s", failure)
 
     @app.action(consent.ACTION)
-    def on_pick(ack, body):
+    def on_identity_action(ack, body):
         ack()
-        submitted_values = consent.submitted_values(body.get("state"))
-        if not submitted_values:
+        choice = consent.submitted_values(body.get("state"))
+        if not choice:
             return
 
         with session() as conn:
@@ -170,7 +170,7 @@ def register(app, on_taken=None):
             ).fetchone()
             if not row:
                 return
-            conn.execute(REMEMBER_CHOICE, (submitted_values, row[0]))
+            conn.execute(REMEMBER_CHOICE, (choice, row[0]))
 
     @app.action(consent.CONFIRM)
     def on_confirm(ack, body, client):
@@ -183,12 +183,12 @@ def register(app, on_taken=None):
             if not row:
                 return
             conversation_id = row[0]
-            handed_off, _, held = conn.execute(
-                STANDING, (consent.SUBTYPE, conversation_id)
+            handed_off, _, saved_choice = conn.execute(
+                CONVERSATION_STATE, (consent.SUBTYPE, conversation_id)
             ).fetchone()
             message_id = conn.execute(NEWEST_INBOUND, (conversation_id,)).fetchone()[0]
 
-        anonymous = consent.chosen(body.get("state"), held) == consent.ANONYMOUS
+        anonymous = consent.resolve_choice(body.get("state"), saved_choice) == consent.ANONYMOUS
 
         if handed_off:
             client.chat_update(
@@ -196,12 +196,12 @@ def register(app, on_taken=None):
             )
             return
 
-        if on_taken is None:
+        if on_handoff is None:
             log.error(
                 "relay: nobody is taking reports, conversation %s stays with the reporter",
                 conversation_id,
             )
-            text, blocks = not_taken()
+            text, blocks = handoff_failed()
             client.chat_update(channel=channel_id, ts=prompt_ts, text=text, blocks=blocks)
             return
 
@@ -213,13 +213,13 @@ def register(app, on_taken=None):
             "relay: conversation %s handed over, anonymous=%s", conversation_id, anonymous
         )
         try:
-            case_id = on_taken(conversation_id, message_id, anonymous)
+            case_id = on_handoff(conversation_id, message_id, anonymous)
         except Exception:
             log.exception(
                 "relay: conversation %s could not be handed over, telling them to try again",
                 conversation_id,
             )
-            text, blocks = not_taken()
+            text, blocks = handoff_failed()
             client.chat_update(channel=channel_id, ts=prompt_ts, text=text, blocks=blocks)
             return
 
@@ -258,28 +258,28 @@ def register(app, on_taken=None):
             changed = intake.edit(conn, event["channel"], message)
             if not changed:
                 return
-            found = conn.execute(
+            row = conn.execute(
                 CONVERSATION_OF, (event["channel"], message["ts"])
             ).fetchone()
-            if not found:
+            if not row:
                 log.warning("relay: edited message %s has no conversation", changed)
                 return
-            conversation_id = found[0]
-            handed_off, prompt_ts, held = conn.execute(
-                STANDING, (consent.SUBTYPE, conversation_id)
+            conversation_id = row[0]
+            handed_off, prompt_ts, saved_choice = conn.execute(
+                CONVERSATION_STATE, (consent.SUBTYPE, conversation_id)
             ).fetchone()
-            asking = None if handed_off else preview(conn, conversation_id, held)
+            prompt_blocks = None if handed_off else preview(conn, conversation_id, saved_choice)
 
         log.info("relay: message %s was edited", changed)
-        if prompt_ts and asking:
+        if prompt_ts and prompt_blocks:
             client.chat_update(
-                channel=event["channel"], ts=prompt_ts, text=consent.FALLBACK, blocks=asking
+                channel=event["channel"], ts=prompt_ts, text=consent.FALLBACK, blocks=prompt_blocks
             )
 
     def on_deleted(event):
         if not event.get("deleted_ts"):
             return
         with session() as conn:
-            gone = intake.delete(conn, event["channel"], event["deleted_ts"])
-        if gone:
-            log.info("relay: message %s was deleted", gone)
+            deleted_id = intake.delete(conn, event["channel"], event["deleted_ts"])
+        if deleted_id:
+            log.info("relay: message %s was deleted", deleted_id)

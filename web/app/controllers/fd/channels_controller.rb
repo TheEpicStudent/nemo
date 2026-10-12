@@ -11,8 +11,8 @@ module Fd
       @names = Names.for(@guards_on.people)
     end
 
-    ACTIVITY_SHOWN = 50
-    PICK_SHOWN = 40
+    ACTIVITY_LIMIT = 50
+    PICKER_LIMIT = 40
     SPAN = "LEFT JOIN analytics.fct_channel_span s " \
            "ON s.channel_id = dim_channel.channel_id".freeze
 
@@ -28,7 +28,7 @@ module Fd
       render json: {
         channels: scope.joins(SPAN)
           .order(Arel.sql("s.total_members DESC NULLS LAST, dim_channel.name"))
-          .limit(PICK_SHOWN).pluck(:channel_id, :name)
+          .limit(PICKER_LIMIT).pluck(:channel_id, :name)
           .map { |id, name| { id: id, name: name } },
         total: scope.count
       }
@@ -55,11 +55,11 @@ module Fd
       @kind_guard = @kind ? @guards[@kind] : nil
       @allows = @kind_guard&.takes_allows? ? @kind_guard.allows.oldest_first.to_a : []
       @standing = ChannelJoin.latest_for(@channel_id)
-      @seat = ChannelMembership.inside?(@channel_id)
+      @nemo_inside = ChannelMembership.inside?(@channel_id)
       @events = @kind ? ChannelGuardEvent.for_kind(@channel_id, @kind)
-        .newest_first.limit(ACTIVITY_SHOWN).to_a : []
+        .newest_first.limit(ACTIVITY_LIMIT).to_a : []
       @purges = @tab == "purge" ? ChannelPurge.for_channel(@channel_id)
-        .newest_first.limit(ACTIVITY_SHOWN).to_a : []
+        .newest_first.limit(ACTIVITY_LIMIT).to_a : []
       @labels = labels_for(@events)
       @app_ids = app_ids_for(@allows)
       @names = Names.for([@guards.values.flat_map(&:people_named),
@@ -91,10 +91,10 @@ module Fd
       ids = events.map(&:subject_id).uniq
       return {} if ids.empty?
 
-      vouched = ChannelGuardAllow.where(subject_id: ids).where.not(label: nil)
+      allow_labels = ChannelGuardAllow.where(subject_id: ids).where.not(label: nil)
         .pluck(:subject_id, :label).to_h
-      known = Member.where(user_id: ids).to_h { |one| [one.user_id, one.name] }
-      known.merge(vouched)
+      member_names = Member.where(user_id: ids).to_h { |member| [member.user_id, member.name] }
+      member_names.merge(allow_labels)
     end
 
     def load_pane

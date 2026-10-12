@@ -12,20 +12,20 @@ DEACTIVATE = "deactivate"
 
 ALLOWED = "allowed"
 FLAGGED = "flagged"
-HELD = "held"
+SHUSHED = "held"
 DEACTIVATED = "deactivated"
 FAILED = "failed"
 NO_EMAIL = "no_email"
 
 WORST_FIRST = (DEACTIVATE, HOLD, FLAG)
 
-LANDED = {FLAG: FLAGGED, HOLD: HELD, DEACTIVATE: DEACTIVATED}
+OUTCOME_FOR_EFFECT = {FLAG: FLAGGED, HOLD: SHUSHED, DEACTIVATE: DEACTIVATED}
 
 SHUSH_DAYS = 7
 
 OUTCOME_NOTICES = {
     FLAGGED: "joined on {domain}, which is flagged",
-    HELD: "joined on {domain} and is shushed",
+    SHUSHED: "joined on {domain} and is shushed",
     DEACTIVATED: "joined on {domain} and is deactivated",
     FAILED: "joined on {domain} but nemo could not hold them",
 }
@@ -67,11 +67,11 @@ class DomainRule:
 
 def refresh(conn):
     global _loaded
-    found = [DomainRule(*row) for row in conn.execute(LIVE).fetchall()]
+    rules = [DomainRule(*row) for row in conn.execute(LIVE).fetchall()]
     with _lock:
-        _watching[:] = found
+        _watching[:] = rules
         _loaded = True
-    return len(found)
+    return len(rules)
 
 
 def watching():
@@ -83,27 +83,27 @@ def domain_of(email):
     text = (email or "").strip().lower()
     if "@" not in text:
         return None
-    held = text.rsplit("@", 1)[-1].strip()
-    return held or None
+    domain = text.rsplit("@", 1)[-1].strip()
+    return domain or None
 
 
 def highest_severity(domain):
-    held = watching()
-    if not held or not domain:
+    rules = watching()
+    if not rules or not domain:
         return None
 
-    caught = [one for one in held if one.holds(domain)]
-    if not caught:
+    matches = [one for one in rules if one.holds(domain)]
+    if not matches:
         return None
-    return min(caught, key=lambda one: WORST_FIRST.index(one.effect))
+    return min(matches, key=lambda one: WORST_FIRST.index(one.effect))
 
 
-def record(conn, user_id, domain, found, outcome, guard_id=None, detail=None):
+def record(conn, user_id, domain, rule, outcome, guard_id=None, detail=None):
     return conn.execute(SCREENED, (
         user_id, domain,
-        found.domain_id if found else None,
-        found.domain if found else None,
-        found.effect if found else None,
+        rule.domain_id if rule else None,
+        rule.domain if rule else None,
+        rule.effect if rule else None,
         outcome, guard_id, detail,
     )).fetchone()
 
@@ -136,37 +136,37 @@ def screen(conn, user_id, email, by="nemo", client=None):
         record(conn, user_id, None, None, NO_EMAIL)
         return NO_EMAIL, None
 
-    found = highest_severity(domain)
-    if found is None:
+    rule = highest_severity(domain)
+    if rule is None:
         record(conn, user_id, domain, None, ALLOWED)
         return ALLOWED, None
 
-    if found.effect == FLAG:
-        record(conn, user_id, domain, found, FLAGGED)
+    if rule.effect == FLAG:
+        record(conn, user_id, domain, rule, FLAGGED)
         log.warning("nemo: %s joined on %s, which is flagged", user_id, domain)
         post_to_internal_log(client, conn, user_id, domain, FLAGGED)
         return FLAGGED, None
 
-    guard_id, trouble = hold_them(conn, user_id, found, by)
+    guard_id, error = open_screening_guard(conn, user_id, rule, by)
     if guard_id is None:
-        record(conn, user_id, domain, found, FAILED, detail=trouble)
+        record(conn, user_id, domain, rule, FAILED, detail=error)
         log.warning("nemo: %s joined on %s but the guard would not open: %s",
-                    user_id, domain, trouble)
+                    user_id, domain, error)
         post_to_internal_log(client, conn, user_id, domain, FAILED)
         return FAILED, None
 
-    outcome = LANDED[found.effect]
-    record(conn, user_id, domain, found, outcome, guard_id=guard_id)
+    outcome = OUTCOME_FOR_EFFECT[rule.effect]
+    record(conn, user_id, domain, rule, outcome, guard_id=guard_id)
     log.warning("nemo: %s joined on %s, %s", user_id, domain, outcome)
     post_to_internal_log(client, conn, user_id, domain, outcome)
     return outcome, guard_id
 
 
-def hold_them(conn, user_id, found, by):
+def open_screening_guard(conn, user_id, rule, by):
     from bot.nemo import memberguards
 
-    kind = memberguards.DEACTIVATION if found.effect == DEACTIVATE else memberguards.SHUSH
-    reason = f"joined on {found.domain}, which the domain list holds"
+    kind = memberguards.DEACTIVATION if rule.effect == DEACTIVATE else memberguards.SHUSH
+    reason = f"joined on {rule.domain}, which the domain list holds"
     expires = None if kind == memberguards.DEACTIVATION else shush_expiry(conn)
 
     try:

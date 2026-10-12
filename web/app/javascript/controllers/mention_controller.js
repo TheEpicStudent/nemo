@@ -1,5 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
-import { Listbox, askingFor } from "lib/listbox"
+import { Listbox, searchUrl } from "lib/listbox"
 
 const TOKEN = /@([\w.\-]*)$/
 
@@ -16,63 +16,63 @@ export default class extends Controller {
       input: this.fieldTarget,
       kind: "member",
       empty: "No members found",
-      pick: ({ id }) => this.put(id)
+      onSelect: ({ id }) => this.insertMention(id)
     })
-    this.away = (event) => {
+    this.onOutsidePointer = (event) => {
       if (!this.element.contains(event.target)) this.close()
     }
-    document.addEventListener("pointerdown", this.away)
+    document.addEventListener("pointerdown", this.onOutsidePointer)
   }
 
   disconnect() {
     clearTimeout(this.timer)
-    this.asking?.abort()
-    document.removeEventListener("pointerdown", this.away)
+    this.abortController?.abort()
+    document.removeEventListener("pointerdown", this.onOutsidePointer)
     this.box.hide()
   }
 
   type() {
     clearTimeout(this.timer)
-    this.timer = setTimeout(() => this.look(), 150)
+    this.timer = setTimeout(() => this.search(), 150)
   }
 
   token() {
-    const upto = this.fieldTarget.value.slice(0, this.fieldTarget.selectionStart)
-    return upto.match(TOKEN)
+    const beforeCaret = this.fieldTarget.value.slice(0, this.fieldTarget.selectionStart)
+    return beforeCaret.match(TOKEN)
   }
 
-  async look() {
-    const found = this.token()
-    this.asking?.abort()
-    if (!found || found[1].length < 2) return this.close()
+  async search() {
+    const match = this.token()
+    this.abortController?.abort()
+    if (!match || match[1].length < 2) return this.close()
 
-    const asking = new AbortController()
-    this.asking = asking
+    const abortController = new AbortController()
+    this.abortController = abortController
     let members
     try {
-      const response = await fetch(askingFor(this.urlValue, found[1]), {
+      const response = await fetch(searchUrl(this.urlValue, match[1]), {
         headers: { Accept: "application/json" },
-        signal: asking.signal
+        signal: abortController.signal
       })
       if (!response.ok) throw new Error(`search failed with ${response.status}`)
       ;({ members } = await response.json())
     } catch {
-      if (!asking.signal.aborted) this.close()
+      if (!abortController.signal.aborted) this.close()
       return
     }
-    if (asking.signal.aborted) return
+    if (abortController.signal.aborted) return
     if (members.length === 0) return this.close()
 
     this.box.show(members)
   }
 
-  put(id) {
+  insertMention(id) {
     const field = this.fieldTarget
     const at = field.selectionStart
-    const found = this.token()
-    if (!found) return
+    const match = this.token()
+    if (!match) return
 
-    const start = at - found[0].length
+    const start = at - match[0].length
     field.value = `${field.value.slice(0, start)}@${id} ${field.value.slice(at)}`
     const caret = start + id.length + 2
     field.setSelectionRange(caret, caret)
@@ -86,7 +86,7 @@ export default class extends Controller {
 
   close() {
     clearTimeout(this.timer)
-    this.asking?.abort()
+    this.abortController?.abort()
     this.box.hide()
   }
 }

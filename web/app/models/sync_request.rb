@@ -32,7 +32,7 @@ class SyncRequest < ApplicationRecord
     ACTIVE.include?(status)
   end
 
-  def cancel!(worker_gone: false)
+  def cancel!(worker_unavailable: false)
     return false unless active?
 
     stopped = false
@@ -46,7 +46,7 @@ class SyncRequest < ApplicationRecord
         next
       end
 
-      if worker_gone
+      if worker_unavailable
         released = self.class.where(id: id, status: %w[claimed cancelling])
           .update_all(status: "cancelled", finished_at: Time.current, updated_at: Time.current)
         next if released.zero?
@@ -57,9 +57,9 @@ class SyncRequest < ApplicationRecord
       end
 
       if status == "claimed"
-        moved = self.class.where(id: id, status: "claimed")
+        updated_count = self.class.where(id: id, status: "claimed")
           .update_all(status: "cancelling", updated_at: Time.current)
-        next if moved.zero?
+        next if updated_count.zero?
       end
 
       stopped = true

@@ -44,7 +44,7 @@ class FdChatTest < ActionDispatch::IntegrationTest
   end
 
   test "a reply that went out is taken off the log" do
-    conversation = with_a_reporter
+    conversation = create_reporter_conversation
     row = Fd::IntakeOutbox.create!(conversation_id: conversation.id, kind: "reply",
       body: "hold on", mode: "signed", requested_by: "UME")
     before = Fd::ChatVersion.for(@kase.id)
@@ -107,12 +107,12 @@ class FdChatTest < ActionDispatch::IntegrationTest
     assert_select "a.mention[href=?]", fd_member_path("UTHEM")
   end
 
-  def answering(map)
-    was = Slack::Emoji.method(:for)
-    Slack::Emoji.define_singleton_method(:for) { |names| map.slice(*Array(names)) }
+  def stub_emoji(urls)
+    original_for = Slack::Emoji.method(:for)
+    Slack::Emoji.define_singleton_method(:for) { |names| urls.slice(*Array(names)) }
     yield
   ensure
-    Slack::Emoji.define_singleton_method(:for, was)
+    Slack::Emoji.define_singleton_method(:for, original_for)
   end
 
   test "a custom emoji in a slack line becomes its image" do
@@ -120,7 +120,7 @@ class FdChatTest < ActionDispatch::IntegrationTest
       source_app: "nemo", channel_id: "CLOG", ts: "1.3",
       blocks: rich([{ "type" => "emoji", "name" => "sho" }]))
 
-    answering({ "sho" => "https://emoji.test/sho.png" }) do
+    stub_emoji({ "sho" => "https://emoji.test/sho.png" }) do
       get fd_case_chat_log_path(@kase, thread: @kase.reports.first&.id)
     end
 
@@ -131,7 +131,7 @@ class FdChatTest < ActionDispatch::IntegrationTest
     Fd::CaseChat.create!(case_id: @kase.id, author_user_id: "UME", body: "nice :sho:",
       source_app: "fire_engine")
 
-    answering({ "sho" => "https://emoji.test/sho.png" }) do
+    stub_emoji({ "sho" => "https://emoji.test/sho.png" }) do
       get fd_case_chat_log_path(@kase, thread: @kase.reports.first&.id)
     end
 
@@ -142,7 +142,7 @@ class FdChatTest < ActionDispatch::IntegrationTest
     Fd::CaseChat.create!(case_id: @kase.id, author_user_id: "UME", body: "nice :nope:",
       source_app: "fire_engine")
 
-    answering({}) do
+    stub_emoji({}) do
       get fd_case_chat_log_path(@kase, thread: @kase.reports.first&.id)
     end
 
@@ -256,7 +256,7 @@ class FdChatTest < ActionDispatch::IntegrationTest
     assert_match(/nobody to reply to/, flash[:alert])
   end
 
-  def with_a_reporter
+  def create_reporter_conversation
     reporter = Fd::Member.first.user_id
     report = Fd::CaseReport.create!(case_id: @kase.id, reporter_user_id: reporter,
       is_anonymous: false, body: "look at this", source_app: "relay", received_at: 2.days.ago)
@@ -265,7 +265,7 @@ class FdChatTest < ActionDispatch::IntegrationTest
   end
 
   test "a marked message typed at the team endpoint goes to the reporter, signed" do
-    with_a_reporter
+    create_reporter_conversation
     post fd_case_chats_path(@kase), params: { body: "?we are looking at it" },
       as: :turbo_stream
 
@@ -277,7 +277,7 @@ class FdChatTest < ActionDispatch::IntegrationTest
   end
 
   test "the tilde takes your name off a reply typed at the team endpoint" do
-    with_a_reporter
+    create_reporter_conversation
     post fd_case_chats_path(@kase), params: { body: "~?we are looking at it" },
       as: :turbo_stream
 
@@ -292,7 +292,7 @@ class FdChatTest < ActionDispatch::IntegrationTest
   end
 
   test "the reply endpoint signs by default and takes the anon flag" do
-    with_a_reporter
+    create_reporter_conversation
     post fd_case_replies_path(@kase), params: { body: "we are on it" }, as: :turbo_stream
     assert_equal "signed", Fd::IntakeOutbox.sole.mode
 
@@ -302,11 +302,11 @@ class FdChatTest < ActionDispatch::IntegrationTest
   end
 
   test "somebody who may not reply cannot get there through the team endpoint" do
-    with_a_reporter
-    hand = Account.create!(user_id: "UHAND")
+    create_reporter_conversation
+    restricted_staff = Account.create!(user_id: "UHAND")
     hold_role!("UHAND", "firefighter")
     move_capability!("firefighter", "case.reply", false, by: @me.user_id)
-    sign_in_as(hand)
+    sign_in_as(restricted_staff)
 
     post fd_case_chats_path(@kase), params: { body: "?we are looking at it" }
 
@@ -315,37 +315,37 @@ class FdChatTest < ActionDispatch::IntegrationTest
     assert_not_nil flash[:alert]
   end
 
-  def instead_of(name, answer)
+  def stub_chat(name, result)
     original = Slack::Chat.method(name)
     Slack::Chat.define_singleton_method(name) do |*args, **kwargs|
-      answer.respond_to?(:call) ? answer.call(*args, **kwargs) : answer
+      result.respond_to?(:call) ? result.call(*args, **kwargs) : result
     end
     yield
   ensure
     Slack::Chat.define_singleton_method(name, original)
   end
 
-  def in_the_firehouse
+  def setup_linked_slack
     ENV["INTERNAL_LOG_CHANNEL_ID"] = "C0FIRE"
     Fd::CaseReport.create!(case_id: @kase.id, is_anonymous: true, source_app: "relay",
       received_at: 2.days.ago, forwarded_ts: "1700.0001")
-    Fd::StaffSlack.keep!("UME", token: "xoxp-real", team_id: "T0FIRE", scopes: "chat:write")
+    Fd::StaffSlack.store!("UME", token: "xoxp-real", team_id: "T0FIRE", scopes: "chat:write")
   end
 
-  def say(body = "did we warn them before?")
+  def post_chat(body = "did we warn them before?")
     post fd_case_chats_path(@kase), params: { body: body }, as: :turbo_stream
     Fd::CaseChat.where(case_id: @kase.id).last
   end
 
   test "with slack linked, the message goes out as you and the bot leaves it alone" do
-    in_the_firehouse
+    setup_linked_slack
     sent = nil
-    answer = lambda do |**args|
+    ok_reply = lambda do |**args|
       sent = args
       { "ok" => true, "ts" => "1700.0009" }
     end
 
-    chat = instead_of(:post_message, answer) { say }
+    chat = stub_chat(:post_message, ok_reply) { post_chat }
 
     assert_equal "1700.0009", chat.mirrored_ts
     assert_equal "user", chat.mirrored_as
@@ -354,47 +354,47 @@ class FdChatTest < ActionDispatch::IntegrationTest
     assert_equal "1700.0001", sent[:thread_ts], "it lands in the case thread, not the channel"
     assert_equal "xoxp-real", sent[:token]
     assert_equal "did we warn them before?", sent[:text]
-    assert_not_nil Fd::StaffSlack.held_by("UME").last_used_at
+    assert_not_nil Fd::StaffSlack.active_for("UME").last_used_at
   ensure
     ENV.delete("INTERNAL_LOG_CHANNEL_ID")
   end
 
   test "slack refusing it hands the message back to the bot and says why" do
-    in_the_firehouse
+    setup_linked_slack
     refusal = ->(**) { { "ok" => false, "error" => "not_in_channel" } }
 
-    chat = instead_of(:post_message, refusal) { say }
+    chat = stub_chat(:post_message, refusal) { post_chat }
 
     assert_nil chat.mirrored_ts, "nothing was sent, so nemo still has to carry it"
     assert_nil chat.mirrored_as
-    assert_equal "not_in_channel", Fd::StaffSlack.held_by("UME").last_error
+    assert_equal "not_in_channel", Fd::StaffSlack.active_for("UME").last_error
   ensure
     ENV.delete("INTERNAL_LOG_CHANNEL_ID")
   end
 
   test "a dead token is given up on, not tried again for every message" do
-    in_the_firehouse
-    dead = ->(**) { { "ok" => false, "error" => "token_revoked" } }
+    setup_linked_slack
+    revoked_reply = ->(**) { { "ok" => false, "error" => "token_revoked" } }
 
-    chat = instead_of(:post_message, dead) { say }
+    chat = stub_chat(:post_message, revoked_reply) { post_chat }
 
     assert_nil chat.mirrored_as
-    assert_nil Fd::StaffSlack.held_by("UME"), "it stops claiming messages it cannot send"
+    assert_nil Fd::StaffSlack.active_for("UME"), "it stops claiming messages it cannot send"
     row = Fd::StaffSlack.find_by(staff_user_id: "UME")
-    assert row.given_up?
+    assert row.revoked_by_slack?
     assert_equal "token_revoked", row.last_error
   ensure
     ENV.delete("INTERNAL_LOG_CHANNEL_ID")
   end
 
   test "slack being unreachable hands the message back to the bot" do
-    in_the_firehouse
-    dead = ->(**) { raise Slack::Chat::UnavailableError, "execution expired" }
+    setup_linked_slack
+    unavailable_reply = ->(**) { raise Slack::Chat::UnavailableError, "execution expired" }
 
-    chat = instead_of(:post_message, dead) { say }
+    chat = stub_chat(:post_message, unavailable_reply) { post_chat }
 
     assert_nil chat.mirrored_as
-    assert_match(/execution expired/, Fd::StaffSlack.held_by("UME").last_error)
+    assert_match(/execution expired/, Fd::StaffSlack.active_for("UME").last_error)
   ensure
     ENV.delete("INTERNAL_LOG_CHANNEL_ID")
   end
@@ -404,7 +404,7 @@ class FdChatTest < ActionDispatch::IntegrationTest
     Fd::CaseReport.create!(case_id: @kase.id, is_anonymous: true, source_app: "relay",
       received_at: 2.days.ago, forwarded_ts: "1700.0001")
 
-    chat = instead_of(:post_message, ->(**) { flunk "nothing should be sent" }) { say }
+    chat = stub_chat(:post_message, ->(**) { flunk "nothing should be sent" }) { post_chat }
 
     assert_nil chat.mirrored_as
     assert_nil chat.mirrored_ts
@@ -414,9 +414,9 @@ class FdChatTest < ActionDispatch::IntegrationTest
 
   test "a case with no card in the firehouse is left for the bot" do
     ENV["INTERNAL_LOG_CHANNEL_ID"] = "C0FIRE"
-    Fd::StaffSlack.keep!("UME", token: "xoxp-real", team_id: "T0FIRE", scopes: "chat:write")
+    Fd::StaffSlack.store!("UME", token: "xoxp-real", team_id: "T0FIRE", scopes: "chat:write")
 
-    chat = instead_of(:post_message, ->(**) { flunk "there is no thread to post into" }) { say }
+    chat = stub_chat(:post_message, ->(**) { flunk "there is no thread to post into" }) { post_chat }
 
     assert_nil chat.mirrored_as
   ensure

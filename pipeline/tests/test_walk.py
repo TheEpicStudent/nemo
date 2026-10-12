@@ -96,14 +96,14 @@ OLDER = (date(2026, 1, 1), date(2026, 1, 31))
 
 
 def test_a_window_that_matches_what_it_replaces_may_prune():
-    landed, held = window_totals([(*NEW, 40_000), (*OLD, 39_900)], NEW)
-    assert (landed, held) == (40_000, 39_900)
-    assert supersedes(landed, held)
+    window_rows, other_max_rows = window_totals([(*NEW, 40_000), (*OLD, 39_900)], NEW)
+    assert (window_rows, other_max_rows) == (40_000, 39_900)
+    assert supersedes(window_rows, other_max_rows)
 
 
 def test_a_window_that_collapses_may_not_prune():
-    landed, held = window_totals([(*NEW, 1_200), (*OLD, 40_000)], NEW)
-    assert not supersedes(landed, held)
+    window_rows, other_max_rows = window_totals([(*NEW, 1_200), (*OLD, 40_000)], NEW)
+    assert not supersedes(window_rows, other_max_rows)
 
 
 def test_ordinary_churn_still_prunes():
@@ -112,15 +112,15 @@ def test_ordinary_churn_still_prunes():
 
 
 def test_the_widest_prior_window_is_the_one_to_beat():
-    landed, held = window_totals([(*NEW, 30_000), (*OLD, 12_000), (*OLDER, 40_000)], NEW)
-    assert held == 40_000
-    assert not supersedes(landed, held)
+    window_rows, other_max_rows = window_totals([(*NEW, 30_000), (*OLD, 12_000), (*OLDER, 40_000)], NEW)
+    assert other_max_rows == 40_000
+    assert not supersedes(window_rows, other_max_rows)
 
 
 def test_a_first_ever_window_has_nothing_to_replace():
-    landed, held = window_totals([(*NEW, 12)], NEW)
-    assert (landed, held) == (12, 0)
-    assert supersedes(landed, held)
+    window_rows, other_max_rows = window_totals([(*NEW, 12)], NEW)
+    assert (window_rows, other_max_rows) == (12, 0)
+    assert supersedes(window_rows, other_max_rows)
 
 
 def test_a_short_window_keeps_its_cursor_so_the_next_run_resumes():

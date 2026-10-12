@@ -1,24 +1,24 @@
 module Fd
   class OutgoingFile
-    ON_ITS_WAY = "sending".freeze
+    SENDING_NOTE = "sending".freeze
 
     def self.queued_on(row)
-      Array(row.files).map { |held| new(held) }
+      Array(row.files).map { |file| new(file) }
     end
 
-    def initialize(held)
-      @held = held || {}
+    def initialize(file)
+      @file = file || {}
     end
 
-    def shown_name
-      @held["name"].presence || "attachment"
+    def display_name
+      @file["name"].presence || "attachment"
     end
 
     def note
-      ON_ITS_WAY
+      SENDING_NOTE
     end
 
-    def kept?
+    def stored?
       false
     end
 

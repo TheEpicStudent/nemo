@@ -21,7 +21,7 @@ FIELDS = (
 
 COLUMNS = ", ".join(FIELDS)
 
-STANDING = f"""
+ACTIVE_GUARD = f"""
 SELECT {COLUMNS} FROM fd.member_guards
 WHERE subject_id = %s AND kind = %s
   AND coalesce(channel_id, '') = coalesce(%s, '')
@@ -41,7 +41,7 @@ ORDER BY opened_at, id
 """
 
 
-def seen(row):
+def row_to_guard(row):
     return dict(zip(FIELDS, row)) if row else None
 
 
@@ -50,15 +50,15 @@ def enforceable(type_key):
 
 
 def active_guard(conn, subject_id, kind, channel_id=None):
-    return seen(conn.execute(STANDING, (subject_id, kind, channel_id)).fetchone())
+    return row_to_guard(conn.execute(ACTIVE_GUARD, (subject_id, kind, channel_id)).fetchone())
 
 
 def for_member(conn, subject_id):
-    return [seen(row) for row in conn.execute(FOR_MEMBER, (subject_id,)).fetchall()]
+    return [row_to_guard(row) for row in conn.execute(FOR_MEMBER, (subject_id,)).fetchall()]
 
 
 def on_case(conn, case_id):
-    return [seen(row) for row in conn.execute(ON_CASE, (case_id,)).fetchall()]
+    return [row_to_guard(row) for row in conn.execute(ON_CASE, (case_id,)).fetchall()]
 
 
 def for_action(conn, type_key, subject_id, channel_id=None):
@@ -72,25 +72,25 @@ def for_action(conn, type_key, subject_id, channel_id=None):
 
 def settle(conn, type_key, subject_id, case_id=None, channel_id=None):
     if not enforceable(type_key):
-        return {"enforceable": False, "found": None, "reads": UNGUARDED, "case_id": case_id}
+        return {"enforceable": False, "guard": None, "reads": UNGUARDED, "case_id": case_id}
     if not subject_id:
-        return {"enforceable": True, "found": None, "reads": UNGUARDED, "case_id": case_id}
+        return {"enforceable": True, "guard": None, "reads": UNGUARDED, "case_id": case_id}
 
-    found = for_action(conn, type_key, subject_id, channel_id)
+    existing_guard = for_action(conn, type_key, subject_id, channel_id)
     return {
         "enforceable": True,
-        "found": found,
-        "reads": reads(found, case_id),
+        "guard": existing_guard,
+        "reads": reads(existing_guard, case_id),
         "case_id": case_id,
     }
 
 
-def reads(found, case_id=None):
-    if found is None:
+def reads(guard, case_id=None):
+    if guard is None:
         return UNGUARDED
-    if found["case_id"] is None:
+    if guard["case_id"] is None:
         return ORPHANED
-    if case_id is not None and found["case_id"] == case_id:
+    if case_id is not None and guard["case_id"] == case_id:
         return HERE
     return ELSEWHERE
 
@@ -151,13 +151,13 @@ def attach(conn, guard_id, case_id, by):
     return guard_id
 
 
-def run_until(conn, guard_id, expires_at, was, by):
+def run_until(conn, guard_id, expires_at, previous_expires_at, by):
     row = conn.execute(RUN_UNTIL, (expires_at, guard_id)).fetchone()
     if row is None:
         return None
 
     audit.record(conn, "member_guard", guard_id, "extended", by,
-                 before={"expires_at": str(was) if was else None},
+                 before={"expires_at": str(previous_expires_at) if previous_expires_at else None},
                  after={"expires_at": str(expires_at) if expires_at else None})
     return guard_id
 
@@ -172,12 +172,12 @@ def settled(conn, action_id, values, active_guard, by):
     if not active_guard.get("enforceable"):
         return None
 
-    found = active_guard.get("found")
+    existing_guard = active_guard.get("guard")
     case_id = active_guard.get("case_id")
-    chose = values.get("settle") or action.RECORD
+    choice = values.get("settle") or action.RECORD
     expires_at = action.expiry(values)
 
-    if found is None:
+    if existing_guard is None:
         guard_id = open_guard(
             conn,
             action.guard_kind(values["type_key"]),
@@ -190,12 +190,12 @@ def settled(conn, action_id, values, active_guard, by):
             case_id=case_id,
             expires_at=expires_at,
         )
-    elif chose == action.ADOPT:
-        guard_id = attach(conn, found["id"], case_id, by)
-    elif chose == action.EXTEND:
-        guard_id = run_until(conn, found["id"], expires_at, found.get("expires_at"), by)
+    elif choice == action.ADOPT:
+        guard_id = attach(conn, existing_guard["id"], case_id, by)
+    elif choice == action.EXTEND:
+        guard_id = run_until(conn, existing_guard["id"], expires_at, existing_guard.get("expires_at"), by)
     elif active_guard.get("reads") == HERE:
-        guard_id = found["id"]
+        guard_id = existing_guard["id"]
     else:
         guard_id = None
 
@@ -218,7 +218,7 @@ WHERE state = 'live' AND enforcement_status = 'pending' AND enforced_by = 'nemo'
 ORDER BY opened_at LIMIT 20
 """
 
-HOLDING = """
+MARK_ENFORCED = """
 UPDATE fd.member_guards
 SET enforcement_status = 'held', attempts = 0, last_error = NULL, updated_at = now()
 WHERE id = %s AND enforcement_status <> 'held'
@@ -247,7 +247,7 @@ WHERE guard_id = %s AND verb = %s AND at > now() - %s::interval
 WATCHED = ("id", "kind", "subject_id", "channel_id", "reason", "expires_at",
            "enforcement_status", "enforced_by")
 
-WANTED = ("id", "kind", "subject_id", "channel_id", "reason", "expires_at")
+GUARD_FIELDS = ("id", "kind", "subject_id", "channel_id", "reason", "expires_at")
 
 _shushes = {}
 _bans = {}
@@ -289,11 +289,11 @@ def banned(subject_id, channel_id):
 
 
 def unenforced(conn):
-    return [dict(zip(WANTED, row)) for row in conn.execute(UNENFORCED).fetchall()]
+    return [dict(zip(GUARD_FIELDS, row)) for row in conn.execute(UNENFORCED).fetchall()]
 
 
-def holding(conn, guard_id):
-    return conn.execute(HOLDING, (guard_id,)).fetchone() is not None
+def mark_enforced(conn, guard_id):
+    return conn.execute(MARK_ENFORCED, (guard_id,)).fetchone() is not None
 
 
 def dropped(conn, guard_id, why):
@@ -394,16 +394,16 @@ LIFTED_BY_HAND = "somebody lifted it"
 
 
 def lifted_not_notified(conn, within):
-    return [dict(zip(WANTED, row)) for row in conn.execute(LIFTED_NOT_NOTIFIED, (within,)).fetchall()]
+    return [dict(zip(GUARD_FIELDS, row)) for row in conn.execute(LIFTED_NOT_NOTIFIED, (within,)).fetchall()]
 
 
 def lapsed(conn):
-    return [dict(zip(WANTED, row)) for row in conn.execute(LAPSED).fetchall()]
+    return [dict(zip(GUARD_FIELDS, row)) for row in conn.execute(LAPSED).fetchall()]
 
 
 def dropped_awhile(conn):
     return [
-        dict(zip(WANTED, row))
+        dict(zip(GUARD_FIELDS, row))
         for row in conn.execute(DROPPED_AWHILE, (BACKOFF_CAP,)).fetchall()
     ]
 
@@ -413,19 +413,19 @@ def undone_in_slack(kind):
 
 
 def lift(conn, guard_id, by, why, kind=None):
-    waiting = undone_in_slack(kind)
-    sql = START_LIFTING if waiting else LET_GO
+    needs_slack_undo = undone_in_slack(kind)
+    sql = START_LIFTING if needs_slack_undo else LET_GO
     row = conn.execute(sql, (by, why, guard_id)).fetchone()
     if row is None:
         return False
 
-    landed = "lifting" if waiting else "lifted"
+    new_state = "lifting" if needs_slack_undo else "lifted"
     audit.record(conn, "member_guard", guard_id, "lifted", by,
-                 before={"state": "live"}, after={"state": landed, "lift_reason": why})
+                 before={"state": "live"}, after={"state": new_state, "lift_reason": why})
     return True
 
 
-GUARD_STILL_WANTED = """
+GUARD_TO_LIFT = """
 SELECT g.id, g.kind
 FROM fd.member_guards g
 JOIN fd.actions a ON a.guard_id = g.id
@@ -437,7 +437,7 @@ WHERE a.id = %s AND g.state = 'live'
 
 
 def lift_for_action(conn, action_id, by, why):
-    row = conn.execute(GUARD_STILL_WANTED, (action_id,)).fetchone()
+    row = conn.execute(GUARD_TO_LIFT, (action_id,)).fetchone()
     if row is None:
         return None
 
@@ -450,14 +450,14 @@ def lift_done(conn, guard_id):
 
 
 def still_lifting(conn):
-    return [dict(zip(WANTED, row)) for row in conn.execute(STILL_LIFTING).fetchall()]
+    return [dict(zip(GUARD_FIELDS, row)) for row in conn.execute(STILL_LIFTING).fetchall()]
 
 
 ENDING = "ending"
 
 
 def ending_not_notified(conn, within):
-    fields = (*WANTED, "case_id")
+    fields = (*GUARD_FIELDS, "case_id")
     return [
         dict(zip(fields, row))
         for row in conn.execute(ENDING_NOT_NOTIFIED, (within, ENDING)).fetchall()

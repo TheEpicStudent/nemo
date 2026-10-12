@@ -7,7 +7,7 @@ module Analytics
 
       def at(offset) = shares[offset]
 
-      def partial?(ladder) = last_filled_index.to_i < ladder.length - 1
+      def partial?(day_offsets) = last_filled_index.to_i < day_offsets.length - 1
     end
 
     def readonly?
@@ -27,17 +27,17 @@ module Analytics
         .limit(cohorts).pluck(:cohort_month).sort
       return [] if months.empty?
 
-      ladder = offsets
-      held = where(cohort_month: months, observable: true)
+      day_offsets = offsets
+      rows_by_month = where(cohort_month: months, observable: true)
         .pluck(:cohort_month, :day_offset, :still_posting_share, :members)
         .group_by(&:first)
       months.filter_map do |month|
-        seen = held[month] || []
-        next if seen.length < 2
+        rows = rows_by_month[month] || []
+        next if rows.length < 2
 
-        share = seen.to_h { |_, offset, value, _| [offset, value&.to_f] }
-        Curve.new(cohort_month: month, members: seen.first.fourth.to_i,
-          shares: ladder.map { |offset| share[offset] })
+        share = rows.to_h { |_, offset, value, _| [offset, value&.to_f] }
+        Curve.new(cohort_month: month, members: rows.first.fourth.to_i,
+          shares: day_offsets.map { |offset| share[offset] })
       end
     end
   end

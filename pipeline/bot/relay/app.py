@@ -5,9 +5,9 @@ from slack_bolt import App
 from bot.relay import dm
 
 
-def build(on_taken=None):
+def build(on_handoff=None):
     app = App(token=os.environ["RELAY_BOT_TOKEN"], raise_error_for_unhandled_request=False)
-    dm.register(app, on_taken)
+    dm.register(app, on_handoff)
     return app
 
 

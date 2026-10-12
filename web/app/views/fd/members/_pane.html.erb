@@ -12,7 +12,7 @@
     </nav>
 
     <%= form_with url: fd_members_path, method: :get, class: "queue-tools" do %>
-      <% query.picked.each do |key, value| %>
+      <% query.filter_params.each do |key, value| %>
         <%= hidden_field_tag key, value, id: nil %>
       <% end %>
       <label class="visually-hidden" for="pane-member-filter">Find a member</label>

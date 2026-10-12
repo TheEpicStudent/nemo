@@ -22,23 +22,23 @@
           </tr>
         </thead>
         <tbody>
-          <% @rows.each do |asked| %>
+          <% @rows.each do |access_request| %>
             <tr>
               <td>
                 <span class="row-name">
-                  <%= face(asked.app.owner_user_id) %>
-                  <b><%= asked.app.name %></b>
+                  <%= avatar(access_request.app.owner_user_id) %>
+                  <b><%= access_request.app.name %></b>
                 </span>
               </td>
-              <td class="sub"><%= person_name(asked.app.owner_user_id) %></td>
-              <td><%= access_state_chip(asked.state) %></td>
-              <td class="sub"><%= asked.decided_by ? person_name(asked.decided_by) : "" %></td>
+              <td class="sub"><%= person_name(access_request.app.owner_user_id) %></td>
+              <td><%= access_state_chip(access_request.state) %></td>
+              <td class="sub"><%= access_request.decided_by ? person_name(access_request.decided_by) : "" %></td>
               <td class="col-date">
-                <%= time_ago_in_words(asked.decided_at || asked.created_at) %> ago
+                <%= time_ago_in_words(access_request.decided_at || access_request.created_at) %> ago
               </td>
               <td class="col-btn">
-                <% if asked.pending? %>
-                  <button type="button" class="btn btn-sm" data-modal-open="settle-<%= asked.id %>" aria-haspopup="dialog">Review</button>
+                <% if access_request.pending? %>
+                  <button type="button" class="btn btn-sm" data-modal-open="settle-<%= access_request.id %>" aria-haspopup="dialog">Review</button>
                 <% end %>
               </td>
             </tr>
@@ -53,6 +53,6 @@
   <% end %>
 </div>
 
-<% @rows.select(&:pending?).each do |asked| %>
-  <%= render "settings/requests/settle", asked: asked %>
+<% @rows.select(&:pending?).each do |access_request| %>
+  <%= render "settings/requests/settle", access_request: access_request %>
 <% end %>

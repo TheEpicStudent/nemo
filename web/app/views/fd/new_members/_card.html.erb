@@ -1,7 +1,7 @@
 <%= turbo_frame_tag "new-member-card", target: "_top" do %>
   <div class="new-member-card">
     <div class="new-member-head">
-      <%= face(row.user_id) %>
+      <%= avatar(row.user_id) %>
       <span class="two-line">
         <%= link_to fd_member_path(row.user_id), class: "lnk" do %>
           <b><%= row.name || row.user_id %></b>

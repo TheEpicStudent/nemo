@@ -1,0 +1,31 @@
+<%= form_with url: fd_audit_path, method: :get, class: "audit-query",
+      data: { controller: "audit-query", turbo_action: "advance",
+              audit_query_keys_value: audit_query_keys(@query).to_json,
+              audit_query_choices_value: audit_query_choices.to_json,
+              audit_query_people_value: audit_query_people(@rows).to_json,
+              audit_query_member_url_value: fd_member_search_path,
+              audit_query_channel_url_value: fd_channel_search_path } do %>
+  <% @query.to_params.except("q", "before_at", "before_id").each do |key, value| %>
+    <%= hidden_field_tag key, value, id: nil %>
+  <% end %>
+  <%= hidden_field_tag :q, @query.term, id: nil %>
+  <div class="audit-qbar" data-action="click->audit-query#focus">
+    <%= audit_icon("search") %>
+    <% @query.terms.each do |term| %>
+      <% key, value = audit_token_parts(term) %>
+      <span class="audit-token">
+        <% if key %><span class="audit-token-key"><%= key %>:</span><% end %>
+        <span class="audit-token-value"><%= value %></span>
+        <%= link_to fd_audit_path(@query.without_params(term)), class: "audit-token-remove",
+              aria: { label: "Remove #{term.label}" }, data: { audit_query_target: "remove" } do %>
+          <%= audit_icon("x", size: 12) %>
+        <% end %>
+      </span>
+    <% end %>
+    <%= text_field_tag :add, nil, id: "audit_query_add", class: "audit-qinput", autocomplete: "off",
+          spellcheck: false, aria: { label: "Search the audit log" },
+          placeholder: @query.terms.many? ? "Add filter" : "about:@handle  ip:  network:vpn  action:  or full text",
+          data: { audit_query_target: "input", action: "input->audit-query#suggest keydown->audit-query#key blur->audit-query#close" } %>
+  </div>
+  <div class="audit-suggest" role="listbox" hidden data-audit-query-target="list"></div>
+<% end %>

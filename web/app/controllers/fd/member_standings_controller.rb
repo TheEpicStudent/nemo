@@ -7,7 +7,7 @@ module Fd
       guards = MemberGuard.worst_first(MemberGuard.standing_on(user_id))
 
       render partial: "fd/members/standing", layout: false, locals: {
-        user_id: user_id, guards: guards, names: Names.for(named(guards) + [user_id]),
+        user_id: user_id, guards: guards, names: Names.for(referenced_user_ids(guards) + [user_id]),
         may_guard: current_account.may?("member.guard"),
         may_deactivate: current_account.may?("member.deactivate")
       }
@@ -15,7 +15,7 @@ module Fd
 
     private
 
-    def named(guards)
+    def referenced_user_ids(guards)
       guards.flat_map(&:people_named) + guards.map(&:subject_id)
     end
   end

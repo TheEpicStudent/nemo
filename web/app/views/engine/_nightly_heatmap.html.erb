@@ -4,8 +4,8 @@
 <div class="nights-h">
   <div>Source</div>
   <div class="nights">
-    <% nights.each_with_index do |on, i| %>
-      <span><%= on.strftime("%-d") if (i % 5) == 4 || i == nights.size - 1 %></span>
+    <% nights.each_with_index do |night, i| %>
+      <span><%= night.strftime("%-d") if (i % 5) == 4 || i == nights.size - 1 %></span>
     <% end %>
   </div>
   <div class="align-right">Missed</div>

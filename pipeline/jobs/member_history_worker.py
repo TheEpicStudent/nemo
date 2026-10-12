@@ -17,28 +17,28 @@ DEFAULT_POLL_SECONDS = 1800
 INPUTS = ("member_days", "member_range", "users_list")
 
 
-def inputs_landed(conn):
+def latest_input_at(conn):
     stamps = [settings.last_ok(conn, key) for key in INPUTS]
     return max((stamp for stamp in stamps if stamp is not None), default=None)
 
 
 def prepare_if_new(conn, prepared):
-    landed = inputs_landed(conn)
-    if prepared is not None and (landed is None or landed <= prepared):
+    latest_input = latest_input_at(conn)
+    if prepared is not None and (latest_input is None or latest_input <= prepared):
         return prepared
     queued = prepare_member_history(conn)
     print(f"{WORKER}: prepared the queue for new inputs, {queued} newly queued")
-    return landed
+    return latest_input
 
 
 def drain(conn, progress=None):
     searched = 0
     while True:
         limit = settings.limit(conn, "member_history", "batch")
-        found = search_member_history(conn, limit)
-        if not found:
+        batch_count = search_member_history(conn, limit)
+        if not batch_count:
             return searched
-        searched += found
+        searched += batch_count
         if progress is not None:
             progress(searched)
 

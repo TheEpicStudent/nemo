@@ -21,7 +21,7 @@ function parse(value) {
   return new Date(y, m - 1, d)
 }
 
-const same = (a, b) => a && b && a.getTime() === b.getTime()
+const sameDay = (a, b) => a && b && a.getTime() === b.getTime()
 
 export function rangeLabel(from, to) {
   if (!from || !to) return ""
@@ -33,7 +33,7 @@ export function rangeLabel(from, to) {
 }
 
 export default class extends Controller {
-  static targets = ["start", "end", "trigger", "pop", "say"]
+  static targets = ["start", "end", "trigger", "pop", "label"]
   static values = { min: String, max: String }
 
   connect() {
@@ -49,31 +49,31 @@ export default class extends Controller {
       this.close()
       this.triggerTarget.focus()
     }
-    this.onMove = () => this.place()
+    this.onMove = () => this.position()
   }
 
   disconnect() {
     this.detach()
   }
 
-  get shown() {
+  get isOpen() {
     return this.popTarget.matches(":popover-open")
   }
 
   toggle() {
-    this.shown ? this.close() : this.open()
+    this.isOpen ? this.close() : this.open()
   }
 
   open() {
     this.from = parse(this.startTarget.value)
     this.to = parse(this.endTarget.value)
-    this.picking = false
+    this.selectingEnd = false
     this.hover = null
     const anchor = this.to || this.max || new Date()
     this.view = new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1)
     this.render()
     this.popTarget.showPopover()
-    this.place()
+    this.position()
     this.triggerTarget.setAttribute("aria-expanded", "true")
     document.addEventListener("click", this.onDoc)
     document.addEventListener("keydown", this.onKey)
@@ -82,7 +82,7 @@ export default class extends Controller {
   }
 
   close() {
-    if (!this.shown) return
+    if (!this.isOpen) return
     this.popTarget.hidePopover()
     this.triggerTarget.setAttribute("aria-expanded", "false")
     this.detach()
@@ -95,11 +95,11 @@ export default class extends Controller {
     document.removeEventListener("scroll", this.onMove, true)
   }
 
-  place() {
+  position() {
     const box = this.triggerTarget.getBoundingClientRect()
     const pop = this.popTarget
-    const wide = pop.offsetWidth
-    const left = Math.max(12, Math.min(box.right - wide, window.innerWidth - wide - 12))
+    const popWidth = pop.offsetWidth
+    const left = Math.max(12, Math.min(box.right - popWidth, window.innerWidth - popWidth - 12))
     pop.style.left = `${Math.round(left)}px`
     pop.style.top = `${Math.round(box.bottom + 6)}px`
   }
@@ -110,40 +110,40 @@ export default class extends Controller {
     this.render()
   }
 
-  pick(event) {
+  selectDay(event) {
     const day = parse(event.currentTarget.dataset.day)
     if (!day) return
 
-    if (!this.picking) {
+    if (!this.selectingEnd) {
       this.from = day
       this.to = null
-      this.picking = true
+      this.selectingEnd = true
       this.render()
       return
     }
 
-    this.picking = false
+    this.selectingEnd = false
     if (day < this.from) [this.from, this.to] = [day, this.from]
     else this.to = day
     this.render()
     this.startTarget.value = iso(this.from)
     this.endTarget.value = iso(this.to)
-    if (this.hasSayTarget) this.sayTarget.textContent = rangeLabel(this.from, this.to)
+    if (this.hasLabelTarget) this.labelTarget.textContent = rangeLabel(this.from, this.to)
     this.close()
     this.startTarget.form?.requestSubmit()
   }
 
   preview(event) {
-    if (!this.picking) return
+    if (!this.selectingEnd) return
     const day = parse(event.currentTarget.dataset.day)
-    if (same(day, this.hover)) return
+    if (sameDay(day, this.hover)) return
     this.hover = day
-    this.paint()
+    this.renderSelection()
   }
 
   get span() {
     const a = this.from
-    const b = this.picking ? (this.hover || this.from) : this.to
+    const b = this.selectingEnd ? (this.hover || this.from) : this.to
     if (!a || !b) return [a, a]
     return a <= b ? [a, b] : [b, a]
   }
@@ -162,22 +162,22 @@ export default class extends Controller {
         CHEVRON("m9 18 6-6-6-6")}</button>
       ${months.map((month) => this.month(month)).join("")}
     </div>`
-    this.paint()
+    this.renderSelection()
   }
 
   month(first) {
-    const lead = first.getDay()
-    const start = new Date(first.getFullYear(), first.getMonth(), 1 - lead)
+    const leadingDays = first.getDay()
+    const start = new Date(first.getFullYear(), first.getMonth(), 1 - leadingDays)
     const days = Array.from({ length: 42 }, (_, i) =>
       new Date(start.getFullYear(), start.getMonth(), start.getDate() + i))
     const weeks = days[35].getMonth() === first.getMonth() ? 6 : (days[28].getMonth() === first.getMonth() ? 5 : 4)
 
     const cells = days.slice(0, weeks * 7).map((day) => {
-      const out = day.getMonth() !== first.getMonth()
-      const off = (this.min && day < this.min) || (this.max && day > this.max)
-      return `<button type="button" class="rcal-day${out ? " rcal-out" : ""}" data-day="${iso(day)}"
-        data-dow="${day.getDay()}" ${off ? "disabled" : ""}
-        data-action="click->daterange#pick mouseenter->daterange#preview">${day.getDate()}</button>`
+      const outsideMonth = day.getMonth() !== first.getMonth()
+      const outOfBounds = (this.min && day < this.min) || (this.max && day > this.max)
+      return `<button type="button" class="rcal-day${outsideMonth ? " rcal-out" : ""}" data-day="${iso(day)}"
+        data-dow="${day.getDay()}" ${outOfBounds ? "disabled" : ""}
+        data-action="click->daterange#selectDay mouseenter->daterange#preview">${day.getDate()}</button>`
     }).join("")
 
     return `<div class="rcal-month">
@@ -186,14 +186,14 @@ export default class extends Controller {
     </div>`
   }
 
-  paint() {
+  renderSelection() {
     const [a, b] = this.span
     this.popTarget.querySelectorAll(".rcal-day").forEach((cell) => {
       const day = parse(cell.dataset.day)
-      const out = cell.classList.contains("rcal-out")
-      const inside = !out && a && b && day >= a && day <= b
-      const edgeA = !out && same(day, a)
-      const edgeB = !out && same(day, b)
+      const outsideMonth = cell.classList.contains("rcal-out")
+      const inside = !outsideMonth && a && b && day >= a && day <= b
+      const edgeA = !outsideMonth && sameDay(day, a)
+      const edgeB = !outsideMonth && sameDay(day, b)
       const dow = Number(cell.dataset.dow)
       const first = day.getDate() === 1
       const last = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getDate() === 1

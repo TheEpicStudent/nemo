@@ -1,6 +1,6 @@
 <% person = local_assigns[:person] %>
 <% role = local_assigns[:role] %>
-<% held_scopes = Array(local_assigns[:held_scopes]) %>
+<% granted_scopes = Array(local_assigns[:granted_scopes]) %>
 <% grantable = Authz.keys.reject { |key| Authz.locked?(key) || Authz.every_account?(key) } %>
 <% baselines = Authz.role_names.index_with { |name| Authz.baseline(name) }.merge("" => []) %>
 <%= render layout: "fd/modal", locals: { id: "give-access",
@@ -26,7 +26,7 @@
           <% Authz.grantable_roles.each do |name| %>
             <label data-action="mousedown->deselect#down click->deselect#press">
               <%= radio_button_tag "role", name, role == name, id: nil,
-                    data: { give_access_target: "role", action: "change->give-access#settle" } %>
+                    data: { give_access_target: "role", action: "change->give-access#sync" } %>
               <%= Authz.role_label(name) %>
             </label>
           <% end %>
@@ -38,15 +38,15 @@
         <%= hidden_field_tag :scopes_settled, "1", id: nil %>
         <div class="optlist" data-give-access-target="scopes">
           <% Authz.by_area.each do |area, keys| %>
-            <% here = keys & grantable %>
-            <% next if here.empty? %>
+            <% area_keys = keys & grantable %>
+            <% next if area_keys.empty? %>
             <p class="opt-band" data-give-access-target="area" data-area="<%= area %>">
               <%= area %>
             </p>
-            <% here.each do |key| %>
+            <% area_keys.each do |key| %>
               <label class="opt" data-give-access-target="scope" data-key="<%= key %>"
                      data-area="<%= area %>">
-                <%= check_box_tag "scopes[]", key, held_scopes.include?(key),
+                <%= check_box_tag "scopes[]", key, granted_scopes.include?(key),
                       id: nil, class: "tick" %>
                 <span>
                   <span class="opt-label"><%= Authz.label(key) %></span>
@@ -82,7 +82,7 @@
             form: { class: "contents", data: { turbo_confirm:
               "Take everything back from #{names[person]}?" } } %>
     <% end %>
-    <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Cancel</button>
+    <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
     <%= submit_tag(person ? "Save" : "Give it", class: "btn btn-primary",
           form: "give-access-form") %>
   </div>

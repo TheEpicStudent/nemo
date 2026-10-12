@@ -1,27 +1,27 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["field", "pill", "send", "aim", "anon", "drop"]
+  static targets = ["field", "pill", "send", "recipient", "anon", "drop"]
   static values = { reporter: Boolean, noteUrl: String, replyUrl: String }
 
   connect() {
     this.anonymous = false
-    this.sent = this.sent.bind(this)
-    this.element.addEventListener("turbo:submit-end", this.sent)
-    this.aim(false)
-    this.grow()
+    this.onSubmitEnd = this.onSubmitEnd.bind(this)
+    this.element.addEventListener("turbo:submit-end", this.onSubmitEnd)
+    this.setRecipient(false)
+    this.resizeField()
   }
 
   disconnect() {
-    this.element.removeEventListener("turbo:submit-end", this.sent)
+    this.element.removeEventListener("turbo:submit-end", this.onSubmitEnd)
   }
 
-  sent(event) {
+  onSubmitEnd(event) {
     if (!event.detail?.success) return
 
     this.fieldTarget.value = ""
-    this.aim(false)
-    this.grow()
+    this.setRecipient(false)
+    this.resizeField()
     this.fieldTarget.focus()
   }
 
@@ -30,23 +30,23 @@ export default class extends Controller {
   }
 
   type() {
-    const marks = /^(~?)([?>])\s?/.exec(this.fieldTarget.value)
+    const prefixMatch = /^(~?)([?>])\s?/.exec(this.fieldTarget.value)
 
-    if (marks && this.reporterValue && !this.toReporter) {
-      this.fieldTarget.value = this.fieldTarget.value.slice(marks[0].length)
-      this.aim(true, marks[1] === "~")
+    if (prefixMatch && this.reporterValue && !this.toReporter) {
+      this.fieldTarget.value = this.fieldTarget.value.slice(prefixMatch[0].length)
+      this.setRecipient(true, prefixMatch[1] === "~")
     } else if (this.toReporter && !this.anonymous && /^~\s?/.test(this.fieldTarget.value)) {
       this.fieldTarget.value = this.fieldTarget.value.replace(/^~\s?/, "")
-      this.aim(true, true)
+      this.setRecipient(true, true)
     }
 
-    this.grow()
+    this.resizeField()
   }
 
   keys(event) {
     if (event.defaultPrevented) return
 
-    if (event.key === "Enter" && !event.shiftKey && !this.pickingAMention()) {
+    if (event.key === "Enter" && !event.shiftKey && !this.mentionPopupOpen()) {
       event.preventDefault()
       if (!this.sendTarget.disabled && this.fieldTarget.value.trim()) {
         this.element.requestSubmit()
@@ -56,23 +56,23 @@ export default class extends Controller {
 
     if (event.key === "Backspace" && this.toReporter && this.caretAtStart()) {
       event.preventDefault()
-      this.aim(false)
+      this.setRecipient(false)
     }
   }
 
-  drop(event) {
+  clearRecipient(event) {
     event.stopPropagation()
-    this.aim(false)
+    this.setRecipient(false)
     this.fieldTarget.focus()
   }
 
-  aim(atReporter, anonymous = false) {
+  setRecipient(atReporter, anonymous = false) {
     this.toReporter = atReporter
     this.anonymous = atReporter && anonymous
     this.pillTarget.hidden = false
     this.pillTarget.dataset.mode = atReporter ? "reporter" : "team"
     this.dropTarget.hidden = !atReporter
-    this.aimTarget.textContent = atReporter
+    this.recipientTarget.textContent = atReporter
       ? (this.anonymous ? "to reporter, anonymous" : "to reporter, from you")
       : "internal"
     this.anonTarget.value = this.anonymous ? "1" : ""
@@ -80,7 +80,7 @@ export default class extends Controller {
     this.sendTarget.setAttribute("aria-label", atReporter ? "Send to the reporter" : "Send to the team")
   }
 
-  pickingAMention() {
+  mentionPopupOpen() {
     const pop = this.element.querySelector('[data-mention-target="pop"]')
     return pop ? pop.matches(":popover-open") : false
   }
@@ -89,7 +89,7 @@ export default class extends Controller {
     return this.fieldTarget.selectionStart === 0 && this.fieldTarget.selectionEnd === 0
   }
 
-  grow() {
+  resizeField() {
     const field = this.fieldTarget
     field.style.height = "auto"
     field.style.height = `${Math.min(field.scrollHeight, 160)}px`

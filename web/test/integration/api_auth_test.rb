@@ -12,7 +12,7 @@ class ApiAuthTest < ActionDispatch::IntegrationTest
     Current.forget_flags
   end
 
-  def ask(key = @secret, path: api_v1_token_path)
+  def get_with_key(key = @secret, path: api_v1_token_path)
     get path, headers: key ? { "Authorization" => "Bearer #{key}" } : {}
   end
 
@@ -21,7 +21,7 @@ class ApiAuthTest < ActionDispatch::IntegrationTest
   end
 
   test "a live key is told who it is, and never what it is" do
-    ask
+    get_with_key
 
     assert_response :success
     assert_equal ["Toolbox", "UOWNER1", 20], body.values_at("name", "owner_user_id",
@@ -31,14 +31,14 @@ class ApiAuthTest < ActionDispatch::IntegrationTest
   end
 
   test "no header at all is an invalid token, not a crash" do
-    ask(nil)
+    get_with_key(nil)
 
     assert_response :unauthorized
     assert_equal "invalid_token", body["error"]
   end
 
   test "a key nobody minted is refused" do
-    ask("nemo_live_neverissuedatall12")
+    get_with_key("nemo_live_neverissuedatall12")
 
     assert_response :unauthorized
     assert_equal "invalid_token", body["error"]
@@ -53,7 +53,7 @@ class ApiAuthTest < ActionDispatch::IntegrationTest
 
   test "a revoked key says so, so a caller stops retrying" do
     @token.revoke!(by: "UOWNER1")
-    ask
+    get_with_key
 
     assert_response :unauthorized
     assert_equal "revoked_token", body["error"]
@@ -61,7 +61,7 @@ class ApiAuthTest < ActionDispatch::IntegrationTest
 
   test "the whole api is shut while the flag is off, even with a good key" do
     Fd::Flag.set!(:public_api, false, by: "UBOSS")
-    ask
+    get_with_key
 
     assert_response :service_unavailable
     assert_equal "api_off", body["error"]
@@ -70,11 +70,11 @@ class ApiAuthTest < ActionDispatch::IntegrationTest
   test "using a key stamps it, and does not stamp it again on every call" do
     assert_nil @token.last_used_at
 
-    ask
+    get_with_key
     first = @token.reload.last_used_at
     assert_not_nil first
 
-    ask
+    get_with_key
     assert_equal first, @token.reload.last_used_at, "one write a minute, not one a request"
   end
 
@@ -90,7 +90,7 @@ class ApiAuthTest < ActionDispatch::IntegrationTest
 
   test "every refusal answers in json, never a redirect or a page" do
     Fd::Flag.set!(:public_api, false, by: "UBOSS")
-    ask(nil)
+    get_with_key(nil)
 
     assert_equal "application/json", response.media_type
     assert body.key?("message"), "a caller is told what to do about it"

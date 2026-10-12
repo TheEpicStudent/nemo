@@ -1,13 +1,13 @@
 <% if may_community?("analytics.channel.share") %>
   <%= render layout: "shared/dropdown", locals: {
         label: "Set who may read ##{channel.name}", trigger: menu_dots } do %>
-      <% Channels::Audience::KINDS.each do |wanted| %>
+      <% Channels::Audience::KINDS.each do |audience| %>
         <%= button_to admin_channel_path(channel.channel_id), method: :patch,
-              params: { audience: wanted, q: @q.presence }, class: "btn",
-              aria: { current: ("true" if wanted == kind) } do %>
+              params: { audience: audience, q: @q.presence }, class: "btn",
+              aria: { current: ("true" if audience == kind) } do %>
           <span class="menu-item-body">
-            <span class="menu-item-title"><%= wanted.capitalize %></span>
-            <span class="menu-item-note"><%= AdminHelper::AUDIENCE_NOTE.fetch(wanted) %></span>
+            <span class="menu-item-title"><%= audience.capitalize %></span>
+            <span class="menu-item-note"><%= AdminHelper::AUDIENCE_NOTE.fetch(audience) %></span>
           </span>
         <% end %>
       <% end %>
@@ -29,12 +29,12 @@
       <% end %>
       <% if may_community?("analytics.message.show") %>
         <div class="menu-sep"></div>
-        <% shown = @activity.include?(channel.channel_id) %>
+        <% activity_enabled = @activity.include?(channel.channel_id) %>
         <%= button_to activity_admin_channel_path(channel.channel_id), method: :patch,
-              params: { shown: shown ? "off" : "on", q: @q.presence }, class: "btn" do %>
+              params: { shown: activity_enabled ? "off" : "on", q: @q.presence }, class: "btn" do %>
           <span class="menu-item-body">
-            <span class="menu-item-title"><%= shown ? "Stop showing" : "Show" %> how posts did</span>
-            <span class="menu-item-note"><%= shown ? "authors lose the \"view message activity\" shortcut here" :
+            <span class="menu-item-title"><%= activity_enabled ? "Stop showing" : "Show" %> how posts did</span>
+            <span class="menu-item-note"><%= activity_enabled ? "authors lose the \"view message activity\" shortcut here" :
                                                 "authors may ask nemo how their own post did" %></span>
           </span>
         <% end %>
@@ -45,7 +45,7 @@
         <% people.each do |grant| %>
           <span class="btn">
             <span class="who">
-              <%= face(grant.user_id) %>
+              <%= avatar(grant.user_id) %>
               <span class="two-line">
                 <b><%= person_name(grant.user_id) %></b>
                 <span>named by <%= person_name(grant.granted_by) %>,

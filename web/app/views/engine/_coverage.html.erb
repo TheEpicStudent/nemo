@@ -8,7 +8,7 @@
       <div class="card-head">
         <div>
           <h2 class="card-title">What the day count is holding up</h2>
-          <p class="card-sub"><%= pluralize(held, "day") %> held</p>
+          <p class="card-sub"><%= pluralize(consecutive_days, "day") %> held</p>
         </div>
       </div>
       <div class="scroll">
@@ -22,11 +22,11 @@
             </tr>
           </thead>
           <tbody>
-            <% EngineController::HOLDING.each do |label, needed| %>
-              <% share = needed.positive? ? [held.to_f / needed * 100, 100].min : 0 %>
+            <% EngineController::RETENTION_DAY_REQUIREMENTS.each do |label, required_days| %>
+              <% share = required_days.positive? ? [consecutive_days.to_f / required_days * 100, 100].min : 0 %>
               <tr>
                 <td><%= label %></td>
-                <td class="col-num"><%= pluralize(needed, "day") %></td>
+                <td class="col-num"><%= pluralize(required_days, "day") %></td>
                 <td class="cell-share">
                   <div class="inbar <%= "soft" if share < 50 %>">
                     <span><i style="width: <%= [share, 2].max.round %>%"></i></span>
@@ -34,7 +34,7 @@
                   </div>
                 </td>
                 <td class="col-num">
-                  <%= held >= needed ? "Now" : (Date.current + (needed - held)).strftime("~%-d %b %Y") %>
+                  <%= consecutive_days >= required_days ? "Now" : (Date.current + (required_days - consecutive_days)).strftime("~%-d %b %Y") %>
                 </td>
               </tr>
             <% end %>

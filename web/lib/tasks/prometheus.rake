@@ -6,10 +6,10 @@ namespace :prometheus do
       next
     end
 
-    held = Prometheus::Mirror.reconcile_all
-    abort "prometheus: the reconcile did not finish, nothing changed" unless held
+    appointment_count = Prometheus::Mirror.reconcile_all
+    abort "prometheus: the reconcile did not finish, nothing changed" unless appointment_count
 
     people = Prometheus::Appointment.distinct.count(:user_id)
-    puts "prometheus: #{held} appointments across #{people} people"
+    puts "prometheus: #{appointment_count} appointments across #{people} people"
   end
 end

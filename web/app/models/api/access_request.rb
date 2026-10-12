@@ -31,7 +31,7 @@ module Api
     end
 
     def self.ask!(app, reason:)
-      raise AlreadyError if open_for?(app.id) || Approval.held?(app.id)
+      raise AlreadyError if open_for?(app.id) || Approval.active?(app.id)
 
       text = reason.to_s.strip
       raise TooThinError if text.length < SHORTEST_REASON
@@ -46,7 +46,7 @@ module Api
 
     def approve!(by:, note: nil)
       transaction do
-        settle!(APPROVED, by, note)
+        record_decision!(APPROVED, by, note)
         Approval.grant!(app_id, by: by)
         Event.record!("access_approved", actor: by, subject: app.name,
           detail: "for #{app.owner_user_id}")
@@ -56,7 +56,7 @@ module Api
 
     def decline!(by:, note: nil)
       transaction do
-        settle!(DECLINED, by, note)
+        record_decision!(DECLINED, by, note)
         Event.record!("access_declined", actor: by, subject: app.name,
           detail: "for #{app.owner_user_id}")
       end
@@ -64,16 +64,16 @@ module Api
     end
 
     def withdraw!
-      settle!(WITHDRAWN, app.owner_user_id, nil)
+      record_decision!(WITHDRAWN, app.owner_user_id, nil)
       self
     end
 
     private
 
-    def settle!(to, by, note)
+    def record_decision!(new_state, by, note)
       raise AlreadyError unless pending?
 
-      update!(state: to, decided_by: by, decided_at: Time.current,
+      update!(state: new_state, decided_by: by, decided_at: Time.current,
         note: note.to_s.strip.presence)
     end
   end

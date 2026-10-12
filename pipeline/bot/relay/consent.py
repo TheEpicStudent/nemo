@@ -42,35 +42,35 @@ def forwarded(channels):
     return f"{counted}, from {where}"
 
 
-def build_blocks(bodies=None, files=0, channels=(), held=None):
+def build_blocks(bodies=None, files=0, channels=(), saved_choice=None):
     built = [{"type": "section", "text": {"type": "mrkdwn", "text": READY}}]
 
-    coming = []
+    summary_parts = []
     shared = forwarded(list(channels))
     if shared:
-        coming.append(f"↪️ {shared}")
+        summary_parts.append(f"↪️ {shared}")
     if files:
         plural = "s" if files != 1 else ""
-        coming.append(f"📎 {files} file{plural}")
+        summary_parts.append(f"📎 {files} file{plural}")
 
-    if coming:
+    if summary_parts:
         built.append(
             {
                 "type": "context",
-                "elements": [{"type": "mrkdwn", "text": "  ·  ".join(coming)}],
+                "elements": [{"type": "mrkdwn", "text": "  ·  ".join(summary_parts)}],
             }
         )
 
-    ticked = {
+    identity_checkbox = {
         "type": "checkboxes",
         "action_id": ACTION,
         "options": [IDENTITY_OPTION],
     }
-    if held == ANONYMOUS:
-        ticked["initial_options"] = [IDENTITY_OPTION]
+    if saved_choice == ANONYMOUS:
+        identity_checkbox["initial_options"] = [IDENTITY_OPTION]
 
     built += [
-        {"type": "actions", "block_id": BLOCK, "elements": [ticked]},
+        {"type": "actions", "block_id": BLOCK, "elements": [identity_checkbox]},
         {
             "type": "actions",
             "block_id": "intake_send",
@@ -94,16 +94,16 @@ def build_blocks(bodies=None, files=0, channels=(), held=None):
 
 
 def submitted_values(state):
-    held = (state or {}).get("values", {}).get(BLOCK, {})
-    if ACTION not in held:
+    block_values = (state or {}).get("values", {}).get(BLOCK, {})
+    if ACTION not in block_values:
         return None
 
-    ticked = held[ACTION].get("selected_options") or []
-    return ANONYMOUS if any(one.get("value") == ANONYMOUSLY for one in ticked) else NAMED
+    checked_options = block_values[ACTION].get("selected_options") or []
+    return ANONYMOUS if any(one.get("value") == ANONYMOUSLY for one in checked_options) else NAMED
 
 
-def chosen(state, held=None):
-    return submitted_values(state) or held or NAMED
+def resolve_choice(state, saved_choice=None):
+    return submitted_values(state) or saved_choice or NAMED
 
 
 DROPPED = "Nothing was sent. Say more here whenever you want, and I will ask again."

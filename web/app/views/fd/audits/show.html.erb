@@ -1,20 +1,21 @@
-<% content_for :page_title, "Audit" %>
+<% content_for :page_title, "Audit log" %>
 
 <% content_for :head_actions do %>
-  <%= form_with url: fd_audit_path, method: :get, class: "queue-search audit-search",
-        data: { controller: "live-search", action: "input->live-search#go",
-                turbo_action: "advance" } do %>
-    <% @query.to_params.except("q", "before_at", "before_id").each do |key, value| %>
-      <%= hidden_field_tag key, value, id: nil %>
-    <% end %>
-    <%= search_field_tag :q, @query.term,
-          placeholder: "an address, an email, a handle, or ip: about: did: in:",
-          class: "queue-search-input", autocomplete: "off",
-          aria: { label: "Search the record" } %>
+  <%= link_to fd_audit_path(@query.live_toggle_params), class: "btn", aria: { pressed: @query.live? } do %>
+    <span class="audit-live-dot" aria-hidden="true"></span>Live
   <% end %>
-
+  <%= render "saved" %>
+  <button type="button" class="btn" data-controller="audit-csv"
+          data-audit-csv-url-value="<%= fd_audit_export_path(@query.to_params) %>"
+          data-action="audit-csv#copy">
+    <%= audit_icon("copy") %><span data-audit-csv-target="label">Copy CSV</span>
+  </button>
   <button type="button" class="btn btn-only" data-modal-open="audit-help"
-          aria-haspopup="dialog" aria-label="Audit help">?</button>
+          aria-haspopup="dialog" aria-label="Query syntax">?</button>
+<% end %>
+
+<% content_for :page_controls do %>
+  <%= render "query_bar" %>
 <% end %>
 
 <% content_for :page_tabs do %>
@@ -30,86 +31,38 @@
 <div class="stack">
   <%= render "filters" %>
 
-  <% if @query.terms.any? %>
-    <div class="chiprow audit-chips">
-      <% @query.terms.each do |term| %>
-        <%= link_to fd_audit_path(@query.without_params(term)), class: "chip chip-on" do %>
-          <%= term.label %> <span aria-hidden="true">&times;</span>
-        <% end %>
-      <% end %>
-      <%= link_to "Clear", fd_audit_path(@query.placed), class: "chip" %>
-    </div>
-  <% end %>
-
   <% if @rows.any? || @groups.any? %>
     <turbo-frame id="audit-histogram" class="audit-histogram" loading="lazy"
                  src="<%= fd_audit_histogram_path(@query.to_params) %>"></turbo-frame>
   <% end %>
 
-  <% if @groups.any? %>
-    <%= render "groups" %>
-  <% elsif @rows.any? %>
-    <div class="card card-flush">
-      <div class="scroll">
-        <table class="data-table audit-table">
-          <colgroup>
-            <col style="width: 78px">
-            <col style="width: 20%">
-            <col>
-            <col style="width: 20%">
-            <col style="width: 188px">
-          </colgroup>
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Who</th>
-              <th>What</th>
-              <th>About</th>
-              <th class="audit-tail-head">Slack</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= render partial: "row", collection: @rows, as: :row %>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="pagebar">
-      <% if @query.back_params %>
-        <%= link_to "Back", fd_audit_path(@query.back_params), class: "btn" %>
-      <% else %>
-        <span class="btn is-off">Back</span>
-      <% end %>
-      <span class="pager-at"><%= @query.summary %></span>
-      <% if @query.next_params %>
-        <%= link_to "Next", fd_audit_path(@query.next_params), class: "btn" %>
-      <% else %>
-        <span class="btn is-off">Next</span>
-      <% end %>
-      <%= render "jump" %>
-    </div>
-  <% else %>
-    <div class="empty">
-      <p class="empty-title"><%= @query.groups_slow? ? "Too slow to group, narrow the range" : @query.empty_note %></p>
-    </div>
+  <% live = @query.live? && @query.newest_page? %>
+  <% live_watch = live ? @query.live_watch : nil %>
+  <% if live_watch %>
+    <%= turbo_stream_from Fd::AuditLiveBroadcast::STREAM %>
   <% end %>
+  <turbo-frame id="audit-results" class="stack" target="_top"
+    <%= tag.attributes(data: { controller: ("audit-live" if live),
+                               audit_live_url_value: (fd_audit_rows_path(@query.to_params) if live),
+                               audit_live_watch_value: live_watch&.to_json }) %>>
+    <%= render "results" %>
+  </turbo-frame>
 </div>
 
-<%= render layout: "fd/modal", locals: { id: "audit-help", title: "Audit Help",
+<%= render layout: "fd/modal", locals: { id: "audit-help", title: "Query syntax",
       open: false } do %>
   <div class="modal-body">
     <dl class="audit-help-list">
-      <% Fd::AuditQuery::HELP.each do |term, what| %>
+      <% Fd::AuditQuery::HELP.each do |term, description| %>
         <dt><button type="button" class="chip audit-help-try"
                     data-controller="fill-search" data-action="click->fill-search#use"
                     data-fill-search-term-value="<%= term %>"><%= term %></button></dt>
-        <dd><%= what %></dd>
+        <dd><%= description %></dd>
       <% end %>
     </dl>
   </div>
   <div class="modal-foot">
-    <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Close</button>
+    <button type="button" class="btn btn-ghost" data-action="click->modal#close">Close</button>
   </div>
 <% end %>
 

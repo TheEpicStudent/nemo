@@ -6,27 +6,27 @@ module Fd
 
     def create
       kase = Case.find(params[:case_id])
-      wanted = asked_for
+      user_ids = requested_user_ids
 
-      problem = objection(kase, wanted)
-      return redirect_to(fd_case_path(kase), alert: problem) if problem
+      error = validation_error(kase, user_ids)
+      return redirect_to(fd_case_path(kase), alert: error) if error
 
       added = []
-      already = []
+      already_assigned = []
 
       writing do
-        wanted.each do |user_id|
+        user_ids.each do |user_id|
           ActiveRecord::Base.transaction(requires_new: true) do
             assignee = kase.assign!(user_id, by: current_account.user_id)
             audit(assignee, "attached", entity_id: kase.id)
           end
           added << user_id
         rescue ActiveRecord::RecordNotUnique
-          already << user_id
+          already_assigned << user_id
         end
       end
 
-      redirect_to fd_case_path(kase), notice: assigned_notice(added, already)
+      redirect_to fd_case_path(kase), notice: assigned_notice(added, already_assigned)
     end
 
     def destroy
@@ -49,14 +49,14 @@ module Fd
 
     private
 
-    def asked_for
+    def requested_user_ids
       raw = params[:user_ids].presence || [params[:user_id]]
       Array(raw).map { |id| id.to_s.strip.delete_prefix("@").upcase }.reject(&:blank?).uniq
     end
 
-    def objection(kase, wanted)
-      return "say who to assign" if wanted.empty?
-      unless wanted.all? { |id| id.match?(MEMBER_ID) }
+    def validation_error(kase, user_ids)
+      return "say who to assign" if user_ids.empty?
+      unless user_ids.all? { |id| id.match?(MEMBER_ID) }
         return "that does not look like a Slack member id"
       end
       return "case #{kase.id} is already resolved" if kase.resolved?
@@ -64,12 +64,12 @@ module Fd
       nil
     end
 
-    def assigned_notice(added, already)
+    def assigned_notice(added, already_assigned)
       return "everybody you picked was already on this case, nothing changed" if added.empty?
 
-      who = added.map { |id| "@#{id}" }.to_sentence
-      note = "#{who} #{added.many? ? "are" : "is"} now on the case"
-      already.any? ? "#{note}, #{already.size} already there" : note
+      mentions = added.map { |id| "@#{id}" }.to_sentence
+      note = "#{mentions} #{added.many? ? "are" : "is"} now on the case"
+      already_assigned.any? ? "#{note}, #{already_assigned.size} already there" : note
     end
   end
 end

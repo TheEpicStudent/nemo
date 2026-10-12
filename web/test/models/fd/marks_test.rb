@@ -60,14 +60,14 @@ class Fd::MarksTest < ActiveSupport::TestCase
   end
 
   test "when the destination is already known, a bare tilde means anonymous" do
-    read = read("~we are on it", aimed: true)
+    read = read("~we are on it", to_reporter: true)
     assert read.to_reporter?
     assert_not read.signed?
     assert_equal "we are on it", read.body
   end
 
   test "when the destination is already known, plain text is signed" do
-    read = read("we are on it", aimed: true)
+    read = read("we are on it", to_reporter: true)
     assert read.to_reporter?
     assert read.signed?
     assert_equal "we are on it", read.body

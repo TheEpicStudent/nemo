@@ -73,10 +73,10 @@ class FdMemberStandingTest < ActionDispatch::IntegrationTest
   end
 
   test "a role the capability was taken from is not offered the button" do
-    them = hold_role!("UOBS", "firefighter")
+    firefighter = hold_role!("UOBS", "firefighter")
     Authz::Override.create!(role: "firefighter", capability: "member.deactivate",
       allowed: false, changed_by: "UME")
-    sign_in_as(them)
+    sign_in_as(firefighter)
     deactivation
 
     get fd_member_standing_path(WHO)

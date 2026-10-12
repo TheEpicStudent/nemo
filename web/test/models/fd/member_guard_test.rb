@@ -50,26 +50,26 @@ class Fd::MemberGuardTest < ActiveSupport::TestCase
   end
 
   test "settle reads a guard against the case in hand" do
-    mine = make_case
+    current_case = make_case
     other = make_case
     guard = open!
     assert_equal Fd::MemberGuard::ORPHANED,
-      Fd::MemberGuard.settle("shush", "USUB", case_id: mine.id).reads
+      Fd::MemberGuard.evaluate_standing("shush", "USUB", case_id: current_case.id).reads
 
-    guard.attach_to!(mine.id)
-    assert_equal Fd::MemberGuard::HERE,
-      Fd::MemberGuard.settle("shush", "USUB", case_id: mine.id).reads
+    guard.attach_to!(current_case.id)
+    assert_equal Fd::MemberGuard::ON_CASE,
+      Fd::MemberGuard.evaluate_standing("shush", "USUB", case_id: current_case.id).reads
     assert_equal Fd::MemberGuard::ELSEWHERE,
-      Fd::MemberGuard.settle("shush", "USUB", case_id: other.id).reads
+      Fd::MemberGuard.evaluate_standing("shush", "USUB", case_id: other.id).reads
   end
 
   test "settle leaves a record only kind alone and waits for a subject" do
     open!
-    held = Fd::MemberGuard.settle("warning", "USUB", case_id: make_case.id)
-    assert_not held.enforceable?
-    assert_nil held.guard
+    warning_guard = Fd::MemberGuard.evaluate_standing("warning", "USUB", case_id: make_case.id)
+    assert_not warning_guard.enforceable?
+    assert_nil warning_guard.guard
 
-    waiting = Fd::MemberGuard.settle("shush", nil, case_id: make_case.id)
+    waiting = Fd::MemberGuard.evaluate_standing("shush", nil, case_id: make_case.id)
     assert waiting.enforceable?
     assert_nil waiting.guard
   end

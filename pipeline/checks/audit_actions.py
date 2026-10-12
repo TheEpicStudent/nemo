@@ -6,7 +6,7 @@ from lib.paths import ENV_FILE
 
 SUBJECT = "audit_actions"
 RECENT_DAYS = 7
-SHOWN = 20
+LIST_LIMIT = 20
 
 RECORD_SQL = """
 INSERT INTO ingest.quality_result (run_id, subject, assertion, severity, status, observed, expected)
@@ -20,14 +20,14 @@ WHERE at > now() - make_interval(days => %s)
 
 
 def catalogued(conn):
-    seen = [row[0] for row in conn.execute(RECENT_SQL, (RECENT_DAYS,)).fetchall()]
-    missing = audit_actions.unknown(seen)
+    recent_actions = [row[0] for row in conn.execute(RECENT_SQL, (RECENT_DAYS,)).fetchall()]
+    missing = audit_actions.unknown(recent_actions)
     if not missing:
         return ("every recent audit action has a catalogue entry", "pass",
-                f"{len(seen)} action(s) in the last {RECENT_DAYS} days", "0 missing")
-    listed = ", ".join(missing[:SHOWN]) + (f" and {len(missing) - SHOWN} more" if len(missing) > SHOWN else "")
+                f"{len(recent_actions)} action(s) in the last {RECENT_DAYS} days", "0 missing")
+    missing_list = ", ".join(missing[:LIST_LIMIT]) + (f" and {len(missing) - LIST_LIMIT} more" if len(missing) > LIST_LIMIT else "")
     return ("every recent audit action has a catalogue entry", "warn",
-            f"{len(missing)} missing from db/audit_actions.yml: {listed}", "0 missing")
+            f"{len(missing)} missing from db/audit_actions.yml: {missing_list}", "0 missing")
 
 
 CHECKS = (catalogued,)

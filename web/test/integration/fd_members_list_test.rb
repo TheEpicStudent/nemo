@@ -6,20 +6,20 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
   end
 
-  def query(**asked)
-    Fd::MemberQuery.new(asked.transform_keys(&:to_s), actor: @me)
+  def query(**filters)
+    Fd::MemberQuery.new(filters.transform_keys(&:to_s), actor: @me)
   end
 
-  def shown(**asked)
-    query(**asked).rows.map(&:user_id)
+  def user_ids(**filters)
+    query(**filters).rows.map(&:user_id)
   end
 
-  def listed?(user_id, **asked)
-    shown(**asked).include?(user_id)
+  def listed?(user_id, **filters)
+    user_ids(**filters).include?(user_id)
   end
 
-  def row_for(user_id, **asked)
-    query(**asked).rows.find { |row| row.user_id == user_id }
+  def row_for(user_id, **filters)
+    query(**filters).rows.find { |row| row.user_id == user_id }
   end
 
   def act_on(kase, target:, **attrs)
@@ -38,7 +38,7 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
 
     assert_equal "everyone", Fd::MemberQuery.new({}).view
     assert listed?("UHASONE", view: "history")
-    assert_equal ["UHASONE"], shown(q: "UHASONE"), "everyone sorts by messages, so a quiet subject is found by search"
+    assert_equal ["UHASONE"], user_ids(q: "UHASONE"), "everyone sorts by messages, so a quiet subject is found by search"
   end
 
   test "the history view narrows to people conduct work has touched" do
@@ -50,8 +50,8 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
   end
 
   test "somebody only ever logged in another case still belongs here" do
-    theirs = make_case(subject: "USOMEBODY", opened_at: 3.days.ago)
-    theirs.participants.create!(user_id: "UWATCHER", role: "reporter")
+    other_case = make_case(subject: "USOMEBODY", opened_at: 3.days.ago)
+    other_case.participants.create!(user_id: "UWATCHER", role: "reporter")
 
     assert listed?("UWATCHER", view: "history"), "a page of subjects would hide the people conduct work is for"
     assert_equal 0, row_for("UWATCHER", view: "history").actions
@@ -64,16 +64,16 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
 
   test "a row counts every case that named them, and the actions apart" do
     make_case(subject: "UBOTH", opened_at: 5.days.ago)
-    theirs = make_case(subject: "USOMEBODY", opened_at: 3.days.ago)
-    theirs.participants.create!(user_id: "UBOTH", role: "reporter")
+    other_case = make_case(subject: "USOMEBODY", opened_at: 3.days.ago)
+    other_case.participants.create!(user_id: "UBOTH", role: "reporter")
 
     assert_equal [2, 0], numbers_for("UBOTH"),
       "subject of one and logged in another is two cases, no actions"
   end
 
   test "one case that names somebody twice is still one case" do
-    both = make_case(subject: "UTWICE", opened_at: 5.days.ago)
-    both.participants.create!(user_id: "UTWICE", role: "reporter")
+    self_reported_case = make_case(subject: "UTWICE", opened_at: 5.days.ago)
+    self_reported_case.participants.create!(user_id: "UTWICE", role: "reporter")
 
     assert_equal [1, 0], numbers_for("UTWICE"),
       "reporting the case you are the subject of does not make it two cases"
@@ -90,8 +90,8 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
     hold "UENDLESS", expires_at: nil
     hold "ULIFTED", state: "lifted", lifted_at: 1.day.ago, lifted_by: "UME"
 
-    logged = make_case(subject: "ULOGGED", opened_at: 9.days.ago)
-    act_on logged, target: "ULOGGED", type_key: "shush", expires_at: 5.days.from_now
+    shush_case = make_case(subject: "ULOGGED", opened_at: 9.days.ago)
+    act_on shush_case, target: "ULOGGED", type_key: "shush", expires_at: 5.days.from_now
 
     assert listed?("ULIVE", view: "force")
     assert listed?("UENDLESS", view: "force"), "no end date does not mean not in force"
@@ -110,9 +110,9 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
   end
 
   test "the priors view uses the definition, not the case count" do
-    acted = make_case(subject: "UPRIORS", opened_at: 40.days.ago, resolved_at: 30.days.ago,
+    action_taken_case = make_case(subject: "UPRIORS", opened_at: 40.days.ago, resolved_at: 30.days.ago,
       resolution: "action_taken")
-    act_on acted, target: "UPRIORS"
+    act_on action_taken_case, target: "UPRIORS"
     second = make_case(subject: "UPRIORS", opened_at: 20.days.ago, resolved_at: 10.days.ago,
       resolution: "action_taken")
     act_on second, target: "UPRIORS"
@@ -138,16 +138,16 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
   end
 
   test "a long list is paged rather than truncated" do
-    everyone = query(view: "everyone")
+    everyone_query = query(view: "everyone")
 
-    assert_equal Fd::MemberQuery::LIMIT, everyone.rows.size
-    assert_equal 1, everyone.page
-    assert_operator everyone.pages, :>, 1
+    assert_equal Fd::MemberQuery::LIMIT, everyone_query.rows.size
+    assert_equal 1, everyone_query.page
+    assert_operator everyone_query.pages, :>, 1
   end
 
   test "the next page shows the next slice, not the same one again" do
-    first = shown(view: "everyone")
-    second = shown(view: "everyone", page: "2")
+    first = user_ids(view: "everyone")
+    second = user_ids(view: "everyone", page: "2")
 
     assert_equal Fd::MemberQuery::LIMIT, second.size
     assert_empty first & second, "page two must not repeat page one"
@@ -155,10 +155,10 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
   end
 
   test "a page past the end lands on the last page rather than an empty table" do
-    far = query(view: "everyone", page: "99999")
+    out_of_range_query = query(view: "everyone", page: "99999")
 
-    assert_equal far.pages, far.page
-    assert_not_empty far.rows
+    assert_equal out_of_range_query.pages, out_of_range_query.page
+    assert_not_empty out_of_range_query.rows
   end
 
   test "a nonsense page number is treated as the first" do
@@ -181,14 +181,14 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
   test "a view that matches nothing has no rows and says which nothing it is" do
     Fd::Note.standing.update_all(deleted_at: Time.current, deleted_by: "UME")
 
-    assert_empty shown(view: "notes")
+    assert_empty user_ids(view: "notes")
     assert_match(/No standing notes on anybody/, query(view: "notes").empty_note)
   end
 
   test "searching narrows the roster to the people asked for" do
     make_case(subject: "UHASONE", opened_at: 2.days.ago)
 
-    assert_equal ["UHASONE"], shown(q: "UHASONE")
+    assert_equal ["UHASONE"], user_ids(q: "UHASONE")
   end
 
   test "a leading at sign is ignored, so pasting a handle works" do
@@ -198,7 +198,7 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
   end
 
   test "a search that matches nobody says so rather than showing everybody" do
-    assert_empty shown(q: "UNOSUCHPERSON")
+    assert_empty user_ids(q: "UNOSUCHPERSON")
   end
 
   test "an exact handle match comes before anyone who merely contains it" do
@@ -207,8 +207,8 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
     named = handle && Fd::Member.live.find_by(handle: handle)
     skip "the corpus has no member with a handle of its own" if named.nil?
 
-    assert_equal named.user_id, shown(q: named.handle).first
-    assert_equal named.user_id, shown(q: named.user_id.downcase).first,
+    assert_equal named.user_id, user_ids(q: named.handle).first
+    assert_equal named.user_id, user_ids(q: named.user_id.downcase).first,
       "an id typed in any case is still the exact match"
   end
 
@@ -228,7 +228,7 @@ class FdMembersActivityTest < ActionDispatch::IntegrationTest
     @me = hold_role!("UME", "community_manager")
   end
 
-  def seen!(user_id, post: nil, login: nil)
+  def record_activity!(user_id, post: nil, login: nil)
     member!(user_id)
     as_pipeline("INSERT INTO fd.member_seen (user_id, last_post_at, last_login_at) VALUES (?, ?, ?) " \
                 "ON CONFLICT (user_id) DO UPDATE SET last_post_at = EXCLUDED.last_post_at, " \
@@ -236,28 +236,28 @@ class FdMembersActivityTest < ActionDispatch::IntegrationTest
     seeded!("fd.member_seen", "user_id", user_id)
   end
 
-  def shown(**asked)
-    Fd::MemberQuery.new(asked.transform_keys(&:to_s), actor: @me).rows.map(&:user_id)
+  def user_ids(**filters)
+    Fd::MemberQuery.new(filters.transform_keys(&:to_s), actor: @me).rows.map(&:user_id)
   end
 
   test "a login this week makes somebody active this week" do
-    seen!("UJUSTIN", login: 1.hour.ago)
+    record_activity!("UJUSTIN", login: 1.hour.ago)
 
-    assert_includes shown(q: "UJUSTIN", active: "week"), "UJUSTIN"
-    assert_empty shown(q: "UJUSTIN", active: "dormant")
+    assert_includes user_ids(q: "UJUSTIN", active: "week"), "UJUSTIN"
+    assert_empty user_ids(q: "UJUSTIN", active: "dormant")
   end
 
   test "a post this month makes somebody active this month" do
-    seen!("UPOSTED", post: 12.days.ago, login: 200.days.ago)
+    record_activity!("UPOSTED", post: 12.days.ago, login: 200.days.ago)
 
-    assert_includes shown(q: "UPOSTED", active: "month"), "UPOSTED"
-    assert_empty shown(q: "UPOSTED", active: "week")
+    assert_includes user_ids(q: "UPOSTED", active: "month"), "UPOSTED"
+    assert_empty user_ids(q: "UPOSTED", active: "week")
   end
 
   test "somebody we have not seen in months is dormant" do
-    seen!("UGONE", post: 120.days.ago, login: 95.days.ago)
+    record_activity!("UGONE", post: 120.days.ago, login: 95.days.ago)
 
-    assert_includes shown(q: "UGONE", active: "dormant"), "UGONE"
+    assert_includes user_ids(q: "UGONE", active: "dormant"), "UGONE"
   end
 end
 
@@ -275,8 +275,8 @@ class FdMembersSearchTest < ActionDispatch::IntegrationTest
     seeded!("fd.member", "user_id", user_id)
   end
 
-  def query(**asked)
-    Fd::MemberQuery.new(asked.transform_keys(&:to_s), actor: @me)
+  def query(**filters)
+    Fd::MemberQuery.new(filters.transform_keys(&:to_s), actor: @me)
   end
 
   test "a search lists what the finder ranked, in its order, with its total" do

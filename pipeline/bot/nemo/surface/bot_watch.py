@@ -9,22 +9,22 @@ from bot.nemo.views.activity import message_url
 
 log = logging.getLogger("bot.nemo")
 
-CARRIES = (None, "bot_message", "file_share", "thread_broadcast")
+HANDLED_SUBTYPES = (None, "bot_message", "file_share", "thread_broadcast")
 
 _apps = {}
 _people = {}
 
 
-def ours():
+def exempt_bot_ids():
     raw = os.environ.get("EXEMPT_BOT_IDS", "")
     return {one.strip() for one in raw.split(",") if one.strip()}
 
 
-def ask_about(client, bot_id):
+def fetch_bot(client, bot_id):
     where = channels.team()
-    asked = {"bot": bot_id, "team_id": where} if where else {"bot": bot_id}
+    params = {"bot": bot_id, "team_id": where} if where else {"bot": bot_id}
     try:
-        return (client.bots_info(**asked) or {}).get("bot") or {}
+        return (client.bots_info(**params) or {}).get("bot") or {}
     except Exception as failure:
         log.info("nemo: could not look up %s: %s", bot_id, failure)
         return {}
@@ -32,10 +32,10 @@ def ask_about(client, bot_id):
 
 def bot_face(client, bot_id):
     if bot_id not in _apps:
-        found = ask_about(client, bot_id)
-        if not found:
+        bot_info = fetch_bot(client, bot_id)
+        if not bot_info:
             return None, None, None
-        _apps[bot_id] = (found.get("user_id"), found.get("name"), found.get("app_id"))
+        _apps[bot_id] = (bot_info.get("user_id"), bot_info.get("name"), bot_info.get("app_id"))
     return _apps[bot_id]
 
 
@@ -49,15 +49,15 @@ def fetch_user(client, user_id):
 
 def get_user(client, user_id):
     if user_id not in _people:
-        found = fetch_user(client, user_id)
-        if not found:
+        user = fetch_user(client, user_id)
+        if not user:
             return {}
-        _people[user_id] = found
+        _people[user_id] = user
     return _people[user_id]
 
 
 def who_posted(event):
-    if event.get("subtype") not in CARRIES:
+    if event.get("subtype") not in HANDLED_SUBTYPES:
         return None, None
     bot_id = event.get("bot_id")
     if not bot_id and not (event.get("bot_profile") or event.get("subtype") == "bot_message"):
@@ -87,9 +87,9 @@ def text_of(event):
         return text
 
     for block in event.get("attachments") or []:
-        fallen = (block.get("text") or block.get("fallback") or "").strip()
-        if fallen:
-            return fallen
+        fallback_text = (block.get("text") or block.get("fallback") or "").strip()
+        if fallback_text:
+            return fallback_text
     return None
 
 
@@ -102,8 +102,8 @@ def posted(ctx):
     if not channel_id or not ts or not (bot_id or user_id):
         return None
 
-    standing = channelguards.guarding(channel_id)
-    if standing is None:
+    guard = channelguards.guarding(channel_id)
+    if guard is None:
         return None
 
     if is_userbot(ctx.client, event, bot_id, user_id):
@@ -113,21 +113,21 @@ def posted(ctx):
     ids, label, app_id = names_for(ctx.client, bot_id, user_id)
     if not ids:
         return None
-    if set(ids) & (ours() | {whoami.bot_user_id(ctx.client, "nemo")}):
+    if set(ids) & (exempt_bot_ids() | {whoami.bot_user_id(ctx.client, "nemo")}):
         return None
     if channelguards.lets_past(channel_id, *ids):
         return None
 
-    guard_id, _allowed = standing
+    guard_id, _allowed = guard
     face_id = next((one for one in ids if one and one.startswith("U")), None)
     subject_id = face_id or bot_id or user_id
     failure = None
     try:
         privileged.delete_message(channel_id, ts, max_retries=0)
-    except Exception as failed:
-        if not privileged.gone(failed):
-            failure = failed
-    took_ms = round((time.time() - float(ts)) * 1000)
+    except Exception as error:
+        if not privileged.already_deleted(error):
+            failure = error
+    latency_ms = round((time.time() - float(ts)) * 1000)
     words = text_of(event)
     link = message_url(channel_id, ts, event.get("thread_ts"))
 
@@ -143,7 +143,7 @@ def posted(ctx):
                  guard_id, ts, channel_id, failure)
         return guard_id
     log.info("nemo: guard %s deleted %s from %s in %s, %sms after it was posted",
-             guard_id, ts, subject_id, channel_id, took_ms)
+             guard_id, ts, subject_id, channel_id, latency_ms)
     return guard_id
 
 
@@ -155,33 +155,33 @@ def joined(ctx):
     if not channel_id or not who:
         return None
 
-    standing = channelguards.guarding(channel_id)
-    if standing is None:
+    guard = channelguards.guarding(channel_id)
+    if guard is None:
         return None
-    if who in (ours() | {whoami.bot_user_id(ctx.client, "nemo")}):
+    if who in (exempt_bot_ids() | {whoami.bot_user_id(ctx.client, "nemo")}):
         return None
 
     try:
-        found = (ctx.client.users_info(user=who) or {}).get("user") or {}
+        user = (ctx.client.users_info(user=who) or {}).get("user") or {}
     except Exception:
         return None
-    if not found.get("is_bot"):
+    if not user.get("is_bot"):
         return None
 
-    ids = [who, (found.get("profile") or {}).get("bot_id")]
+    ids = [who, (user.get("profile") or {}).get("bot_id")]
     if channelguards.lets_past(channel_id, *[one for one in ids if one]):
         return None
 
-    guard_id, _allowed = standing
-    label = found.get("real_name") or who
-    app_id = (found.get("profile") or {}).get("api_app_id")
+    guard_id, _allowed = guard
+    label = user.get("real_name") or who
+    app_id = (user.get("profile") or {}).get("api_app_id")
     outcome = privileged.kick(channel_id, who)
 
     verb = "kicked" if outcome == "kicked" else "let_past"
 
     with session() as conn:
         channelguards.record_enforcement(conn, guard_id, channel_id, who, verb,
-                               bot_id=(found.get("profile") or {}).get("bot_id"), label=label,
+                               bot_id=(user.get("profile") or {}).get("bot_id"), label=label,
                                app_id=app_id, detail=None if verb == "kicked" else outcome,
                                notice_wanted=True)
 

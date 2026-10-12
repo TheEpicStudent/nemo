@@ -82,31 +82,31 @@ def text_length(rng):
 
 
 def by_channel_day(events):
-    held = collections.defaultdict(list)
+    events_by_channel = collections.defaultdict(list)
     for event in events:
         if event.messages > 0:
-            held[event.channel_id].append(event)
-    return held
+            events_by_channel[event.channel_id].append(event)
+    return events_by_channel
 
 
 def channel_messages(rng, channel_id, events, bots):
-    made = []
+    messages = []
     for event in events:
         at_list = spread(rng, event.day, event.messages)
         share = event.reactions / event.messages if event.messages else 0
         for at in at_list:
             reactions = int(share) + (1 if rng.random() < share - int(share) else 0)
-            made.append(
+            messages.append(
                 Message(channel_id, stamp(at), at, event.user_id,
                         event.user_id in bots, reactions)
             )
-    made.sort(key=lambda m: m.ts)
-    return made
+    messages.sort(key=lambda m: m.ts)
+    return messages
 
 
-def thread_them(rng, made):
+def assign_threads(rng, messages):
     recent = collections.deque(maxlen=ROOT_MEMORY)
-    for message in made:
+    for message in messages:
         candidates = [
             root for root in recent
             if root.author_id != message.author_id
@@ -126,7 +126,7 @@ def thread_them(rng, made):
         recent.append(message)
         if candidates and rng.random() < MENTION_SHARE:
             message.mentioned = [candidates[-1].author_id]
-    return made
+    return messages
 
 
 def message_row(rng, message, as_of):
@@ -161,8 +161,8 @@ def message_row(rng, message, as_of):
     )
 
 
-def thread_rows(made, as_of):
-    for message in made:
+def thread_rows(messages, as_of):
+    for message in messages:
         if message.reply_count:
             yield (
                 message.channel_id,
@@ -177,12 +177,12 @@ def thread_rows(made, as_of):
             )
 
 
-def walk_row(channel_id, made, as_of):
+def walk_row(channel_id, messages, as_of):
     return (
         channel_id,
-        made[0].ts,
-        made[-1].ts,
-        len(made),
+        messages[0].ts,
+        messages[-1].ts,
+        len(messages),
         True,
         as_of,
         as_of,
@@ -191,16 +191,16 @@ def walk_row(channel_id, made, as_of):
 
 def build(rng, events, members, as_of):
     bots = {member.user_id for member in members if member.is_bot}
-    stamped = datetime.combine(as_of, time(12, 0), tzinfo=timezone.utc)
-    held = by_channel_day(events)
+    observed_at = datetime.combine(as_of, time(12, 0), tzinfo=timezone.utc)
+    events_by_channel = by_channel_day(events)
     messages, threads, walks = [], [], []
-    for channel_id in sorted(held):
-        made = thread_them(rng, channel_messages(rng, channel_id, held[channel_id], bots))
-        if not made:
+    for channel_id in sorted(events_by_channel):
+        threaded_messages = assign_threads(rng, channel_messages(rng, channel_id, events_by_channel[channel_id], bots))
+        if not threaded_messages:
             continue
-        messages.extend(message_row(rng, message, stamped) for message in made)
-        threads.extend(thread_rows(made, stamped))
-        walks.append(walk_row(channel_id, made, stamped))
+        messages.extend(message_row(rng, message, observed_at) for message in threaded_messages)
+        threads.extend(thread_rows(threaded_messages, observed_at))
+        walks.append(walk_row(channel_id, threaded_messages, observed_at))
     return messages, threads, walks
 
 
@@ -216,16 +216,16 @@ ARCHIVE_MESSAGE_COLUMNS = [
 
 
 def archive_message_row(row):
-    held = dict(zip(MESSAGE_COLUMNS, row))
-    length = held["text_length"]
+    fields = dict(zip(MESSAGE_COLUMNS, row))
+    length = fields["text_length"]
     return (
-        held["channel_id"], held["ts"], ARCHIVE_REVISION, held["posted_at"],
-        held["author_id"], held["author_kind"], held["subtype"], held["thread_root_ts"],
-        held["is_reply"], held["subtype"] == "thread_broadcast",
-        held["reply_count"], held["reply_users_count"], held["latest_reply_ts"],
+        fields["channel_id"], fields["ts"], ARCHIVE_REVISION, fields["posted_at"],
+        fields["author_id"], fields["author_kind"], fields["subtype"], fields["thread_root_ts"],
+        fields["is_reply"], fields["subtype"] == "thread_broadcast",
+        fields["reply_count"], fields["reply_users_count"], fields["latest_reply_ts"],
         length, None if length is None else length > 0,
-        held["file_count"], held["mention_count"], held["mentioned_ids"],
-        held["is_question"], held["is_substantive"], held["has_link"], held["emoji_only"],
-        held["reaction_count"], held["reactor_count"], held["edited_at"], held["edited_by"],
-        False, held["observed_at"],
+        fields["file_count"], fields["mention_count"], fields["mentioned_ids"],
+        fields["is_question"], fields["is_substantive"], fields["has_link"], fields["emoji_only"],
+        fields["reaction_count"], fields["reactor_count"], fields["edited_at"], fields["edited_by"],
+        False, fields["observed_at"],
     )

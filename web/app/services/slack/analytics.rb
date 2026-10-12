@@ -29,29 +29,29 @@ module Slack
     def self.channel_windows(channel_id:, name:, privacy:, windows:)
       spans = windows.map { |from, to| clamp(from, to) }
       keys = spans.map { |from, to| channel_key(channel_id, from, to, privacy) }
-      held = keys.map { |key| Rails.cache.read(key) }
+      cached = keys.map { |key| Rails.cache.read(key) }
 
       fetched = parallel(*spans.each_with_index.map { |(from, to), i|
-        -> { asked(channel_id: channel_id, name: name, from: from, to: to, privacy: privacy) if held[i].nil? }
+        -> { fetch_channel_stats(channel_id: channel_id, name: name, from: from, to: to, privacy: privacy) if cached[i].nil? }
       })
 
       spans.each_index.map do |i|
-        next Result.new(stats: held[i]) if held[i]
+        next Result.new(stats: cached[i]) if cached[i]
 
-        got = fetched[i]
-        Rails.cache.write(keys[i], got.stats, expires_in: CHANNEL_TTL) if got&.stats
-        got
+        result = fetched[i]
+        Rails.cache.write(keys[i], result.stats, expires_in: CHANNEL_TTL) if result&.stats
+        result
       end
     end
 
     def self.channel_activity(channel_id:, name:, from:, to:, privacy: "public")
       from, to = clamp(from, to)
       key = channel_key(channel_id, from, to, privacy)
-      held = Rails.cache.read(key)
-      return Result.new(stats: held) if held
+      cached = Rails.cache.read(key)
+      return Result.new(stats: cached) if cached
 
-      asked(channel_id: channel_id, name: name, from: from, to: to, privacy: privacy).tap do |got|
-        Rails.cache.write(key, got.stats, expires_in: CHANNEL_TTL) if got.stats
+      fetch_channel_stats(channel_id: channel_id, name: name, from: from, to: to, privacy: privacy).tap do |result|
+        Rails.cache.write(key, result.stats, expires_in: CHANNEL_TTL) if result.stats
       end
     end
 
@@ -59,7 +59,7 @@ module Slack
       "slack/analytics/channel/#{channel_id}/#{from}/#{to}/#{privacy}"
     end
 
-    def self.asked(channel_id:, name:, from:, to:, privacy:)
+    def self.fetch_channel_stats(channel_id:, name:, from:, to:, privacy:)
       response = ProxyClient.call("admin.analytics.getChannelAnalytics", {
         "start_date" => from,
         "end_date" => to,

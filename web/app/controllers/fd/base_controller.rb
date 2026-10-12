@@ -1,8 +1,8 @@
 module Fd
   class BaseController < ApplicationController
     before_action :require_fd
-    before_action :needs_the_engine
-    before_action :require_a_declaration, unless: :read_only_request?
+    before_action :require_engine
+    before_action :require_permission_declaration, unless: :read_only_request?
     around_action :in_viewer_zone
 
     class << self
@@ -24,9 +24,9 @@ module Fd
       end
 
       def gated?(action)
-        gates.any? do |one|
-          next false if one[:only] && !one[:only].include?(action.to_s)
-          next false if one[:except] && one[:except].include?(action.to_s)
+        gates.any? do |filter|
+          next false if filter[:only] && !filter[:only].include?(action.to_s)
+          next false if filter[:except] && filter[:except].include?(action.to_s)
 
           true
         end
@@ -43,15 +43,15 @@ module Fd
       redirect_to root_path, alert: "Fire Engine is restricted to the conduct team"
     end
 
-    def needs_the_engine
+    def require_engine
       needs(:fire_engine)
     end
 
     def in_viewer_zone(&)
-      Time.use_zone(fd_zone, &)
+      Time.use_zone(viewer_time_zone, &)
     end
 
-    def fd_zone
+    def viewer_time_zone
       tz = Member.where(user_id: current_account&.user_id).pick(:tz)
       ActiveSupport::TimeZone[tz.to_s] || ActiveSupport::TimeZone[viewer_zone] || Time.zone
     end
@@ -60,7 +60,7 @@ module Fd
       request.get? || request.head?
     end
 
-    def require_a_declaration
+    def require_permission_declaration
       return if self.class.gated?(action_name)
 
       raise "#{self.class}##{action_name} writes without declaring a permission"
@@ -70,10 +70,10 @@ module Fd
 
     def gate(key, on)
       record = subject_for(on)
-      return refuse!(key, nil) if record == MISSING
+      return deny!(key, nil) if record == MISSING
       return if current_account&.may?(key, record)
 
-      refuse!(key, record)
+      deny!(key, record)
     end
 
     def subject_for(on)
@@ -84,15 +84,15 @@ module Fd
       MISSING
     end
 
-    CARRIES = 900
+    MAX_FIELD_VALUE_LENGTH = 900
 
-    def wrong!(field, message, was = nil)
-      kept = was.to_s.length <= CARRIES ? was : nil
-      flash[:field_error] = { "field" => field.to_s, "message" => message, "was" => kept }
+    def wrong!(field, message, submitted_value = nil)
+      stored_value = submitted_value.to_s.length <= MAX_FIELD_VALUE_LENGTH ? submitted_value : nil
+      flash[:field_error] = { "field" => field.to_s, "message" => message, "was" => stored_value }
       message
     end
 
-    def refuse!(key, record = nil)
+    def deny!(key, record = nil)
       log_refusal(key, record)
       flash[:tone] = "bad"
       flash[:detail] = "Nothing was changed. #{Authz.refusal(key).upcase_first}."
@@ -110,7 +110,7 @@ module Fd
         entity_type: record ? Audit.entity_type(record) : "permission",
         entity_id: record.respond_to?(:id) ? record.id : 0,
         verb: "refused",
-        after: { "permission" => key, "roles" => Authz.roles_held(current_account&.user_id) },
+        after: { "permission" => key, "roles" => Authz.effective_roles(current_account&.user_id) },
         source_app: Audit::SOURCE_APP,
         request_id: request.request_id
       )

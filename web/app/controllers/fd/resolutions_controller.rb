@@ -7,14 +7,14 @@ module Fd
       @case = Case.find(params[:case_id])
       @now = Time.current
 
-      resolution = ending
-      return refuse("Enter why this case is closing") if resolution.nil?
+      resolution = resolution_reason
+      return redirect_with_alert("Enter why this case is closing") if resolution.nil?
 
-      settled = false
+      resolved = false
       writing do
         next unless mark_resolved(resolution)
 
-        settled = true
+        resolved = true
         close_reports if notify_reporter?
         @case.reload
         audit(@case, "resolved",
@@ -27,10 +27,10 @@ module Fd
           })
       end
 
-      if settled
+      if resolved
         redirect_to fd_case_path(@case), notice: "Case #{@case.id} resolved"
       else
-        refuse("Case #{@case.id} was already resolved")
+        redirect_with_alert("Case #{@case.id} was already resolved")
       end
     end
 
@@ -38,16 +38,16 @@ module Fd
       @case = Case.find(params[:case_id])
       @now = Time.current
 
-      return refuse("Case #{@case.id} is already open") unless @case.resolved?
+      return redirect_with_alert("Case #{@case.id} is already open") unless @case.resolved?
 
-      held = @case.assignee_user_ids
-      was = { "resolved_at" => @case.resolved_at, "resolution" => @case.resolution,
-              "duplicate_of" => @case.duplicate_of, "assignees" => held }
+      assignee_ids = @case.assignee_user_ids
+      previous_state = { "resolved_at" => @case.resolved_at, "resolution" => @case.resolution,
+                         "duplicate_of" => @case.duplicate_of, "assignees" => assignee_ids }
 
       writing do
         @case.update!(resolved_at: nil, resolution: nil, duplicate_of: nil, updated_at: @now)
         @case.assignees.destroy_all
-        audit(@case, "reopened", before: was,
+        audit(@case, "reopened", before: previous_state,
           after: { "resolved_at" => nil, "resolution" => nil, "duplicate_of" => nil,
                    "assignees" => [] })
       end
@@ -57,7 +57,7 @@ module Fd
 
     private
 
-    def ending
+    def resolution_reason
       return "action_taken" if Action.where(case_id: @case.family_ids).live.any?
 
       reason = params[:close_reason].to_s
@@ -102,7 +102,7 @@ module Fd
         requested_by: current_account.user_id)
     end
 
-    def refuse(message)
+    def redirect_with_alert(message)
       redirect_to fd_case_path(@case), alert: message
     end
   end

@@ -5,24 +5,24 @@ export default class extends Controller {
   static values = { baselines: Object }
 
   connect() {
-    this.settle()
+    this.sync()
   }
 
-  settle() {
-    const role = this.picked()
-    const carried = new Set(this.baselinesValue[role] || [])
+  sync() {
+    const role = this.selectedRole()
+    const baselineKeys = new Set(this.baselinesValue[role] || [])
 
     this.channelsTarget.hidden = role === ""
 
-    let left = 0
+    let visibleCount = 0
     for (const row of this.scopeTargets) {
-      const gone = carried.has(row.dataset.key)
-      row.hidden = gone
-      if (gone) {
+      const inBaseline = baselineKeys.has(row.dataset.key)
+      row.hidden = inBaseline
+      if (inBaseline) {
         const box = row.querySelector("input[type=checkbox]")
         if (box) box.checked = false
       } else {
-        left += 1
+        visibleCount += 1
       }
     }
 
@@ -31,20 +31,20 @@ export default class extends Controller {
       area.hidden = rows.every((row) => row.hidden)
     }
 
-    if (this.hasEmptyTarget) this.emptyTarget.hidden = left > 0
-    if (this.hasScopesTarget) this.scopesTarget.hidden = left === 0
+    if (this.hasEmptyTarget) this.emptyTarget.hidden = visibleCount > 0
+    if (this.hasScopesTarget) this.scopesTarget.hidden = visibleCount === 0
     if (this.hasNoteTarget) this.noteTarget.textContent = this.roleNote(role)
   }
 
   roleNote(role) {
-    const carried = (this.baselinesValue[role] || []).length
+    const baselineCount = (this.baselinesValue[role] || []).length
     if (!role) return "A member. Reads the overview and public channels."
-    if (carried === 0) return ""
-    return `Carries ${carried} capabilit${carried === 1 ? "y" : "ies"} on its own.`
+    if (baselineCount === 0) return ""
+    return `Carries ${baselineCount} capabilit${baselineCount === 1 ? "y" : "ies"} on its own.`
   }
 
-  picked() {
-    const on = this.roleTargets.find((one) => one.checked)
-    return on ? on.value : ""
+  selectedRole() {
+    const checkedRole = this.roleTargets.find((input) => input.checked)
+    return checkedRole ? checkedRole.value : ""
   }
 }

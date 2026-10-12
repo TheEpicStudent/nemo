@@ -36,10 +36,10 @@ class Fd::PriorsTest < ActiveSupport::TestCase
   end
 
   test "a case they were only logged in is not a prior" do
-    theirs = make_case(subject: "USOMEBODY", opened_at: 60.days.ago,
+    reporter_case = make_case(subject: "USOMEBODY", opened_at: 60.days.ago,
       resolved_at: 50.days.ago, resolution: "action_taken")
-    theirs.participants.create!(user_id: SUBJECT, role: "reporter")
-    act_on theirs, target: "USOMEBODY"
+    reporter_case.participants.create!(user_id: SUBJECT, role: "reporter")
+    act_on reporter_case, target: "USOMEBODY"
 
     assert_equal 0, Fd::Case.prior_count(SUBJECT),
       "being harmed by somebody else must not count against you"
@@ -69,12 +69,12 @@ class Fd::PriorsTest < ActiveSupport::TestCase
 
   test "the window is measured from the moment being asked about, not from today" do
     act_on resolved_case(opened: 20.months.ago, resolved: 19.months.ago)
-    later = make_case(subject: SUBJECT, opened_at: 8.months.ago)
+    later_case = make_case(subject: SUBJECT, opened_at: 8.months.ago)
 
     assert_equal 0, Fd::Case.prior_count(SUBJECT, within: Fd::Case::PRIOR_WINDOW),
       "19 months ago is outside a year from today"
     assert_equal 1, Fd::Case.prior_count(SUBJECT, within: Fd::Case::PRIOR_WINDOW,
-      before: later.opened_at), "but it was inside a year when that case was opened"
+      before: later_case.opened_at), "but it was inside a year when that case was opened"
   end
 
   test "the window is measured from when the action was taken" do
@@ -87,9 +87,9 @@ class Fd::PriorsTest < ActiveSupport::TestCase
 
   test "priors can be counted as they stood at a moment, for the record" do
     act_on resolved_case(opened: 60.days.ago, resolved: 50.days.ago)
-    later = make_case(subject: SUBJECT, opened_at: 10.days.ago)
+    later_case = make_case(subject: SUBJECT, opened_at: 10.days.ago)
 
-    assert_equal 1, Fd::Case.prior_count(SUBJECT, before: later.opened_at)
+    assert_equal 1, Fd::Case.prior_count(SUBJECT, before: later_case.opened_at)
     assert_equal 0, Fd::Case.prior_count(SUBJECT, before: 55.days.ago)
   end
 
@@ -97,7 +97,7 @@ class Fd::PriorsTest < ActiveSupport::TestCase
     act_on resolved_case(opened: 60.days.ago, resolved: 50.days.ago)
     act_on resolved_case(opened: 20.months.ago, resolved: 19.months.ago)
 
-    row = Fd::MemberQuery.new({}).summary_rows.find { |found| found.user_id == SUBJECT }
+    row = Fd::MemberQuery.new({}).summary_rows.find { |summary_row| summary_row.user_id == SUBJECT }
     assert_equal Fd::Case.prior_count(SUBJECT, within: Fd::Case::PRIOR_WINDOW), row.priors,
       "the list and the record must not answer the same question differently"
   end

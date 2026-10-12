@@ -15,9 +15,9 @@ class Channels::MapTest < ActiveSupport::TestCase
   end
 
   test "every quadrant draws in its own ink" do
-    inks = Channels::Map::QUADRANTS.values.map(&:last)
+    colors = Channels::Map::QUADRANTS.values.map(&:last)
 
-    assert_equal inks.uniq.length, inks.length, "two quadrants share a colour"
+    assert_equal colors.uniq.length, colors.length, "two quadrants share a colour"
   end
 
   test "the median splits an odd and an even list" do
@@ -70,10 +70,10 @@ class Channels::MapTest < ActiveSupport::TestCase
   end
 
   test "points carry only what the chart draws, never the channel id" do
-    point = Channels::Map::Point.new(channel_id: "C1", name: "lounge", x: 1, y: 2, n: 3, ink: 2,
+    point = Channels::Map::Point.new(channel_id: "C1", name: "lounge", x: 1, y: 2, n: 3, series_color: 2,
       phase: "working")
 
     assert_not_includes point.as_json.keys, :channel_id
-    assert_equal %i[name x y n ink phase], point.as_json.keys
+    assert_equal %i[name x y n seriesColor phase], point.as_json.keys
   end
 end

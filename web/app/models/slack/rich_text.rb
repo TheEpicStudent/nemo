@@ -15,31 +15,31 @@ module Slack
     end
 
     def self.emoji_names(message)
-      found = []
+      names = []
       walk = lambda do |node|
         case node
         when Hash
-          found << node["name"] if node["type"] == "emoji" && node["name"].present?
-          node["elements"]&.each { |one| walk.call(one) }
-        when Array then node.each { |one| walk.call(one) }
+          names << node["name"] if node["type"] == "emoji" && node["name"].present?
+          node["elements"]&.each { |child| walk.call(child) }
+        when Array then node.each { |child| walk.call(child) }
         end
       end
       walk.call((message || {})["blocks"])
-      found.uniq
+      names.uniq
     end
 
     def self.channel_ids(message)
-      found = []
+      ids = []
       walk = lambda do |node|
         case node
         when Hash
-          found << node["channel_id"] if node["type"] == "channel" && node["channel_id"].present?
-          node["elements"]&.each { |one| walk.call(one) }
-        when Array then node.each { |one| walk.call(one) }
+          ids << node["channel_id"] if node["type"] == "channel" && node["channel_id"].present?
+          node["elements"]&.each { |child| walk.call(child) }
+        when Array then node.each { |child| walk.call(child) }
         end
       end
       walk.call((message || {})["blocks"])
-      found.uniq
+      ids.uniq
     end
 
     def initialize(names = {}, channels = {}, emoji = {}, user_chip: nil, channel_chip: nil,
@@ -53,24 +53,24 @@ module Slack
     end
 
     def to_text(message)
-      shown = blocks(message["blocks"])
-      return shown if shown.present?
+      rendered = blocks(message["blocks"])
+      return rendered if rendered.present?
 
       lines(message["text"].to_s)
     end
 
-    def blocks(given)
-      safe_join(Array(given).filter_map { |one| block(one) })
+    def blocks(raw_blocks)
+      safe_join(Array(raw_blocks).filter_map { |node| block(node) })
     end
 
     private
 
     attr_reader :names, :channels, :emoji
 
-    def block(one)
-      case one["type"]
-      when "rich_text" then safe_join(Array(one["elements"]).filter_map { |part| rich(part) })
-      when "section" then paragraph(lines(one.dig("text", "text").to_s))
+    def block(node)
+      case node["type"]
+      when "rich_text" then safe_join(Array(node["elements"]).filter_map { |part| rich(part) })
+      when "section" then paragraph(lines(node.dig("text", "text").to_s))
       when "divider" then tag.hr(class: "richtext-rule")
       end
     end
@@ -99,36 +99,36 @@ module Slack
     end
 
     def inline(elements)
-      safe_join(Array(elements).map { |one| styled(one, element(one)) })
+      safe_join(Array(elements).map { |node| styled(node, element(node)) })
     end
 
     def flat(elements)
-      safe_join(Array(elements).map { |one| plain_text(one) })
+      safe_join(Array(elements).map { |node| plain_text(node) })
     end
 
-    def element(one)
-      case one["type"]
-      when "text" then lines(one["text"].to_s)
-      when "link" then linked(one)
-      when "emoji" then emoji_for(one["name"])
-      when "user" then user_mention(one["user_id"])
-      when "usergroup" then chip("@#{one['usergroup_id']}")
-      when "channel" then channel_mention(one["channel_id"])
-      when "broadcast" then chip(BROADCASTS.fetch(one["range"], "@#{one['range']}"))
-      when "message_mention" then linked(one.merge("text" => one["text"].presence || "a message"))
-      when "date" then dated(one)
-      when "color" then tag.span(one["value"].to_s, class: "rt-colour")
-      else lines(one["text"].to_s)
+    def element(node)
+      case node["type"]
+      when "text" then lines(node["text"].to_s)
+      when "link" then linked(node)
+      when "emoji" then emoji_for(node["name"])
+      when "user" then user_mention(node["user_id"])
+      when "usergroup" then chip("@#{node['usergroup_id']}")
+      when "channel" then channel_mention(node["channel_id"])
+      when "broadcast" then chip(BROADCASTS.fetch(node["range"], "@#{node['range']}"))
+      when "message_mention" then linked(node.merge("text" => node["text"].presence || "a message"))
+      when "date" then dated(node)
+      when "color" then tag.span(node["value"].to_s, class: "rt-colour")
+      else lines(node["text"].to_s)
       end
     end
 
-    def plain_text(one)
-      text = one["type"] == "text" ? one["text"].to_s : one.values_at("text", "name", "url").compact.first.to_s
+    def plain_text(node)
+      text = node["type"] == "text" ? node["text"].to_s : node.values_at("text", "name", "url").compact.first.to_s
       ERB::Util.html_escape(text)
     end
 
-    def styled(one, text)
-      style = one["style"]
+    def styled(node, text)
+      style = node["style"]
       return text unless style.is_a?(Hash) && text.present?
 
       text = tag.code(text, class: "richtext-code") if style["code"]
@@ -138,9 +138,9 @@ module Slack
       text
     end
 
-    def linked(one)
-      url = one["url"].to_s
-      label = one["text"].presence || url
+    def linked(node)
+      url = node["url"].to_s
+      label = node["text"].presence || url
       return ERB::Util.html_escape(label) unless OPENABLE.any? { |scheme| url.start_with?(scheme) }
 
       link_to_url(label, url)
@@ -153,11 +153,11 @@ module Slack
         target: "_blank", rel: "noopener")
     end
 
-    def dated(one)
-      at = Time.zone.at(one["timestamp"].to_i)
+    def dated(node)
+      at = Time.zone.at(node["timestamp"].to_i)
       tag.time(at.strftime("%-d %b %Y"), datetime: at.iso8601, class: "rt-date")
     rescue StandardError
-      ERB::Util.html_escape(one["timestamp"].to_s)
+      ERB::Util.html_escape(node["timestamp"].to_s)
     end
 
     def emoji_for(name)
@@ -170,7 +170,7 @@ module Slack
     end
 
     def user_mention(user_id)
-      return chip(named(user_id)) if @user_chip.nil?
+      return chip(user_ref(user_id)) if @user_chip.nil?
 
       @user_chip.call(user_id)
     end
@@ -185,14 +185,14 @@ module Slack
       tag.span(text, class: "richtext-mention")
     end
 
-    def named(user_id)
-      shown = names[user_id].presence || user_id
-      shown.to_s.start_with?("@") ? shown : "@#{shown}"
+    def user_ref(user_id)
+      label = names[user_id].presence || user_id
+      label.to_s.start_with?("@") ? label : "@#{label}"
     end
 
     def channel_ref(channel_id)
-      shown = channels[channel_id].presence || channel_id
-      shown.to_s.start_with?("#") ? shown : "##{shown}"
+      label = channels[channel_id].presence || channel_id
+      label.to_s.start_with?("#") ? label : "##{label}"
     end
 
     def lines(text)

@@ -14,49 +14,49 @@ module Admin
       @tells_member = Fd::AppSetting.sweep_tells_member?
       @firehouse = Fd::AppSetting.firehouse_channel
       @react_channels = Fd::AppSetting.case_react_channels
-      @named = Analytics::DimChannel
+      @channels_by_id = Analytics::DimChannel
         .where(channel_id: ([@firehouse] + @react_channels).compact)
         .index_by(&:channel_id)
     end
 
     def join_mode
-      how = params[:mode].to_s.strip.downcase
-      return refuse("That is not a valid join mode") unless Fd::AppSetting::MODES.include?(how)
-      return redirect_to admin_settings_path if how == Fd::AppSetting.join_mode
+      mode = params[:mode].to_s.strip.downcase
+      return redirect_with_alert("That is not a valid join mode") unless Fd::AppSetting::MODES.include?(mode)
+      return redirect_to admin_settings_path if mode == Fd::AppSetting.join_mode
 
-      keep(Fd::AppSetting.set_join_mode(how, by: current_account.user_id))
-      redirect_to admin_settings_path, notice: JOIN_MODE_NOTICES.fetch(how)
+      audit_setting(Fd::AppSetting.set_join_mode(mode, by: current_account.user_id))
+      redirect_to admin_settings_path, notice: JOIN_MODE_NOTICES.fetch(mode)
     end
 
     def sweep
       hours = params[:soon_hours].to_s.strip.to_i
-      return refuse("Enter a number of hours, from 1 to #{SOONEST}") unless hours.between?(1, SOONEST)
+      return redirect_with_alert("Enter a number of hours, from 1 to #{SOONEST}") unless hours.between?(1, SOONEST)
 
-      keep(Fd::AppSetting.write(Fd::AppSetting::SWEEP_SOON_HOURS, hours.to_s,
+      audit_setting(Fd::AppSetting.write(Fd::AppSetting::SWEEP_SOON_HOURS, hours.to_s,
         by: current_account.user_id))
-      keep(Fd::AppSetting.flip(Fd::AppSetting::SWEEP_TELLS_MEMBER, params[:tells].present?,
+      audit_setting(Fd::AppSetting.flip(Fd::AppSetting::SWEEP_TELLS_MEMBER, params[:tells].present?,
         by: current_account.user_id))
       redirect_to admin_settings_path, notice: "Sweep settings saved"
     end
 
     def firehouse
       channel_id = params[:channel_id].to_s.strip
-      return refuse("Select a channel") if channel_id.blank?
-      return refuse("#{channel_id} is not a channel") unless known?(channel_id)
+      return redirect_with_alert("Select a channel") if channel_id.blank?
+      return redirect_with_alert("#{channel_id} is not a channel") unless channel_exists?(channel_id)
 
-      keep(Fd::AppSetting.set_firehouse_channel(channel_id, by: current_account.user_id))
+      audit_setting(Fd::AppSetting.set_firehouse_channel(channel_id, by: current_account.user_id))
       redirect_to admin_settings_path, notice: "Guard notices now post to ##{name_of(channel_id)}"
     end
 
     def add_react
       channel_id = params[:channel_id].to_s.strip
-      return refuse("Select a channel") if channel_id.blank?
-      return refuse("#{channel_id} is not a channel") unless known?(channel_id)
+      return redirect_with_alert("Select a channel") if channel_id.blank?
+      return redirect_with_alert("#{channel_id} is not a channel") unless channel_exists?(channel_id)
 
-      held = Fd::AppSetting.case_react_channels
-      return redirect_to admin_settings_path if held.include?(channel_id)
+      channel_ids = Fd::AppSetting.case_react_channels
+      return redirect_to admin_settings_path if channel_ids.include?(channel_id)
 
-      keep(Fd::AppSetting.set_case_react_channels(held + [channel_id],
+      audit_setting(Fd::AppSetting.set_case_react_channels(channel_ids + [channel_id],
         by: current_account.user_id))
       redirect_to admin_settings_path,
         notice: "An hourglass in ##{name_of(channel_id)} now opens a case"
@@ -64,19 +64,19 @@ module Admin
 
     def drop_react
       channel_id = params[:channel_id].to_s.strip
-      held = Fd::AppSetting.case_react_channels - [channel_id]
-      keep(Fd::AppSetting.set_case_react_channels(held, by: current_account.user_id))
+      channel_ids = Fd::AppSetting.case_react_channels - [channel_id]
+      audit_setting(Fd::AppSetting.set_case_react_channels(channel_ids, by: current_account.user_id))
       redirect_to admin_settings_path, notice: "##{name_of(channel_id)} no longer opens cases"
     end
 
     private
 
-    def keep(setting)
+    def audit_setting(setting)
       audit(setting, "tuned") if setting
       setting
     end
 
-    def known?(channel_id)
+    def channel_exists?(channel_id)
       Analytics::DimChannel.where(channel_id: channel_id).exists?
     end
 
@@ -84,8 +84,8 @@ module Admin
       Analytics::DimChannel.find_by(channel_id: channel_id)&.name.presence || channel_id
     end
 
-    def refuse(why = "that is not allowed")
-      redirect_to admin_settings_path, alert: why
+    def redirect_with_alert(message = "that is not allowed")
+      redirect_to admin_settings_path, alert: message
     end
   end
 end

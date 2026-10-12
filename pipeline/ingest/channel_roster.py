@@ -60,12 +60,12 @@ def record_channel_names(conn, client):
                 counts.rows_in += 1
                 is_archived = bool(channel.get("is_archived", False))
                 archived += is_archived
-                seen = visibility_of(channel)
-                private += seen == PRIVATE
+                visibility = visibility_of(channel)
+                private += visibility == PRIVATE
                 with conn.cursor() as cur:
                     cur.execute(
                         CHANNEL_NAME_SQL,
-                        (channel["id"], channel.get("name"), is_archived, seen),
+                        (channel["id"], channel.get("name"), is_archived, visibility),
                     )
             cursor = page.get("response_metadata", {}).get("next_cursor") or ""
             save_cursor(conn, SOURCE, cursor)

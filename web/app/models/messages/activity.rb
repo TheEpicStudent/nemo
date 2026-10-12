@@ -76,8 +76,8 @@ module Messages
 
     def clients
       counts = CLIENTS.map { |key, label| [label, (@stats["client_breakdown"] || {})[key].to_i] }
-      whole = counts.sum { |_, count| count }
-      counts.map { |label, count| [label, count, whole.zero? ? nil : (100.0 * count / whole).round] }
+      total = counts.sum { |_, count| count }
+      counts.map { |label, count| [label, count, total.zero? ? nil : (100.0 * count / total).round] }
     end
 
     DAILY = { "VIEWS" => "views", "CLICKS" => "clicks", "REACTIONS" => "reactions" }.freeze
@@ -86,7 +86,7 @@ module Messages
 
     def curve(span)
       series = ((@stats["viewers_time_series"] || {})["data"] || [])
-        .find { |one| one["seriesType"] == span }
+        .find { |entry| entry["seriesType"] == span }
       return [] if series.nil?
 
       points = (series["series"] || []).filter_map do |point|
@@ -103,18 +103,18 @@ module Messages
 
     def stamps(span)
       series = ((@stats["viewers_time_series"] || {})["data"] || [])
-        .find { |one| one["seriesType"] == span }
-      (series && series["series"] || []).filter_map { |one| one["value"]&.to_i&./(1_000_000) }
+        .find { |entry| entry["seriesType"] == span }
+      (series && series["series"] || []).filter_map { |point| point["value"]&.to_i&./(1_000_000) }
     end
 
     def bucket_seconds(span)
-      held = stamps(span)
-      held.size > 1 ? held[1] - held[0] : nil
+      timestamps = stamps(span)
+      timestamps.size > 1 ? timestamps[1] - timestamps[0] : nil
     end
 
     def window_seconds(span)
-      held = stamps(span)
-      held.size > 1 ? held.last - held.first : nil
+      timestamps = stamps(span)
+      timestamps.size > 1 ? timestamps.last - timestamps.first : nil
     end
 
     def bucket_label(span)
@@ -126,19 +126,19 @@ module Messages
     end
 
     def partial?(span)
-      whole = window_seconds(span)
-      age.present? && whole.present? && age < whole
+      window = window_seconds(span)
+      age.present? && window.present? && age < window
     end
 
-    def seen_within(span) = curve(span).sum(&:last)
+    def viewers_within(span) = curve(span).sum(&:last)
 
     def any_curve? = SPANS.keys.any? { |span| curve(span).size > 1 }
 
     def chart(span)
-      unit, say = UNITS.fetch(span)
+      unit, formatter = UNITS.fetch(span)
       points = curve(span)
       {
-        labels: points.map { |offset, _| say.call((offset / unit.to_f).round(1).then { |n| n == n.to_i ? n.to_i : n }) },
+        labels: points.map { |offset, _| formatter.call((offset / unit.to_f).round(1).then { |n| n == n.to_i ? n.to_i : n }) },
         datasets: [{ label: "new viewers", data: points.map(&:last) }]
       }
     end
@@ -148,16 +148,16 @@ module Messages
     end
 
     def daily
-      given = Array(@stats["activity_time_series"])
-      held = DAILY.keys.to_h do |key|
-        found = given.find { |one| one["seriesType"] == key }
-        [key, (found && found["series"] || [])]
+      series_list = Array(@stats["activity_time_series"])
+      series_by_key = DAILY.keys.to_h do |key|
+        series = series_list.find { |entry| entry["seriesType"] == key }
+        [key, (series && series["series"] || [])]
       end
-      stamps = held.values.max_by(&:size).to_a
+      stamps = series_by_key.values.max_by(&:size).to_a
 
       stamps.each_with_index.map do |point, i|
         [Time.zone.at(point["value"].to_i / 1_000_000).to_date,
-         DAILY.keys.map { |key| held[key][i] && held[key][i]["count"].to_i }]
+         DAILY.keys.map { |key| series_by_key[key][i] && series_by_key[key][i]["count"].to_i }]
       end
     end
 

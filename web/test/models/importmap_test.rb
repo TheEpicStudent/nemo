@@ -9,8 +9,8 @@ class ImportmapTest < ActiveSupport::TestCase
     preloaded = Rails.application.importmap.preloaded_module_paths(
       resolver: ApplicationController.helpers
     )
-    charty = preloaded.grep(%r{d3-|internmap|^charts/})
-    assert_empty charty, "preload pulls these on every page regardless of lazy registration"
+    chart_paths = preloaded.grep(%r{d3-|internmap|^charts/})
+    assert_empty chart_paths, "preload pulls these on every page regardless of lazy registration"
   end
 
   test "the chart controllers sit outside the eagerly loaded controllers namespace" do

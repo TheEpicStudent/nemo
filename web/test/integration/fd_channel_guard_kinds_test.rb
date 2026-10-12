@@ -16,11 +16,11 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
 
   def live(kind) = Fd::ChannelGuard.live_for(@id, kind: kind)
 
-  def turn_on(kind, **params)
+  def post_guard(kind, **params)
     post fd_channel_guard_path(@id, kind), params: params
   end
 
-  def tune(kind, **params)
+  def patch_guard(kind, **params)
     patch fd_channel_guard_path(@id, kind), params: params
   end
 
@@ -39,7 +39,7 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
   end
 
   test "read-only is turned on and off on its own" do
-    turn_on("readonly")
+    post_guard("readonly")
 
     assert live("readonly")
     assert_nil live("bot_allowlist")
@@ -49,20 +49,20 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
   end
 
   test "read-only keeps whether it also catches threads" do
-    turn_on("readonly", threads: "1")
+    post_guard("readonly", threads: "1")
 
     assert live("readonly").threads?
   end
 
   test "read-only without threads leaves them out" do
-    turn_on("readonly")
+    post_guard("readonly")
 
     assert_not live("readonly").threads?
   end
 
   test "read-only is retuned in place and audited" do
-    turn_on("readonly")
-    tune("readonly", threads: "1")
+    post_guard("readonly")
+    patch_guard("readonly", threads: "1")
 
     assert live("readonly").threads?
     assert_equal 1, Fd::AuditEntry.where(entity_type: "channel_guard", verb: "tuned").count
@@ -77,14 +77,14 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
   end
 
   test "a kind that is not a kind is refused" do
-    turn_on("sideways")
+    post_guard("sideways")
 
     assert_equal 0, Fd::ChannelGuard.live.where(channel_id: @id).count
     assert_match(/not a valid guard kind/, flash[:alert])
   end
 
   test "slow mode keeps the seconds it was given" do
-    turn_on("slowmode", seconds: "45", threads: "1")
+    post_guard("slowmode", seconds: "45", threads: "1")
     guard = live("slowmode")
 
     assert_equal 45, guard.seconds
@@ -92,57 +92,57 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
   end
 
   test "slow mode without threads leaves them out" do
-    turn_on("slowmode", seconds: "45")
+    post_guard("slowmode", seconds: "45")
 
     assert_not live("slowmode").threads?
   end
 
   test "the switch turns slow mode on with an interval to start from" do
-    turn_on("slowmode")
+    post_guard("slowmode")
 
     assert_equal Fd::ChannelGuard::SECONDS_TO_START, live("slowmode").seconds
     assert_nil flash[:alert]
   end
 
   test "the switch turns the age gate on with days to start from" do
-    turn_on("account_age")
+    post_guard("account_age")
 
     assert_equal Fd::ChannelGuard::DAYS_TO_START, live("account_age").min_age_days
     assert_nil flash[:alert]
   end
 
   test "slow mode refuses a interval outside the range" do
-    turn_on("slowmode", seconds: "0")
+    post_guard("slowmode", seconds: "0")
     assert_nil live("slowmode")
 
-    turn_on("slowmode", seconds: "99999")
+    post_guard("slowmode", seconds: "99999")
     assert_nil live("slowmode")
     assert_match(/from 1 to/, flash[:alert])
   end
 
   test "slow mode is retuned in place and audited" do
-    turn_on("slowmode", seconds: "30")
-    tune("slowmode", seconds: "90", threads: "1")
+    post_guard("slowmode", seconds: "30")
+    patch_guard("slowmode", seconds: "90", threads: "1")
 
     assert_equal 90, live("slowmode").seconds
     assert_equal 1, Fd::AuditEntry.where(entity_type: "channel_guard", verb: "tuned").count
   end
 
   test "an account age gate keeps its days" do
-    turn_on("account_age", min_age_days: "7")
+    post_guard("account_age", min_age_days: "7")
 
     assert_equal 7, live("account_age").min_age_days
   end
 
   test "an account age outside the range is refused" do
-    turn_on("account_age", min_age_days: "0")
+    post_guard("account_age", min_age_days: "0")
 
     assert_nil live("account_age")
     assert_match(/from 1 to/, flash[:alert])
   end
 
   test "tuning a kind that is not on is refused" do
-    tune("slowmode", seconds: "30")
+    patch_guard("slowmode", seconds: "30")
 
     assert_match(/not guarded that way/, flash[:alert])
   end
@@ -215,7 +215,7 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
   test "somebody without channel.guard cannot turn a kind on" do
     drop_roles!("UME")
     hold_role!("UME", "gardener")
-    turn_on("readonly")
+    post_guard("readonly")
 
     assert_equal 0, Fd::ChannelGuard.live.where(channel_id: @id).count
   end

@@ -1,31 +1,31 @@
 module Settings
   class TokensController < KeysController
     def create
-      return refuse(turned_off) if api_off?
+      return redirect_with_alert(turned_off) if api_off?
 
       app = owned_app(params[:app_id])
-      return refuse("That app is not yours") if app.nil?
-      return refuse("Say what the key is for") if params[:name].to_s.strip.empty?
+      return redirect_with_alert("That app is not yours") if app.nil?
+      return redirect_with_alert("Say what the key is for") if params[:name].to_s.strip.empty?
 
-      token, @secret = Api::Token.mint!(app, params[:name], lasting: params[:lasting])
-      Api::Event.record!("token_minted", actor: member_id, subject: token.shown,
+      token, @secret = Api::Token.mint!(app, params[:name], lifetime: params[:lifetime])
+      Api::Event.record!("token_minted", actor: member_id, subject: token.display_prefix,
         detail: [app.name, token.name,
-          Api::Token::LIFE_WORDS.fetch(Api::Token.life_for(params[:lasting]))].join(", "))
+          Api::Token::LIFETIME_LABELS.fetch(Api::Token.life_for(params[:lifetime]))].join(", "))
 
       @token = token
       load_keys
       render "settings/keys/show"
     rescue Api::Token::NotApprovedError
-      refuse("That app has no approved scope yet")
+      redirect_with_alert("That app has no approved scope yet")
     rescue Api::Token::TooManyError
-      refuse("that app already holds #{Api::Setting.value('tokens_per_owner')} keys")
+      redirect_with_alert("that app already holds #{Api::Setting.value('tokens_per_owner')} keys")
     end
 
     def rotate
-      return refuse(turned_off) if api_off?
+      return redirect_with_alert(turned_off) if api_off?
 
       token = own_token
-      return refuse("That key is not yours") if token.nil?
+      return redirect_with_alert("That key is not yours") if token.nil?
 
       @secret = token.rotate!(by: member_id)
       @token = token
@@ -35,10 +35,10 @@ module Settings
 
     def destroy
       token = own_token
-      return refuse("That key is not yours") if token.nil?
+      return redirect_with_alert("That key is not yours") if token.nil?
 
       token.revoke!(by: member_id)
-      Api::Event.record!("token_revoked", actor: member_id, subject: token.shown,
+      Api::Event.record!("token_revoked", actor: member_id, subject: token.display_prefix,
         detail: token.name)
 
       redirect_to settings_keys_path, notice: "Revoked #{token.name}"
@@ -54,7 +54,7 @@ module Settings
       Api::Token.live.find_by(id: params[:id], owner_user_id: member_id)
     end
 
-    def refuse(message)
+    def redirect_with_alert(message)
       redirect_to settings_keys_path, alert: message
     end
   end

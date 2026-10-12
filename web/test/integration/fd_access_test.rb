@@ -44,14 +44,14 @@ class FdAccessTest < ActionDispatch::IntegrationTest
     }.uniq.select { |name| name.start_with?("fd/") }
 
     declared = controllers.flat_map { |name| "#{name}_controller".camelize.constantize.declared }
-    found = Dir["#{Rails.root}/app/**/*.{rb,erb}"].flat_map { |path|
+    code_keys = Dir["#{Rails.root}/app/**/*.{rb,erb}"].flat_map { |path|
       File.read(path)
         .scan(/(?:may\?|allow\?|why_not|holds\?|may_community\?)\(\s*(?:[\w.@]+,\s*)?"([\w.]+)"/)
         .flatten
     }
-    asked = found + found.filter_map { |key| Community::Access::CAPABILITY[key] }
-    panelled = Panel.keys.filter_map { |key| Panel.needs(key) }
-    (declared + asked + panelled).uniq
+    checked_keys = code_keys + code_keys.filter_map { |key| Community::Access::CAPABILITY[key] }
+    panel_keys = Panel.keys.filter_map { |key| Panel.needs(key) }
+    (declared + checked_keys + panel_keys).uniq
   end
 
   test "a permission that guards something has somewhere it is actually checked" do
@@ -72,22 +72,22 @@ class FdAccessTest < ActionDispatch::IntegrationTest
     end
   end
 
-  RULEBOOK = %w[access.grant app.flip].freeze
+  RULE_CHANGE_KEYS = %w[access.grant app.flip].freeze
 
   test "the rulebook routes are the ones this test covers, and no others" do
-    rulebook = self.class.fd_writes.select do |name, _action|
-      controller_for(name).declared.intersect?(RULEBOOK)
+    rule_change_routes = self.class.fd_writes.select do |name, _action|
+      controller_for(name).declared.intersect?(RULE_CHANGE_KEYS)
     end.map(&:first).uniq
 
     assert_equal %w[fd/role_permissions fd/flags].sort,
-      rulebook.sort,
+      rule_change_routes.sort,
       "a rulebook route appeared or vanished, so this test needs updating"
   end
 
   test "a firefighter cannot hand out access" do
     post admin_grants_path, params: { user_id: "U0NEW", role: "firefighter", reason: "why not" }
 
-    assert_empty Authz.roles_held("U0NEW")
+    assert_empty Authz.effective_roles("U0NEW")
     assert_redirected_to root_path
   end
 
@@ -134,14 +134,14 @@ class FdAccessTest < ActionDispatch::IntegrationTest
 
   test "somebody holding no grant writes nothing at all" do
     delete logout_path
-    stranger = Account.create!(user_id: "USTRANGER")
-    sign_in_as(stranger)
+    account_without_grants = Account.create!(user_id: "USTRANGER")
+    sign_in_as(account_without_grants)
     kase = make_case(opened_at: 2.days.ago)
 
     post fd_case_notes_path(kase), params: { body: "hello" }
 
     assert_equal 0, kase.notes.count
-    assert_empty Authz.roles_held(stranger.user_id)
+    assert_empty Authz.effective_roles(account_without_grants.user_id)
   end
 
   test "a lead holds the undoing, and a manager holds the tool" do
@@ -151,7 +151,7 @@ class FdAccessTest < ActionDispatch::IntegrationTest
     assert lead.may?("case.reverse")
     assert_not lead.may?("access.grant")
 
-    boss = hold_role!("UBOSS", "community_manager")
-    assert boss.may?("access.grant")
+    manager = hold_role!("UBOSS", "community_manager")
+    assert manager.may?("access.grant")
   end
 end

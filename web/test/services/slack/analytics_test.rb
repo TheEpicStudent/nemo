@@ -10,14 +10,14 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
   end
 
   test "parallel raises what a task raised" do
-    was = Thread.report_on_exception
+    original_report_on_exception = Thread.report_on_exception
     Thread.report_on_exception = false
     err = assert_raises(RuntimeError) do
       Slack::Analytics.parallel(-> { :ok }, -> { raise "boom" })
     end
     assert_equal "boom", err.message
   ensure
-    Thread.report_on_exception = was
+    Thread.report_on_exception = original_report_on_exception
   end
 
   test "parallel overlaps its tasks" do
@@ -28,17 +28,17 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
     assert_operator elapsed, :<, 0.9, "tasks ran one after the other, taking #{elapsed.round(2)}s"
   end
 
-  ONE = { "channel_id" => "C1", "name" => "general", "messages_count" => 12 }.freeze
+  CHANNEL_ROW = { "channel_id" => "C1", "name" => "general", "messages_count" => 12 }.freeze
 
-  def caching
-    was = Rails.cache
+  def with_memory_cache
+    original_cache = Rails.cache
     Rails.cache = ActiveSupport::Cache::MemoryStore.new
     yield
   ensure
-    Rails.cache = was
+    Rails.cache = original_cache
   end
 
-  def ask(**over)
+  def fetch_activity(**over)
     Slack::Analytics.channel_activity(
       **{ channel_id: "C1", name: "general", from: "2026-08-01", to: "2026-08-07" }.merge(over)
     )
@@ -46,27 +46,27 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
 
   RANGE = { "start_date" => "2026-01-01", "end_date" => "2026-12-31" }.freeze
 
-  def answering(reply)
-    was = Slack::ProxyClient.method(:call)
+  def stub_slack(reply)
+    original_call = Slack::ProxyClient.method(:call)
     count = 0
-    Slack::ProxyClient.define_singleton_method(:call) do |method, *rest|
+    Slack::ProxyClient.define_singleton_method(:call) do |method, *args|
       next RANGE if method == "admin.analytics.getAvailableDateRange"
 
       count += 1
-      reply.call(method, *rest)
+      reply.call(method, *args)
     end
     yield -> { count }
   ensure
-    Slack::ProxyClient.define_singleton_method(:call, was)
+    Slack::ProxyClient.define_singleton_method(:call, original_call)
   end
 
-  def one_channel = ->(*) { { "channel_analytics" => [ONE] } }
+  def one_channel = ->(*) { { "channel_analytics" => [CHANNEL_ROW] } }
 
   test "a second look at the same window does not call slack again" do
-    caching do
-      answering(one_channel) do |calls|
-        first = ask
-        second = ask
+    with_memory_cache do
+      stub_slack(one_channel) do |calls|
+        first = fetch_activity
+        second = fetch_activity
 
         assert_equal 1, calls.call, "the second look must be served from the cache"
         assert_equal 12, first.stats["messages_count"]
@@ -76,10 +76,10 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
   end
 
   test "a different window is a different question" do
-    caching do
-      answering(one_channel) do |calls|
-        ask
-        ask(to: "2026-08-08")
+    with_memory_cache do
+      stub_slack(one_channel) do |calls|
+        fetch_activity
+        fetch_activity(to: "2026-08-08")
 
         assert_equal 2, calls.call, "the date range is part of what was asked"
       end
@@ -87,10 +87,10 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
   end
 
   test "a failure is never cached, so a blip does not sticky for hours" do
-    caching do
-      answering(->(*) { raise Slack::ProxyClient::Error, "down" }) do |calls|
-        assert_equal :unavailable, ask.error
-        assert_equal :unavailable, ask.error
+    with_memory_cache do
+      stub_slack(->(*) { raise Slack::ProxyClient::Error, "down" }) do |calls|
+        assert_equal :unavailable, fetch_activity.error
+        assert_equal :unavailable, fetch_activity.error
 
         assert_equal 2, calls.call,
           "a cached error would leave the page broken until it expired"
@@ -99,10 +99,10 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
   end
 
   test "a channel that was not found is asked about again next time" do
-    caching do
-      answering(->(*) { { "channel_analytics" => [], "num_found" => 0 } }) do |calls|
-        assert_equal :not_found, ask.error
-        ask
+    with_memory_cache do
+      stub_slack(->(*) { { "channel_analytics" => [], "num_found" => 0 } }) do |calls|
+        assert_equal :not_found, fetch_activity.error
+        fetch_activity
 
         assert_equal 2, calls.call
       end
@@ -117,8 +117,8 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
   end
 
   test "both windows answer, in the order they were asked for" do
-    caching do
-      answering(one_channel) do |calls|
+    with_memory_cache do
+      stub_slack(one_channel) do |calls|
         first, second = windows
 
         assert_equal 2, calls.call
@@ -129,33 +129,33 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
   end
 
   test "the cache is touched only on the calling thread, never on a fetch thread" do
-    caching do
-      answering(one_channel) do |_calls|
-        mine = Thread.current
-        touched = Queue.new
+    with_memory_cache do
+      stub_slack(one_channel) do |_calls|
+        test_thread = Thread.current
+        cache_threads = Queue.new
         store = Rails.cache
         recorder = Class.new(SimpleDelegator) do
-          define_method(:read) { |*a, **k| touched << Thread.current; __getobj__.read(*a, **k) }
-          define_method(:write) { |*a, **k| touched << Thread.current; __getobj__.write(*a, **k) }
+          define_method(:read) { |*a, **k| cache_threads << Thread.current; __getobj__.read(*a, **k) }
+          define_method(:write) { |*a, **k| cache_threads << Thread.current; __getobj__.write(*a, **k) }
         end.new(store)
 
         Rails.cache = recorder
         windows
         Rails.cache = store
 
-        seen = []
-        seen << touched.pop until touched.empty?
+        threads = []
+        threads << cache_threads.pop until cache_threads.empty?
 
-        refute_empty seen, "the cache was never touched, so this proves nothing"
-        assert_equal [mine], seen.uniq,
+        refute_empty threads, "the cache was never touched, so this proves nothing"
+        assert_equal [test_thread], threads.uniq,
           "a fetch thread reached the cache, which is a table in the request's own pool"
       end
     end
   end
 
   test "a window already cached is not asked for again" do
-    caching do
-      answering(one_channel) do |calls|
+    with_memory_cache do
+      stub_slack(one_channel) do |calls|
         windows
         windows
 

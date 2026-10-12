@@ -94,17 +94,17 @@
         </div>
       <% end %>
 
-      <% related = @context.shown_related %>
+      <% related = @context.visible_related %>
       <% if related.any? %>
         <section class="audit-related">
           <h3 class="audit-related-title">Same actor within 15 minutes</h3>
           <ol class="audit-related-list">
-            <% related.each do |one| %>
+            <% related.each do |related_event| %>
               <li>
-                <%= link_to fd_audit_event_path(source: one.source, id: one.id), class: "audit-related-row",
+                <%= link_to fd_audit_event_path(source: related_event.source, id: related_event.id), class: "audit-related-row",
                       data: { turbo_frame: "audit-panel" } do %>
-                  <%= audit_stamp(one.at) %>
-                  <span class="audit-verb"><%= audit_verb(one) %></span>
+                  <%= audit_stamp(related_event.at) %>
+                  <span class="audit-verb"><%= audit_verb(related_event) %></span>
                 <% end %>
               </li>
             <% end %>

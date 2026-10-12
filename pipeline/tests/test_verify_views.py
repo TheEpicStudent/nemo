@@ -35,11 +35,11 @@ class FakeConn:
 
 
 class FakeRow:
-    def __init__(self, found):
-        self.found = found
+    def __init__(self, exists):
+        self.exists = exists
 
     def fetchone(self):
-        return (1,) if self.found else None
+        return (1,) if self.exists else None
 
 
 def test_missing_lists_only_relations_the_database_lacks():

@@ -24,21 +24,21 @@ def rails_relations():
 
 
 def missing(conn, relations):
-    gone = []
+    absent = []
     for relation in relations:
         schema, name = relation.split(".", 1)
         if conn.execute(EXISTS_SQL, (schema, name)).fetchone() is None:
-            gone.append(relation)
-    return gone
+            absent.append(relation)
+    return absent
 
 
 def main():
     load_dotenv(ENV_FILE)
     relations = rails_relations()
     with connect() as conn:
-        gone = missing(conn, relations)
-    if gone:
-        print(f"verify_views: {len(gone)} relation(s) Rails reads do not exist: " + ", ".join(gone))
+        absent = missing(conn, relations)
+    if absent:
+        print(f"verify_views: {len(absent)} relation(s) Rails reads do not exist: " + ", ".join(absent))
         return 1
     print(f"verify_views: all {len(relations)} relation(s) Rails reads exist")
     return 0

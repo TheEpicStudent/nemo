@@ -4,10 +4,10 @@ const LINKS = ".cnav a, .cfoot a"
 
 export default class extends Controller {
   connect() {
-    this.pop = document.createElement("div")
-    this.pop.className = "hint"
-    this.pop.setAttribute("role", "tooltip")
-    document.body.appendChild(this.pop)
+    this.tooltip = document.createElement("div")
+    this.tooltip.className = "hint"
+    this.tooltip.setAttribute("role", "tooltip")
+    document.body.appendChild(this.tooltip)
 
     this.onOver = (event) => this.show(event.target)
     this.onOut = (event) => {
@@ -24,7 +24,7 @@ export default class extends Controller {
     this.element.removeEventListener("mouseout", this.onOut)
     this.element.removeEventListener("focusin", this.onOver)
     this.element.removeEventListener("focusout", this.onOut)
-    this.pop.remove()
+    this.tooltip.remove()
   }
 
   show(target) {
@@ -36,10 +36,10 @@ export default class extends Controller {
     if (!label || !this.collapsed) return this.hide()
 
     const box = link.getBoundingClientRect()
-    this.pop.textContent = label.textContent.trim()
-    this.pop.style.left = `${Math.round(box.right + 8)}px`
-    this.pop.style.top = `${Math.round(box.top + box.height / 2)}px`
-    this.pop.classList.add("on")
+    this.tooltip.textContent = label.textContent.trim()
+    this.tooltip.style.left = `${Math.round(box.right + 8)}px`
+    this.tooltip.style.top = `${Math.round(box.top + box.height / 2)}px`
+    this.tooltip.classList.add("on")
   }
 
   get collapsed() {
@@ -49,6 +49,6 @@ export default class extends Controller {
   }
 
   hide() {
-    this.pop.classList.remove("on")
+    this.tooltip.classList.remove("on")
   }
 }

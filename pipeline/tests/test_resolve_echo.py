@@ -2,16 +2,16 @@ from bot.nemo import case_actions
 from bot.nemo.views import resolve
 
 MOD = "UMOD"
-WHO = "U1"
+USER_ID = "U1"
 
 
 class Conn:
     def __init__(self, rows=()):
         self.rows = list(rows)
-        self.ran = []
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def fetchall(self):
@@ -19,19 +19,19 @@ class Conn:
 
 
 def action(**over):
-    row = {"target_user_id": WHO, "type_key": "warning",
+    row = {"target_user_id": USER_ID, "type_key": "warning",
            "reason": "kept at it after being asked to stop", "resolution_note": None}
     row.update(over)
     return row
 
 
 def test_resolution_echo_actions_reads_the_live_ones():
-    conn = Conn([(WHO, "warning", "kept at it", None)])
+    conn = Conn([(USER_ID, "warning", "kept at it", None)])
     assert case_actions.resolution_echo_actions(conn, 412) == [
-        {"target_user_id": WHO, "type_key": "warning", "reason": "kept at it",
+        {"target_user_id": USER_ID, "type_key": "warning", "reason": "kept at it",
          "resolution_note": None},
     ]
-    assert conn.ran[0] == (case_actions.RESOLUTION_ECHO_ACTIONS, (412,))
+    assert conn.executed[0] == (case_actions.RESOLUTION_ECHO_ACTIONS, (412,))
 
 
 def test_no_action_needed_names_the_disposition_in_the_byline():
@@ -66,7 +66,7 @@ def test_action_taken_lists_every_action_with_its_reason():
         [action(), action(type_key="channel_ban", target_user_id="U2", reason="repeated spam")],
     )
     assert built[1] == {"type": "divider"}
-    assert built[2]["elements"][0]["text"] == f"*Warning* against <@{WHO}>"
+    assert built[2]["elements"][0]["text"] == f"*Warning* against <@{USER_ID}>"
     assert built[3]["text"]["text"] == "> kept at it after being asked to stop"
     assert built[4]["elements"][0]["text"] == "*Channel ban* against <@U2>"
     assert built[5]["text"]["text"] == "> repeated spam"

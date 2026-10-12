@@ -22,7 +22,7 @@ module Fd
     def review_ids
       @pairs = MemberLink.needs_review(limit: LIMIT)
       @verdicts = {}
-      @pairs.flat_map { |one| [one.active_id, one.deactivated_id] }
+      @pairs.flat_map { |pair| [pair.active_id, pair.deactivated_id] }
     end
 
     def clusters_ids
@@ -32,15 +32,15 @@ module Fd
     end
 
     def pairs_ids
-      @links = MemberLink.strongest(limit: LIMIT, over: over)
-      @verdicts = LinkVerdict.for_pairs(@links.map { |one| [one.a_user_id, one.b_user_id] })
-      @links.flat_map { |one| [one.a_user_id, one.b_user_id] }
+      @links = MemberLink.strongest(limit: LIMIT, over: score_floor)
+      @verdicts = LinkVerdict.for_pairs(@links.map { |link| [link.a_user_id, link.b_user_id] })
+      @links.flat_map { |link| [link.a_user_id, link.b_user_id] }
     end
 
-    def over
-      asked = params[:over].to_s
-      return MemberLink::CERTAIN if asked == "certain"
-      return MemberLink::STRONG if asked == "strong"
+    def score_floor
+      requested = params[:over].to_s
+      return MemberLink::CERTAIN if requested == "certain"
+      return MemberLink::STRONG if requested == "strong"
 
       nil
     end

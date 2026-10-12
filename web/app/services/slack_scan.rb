@@ -22,25 +22,25 @@ class SlackScan
 
   def self.fetch(user_id)
     uri = URI.join("#{base_url}/", "users/#{CGI.escape(user_id)}/channels")
-    answer = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https",
+    response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https",
       open_timeout: OPEN_TIMEOUT, read_timeout: READ_TIMEOUT) do |http|
       http.request(Net::HTTP::Get.new(uri))
     end
-    return [] unless answer.is_a?(Net::HTTPSuccess)
+    return [] unless response.is_a?(Net::HTTPSuccess)
 
-    normalize(JSON.parse(answer.body))
+    normalize(JSON.parse(response.body))
   rescue StandardError => e
     Rails.logger.warn("slackscan: #{e.class} for #{user_id}")
     []
   end
 
   def self.normalize(body)
-    Array(body["channels"]).filter_map do |room|
-      id = room["channel_id"].presence
+    Array(body["channels"]).filter_map do |channel|
+      id = channel["channel_id"].presence
       next if id.nil?
 
-      Room.new(channel_id: id, name: room["channel_name"].presence || id,
-        private: !!room["is_private"])
+      Room.new(channel_id: id, name: channel["channel_name"].presence || id,
+        private: !!channel["is_private"])
     end
   end
 end

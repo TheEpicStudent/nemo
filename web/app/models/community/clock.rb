@@ -192,18 +192,18 @@ module Community
     def tone(messages)
       return RAMP.first if messages.zero?
 
-      step = cuts.count { |cut| messages > cut }
+      step = cuts.count { |threshold| messages > threshold }
       RAMP[step + 1]
     end
 
     def cuts
       @cuts ||= begin
-        spoken = @counts.values.reject(&:zero?).sort
+        nonzero_counts = @counts.values.reject(&:zero?).sort
         steps = RAMP.size - 2
-        if spoken.size < steps
+        if nonzero_counts.size < steps
           []
         else
-          (1...steps).map { |i| spoken[(spoken.size * i) / steps] }
+          (1...steps).map { |i| nonzero_counts[(nonzero_counts.size * i) / steps] }
         end
       end
     end

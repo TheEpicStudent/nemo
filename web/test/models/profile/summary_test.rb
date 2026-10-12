@@ -11,7 +11,7 @@ class Profile::SummaryTest < ActiveSupport::TestCase
     seeded!("raw.analytics_day", "ds", on)
   end
 
-  def joined(on)
+  def summary_with_member_since(on)
     Profile::Summary.new(IDLE).tap do |person|
       person.define_singleton_method(:member_since) { on }
     end
@@ -20,18 +20,18 @@ class Profile::SummaryTest < ActiveSupport::TestCase
   test "an idle stretch on days we loaded reads zero, not untracked" do
     loaded!("member_day", Date.new(2020, 1, 15))
 
-    counted = Profile::Summary.new(IDLE).slack(Date.new(2020, 1, 10), Date.new(2020, 1, 20))
+    stats = Profile::Summary.new(IDLE).slack(Date.new(2020, 1, 10), Date.new(2020, 1, 20))
 
-    assert_equal 0, counted[:days_active]
-    assert_equal 0, counted[:messages]
+    assert_equal 0, stats[:days_active]
+    assert_equal 0, stats[:messages]
   end
 
   test "an idle stretch in the imported years reads zero too" do
     loaded!("member_day_import", Date.new(2020, 3, 4))
 
-    counted = Profile::Summary.new(IDLE).slack(Date.new(2020, 3, 1), Date.new(2020, 3, 7))
+    stats = Profile::Summary.new(IDLE).slack(Date.new(2020, 3, 1), Date.new(2020, 3, 7))
 
-    assert_equal 0, counted[:days_active]
+    assert_equal 0, stats[:days_active]
   end
 
   test "a stretch with no day loaded stays untracked" do
@@ -43,15 +43,15 @@ class Profile::SummaryTest < ActiveSupport::TestCase
   test "days before somebody joined are not counted as idle" do
     loaded!("member_day", Date.new(2020, 1, 15))
 
-    counted = joined(Time.utc(2020, 2, 1)).slack(Date.new(2020, 1, 10), Date.new(2020, 1, 20))
+    stats = summary_with_member_since(Time.utc(2020, 2, 1)).slack(Date.new(2020, 1, 10), Date.new(2020, 1, 20))
 
-    assert_nil counted[:days_active]
+    assert_nil stats[:days_active]
   end
 
   test "all time starts the first day Slack reported somebody, not their first active day" do
     loaded!("member_day", Date.new(2020, 1, 15))
     loaded!("member_day", Date.new(2020, 2, 3))
 
-    assert_equal Date.new(2020, 2, 3), joined(Time.utc(2020, 2, 1)).floor
+    assert_equal Date.new(2020, 2, 3), summary_with_member_since(Time.utc(2020, 2, 1)).floor
   end
 end

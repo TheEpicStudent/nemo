@@ -111,18 +111,18 @@ WHERE e.ip IS NOT NULL
 
 SHARED_INDEX = "CREATE INDEX ON shared_ip (ip)"
 
-KEEP_SHARED = """
+SAVE_SHARED_SQL = """
 WITH gone AS (DELETE FROM fd.shared_ip WHERE ip NOT IN (SELECT ip FROM shared_ip))
 INSERT INTO fd.shared_ip (ip) SELECT ip FROM shared_ip ON CONFLICT (ip) DO NOTHING
 """
 
-KEEP_WHOLE = """
+SAVE_WHOLES_SQL = """
 INSERT INTO fd.link_signal_stat (signal, whole, computed_at)
 SELECT signal, whole, now() FROM unnest(%s::text[], %s::numeric[]) AS one (signal, whole)
 ON CONFLICT (signal) DO UPDATE SET whole = EXCLUDED.whole, computed_at = EXCLUDED.computed_at
 """
 
-HELD_WHOLE = "SELECT signal, whole FROM fd.link_signal_stat"
+SELECT_WHOLES_SQL = "SELECT signal, whole FROM fd.link_signal_stat"
 
 QUIET = "SET LOCAL fd.quiet_links = 'on'"
 
@@ -592,7 +592,7 @@ WHERE p.label IS NULL
 
 BELOW_FLOOR = "DELETE FROM link_pass WHERE score < %(floor)s"
 
-LAND = """
+UPSERT_SQL = """
 INSERT INTO fd.member_link
     (a_user_id, b_user_id, score, top_signal, top_family, families, signals, first_seen, last_seen,
      label, computed_at)
@@ -642,49 +642,49 @@ def catalogue():
     return yaml.safe_load(SIGNALS_FILE.read_text())
 
 
-def scoring(held=None):
-    return (held or catalogue())["scoring"]
+def scoring(config=None):
+    return (config or catalogue())["scoring"]
 
 
-def shared(held=None):
-    return (held or catalogue()).get("shared_networks", {})
+def shared(config=None):
+    return (config or catalogue()).get("shared_networks", {})
 
 
-def sightings_of(held):
-    return int(shared(held).get("min_sightings", 1))
+def sightings_of(config):
+    return int(shared(config).get("min_sightings", 1))
 
 
-def mark_shared(conn, held):
-    settings = shared(held)
+def mark_shared(conn, config):
+    settings = shared(config)
     conn.execute(SHARED_ISP, {"rotates": settings.get("rotates_above", 5.0),
                               "crowds": settings.get("crowds_above", 40)})
     conn.execute(SHARED_IP)
     conn.execute(SHARED_INDEX)
-    conn.execute(KEEP_SHARED)
+    conn.execute(SAVE_SHARED_SQL)
     row = conn.execute("SELECT count(*) FROM shared_ip").fetchone()
     return row[0] if row else 0
 
 
-def families(held=None):
-    return (held or catalogue())["families"]
+def families(config=None):
+    return (config or catalogue())["families"]
 
 
-def signals(held=None):
-    held = held or catalogue()
-    found = {name: {**one, "family": NETWORK} for name, one in held["network_signals"].items()}
-    found.update({name: {**one, "family": DEVICE} for name, one in held["device_signals"].items()})
-    found.update({name: {**one, "family": IDENTITY} for name, one in held["identity_signals"].items()})
-    found.update({name: {**one, "family": NAME} for name, one in held["name_signals"].items()})
-    found.update({name: {**one, "family": ARRIVAL} for name, one in held["arrival_signals"].items()})
-    return found
+def signals(config=None):
+    config = config or catalogue()
+    signal_defs = {name: {**one, "family": NETWORK} for name, one in config["network_signals"].items()}
+    signal_defs.update({name: {**one, "family": DEVICE} for name, one in config["device_signals"].items()})
+    signal_defs.update({name: {**one, "family": IDENTITY} for name, one in config["identity_signals"].items()})
+    signal_defs.update({name: {**one, "family": NAME} for name, one in config["name_signals"].items()})
+    signal_defs.update({name: {**one, "family": ARRIVAL} for name, one in config["arrival_signals"].items()})
+    return signal_defs
 
 
-def against(held=None):
-    return (held or catalogue())["against"]
+def against(config=None):
+    return (config or catalogue())["against"]
 
 
-def labels(held=None):
-    return (held or catalogue())["labels"]
+def labels(config=None):
+    return (config or catalogue())["labels"]
 
 
 def pattern(words):
@@ -700,10 +700,10 @@ def staff_members(identities, staff):
             yield (user_id,)
 
 
-def family_table(held):
-    caps = families(held)
+def family_table(config):
+    caps = families(config)
     rows = [(name, one["family"], caps[one["family"]]["cap"], bool(one.get("corroborating")))
-            for name, one in signals(held).items()]
+            for name, one in signals(config).items()]
     return {"signals": [row[0] for row in rows], "families": [row[1] for row in rows],
             "caps": [row[2] for row in rows], "corroborating": [row[3] for row in rows]}
 
@@ -755,30 +755,30 @@ def whole_sql(name, settings, sightings, sources=FULL):
     return WHOLE_SQL.format(evidence=source.format(**names)) if source else None
 
 
-def measure(conn, held, sources=FULL, names=None):
-    sightings = sightings_of(held)
-    found = {}
-    for name, settings in signals(held).items():
+def measure(conn, config, sources=FULL, names=None):
+    sightings = sightings_of(config)
+    measured = {}
+    for name, settings in signals(config).items():
         if names is not None and name not in names:
             continue
         sql = whole_sql(name, settings, sightings, sources)
         if sql:
-            found[name] = conn.execute(sql).fetchone()[0]
-    return found
+            measured[name] = conn.execute(sql).fetchone()[0]
+    return measured
 
 
-def keep_wholes(conn, wholes):
+def save_wholes(conn, wholes):
     names = sorted(wholes)
-    conn.execute(KEEP_WHOLE, (names, [wholes[name] for name in names]))
+    conn.execute(SAVE_WHOLES_SQL, (names, [wholes[name] for name in names]))
 
 
-def held_wholes(conn):
-    return dict(conn.execute(HELD_WHOLE).fetchall())
+def load_wholes(conn):
+    return dict(conn.execute(SELECT_WHOLES_SQL).fetchall())
 
 
-def wanting(held, wholes):
-    sightings = sightings_of(held)
-    return sorted(name for name, settings in signals(held).items()
+def missing_wholes(config, wholes):
+    sightings = sightings_of(config)
+    return sorted(name for name, settings in signals(config).items()
                   if whole_sql(name, settings, sightings) and name not in wholes)
 
 
@@ -793,9 +793,9 @@ def mailbox_rows(identities, staff):
         yield user_id, box, local, domain
 
 
-def load_mailboxes(conn, held, sources=FULL):
+def load_mailboxes(conn, config, sources=FULL):
     conn.execute(MAILBOX)
-    staff = held.get("staff_domains", [])
+    staff = config.get("staff_domains", [])
     identities = conn.execute(IDENTITIES_SQL.format(**sources)).fetchall()
     with conn.cursor() as cur, cur.copy("COPY mailbox (user_id, box, local, domain) FROM STDIN") as copy:
         for row in mailbox_rows(identities, staff):
@@ -806,21 +806,21 @@ def load_mailboxes(conn, held, sources=FULL):
             copy.write_row(row)
 
 
-def prepare(conn, held, sources=FULL):
+def prepare(conn, config, sources=FULL):
     conn.execute(RARITY)
     conn.execute(STAGE)
     conn.execute(SIGHTING.format(**sources))
     conn.execute("ANALYZE sighting")
-    load_mailboxes(conn, held, sources)
+    load_mailboxes(conn, config, sources)
     conn.execute("ANALYZE mailbox")
     conn.execute("ANALYZE staff_member")
 
 
-def gather(conn, held, wholes, sources=FULL):
-    sightings = sightings_of(held)
+def gather(conn, config, wholes, sources=FULL):
+    sightings = sightings_of(config)
     counted = {}
 
-    for name, settings in signals(held).items():
+    for name, settings in signals(config).items():
         pairs, args = evidence(name, settings, sightings, sources)
         if pairs is None:
             continue
@@ -833,7 +833,7 @@ def gather(conn, held, wholes, sources=FULL):
             counted[name] = cur.rowcount
 
     for name, single in REPEATED:
-        many = signals(held).get(name)
+        many = signals(config).get(name)
         if many:
             with conn.cursor() as cur:
                 cur.execute(MANY, {"name": name, "weight": many["weight"], "single": single})
@@ -841,71 +841,71 @@ def gather(conn, held, wholes, sources=FULL):
     return counted
 
 
-def settle(conn, held, sources=FULL, sweep=SWEEP, lap=lambda _step: None):
-    marks = scoring(held)
-    named = labels(held)
+def settle(conn, config, sources=FULL, sweep=SWEEP, lap=lambda _step: None):
+    thresholds = scoring(config)
+    label_config = labels(config)
     labelled = {}
     with conn.cursor() as cur:
-        cur.execute(PASS, {**family_table(held), "floor": marks["floor"]})
+        cur.execute(PASS, {**family_table(config), "floor": thresholds["floor"]})
         cur.execute(PASS_INDEX)
         cur.execute("ANALYZE link_pass")
         lap("score")
         cur.execute(PRESENCE.format(**sources))
         cur.execute(PRESENCE_INDEX)
         cur.execute("ANALYZE presence")
-        cur.execute(AGAINST, {"weight": against(held)[TWO_COUNTRIES]["weight"]})
+        cur.execute(AGAINST, {"weight": against(config)[TWO_COUNTRIES]["weight"]})
         countered = cur.rowcount
         lap("countries")
         cur.execute(STAFF_TEST)
         labelled["staff_test"] = cur.rowcount
-        cur.execute(CLASSROOM, {"weight": named["classroom"]["weight"],
-                                "networks": pattern(named["classroom"].get("networks")),
-                                "devices": pattern(named["classroom"].get("devices"))})
+        cur.execute(CLASSROOM, {"weight": label_config["classroom"]["weight"],
+                                "networks": pattern(label_config["classroom"].get("networks")),
+                                "devices": pattern(label_config["classroom"].get("devices"))})
         labelled["classroom"] = cur.rowcount
-        cur.execute(HOUSEHOLD, {"weight": named["household"]["weight"]})
+        cur.execute(HOUSEHOLD, {"weight": label_config["household"]["weight"]})
         labelled["household"] = cur.rowcount
         lap("labels")
-        cur.execute(BELOW_FLOOR, {"floor": marks["floor"]})
-        cur.execute(LAND)
+        cur.execute(BELOW_FLOOR, {"floor": thresholds["floor"]})
+        cur.execute(UPSERT_SQL)
         changed = cur.rowcount
         cur.execute(sweep)
-        gone = cur.rowcount
+        removed = cur.rowcount
         cur.execute("SELECT count(*) FROM link_pass")
-        kept = cur.fetchone()[0]
-    return kept, changed, gone, countered, labelled
+        retained = cur.fetchone()[0]
+    return retained, changed, removed, countered, labelled
 
 
 def run(conn):
-    held = catalogue()
+    config = catalogue()
 
-    took = {}
-    clock = time.monotonic()
+    step_seconds = {}
+    lap_start = time.monotonic()
 
     def lap(step):
-        nonlocal clock
+        nonlocal lap_start
         now = time.monotonic()
-        took[step] = now - clock
-        clock = now
+        step_seconds[step] = now - lap_start
+        lap_start = now
 
     with ingest_run(conn, SOURCE) as counts:
         conn.execute(QUIET)
-        put_aside = mark_shared(conn, held)
+        shared_ip_count = mark_shared(conn, config)
         conn.execute("ANALYZE shared_ip")
-        prepare(conn, held)
-        wholes = measure(conn, held)
-        keep_wholes(conn, wholes)
-        found = gather(conn, held, wholes)
+        prepare(conn, config)
+        wholes = measure(conn, config)
+        save_wholes(conn, wholes)
+        signal_counts = gather(conn, config, wholes)
         conn.execute("ANALYZE link_part")
         lap("gather")
-        kept, changed, gone, countered, labelled = settle(conn, held, lap=lap)
+        retained, changed, removed, countered, labelled = settle(conn, config, lap=lap)
         conn.commit()
         lap("write")
         counts.rows_in = changed
 
-    per_signal = ", ".join(f"{name} {n}" for name, n in sorted(found.items()) if n)
+    per_signal = ", ".join(f"{name} {n}" for name, n in sorted(signal_counts.items()) if n)
     per_label = ", ".join(f"{count} labelled {name}" for name, count in labelled.items())
-    print(f"{SOURCE}: {kept} link(s) kept, {changed} written, {gone} dropped, "
+    print(f"{SOURCE}: {retained} link(s) kept, {changed} written, {removed} dropped, "
           f"{countered} lowered by activity in two countries, {per_label}, "
-          f"{put_aside} address(es) on shared networks treated as rotating ({per_signal})")
-    print(f"{SOURCE}: took " + ", ".join(f"{step} {seconds:.0f}s" for step, seconds in took.items()))
+          f"{shared_ip_count} address(es) on shared networks treated as rotating ({per_signal})")
+    print(f"{SOURCE}: took " + ", ".join(f"{step} {seconds:.0f}s" for step, seconds in step_seconds.items()))
     return changed

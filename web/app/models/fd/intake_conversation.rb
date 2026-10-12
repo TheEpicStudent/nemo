@@ -6,7 +6,7 @@ module Fd
     has_many :queued, class_name: "Fd::IntakeOutbox", foreign_key: :conversation_id,
       inverse_of: :conversation, dependent: nil
 
-    scope :open_ones, -> { where(closed_at: nil) }
+    scope :open, -> { where(closed_at: nil) }
 
     def self.for_case(case_id)
       where(report_id: CaseReport.where(case_id: case_id).select(:id)).order(:opened_at)

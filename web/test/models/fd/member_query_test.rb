@@ -6,23 +6,23 @@ class Fd::MemberQueryTest < ActiveSupport::TestCase
   end
 
   def named(user_ids)
-    shown = Fd::Member.where(user_id: user_ids)
+    names_by_id = Fd::Member.where(user_id: user_ids)
       .pluck(:user_id, :display_name, :handle)
       .to_h { |id, display, handle| [id, (display.presence || handle.presence || id).downcase] }
-    user_ids.map { |id| shown.fetch(id, id.downcase) }
+    user_ids.map { |id| names_by_id.fetch(id, id.downcase) }
   end
 
   def collate(text)
     text.gsub(/[^a-z0-9]/, "")
   end
 
-  def counting
-    counted = 0
-    listener = ActiveSupport::Notifications.subscribe("sql.active_record") do |_, _, _, _, load|
-      counted += 1 unless load[:name].to_s.in?(%w[SCHEMA TRANSACTION])
+  def count_queries
+    query_count = 0
+    listener = ActiveSupport::Notifications.subscribe("sql.active_record") do |_, _, _, _, payload|
+      query_count += 1 unless payload[:name].to_s.in?(%w[SCHEMA TRANSACTION])
     end
     yield
-    counted
+    query_count
   ensure
     ActiveSupport::Notifications.unsubscribe(listener)
   end
@@ -42,27 +42,27 @@ class Fd::MemberQueryTest < ActiveSupport::TestCase
   end
 
   test "the name sort groups people by the name they show, not their id" do
-    shown = named(query("view" => "everyone", "sort" => "name").rows.map(&:user_id))
+    names = named(query("view" => "everyone", "sort" => "name").rows.map(&:user_id))
 
-    assert_equal shown, shown.sort { |a, b| collate(a) <=> collate(b) },
+    assert_equal names, names.sort { |a, b| collate(a) <=> collate(b) },
       "the page is not in the order the database collates names"
   end
 
   test "a page is the matching slice of the whole ordering" do
-    asked = { "view" => "everyone", "sort" => "name" }
-    whole = query(asked).summary_rows.map(&:user_id)
+    params = { "view" => "everyone", "sort" => "name" }
+    all_ids = query(params).summary_rows.map(&:user_id)
 
-    assert_equal whole.first(Fd::MemberQuery::LIMIT), query(asked).rows.map(&:user_id)
-    assert_equal whole.slice(Fd::MemberQuery::LIMIT, Fd::MemberQuery::LIMIT),
-      query(asked.merge("page" => "2")).rows.map(&:user_id)
+    assert_equal all_ids.first(Fd::MemberQuery::LIMIT), query(params).rows.map(&:user_id)
+    assert_equal all_ids.slice(Fd::MemberQuery::LIMIT, Fd::MemberQuery::LIMIT),
+      query(params.merge("page" => "2")).rows.map(&:user_id)
   end
 
   test "a page costs the same whether it is the first or a later one" do
-    first = counting { query("view" => "everyone").rows }
-    later = counting { query("view" => "everyone", "page" => "3").rows }
+    first_page_count = count_queries { query("view" => "everyone").rows }
+    later_page_count = count_queries { query("view" => "everyone", "page" => "3").rows }
 
-    assert_equal first, later, "a later page must not walk further than the first"
-    assert_operator first, :<=, 2, "one count and one page, not a walk of the whole roster"
+    assert_equal first_page_count, later_page_count, "a later page must not walk further than the first"
+    assert_operator first_page_count, :<=, 2, "one count and one page, not a walk of the whole roster"
   end
 
   test "a page holds at most one page worth of people" do
@@ -91,8 +91,8 @@ class Fd::MemberQueryCountsCacheTest < ActiveSupport::TestCase
   test "view counts are computed once per cache window rather than once per request" do
     roster_passes = lambda do |&block|
       passes = 0
-      listener = ActiveSupport::Notifications.subscribe("sql.active_record") do |_, _, _, _, load|
-        passes += 1 if load[:sql].include?("conduct AS")
+      listener = ActiveSupport::Notifications.subscribe("sql.active_record") do |_, _, _, _, payload|
+        passes += 1 if payload[:sql].include?("conduct AS")
       end
       block.call
       passes

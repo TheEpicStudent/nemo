@@ -3,10 +3,10 @@
 <section class="section">
   <div class="section-head">
     <h2 class="section-title">What each role carries</h2>
-    <% if @moved.positive? %>
-      <p class="section-note"><%= pluralize(@moved, "capability") %> off default</p>
+    <% if @override_count.positive? %>
+      <p class="section-note"><%= pluralize(@override_count, "capability") %> off default</p>
     <% end %>
-    <% if @moved.positive? %>
+    <% if @override_count.positive? %>
       <div class="section-tools">
         <%= gated_button "access.grant", "Put back the defaults", fd_role_permission_path,
               method: :delete, css: "btn btn-sm",

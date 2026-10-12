@@ -12,7 +12,7 @@ module ProfileHelper
   end
 
   def profile_path_with(profile, **overrides)
-    here = {
+    current_params = {
       span: (profile.span_key unless profile.custom? ||
               profile.span_key == Profile::Summary::DEFAULT_SPAN),
       start: (profile.window_start.iso8601 if profile.custom?),
@@ -20,7 +20,7 @@ module ProfileHelper
       streak: (profile.streak_basis unless
                 profile.streak_basis == Profile::Summary::DEFAULT_BASIS)
     }
-    profile_path(**here.merge(overrides).compact)
+    profile_path(**current_params.merge(overrides).compact)
   end
 
   def range_label_for(profile)
@@ -54,7 +54,7 @@ module ProfileHelper
     if cell.elsewhere.positive?
       rows << { label: "elsewhere", value: number_with_delimiter(cell.elsewhere) }
     end
-    rows << { label: "rooms we hold", value: number_with_delimiter(cell.rooms) } if cell.rooms.positive?
+    rows << { label: "rooms we hold", value: number_with_delimiter(cell.channels) } if cell.channels.positive?
     rows << { label: "replies", value: number_with_delimiter(cell.replies) } if cell.replies.positive?
     rows
   end
@@ -82,17 +82,17 @@ module ProfileHelper
       "#{streak.longest_from.strftime('%b %Y')}"
   end
 
-  def last_posted(at)
-    return tag.span("n/a", class: "sub2") if at.nil?
+  def last_posted(time)
+    return tag.span("n/a", class: "sub2") if time.nil?
 
-    on = at.to_date
-    days = (Date.current - on).to_i
+    date = time.to_date
+    days = (Date.current - date).to_i
     return "today" if days <= 0
     return "yesterday" if days == 1
     return "#{days} days ago" if days < 14
     return "#{days / 7} weeks ago" if days < 70
 
-    on.strftime("%-d %b %Y")
+    date.strftime("%-d %b %Y")
   end
 
   def platform_line(profile)

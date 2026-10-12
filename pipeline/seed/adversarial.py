@@ -61,21 +61,21 @@ def payload(rng):
 def poison_channels(rng, channels):
     if not channels:
         return 0
-    touched = 0
+    renamed_count = 0
     for i, name in enumerate(SHORT_NAMES):
         if i < len(channels):
             channels[i].name = name
-            touched += 1
+            renamed_count += 1
     remaining = channels[len(SHORT_NAMES):]
     for i, value in enumerate(PAYLOADS):
         if i < len(remaining):
             remaining[i].name = as_channel_name(value)
-            touched += 1
+            renamed_count += 1
     for channel in remaining[len(PAYLOADS):]:
         if rng.random() < POISON_SHARE:
             channel.name = as_channel_name(f"{channel.name}{payload(rng)}")
-            touched += 1
-    return touched
+            renamed_count += 1
+    return renamed_count
 
 
 def display_name(rng, user_id, hostile):

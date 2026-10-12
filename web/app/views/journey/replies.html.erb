@@ -8,30 +8,30 @@
      { label: "no reply", color: "var(--series-rest)",
        count: ->(r) { r.unanswered.to_i } }
    ] %>
-<% unsettled = @response_rate.each_with_index.filter_map { |r, i|
+<% partial_indexes = @response_rate.each_with_index.filter_map { |r, i|
      i if r.first_posts_checked < HomeHelper::MIN_SAMPLE ||
           r.post_month >= Date.current.beginning_of_month } %>
-<% settled_rows = @response_rate.each_with_index.reject { |_, i| unsettled.include?(i) }.map(&:first) %>
-<% latest = settled_rows.last %>
+<% complete_rows = @response_rate.each_with_index.reject { |_, i| partial_indexes.include?(i) }.map(&:first) %>
+<% latest = complete_rows.last %>
 
 <% if latest %>
-  <% months = settled_rows.map { |r| r.post_month.strftime("%b %Y") } %>
+  <% months = complete_rows.map { |r| r.post_month.strftime("%b %Y") } %>
   <div class="metrics">
     <%= render "shared/stat", k: "Answered",
           v: number_to_percentage(share_pct(latest.answered_by_member.to_i + latest.answered_by_bot.to_i,
             latest.first_posts_checked) || 0, precision: 1),
           spark: { name: "answered", days: false, labels: months,
-                   data: settled_rows.map { |r| share_pct(r.answered_by_member.to_i + r.answered_by_bot.to_i, r.first_posts_checked) } },
-          say: "#{latest.post_month.strftime("%b %Y")}, last settled month" %>
+                   data: complete_rows.map { |r| share_pct(r.answered_by_member.to_i + r.answered_by_bot.to_i, r.first_posts_checked) } },
+          caption: "#{latest.post_month.strftime("%b %Y")}, last settled month" %>
     <%= render "shared/stat", k: "Answered by a member",
           v: number_to_percentage(share_pct(latest.answered_by_member, latest.first_posts_checked) || 0, precision: 1),
           spark: { name: "answered by a member", days: false, labels: months,
-                   data: settled_rows.map { |r| share_pct(r.answered_by_member, r.first_posts_checked) } },
-          say: "Rather than a bot or nobody" %>
+                   data: complete_rows.map { |r| share_pct(r.answered_by_member, r.first_posts_checked) } },
+          caption: "Rather than a bot or nobody" %>
     <%= render "shared/stat", k: "Median wait", v: reply_wait(latest.median_member_latency_seconds),
           spark: { name: "median wait, minutes", days: false, labels: months,
-                   data: settled_rows.map { |r| r.median_member_latency_seconds && (r.median_member_latency_seconds / 60.0).round(1) } },
-          say: "For a member's first reply" %>
+                   data: complete_rows.map { |r| r.median_member_latency_seconds && (r.median_member_latency_seconds / 60.0).round(1) } },
+          caption: "For a member's first reply" %>
   </div>
 <% end %>
 
@@ -50,7 +50,7 @@
           data-chart-stacked-value="true"
           data-chart-pct-value="true"
           data-chart-height-value="250"
-          <% if unsettled.any? %>data-chart-partial-value="<%= unsettled.to_json %>"
+          <% if partial_indexes.any? %>data-chart-partial-value="<%= partial_indexes.to_json %>"
           data-chart-partial-note-value="still filling in, the rate can still move"<% end %>
           data-chart-notes-value="<%= @response_rate.map { |r|
             r.median_member_latency_seconds ? "median member wait #{reply_wait(r.median_member_latency_seconds)}" : nil

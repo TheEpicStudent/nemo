@@ -1,7 +1,7 @@
 <turbo-frame id="person-drawer" data-controller="person-drawer">
   <div class="person-modal" role="dialog" aria-label="<%= names[@user_id] %>">
     <div class="person-menu-head">
-      <%= face(@user_id, css: "avatar person-menu-face") %>
+      <%= avatar(@user_id, css: "avatar person-menu-face") %>
       <span class="person-menu-who">
         <b><%= person_name(@user_id) %></b>
         <span>
@@ -37,12 +37,12 @@
         </div>
       </dl>
 
-      <% named = (@record.subject_cases + @record.logged_cases).uniq(&:id).sort_by(&:opened_at) %>
-      <% if named.any? %>
+      <% related_cases = (@record.subject_cases + @record.logged_cases).uniq(&:id).sort_by(&:opened_at) %>
+      <% if related_cases.any? %>
         <section class="person-menu-group">
           <h3 class="person-menu-label">Cases they appear in</h3>
           <% by_case = @record.actions.group_by(&:case_id) %>
-          <% named.each do |kase| %>
+          <% related_cases.each do |kase| %>
             <div class="person-menu-item">
               <%= link_to fd_case_path(kase), class: "person-menu-case", data: { turbo_frame: "_top" } do %>
                 <span class="two-line">

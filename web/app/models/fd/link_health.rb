@@ -6,7 +6,7 @@ module Fd
       "member_links" => "Last full rebuild"
     }.freeze
 
-    QUEUE_SQL = "SELECT count(*) AS waiting, min(touched_at) AS oldest FROM fd.member_touch".freeze
+    QUEUE_SQL = "SELECT count(*) AS queued, min(touched_at) AS oldest_touched_at FROM fd.member_touch".freeze
     RUNS_SQL = "SELECT source, started_at, finished_at, status FROM fd.link_lane_run".freeze
 
     Run = Struct.new(:started_at, :finished_at, :status, keyword_init: true) do
@@ -19,7 +19,7 @@ module Fd
       def seconds = finished_at && started_at && (finished_at - started_at)
     end
 
-    attr_reader :waiting, :oldest
+    attr_reader :queued, :oldest_touched_at
 
     def self.load
       connection = MemberLink.connection
@@ -28,12 +28,12 @@ module Fd
         [row["source"], Run.new(started_at: row["started_at"]&.to_time,
           finished_at: row["finished_at"]&.to_time, status: row["status"])]
       end
-      new(waiting: queue["waiting"].to_i, oldest: queue["oldest"]&.to_time, runs: runs)
+      new(queued: queue["queued"].to_i, oldest_touched_at: queue["oldest_touched_at"]&.to_time, runs: runs)
     end
 
-    def initialize(waiting:, oldest:, runs:)
-      @waiting = waiting
-      @oldest = oldest
+    def initialize(queued:, oldest_touched_at:, runs:)
+      @queued = queued
+      @oldest_touched_at = oldest_touched_at
       @runs = runs
     end
 

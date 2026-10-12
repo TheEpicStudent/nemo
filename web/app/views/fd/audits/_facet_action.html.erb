@@ -1,0 +1,16 @@
+<% selected = @query.search.of("action") %>
+<% categories = @query.search.of("category") %>
+<%= link_to "Any", fd_audit_path(@query.set_params("action")), class: "btn",
+      aria: { current: ("true" if selected.empty?) } %>
+<% Fd::AuditCatalogue.grouped(categories.presence || Fd::AuditCatalogue::CATEGORIES.keys).each do |_key, label, actions| %>
+  <% visible_actions = counts ? actions.select { |action| counts.fetch(action, 0).positive? || selected.include?(action) } : actions %>
+  <% next if visible_actions.empty? %>
+  <div class="menu-sep"></div>
+  <div class="menu-group"><%= label %></div>
+  <% audit_ordered(visible_actions, counts).each do |action| %>
+    <%= link_to fd_audit_path(@query.set_params("action", action)), class: "btn",
+          aria: { current: ("true" if selected.include?(action)) } do %>
+      <span><%= Fd::AuditCatalogue.action_label(action) %></span><%= audit_count(counts&.fetch(action, 0)) %>
+    <% end %>
+  <% end %>
+<% end %>

@@ -2,15 +2,15 @@ module Community
   class Calendar
     WEEKS = 53
     DAYS = %w[Mon Tue Wed Thu Fri Sat Sun].freeze
-    SHOWN_DAYS = [0, 2, 4].freeze
+    LABELED_WEEKDAYS = [0, 2, 4].freeze
     STEPS = 5
 
-    Cell = Struct.new(:on, :messages, :in_channels, :elsewhere, :rooms, :replies,
+    Cell = Struct.new(:on, :messages, :in_channels, :elsewhere, :channels, :replies,
       :step, :state, keyword_init: true) do
       def measured? = state == :measured
       def before? = state == :before
       def future? = state == :future
-      def unseen? = messages.to_i.positive? && rooms.to_i.zero?
+      def unarchived? = messages.to_i.positive? && channels.to_i.zero?
     end
 
     Month = Struct.new(:label, :from, :span, keyword_init: true)
@@ -24,23 +24,23 @@ module Community
       window_end = today.end_of_week(:monday)
       window_start = window_end - (WEEKS * 7 - 1)
 
-      held = Analytics::MartMemberDay.mine(user_id).between(window_start, window_end)
+      day_rows = Analytics::MartMemberDay.mine(user_id).between(window_start, window_end)
         .pluck(:ds, :channels, :replies, :messages)
       posted = Analytics::MemberActivity.mine(user_id).between(window_start, window_end)
         .where("window_start = window_end")
         .pluck(:window_start, :messages_posted, :channel_messages_posted)
 
-      new(held: held, posted: posted, window_start: window_start, window_end: window_end,
+      new(day_rows: day_rows, posted: posted, window_start: window_start, window_end: window_end,
         today: today, first_post_on: first_post_on, run_from: run_from, run_to: run_to)
     end
 
-    def initialize(held:, posted:, window_start:, window_end:, today:, first_post_on: nil,
+    def initialize(day_rows:, posted:, window_start:, window_end:, today:, first_post_on: nil,
       run_from: nil, run_to: nil)
       @window_start = window_start
       @window_end = window_end
       @today = today
       @first_post_on = first_post_on
-      @held = held.to_h { |ds, rooms, replies, messages| [ds, [rooms, replies, messages]] }
+      @day_rows = day_rows.to_h { |ds, channels, replies, messages| [ds, [channels, replies, messages]] }
       @totals = totals_of(posted)
       counts = @totals.values.map(&:first)
       @peak = counts.max.to_i
@@ -72,7 +72,7 @@ module Community
     end
 
     def row_label(index)
-      SHOWN_DAYS.include?(index) ? DAYS[index] : nil
+      LABELED_WEEKDAYS.include?(index) ? DAYS[index] : nil
     end
 
     private
@@ -96,8 +96,8 @@ module Community
 
     def totals_of(posted)
       by_day = posted.to_h { |ds, messages, in_channels| [ds, [messages.to_i, in_channels.to_i]] }
-      (by_day.keys | @held.keys).to_h do |on|
-        archived = @held[on]&.last.to_i
+      (by_day.keys | @day_rows.keys).to_h do |on|
+        archived = @day_rows[on]&.last.to_i
         messages, in_channels = by_day[on] || [0, 0]
         [on, [[messages, archived].max, [in_channels, archived].max]]
       end
@@ -106,11 +106,11 @@ module Community
     def grid
       (0...(WEEKS * 7)).map do |offset|
         on = @window_start + offset
-        rooms, replies, = @held[on]
+        channels, replies, = @day_rows[on]
         messages, in_channels = @totals[on] || [0, 0]
         Cell.new(on: on, messages: messages, in_channels: in_channels,
           elsewhere: [messages - in_channels, 0].max,
-          rooms: rooms.to_i, replies: replies.to_i,
+          channels: channels.to_i, replies: replies.to_i,
           step: step_of(messages), state: state_of(on))
       end
     end
@@ -135,17 +135,17 @@ module Community
     end
 
     def month_spans
-      seen = []
+      spans = []
       (0...WEEKS).each do |week|
         monday = @window_start + (week * 7)
         label = monday.strftime("%b")
-        if seen.last && seen.last.label == label
-          seen.last.span += 1
+        if spans.last && spans.last.label == label
+          spans.last.span += 1
         else
-          seen << Month.new(label: label, from: week + 1, span: 1)
+          spans << Month.new(label: label, from: week + 1, span: 1)
         end
       end
-      seen
+      spans
     end
   end
 end

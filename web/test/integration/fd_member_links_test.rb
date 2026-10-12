@@ -76,9 +76,9 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     member!("UJUDGED")
     member!("UWEAK")
     member!("UBOTHON")
-    gone!("UGONE")
-    gone!("UJUDGED")
-    gone!("UWEAK")
+    mark_deleted!("UGONE")
+    mark_deleted!("UJUDGED")
+    mark_deleted!("UWEAK")
     link!("UACTIVE", "UGONE", score: 9.5, top: "mailbox_alias",
       signals: '{"mailbox_alias": {"value": "kid@gmail.com", "people": 2, "score": 8.0}}')
     link!("UACTIVE", "UJUDGED", score: 9.0, top: "ip_stable")
@@ -151,7 +151,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     20.times { |n| cluster!("UBIG#{n.to_s.rjust(2, '0')}", "UBIG00", accounts: 21, active: true) }
 
     get fd_member_links_path("UONE")
-    assert_select ".facepile a.facepile-face", Fd::MemberLink::MATES_SHOWN
+    assert_select ".facepile a.facepile-face", Fd::MemberLink::CLUSTER_MEMBER_LIMIT
     assert_select ".facepile .facepile-more", "+4"
     assert_select ".link-mates-head", /20 other accounts/
     assert_select "a", text: "Open cluster", count: 1
@@ -182,7 +182,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
   end
 
   test "a lane that never ran reads as n/a" do
-    health = Fd::LinkHealth.new(waiting: 0, oldest: nil, runs: {})
+    health = Fd::LinkHealth.new(queued: 0, oldest_touched_at: nil, runs: {})
 
     assert health.run("member_links").never?
     assert_not health.run("member_links").running?
@@ -201,7 +201,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
 
   private
 
-  def gone!(user_id)
+  def mark_deleted!(user_id)
     as_pipeline("UPDATE fd.member SET is_deleted = true WHERE user_id = ?", user_id)
   end
 

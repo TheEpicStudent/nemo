@@ -29,9 +29,9 @@ module Api
       now = Time.current
 
       transaction do
-        held = where(user_id: user_id, capability: capability)
-        held = app_id.nil? ? held.where(app_id: nil) : held.where(app_id: app_id)
-        row = held.take
+        relation = where(user_id: user_id, capability: capability)
+        relation = app_id.nil? ? relation.where(app_id: nil) : relation.where(app_id: app_id)
+        row = relation.take
 
         if row
           row.update!(state: state, changed_at: now, changed_via: via,

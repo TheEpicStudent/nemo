@@ -11,9 +11,9 @@
   <div class="stack">
     <% @apps.each do |app| %>
       <% live_app = approved?(app) %>
-      <% asked = waiting_for(app) %>
+      <% pending_request = waiting_for(app) %>
       <% tokens = tokens_for(app) %>
-      <% live = tokens.reject(&:spent?) %>
+      <% active_tokens = tokens.reject(&:inactive?) %>
       <div class="card card-flush">
         <div class="card-head">
           <div class="two-line appline">
@@ -22,7 +22,7 @@
           </div>
 
           <div class="card-tools">
-            <% if asked %>
+            <% if pending_request %>
               <span class="chip chip-warn">Pending</span>
             <% elsif !live_app && !api_off %>
               <button type="button" class="btn btn-sm" data-modal-open="ask-<%= app.id %>"
@@ -32,8 +32,8 @@
             <%= render layout: "shared/dropdown",
                   locals: { label: "More for #{app.name}", trigger: menu_dots,
                             trigger_css: "btn btn-ghost btn-only" } do %>
-              <% if asked %>
-                <%= button_to "Withdraw the request", withdraw_settings_request_path(asked),
+              <% if pending_request %>
+                <%= button_to "Withdraw the request", withdraw_settings_request_path(pending_request),
                       method: :delete, class: "btn", form: { class: "contents" } %>
                 <div class="menu-sep"></div>
               <% end %>
@@ -43,13 +43,13 @@
           </div>
         </div>
 
-        <% live.each do |token| %>
+        <% active_tokens.each do |token| %>
           <div class="rowbar keyline">
             <span class="two-line">
               <b><%= token.name %></b>
               <span>
-                <code class="mono"><%= token.shown %></code> &middot;
-                <%= token.rate %>/min &middot; <%= token.dies_in %> &middot;
+                <code class="mono"><%= token.display_prefix %></code> &middot;
+                <%= token.rate %>/min &middot; <%= token.expires_in_label %> &middot;
                 <%= token.last_used_at ? "used #{time_ago_in_words(token.last_used_at)} ago" : "never used" %>
               </span>
             </span>
@@ -65,7 +65,7 @@
           </div>
         <% end %>
 
-        <% if live_app && live.empty? %>
+        <% if live_app && active_tokens.empty? %>
           <div class="rowbar keyline">
             <span class="sub">No key yet</span>
             <span class="grow"></span>
@@ -103,7 +103,7 @@
     <% if !approved?(app) && waiting_for(app).nil? %>
       <%= render "settings/keys/ask", app: app %>
     <% end %>
-    <% tokens_for(app).reject(&:spent?).each do |token| %>
+    <% tokens_for(app).reject(&:inactive?).each do |token| %>
       <%= render "settings/keys/revoke", token: token %>
     <% end %>
   <% end %>

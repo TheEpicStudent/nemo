@@ -8,13 +8,13 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
   end
 
-  def found(term)
+  def search_json(term)
     get fd_search_path(format: :json), params: { q: term }
     JSON.parse(response.body)
   end
 
   def group(term, key)
-    found(term)["groups"].find { |one| one["key"] == key }
+    search_json(term)["groups"].find { |one| one["key"] == key }
   end
 
   test "a signed out visitor gets nothing" do
@@ -27,7 +27,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
   test "an empty box offers what is waiting and what you can do" do
     make_case(opened_at: 3.days.ago)
 
-    keys = found("")["groups"].map { |one| one["key"] }
+    keys = search_json("")["groups"].map { |one| one["key"] }
     assert_equal ["waiting", "do", "page"], keys
 
     waiting = group("", "waiting")["rows"]
@@ -46,9 +46,9 @@ class FdSearchTest < ActionDispatch::IntegrationTest
 
   test "a member row counts their priors and open cases" do
     member!("U0PALETTE1", handle: "quorvexpalette")
-    acted = make_case(subject: "U0PALETTE1", opened_at: 20.days.ago, resolved_at: 10.days.ago,
+    action_taken_case = make_case(subject: "U0PALETTE1", opened_at: 20.days.ago, resolved_at: 10.days.ago,
       resolution: "action_taken")
-    Fd::Action.create!(case_id: acted.id, type_key: "warning", target_user_id: "U0PALETTE1",
+    Fd::Action.create!(case_id: action_taken_case.id, type_key: "warning", target_user_id: "U0PALETTE1",
       decided_by: "UFF1", performed_by: "UFF1")
     make_case(subject: "U0PALETTE1", opened_at: 2.days.ago)
 
@@ -77,7 +77,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
   end
 
   test "a term nobody typed enough of finds nothing" do
-    assert_empty found("a")["groups"].reject { |one| ["waiting", "do"].include?(one["key"]) }
+    assert_empty search_json("a")["groups"].reject { |one| ["waiting", "do"].include?(one["key"]) }
   end
 
   test "an empty box lists the pages from the sidebar" do
@@ -150,14 +150,14 @@ class FdSearchTest < ActionDispatch::IntegrationTest
 
   test "a prefix alone drops the resting rows and shows that kind" do
     make_case(opened_at: 2.days.ago)
-    payload = found("#")
+    payload = search_json("#")
 
     assert_equal "case", payload["scope"]
     assert_equal ["case"], payload["groups"].map { |one| one["key"] }
   end
 
   test "a chevron turns the box into commands" do
-    payload = found(">")
+    payload = search_json(">")
 
     assert_equal "command", payload["scope"]
     titles = payload["groups"].sole["rows"].map { |row| row["title"] }
@@ -165,7 +165,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
   end
 
   test "commands filter as you keep typing" do
-    titles = found(">members").fetch("groups").sole["rows"].map { |row| row["title"] }
+    titles = search_json(">members").fetch("groups").sole["rows"].map { |row| row["title"] }
 
     assert_equal ["Go to the members"], titles
   end

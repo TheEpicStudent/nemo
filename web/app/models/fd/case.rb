@@ -53,10 +53,10 @@ module Fd
     PRIOR_WINDOW = 12.months
 
     def self.priors_for(user_id, within: nil, before: nil)
-      acted = Action.where(target_user_id: user_id, reversed_at: nil)
-      acted = acted.where(performed_at: ...before) if before
-      acted = acted.where(performed_at: ((before || Time.current) - within)..) if within
-      where(id: acted.select(:case_id))
+      actions = Action.where(target_user_id: user_id, reversed_at: nil)
+      actions = actions.where(performed_at: ...before) if before
+      actions = actions.where(performed_at: ((before || Time.current) - within)..) if within
+      where(id: actions.select(:case_id))
     end
 
     def self.prior_count(user_id, within: nil, before: nil)
@@ -98,34 +98,34 @@ module Fd
         .distinct.count(:case_id)
     end
 
-    ACTED = "action_taken".freeze
+    ACTION_TAKEN = "action_taken".freeze
 
     def self.ending_tally
       closed = where.not(resolved_at: nil)
       by_resolution = closed.group(:resolution).count
-      by_action = Action.where(case_id: closed.where(resolution: ACTED).select(:id))
+      by_action = Action.where(case_id: closed.where(resolution: ACTION_TAKEN).select(:id))
         .group(:type_key).count
 
       rows = RESOLUTION_TABLE.filter_map do |key, row|
-        next if key == ACTED
+        next if key == ACTION_TAKEN
 
         count = by_resolution[key].to_i
         [row.fetch("label"), count] if count.positive?
       end
 
-      acted = Action::WORST_FIRST.filter_map do |key|
+      action_rows = Action::WORST_FIRST.filter_map do |key|
         count = by_action[key].to_i
         [Action::LABELS.fetch(key), count] if count.positive?
       end
 
-      acted + rows
+      action_rows + rows
     end
 
     AROUND = "around".freeze
 
     def self.candidate_parts(kase, siblings = [])
       skip = kase.family_ids
-      shared = siblings.reject { |one| skip.include?(one.id) }
+      shared = siblings.reject { |sibling| skip.include?(sibling.id) }
       subject = if kase.subject_user_ids.any?
         with_any_subject(kase.subject_user_ids)
           .where.not(id: skip + shared.map(&:id)).order(opened_at: :desc).limit(10).to_a
@@ -135,11 +135,11 @@ module Fd
       [shared, subject, skip + shared.map(&:id) + subject.map(&:id)]
     end
 
-    def self.candidates_around(seen, page: 1, per: 8)
-      found = unresolved.where.not(id: seen)
+    def self.candidates_around(excluded_ids, page: 1, per: 8)
+      cases = unresolved.where.not(id: excluded_ids)
         .order(opened_at: :desc, id: :desc)
         .offset((page - 1) * per).limit(per + 1).to_a
-      [found.first(per), found.size > per]
+      [cases.first(per), cases.size > per]
     end
 
     def self.candidates_for(kase, siblings = [], limit: 25)
@@ -197,12 +197,12 @@ module Fd
       merged_in.any?
     end
 
-    def folded?
+    def duplicate?
       duplicate_of.present?
     end
 
     def root
-      return self unless folded?
+      return self unless duplicate?
 
       @root ||= self.class.find_by(id: self.class.root_for(id)) || self
     end

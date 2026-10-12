@@ -15,7 +15,7 @@ module ClusterHelper
   DISC_MARGIN = 24
   GOLDEN = Math::PI * (3 - Math.sqrt(5))
   SERIES = 6
-  APART = %w[different_people household].freeze
+  SEPARATE_VERDICTS = %w[different_people household].freeze
 
   MapLayout = Struct.new(:size, :centre, :node, :crowded, :packed, :pull, :points, keyword_init: true)
 
@@ -25,11 +25,11 @@ module ClusterHelper
 
     crowded = count > CROWDED
     node = node_radius(count)
-    ring = [MAP_RADIUS, count * ((2 * node) + NODE_GAP) / (2 * Math::PI)].max
-    half = crowded ? ring + node + SPOKE_GAP + SPOKE_ROOM : ring + MARGIN
-    points = cluster.members.each_with_index.to_h do |one, at|
-      angle = (-Math::PI / 2) + (2 * Math::PI * at / count)
-      [one.user_id, map_point(angle, ring, half, node, crowded).merge(step: at)]
+    radius = [MAP_RADIUS, count * ((2 * node) + NODE_GAP) / (2 * Math::PI)].max
+    half = crowded ? radius + node + SPOKE_GAP + SPOKE_ROOM : radius + MARGIN
+    points = cluster.members.each_with_index.to_h do |member, index|
+      angle = (-Math::PI / 2) + (2 * Math::PI * index / count)
+      [member.user_id, map_point(angle, radius, half, node, crowded).merge(step: index)]
     end
     MapLayout.new(size: (2 * half).round, centre: half, node: node, crowded: crowded, packed: false,
       pull: PULL, points: points)
@@ -38,11 +38,11 @@ module ClusterHelper
   def disc_layout(cluster, count)
     step = ((2 * DISC_NODE) + DISC_GAP) / Math.sqrt(Math::PI)
     half = (step * Math.sqrt(count)) + DISC_NODE + DISC_MARGIN
-    points = cluster.members.each_with_index.to_h do |one, at|
-      reach = step * Math.sqrt(at + 0.5)
-      x = half + (reach * Math.cos(at * GOLDEN))
-      y = half + (reach * Math.sin(at * GOLDEN))
-      [one.user_id, { x: x, y: y, lx: x, ly: y - DISC_NODE - 6, anchor: "middle", turn: 0, step: at }]
+    points = cluster.members.each_with_index.to_h do |member, index|
+      distance = step * Math.sqrt(index + 0.5)
+      x = half + (distance * Math.cos(index * GOLDEN))
+      y = half + (distance * Math.sin(index * GOLDEN))
+      [member.user_id, { x: x, y: y, lx: x, ly: y - DISC_NODE - 6, anchor: "middle", turn: 0, step: index }]
     end
     MapLayout.new(size: (2 * half).round, centre: half, node: DISC_NODE, crowded: true, packed: true,
       pull: 1.0, points: points)
@@ -55,16 +55,16 @@ module ClusterHelper
     NODE_RADIUS
   end
 
-  def map_point(angle, ring, half, node, crowded)
+  def map_point(angle, radius, half, node, crowded)
     cos = Math.cos(angle)
     sin = Math.sin(angle)
-    point = { x: half + (ring * cos), y: half + (ring * sin) }
-    return point.merge(lx: half + ((ring + LABEL_GAP) * cos), ly: half + ((ring + LABEL_GAP) * sin),
+    point = { x: half + (radius * cos), y: half + (radius * sin) }
+    return point.merge(lx: half + ((radius + LABEL_GAP) * cos), ly: half + ((radius + LABEL_GAP) * sin),
       anchor: label_anchor(cos), turn: 0) unless crowded
 
-    out = ring + node + SPOKE_GAP
+    label_radius = radius + node + SPOKE_GAP
     degrees = angle * 180 / Math::PI
-    point.merge(lx: half + (out * cos), ly: half + (out * sin),
+    point.merge(lx: half + (label_radius * cos), ly: half + (label_radius * sin),
       anchor: cos.negative? ? "end" : "start", turn: cos.negative? ? degrees + 180 : degrees)
   end
 
@@ -97,14 +97,14 @@ module ClusterHelper
   def edge_tone(verdict)
     return nil if verdict.blank?
 
-    APART.include?(verdict) ? "edge-apart" : "edge-together"
+    SEPARATE_VERDICTS.include?(verdict) ? "edge-apart" : "edge-together"
   end
 
   def cluster_edge_title(edge)
     parts = [person_label(edge.a_user_id), person_label(edge.b_user_id)].join(" and ")
-    said = edge.score ? number_with_precision(edge.score, precision: 1) : nil
+    score_label = edge.score ? number_with_precision(edge.score, precision: 1) : nil
     verdict = edge.verdict&.tr("_", " ")
-    [parts, said, verdict].compact.join(", ")
+    [parts, score_label, verdict].compact.join(", ")
   end
 
   def person_label(user_id)
@@ -116,21 +116,21 @@ module ClusterHelper
   end
 
   def cluster_sightings(cluster)
-    @cluster_sightings ||= cluster.sightings.group_by { |one| [one.user_id, one.hour.to_date] }
+    @cluster_sightings ||= cluster.sightings.group_by { |sighting| [sighting.user_id, sighting.hour.to_date] }
   end
 
   def shared_tone(cluster, ip)
-    at = cluster.shared_ips.index(ip)
-    at && "var(--series-#{at % SERIES})"
+    position = cluster.shared_ips.index(ip)
+    position && "var(--series-#{position % SERIES})"
   end
 
   def cluster_cell(cluster, user_id, day)
-    seen = cluster_sightings(cluster)[[user_id, day]] || []
-    return tag.i(class: "none") if seen.empty?
+    sightings = cluster_sightings(cluster)[[user_id, day]] || []
+    return tag.i(class: "none") if sightings.empty?
 
-    shared = seen.map(&:ip).find { |ip| cluster.shared_ips.include?(ip) }
-    rows = seen.group_by(&:ip).map do |ip, hours|
-      { label: ip, value: hours.map { |one| one.hour.strftime("%H:00") }.uniq.join(", "),
+    shared = sightings.map(&:ip).find { |ip| cluster.shared_ips.include?(ip) }
+    rows = sightings.group_by(&:ip).map do |ip, hours|
+      { label: ip, value: hours.map { |sighting| sighting.hour.strftime("%H:00") }.uniq.join(", "),
         tone: shared_tone(cluster, ip) || "var(--muted-foreground)" }
     end
     tip = { title: "#{person_label(user_id)}, #{day.strftime('%-d %b')}", rows: rows }.to_json

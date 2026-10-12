@@ -10,17 +10,17 @@ module Fd
     }.freeze
     ONE_PERSON = %w[same_person staff_test].freeze
 
-    def self.pair(one, other) = [one.to_s, other.to_s].minmax
+    def self.pair(user_id, other_user_id) = [user_id.to_s, other_user_id.to_s].minmax
 
     def self.for_pairs(pairs)
-      wanted = pairs.map { |one, other| pair(one, other) }.uniq
-      return {} if wanted.empty?
+      normalized = pairs.map { |user_id, other_user_id| pair(user_id, other_user_id) }.uniq
+      return {} if normalized.empty?
 
-      where(a_user_id: wanted.map(&:first), b_user_id: wanted.map(&:last))
-        .index_by { |row| [row.a_user_id, row.b_user_id] }.slice(*wanted)
+      where(a_user_id: normalized.map(&:first), b_user_id: normalized.map(&:last))
+        .index_by { |row| [row.a_user_id, row.b_user_id] }.slice(*normalized)
     end
 
-    def self.of(verdicts, one, other) = verdicts[pair(one, other)]
+    def self.of(verdicts, user_id, other_user_id) = verdicts[pair(user_id, other_user_id)]
 
     def label = VERDICTS.fetch(verdict, verdict)
 
@@ -28,6 +28,6 @@ module Fd
 
     def verb = one_person? ? "linked" : "unlinked"
 
-    def said = { "verdict" => verdict, "decided_by" => decided_by, "note" => note }
+    def audit_attributes = { "verdict" => verdict, "decided_by" => decided_by, "note" => note }
   end
 end

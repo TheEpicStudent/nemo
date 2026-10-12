@@ -81,7 +81,7 @@ class FdAuditGroupsTest < ActionDispatch::IntegrationTest
     slack!
 
     get fd_audit_path(group: "address")
-    assert_select ".audit-groups th", "Address"
+    assert_select ".audit-groups th", "IP"
     assert_includes cells.map(&:first), "81.2.69.144"
 
     move_capability!("firefighter", "identity.read", false, by: "UGRPBOSS")

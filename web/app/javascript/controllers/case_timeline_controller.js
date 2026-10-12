@@ -33,9 +33,9 @@ export default class extends Controller {
     if (this.hasPinTarget) this.pinTarget.setAttribute("aria-pressed", String(this.pinned))
   }
 
-  remember(key, on, yes, no) {
+  persist(key, enabled, enabledValue, disabledValue) {
     try {
-      localStorage.setItem(key, on ? yes : no)
+      localStorage.setItem(key, enabled ? enabledValue : disabledValue)
     } catch (error) {
       return
     }
@@ -45,21 +45,21 @@ export default class extends Controller {
     if (event) event.preventDefault()
     const open = document.documentElement.classList.toggle("dock-open")
     this.mark()
-    this.remember(OPEN, open, "open", "shut")
+    this.persist(OPEN, open, "open", "shut")
   }
 
   pin(event) {
     if (event) event.preventDefault()
     const pinned = document.documentElement.classList.toggle("dock-pinned")
     this.mark()
-    this.remember(PIN, pinned, "pinned", "loose")
+    this.persist(PIN, pinned, "pinned", "loose")
   }
 
   close() {
     if (!this.open) return
     document.documentElement.classList.remove("dock-open")
     this.mark()
-    this.remember(OPEN, false, "open", "shut")
+    this.persist(OPEN, false, "open", "shut")
   }
 
   onClick(event) {

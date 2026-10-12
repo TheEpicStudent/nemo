@@ -12,7 +12,7 @@ class Fd::ChatListenerTest < ActiveSupport::TestCase
   end
 
   test "the listener stays out of the test suite" do
-    assert_not Fd::ChatListener.wanted?
+    assert_not Fd::ChatListener.enabled?
   end
 
   test "a console or a rake task is not a server, so it does not listen" do
@@ -22,7 +22,7 @@ class Fd::ChatListenerTest < ActiveSupport::TestCase
   test "saying no in any of the usual spellings turns it off" do
     %w[0 false no off FALSE Off].each do |value|
       with_env("NEMO_STREAM", value) do
-        assert_not Fd::ChatListener.wanted?, "NEMO_STREAM=#{value} should not stream"
+        assert_not Fd::ChatListener.enabled?, "NEMO_STREAM=#{value} should not stream"
       end
     end
   end
@@ -30,25 +30,25 @@ class Fd::ChatListenerTest < ActiveSupport::TestCase
   test "anything else asked for turns it on, whatever the process is called" do
     %w[1 true yes on].each do |value|
       with_env("NEMO_STREAM", value) do
-        assert Fd::ChatListener.wanted?, "NEMO_STREAM=#{value} should stream"
+        assert Fd::ChatListener.enabled?, "NEMO_STREAM=#{value} should stream"
       end
     end
   end
 
   test "an empty setting is not an answer, so the process decides" do
     with_env("NEMO_STREAM", "") do
-      assert_equal Fd::ChatListener.serving?, Fd::ChatListener.wanted?
+      assert_equal Fd::ChatListener.serving?, Fd::ChatListener.enabled?
     end
   end
 
   def with_env(name, value)
-    was, had, serving = ENV[name], ENV.key?(name), Rails.env
+    original_value, had_key, original_env = ENV[name], ENV.key?(name), Rails.env
     ENV[name] = value
     Rails.env = "production"
     yield
   ensure
-    Rails.env = serving
-    had ? ENV[name] = was : ENV.delete(name)
+    Rails.env = original_env
+    had_key ? ENV[name] = original_value : ENV.delete(name)
   end
 
   test "it connects on its own terms, not out of the request pool" do
@@ -66,7 +66,7 @@ class Fd::ChatListenerTest < ActiveSupport::TestCase
     assert_equal({ dbname: "mnemosyne" }, Fd::ChatListener.connection_options(database: "mnemosyne"))
   end
 
-  class Cut
+  class FailingConnection
     attr_reader :closed, :listened
 
     def initialize = (@listened = []; @closed = false)
@@ -76,20 +76,20 @@ class Fd::ChatListenerTest < ActiveSupport::TestCase
   end
 
   test "a connection that dies is closed, not left behind" do
-    cut = Cut.new
+    connection = FailingConnection.new
 
-    assert_raises(PG::ConnectionBad) { Fd::ChatListener.new.send(:listen, cut) }
+    assert_raises(PG::ConnectionBad) { Fd::ChatListener.new.send(:listen, connection) }
 
-    assert cut.closed, "every retry would otherwise strand a backend and drain the pool"
+    assert connection.closed, "every retry would otherwise strand a backend and drain the pool"
     assert_equal ["LISTEN fd_chat_changed", "LISTEN fd_conversation_changed", "LISTEN fd_member_guard",
-                  "LISTEN fd_member_link"], cut.listened
+                  "LISTEN fd_member_link", "LISTEN fd_audit_event"], connection.listened
   end
 
   test "the pool is untouched by listening" do
     pool = ActiveRecord::Base.connection_pool
 
     assert_no_difference -> { pool.stat[:busy] } do
-      assert_raises(PG::ConnectionBad) { Fd::ChatListener.new.send(:listen, Cut.new) }
+      assert_raises(PG::ConnectionBad) { Fd::ChatListener.new.send(:listen, FailingConnection.new) }
     end
   end
 end

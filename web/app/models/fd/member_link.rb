@@ -4,13 +4,13 @@ module Fd
 
     SIGNALS = YAML.load_file(Rails.root.join("../db/alt_signals.yml")).freeze
     SECTIONS = %w[network_signals device_signals identity_signals name_signals arrival_signals].freeze
-    CATALOGUE = SECTIONS.reduce({}) { |held, section| held.merge(SIGNALS.fetch(section, {})) }.freeze
+    CATALOGUE = SECTIONS.reduce({}) { |merged, section| merged.merge(SIGNALS.fetch(section, {})) }.freeze
     BANDS = SIGNALS.fetch("scoring").freeze
 
     STRONG = BANDS.fetch("strong")
     CERTAIN = BANDS.fetch("certain")
     MOST = BANDS.fetch("most_per_member", 25)
-    MATES_SHOWN = 16
+    CLUSTER_MEMBER_LIMIT = 16
 
     Side = Struct.new(:user_id, :other_id, :score, :top_signal, :signals,
       :first_seen, :last_seen, keyword_init: true) do
@@ -37,9 +37,9 @@ module Fd
 
     Cluster = Struct.new(:cluster_id, :accounts, :active, :ring, :conflict, keyword_init: true)
 
-    Held = Struct.new(:count, :certain, :strong, keyword_init: true)
+    LinkCounts = Struct.new(:count, :certain, :strong, keyword_init: true)
 
-    HELD_SQL = <<~SQL.squish.freeze
+    LINK_COUNTS_SQL = <<~SQL.squish.freeze
       SELECT count(*) AS links,
              count(*) FILTER (WHERE score >= :certain) AS certain,
              count(*) FILTER (WHERE score >= :strong AND score < :certain) AS strong
@@ -74,9 +74,9 @@ module Fd
                         WHERE v.a_user_id = l.a_user_id AND v.b_user_id = l.b_user_id)
     SQL
 
-    REVIEW_TALLY_FOR = 1.minute
+    REVIEW_COUNT_TTL = 1.minute
 
-    CLUSTERS_OF_SQL = <<~SQL.squish.freeze
+    CLUSTERS_FOR_MEMBERS_SQL = <<~SQL.squish.freeze
       SELECT cluster_id, max(accounts) AS accounts, count(*) FILTER (WHERE active) AS active,
              bool_or(ring) AS ring, bool_or(conflict) AS conflict
       FROM fd.member_cluster
@@ -95,7 +95,7 @@ module Fd
       LIMIT :limit
     SQL
 
-    MATES_SQL = <<~SQL.squish.freeze
+    CLUSTER_MEMBERS_SQL = <<~SQL.squish.freeze
       SELECT mate.user_id, mate.active
       FROM fd.member_cluster mine
       JOIN fd.member_cluster mate ON mate.cluster_id = mine.cluster_id AND mate.user_id <> mine.user_id
@@ -104,20 +104,20 @@ module Fd
     SQL
 
     def self.evidence_of(signals)
-      (signals || {}).map do |name, one|
+      (signals || {}).map do |name, signal|
         { "name" => name, "label" => label_for(name),
-          "value" => one["value"], "people" => one["people"], "score" => one["score"] }
-      end.sort_by { |one| -one["score"].to_f }
+          "value" => signal["value"], "people" => signal["people"], "score" => signal["score"] }
+      end.sort_by { |entry| -entry["score"].to_f }
     end
 
     def self.needs_review(limit: 100)
       flag = ActiveModel::Type::Boolean.new
       rows = connection.select_all(sanitize_sql([REVIEW_SQL, { strong: STRONG, limit: limit }]))
       rows.map do |row|
-        gone = flag.cast(row["a_gone"])
+        a_deleted = flag.cast(row["a_gone"])
         Pair.new(
-          active_id: gone ? row["b_user_id"] : row["a_user_id"],
-          deactivated_id: gone ? row["a_user_id"] : row["b_user_id"],
+          active_id: a_deleted ? row["b_user_id"] : row["a_user_id"],
+          deactivated_id: a_deleted ? row["a_user_id"] : row["b_user_id"],
           score: row["score"].to_f, top_signal: row["top_signal"],
           signals: parsed(row["signals"]), last_seen: row["last_seen"]
         )
@@ -133,27 +133,27 @@ module Fd
       end
     end
 
-    def self.review_tally
-      Rails.cache.fetch("fd/member_link/review_tally", expires_in: REVIEW_TALLY_FOR) do
+    def self.review_count
+      Rails.cache.fetch("fd/member_link/review_count", expires_in: REVIEW_COUNT_TTL) do
         connection.select_value(sanitize_sql([REVIEW_COUNT_SQL, { strong: STRONG }])).to_i
       end
     end
 
-    def self.clusters_of(user_ids, limit: 3)
+    def self.clusters_for_members(user_ids, limit: 3)
       return [] if user_ids.empty?
 
       flag = ActiveModel::Type::Boolean.new
-      connection.select_all(sanitize_sql([CLUSTERS_OF_SQL, { ids: user_ids, limit: limit }])).map do |row|
+      connection.select_all(sanitize_sql([CLUSTERS_FOR_MEMBERS_SQL, { ids: user_ids, limit: limit }])).map do |row|
         Cluster.new(cluster_id: row["cluster_id"], accounts: row["accounts"].to_i,
           active: row["active"].to_i, ring: flag.cast(row["ring"]),
           conflict: flag.cast(row["conflict"]))
       end
     end
 
-    def self.held_by(user_id)
-      row = connection.select_one(sanitize_sql([HELD_SQL,
+    def self.link_counts_for(user_id)
+      row = connection.select_one(sanitize_sql([LINK_COUNTS_SQL,
         { user_id: user_id, certain: CERTAIN, strong: STRONG }])) || {}
-      Held.new(count: row["links"].to_i, certain: row["certain"].to_i, strong: row["strong"].to_i)
+      LinkCounts.new(count: row["links"].to_i, certain: row["certain"].to_i, strong: row["strong"].to_i)
     end
 
     def self.cluster_for(user_id)
@@ -173,12 +173,12 @@ module Fd
       ]))
     end
 
-    def self.cluster_mates(user_id, except: [])
+    def self.cluster_members(user_id, except: [])
       return {} if user_id.blank?
 
-      connection.select_rows(sanitize_sql([MATES_SQL, { user_id: user_id }]))
-        .reject { |mate, _| except.include?(mate) }
-        .to_h { |mate, active| [mate, ActiveModel::Type::Boolean.new.cast(active) || false] }
+      connection.select_rows(sanitize_sql([CLUSTER_MEMBERS_SQL, { user_id: user_id }]))
+        .reject { |other_user_id, _| except.include?(other_user_id) }
+        .to_h { |other_user_id, active| [other_user_id, ActiveModel::Type::Boolean.new.cast(active) || false] }
     end
 
     def self.label_for(name)
@@ -209,8 +209,8 @@ module Fd
     end
 
     def self.strongest(limit: 50, over: nil)
-      held = order(score: :desc).limit(limit)
-      over ? held.where("score >= ?", over) : held
+      relation = order(score: :desc).limit(limit)
+      over ? relation.where("score >= ?", over) : relation
     end
 
     def self.counted_for(user_id)

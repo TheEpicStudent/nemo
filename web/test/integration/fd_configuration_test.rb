@@ -6,7 +6,7 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
   end
 
-  def word!(**over)
+  def automod_word!(**over)
     Fd::AutomodWord.create!({
       word: "badword", match_mode: "word", effect: "flag", added_by: "UMOD"
     }.merge(over))
@@ -104,7 +104,7 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
   end
 
   test "taking a word off keeps it on the record" do
-    word = word!
+    word = automod_word!
     delete fd_automod_word_path(word)
 
     assert_equal 0, live.count
@@ -114,7 +114,7 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
   end
 
   test "a word already off the list cannot be taken off again" do
-    word = word!
+    word = automod_word!
     delete fd_automod_word_path(word)
     delete fd_automod_word_path(word)
 
@@ -122,7 +122,7 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
   end
 
   test "a retired word frees the name for a new one" do
-    word = word!
+    word = automod_word!
     delete fd_automod_word_path(word)
     add(word: "badword")
 
@@ -131,14 +131,14 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
   end
 
   test "the list is shown masked" do
-    word!
+    automod_word!
     get fd_configuration_path
 
     assert_select %(.masked), /badword/
   end
 
   test "matches are shown with the member and the channel" do
-    word = word!
+    word = automod_word!
     Fd::AutomodMatch.create!(word_id: word.id, word: word.word, effect: "flag",
       user_id: "USUB", channel_id: "C0266FRGV", message_ts: "1700000000.000100",
       body: "the message that matched")
@@ -149,7 +149,7 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
   end
 
   test "the channel on a match opens the message it matched" do
-    word = word!
+    word = automod_word!
     Fd::AutomodMatch.create!(word_id: word.id, word: word.word, effect: "flag",
       user_id: "USUB", channel_id: "C0266FRGV", message_ts: "1700000000.000100",
       body: "the message that matched",
@@ -161,7 +161,7 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
   end
 
   test "a match with no permalink still links to the channel" do
-    word = word!
+    word = automod_word!
     Fd::AutomodMatch.create!(word_id: word.id, word: word.word, effect: "flag",
       user_id: "USUB", channel_id: "C0266FRGV", message_ts: "1700000000.000100",
       body: "the message that matched")

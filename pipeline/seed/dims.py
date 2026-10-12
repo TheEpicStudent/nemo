@@ -41,24 +41,24 @@ def window(as_of, days=SNAPSHOT_DAYS):
     return [start + timedelta(days=offset) for offset in range(days)]
 
 
-def turns(rng, things, share, span):
-    chosen = {}
+def sample_change_days(rng, things, share, span):
+    selected = {}
     for thing in things:
         if rng.random() < share:
-            chosen[thing] = span[rng.randrange(1, len(span))]
-    return chosen
+            selected[thing] = span[rng.randrange(1, len(span))]
+    return selected
 
 
 def member_rows(rng, members, as_of, days=SNAPSHOT_DAYS):
     span = window(as_of, days)
-    alive = [member for member in members if member.cohort_at <= span[-1]]
-    promoted = turns(rng, [m.user_id for m in alive if not m.is_admin], ADMIN_SHARE, span)
-    stamped = noon(as_of)
+    joined_members = [member for member in members if member.cohort_at <= span[-1]]
+    promoted = sample_change_days(rng, [m.user_id for m in joined_members if not m.is_admin], ADMIN_SHARE, span)
+    observed_at = noon(as_of)
     for day in span:
-        for member in alive:
+        for member in joined_members:
             if member.cohort_at > day:
                 continue
-            gone = member.deactivated_at is not None and member.deactivated_at <= day
+            deactivated = member.deactivated_at is not None and member.deactivated_at <= day
             claimed = member.claimed_at is not None and member.claimed_at <= day
             joined = midnight(member.cohort_at)
             promotion = promoted.get(member.user_id)
@@ -69,7 +69,7 @@ def member_rows(rng, members, as_of, days=SNAPSHOT_DAYS):
                 joined,
                 joined,
                 joined if claimed else None,
-                noon(member.deactivated_at) if gone else None,
+                noon(member.deactivated_at) if deactivated else None,
                 member.is_bot,
                 member.is_admin or (promotion is not None and day >= promotion),
                 False,
@@ -78,35 +78,35 @@ def member_rows(rng, members, as_of, days=SNAPSHOT_DAYS):
                 member.is_ultra_restricted,
                 not member.invite_pending,
                 False,
-                gone,
+                deactivated,
                 member.invite_pending,
-                stamped,
+                observed_at,
             )
 
 
 def channel_rows(rng, channels, as_of, days=SNAPSHOT_DAYS):
     span = window(as_of, days)
-    live = [channel for channel in channels if channel.date_created <= span[-1]]
-    renamed = turns(rng, [c.channel_id for c in live], RENAME_SHARE, span)
-    archived = turns(
-        rng, [c.channel_id for c in live if not c.archived], ARCHIVE_SHARE, span
+    created_channels = [channel for channel in channels if channel.date_created <= span[-1]]
+    renamed = sample_change_days(rng, [c.channel_id for c in created_channels], RENAME_SHARE, span)
+    archived = sample_change_days(
+        rng, [c.channel_id for c in created_channels if not c.archived], ARCHIVE_SHARE, span
     )
-    stamped = noon(as_of)
+    observed_at = noon(as_of)
     for day in span:
-        for channel in live:
+        for channel in created_channels:
             if channel.date_created > day:
                 continue
-            rename = renamed.get(channel.channel_id)
-            shut = archived.get(channel.channel_id)
+            renamed_on = renamed.get(channel.channel_id)
+            archived_on = archived.get(channel.channel_id)
             yield (
                 channel.channel_id,
                 day,
                 "",
-                f"{channel.name}-v2" if rename is not None and day >= rename else channel.name,
+                f"{channel.name}-v2" if renamed_on is not None and day >= renamed_on else channel.name,
                 channel.visibility,
-                channel.archived or (shut is not None and day >= shut),
+                channel.archived or (archived_on is not None and day >= archived_on),
                 noon(channel.date_created),
-                stamped,
+                observed_at,
             )
 
 

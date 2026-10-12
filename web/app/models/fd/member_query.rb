@@ -59,7 +59,7 @@ module Fd
       @term ||= @params["q"].to_s.strip.delete_prefix("@")
     end
 
-    def asked? = term.present?
+    def searching? = term.present?
 
     def [](key)
       raw = @params[key].to_s
@@ -72,7 +72,7 @@ module Fd
 
     def view
       raw = @params["view"].to_s
-      return nil if raw == NO_VIEW || chosen_facets.any?
+      return nil if raw == NO_VIEW || selected_facets.any?
 
       VIEWS.key?(raw) ? raw : DEFAULT_VIEW
     end
@@ -80,24 +80,24 @@ module Fd
     def view_label = VIEWS.fetch(view)
 
     def to_params
-      asking.merge(picked)
+      search_params.merge(filter_params)
     end
 
-    def picked
+    def filter_params
       return {} if view == DEFAULT_VIEW
       return { "view" => view } if view
 
-      chosen_facets.presence || { "view" => NO_VIEW }
+      selected_facets.presence || { "view" => NO_VIEW }
     end
 
-    def asking = asked? ? { "q" => term } : {}
+    def search_params = searching? ? { "q" => term } : {}
 
     def facet_params(overrides)
-      base = view ? VIEW_FACETS.fetch(view) : chosen_facets
-      chosen = base.merge(overrides.stringify_keys)
+      base = view ? VIEW_FACETS.fetch(view) : selected_facets
+      selected = base.merge(overrides.stringify_keys)
         .reject { |key, value| value.to_s == DEFAULTS[key] || value.blank? }
 
-      asking.merge(chosen.presence || { "view" => NO_VIEW })
+      search_params.merge(selected.presence || { "view" => NO_VIEW })
     end
 
     def rows
@@ -112,25 +112,25 @@ module Fd
       @pages ||= [(total / LIMIT.to_f).ceil, 1].max
     end
 
-    def first_shown
+    def first_visible
       rows.empty? ? 0 : ((page - 1) * LIMIT) + 1
     end
 
-    def last_shown
-      first_shown.zero? ? 0 : first_shown + rows.size - 1
+    def last_visible
+      first_visible.zero? ? 0 : first_visible + rows.size - 1
     end
 
-    def page_params(wanted)
-      to_params.merge(wanted > 1 ? { "page" => wanted.to_s } : {})
+    def page_params(page_number)
+      to_params.merge(page_number > 1 ? { "page" => page_number.to_s } : {})
     end
 
     def total
       @total ||= if searched_page?
         searched.total
-      elsif asked? && hits.empty?
+      elsif searching? && hits.empty?
         0
       else
-        ask(<<~SQL).first["found"].to_i
+        select_rows(<<~SQL).first["found"].to_i
           WITH #{aggregates}
           SELECT count(*) AS found FROM roster WHERE #{roster_where}
         SQL
@@ -198,15 +198,15 @@ module Fd
     def title
       return view_label if view
 
-      rest = [priors_phrase, tenure_phrase, active_phrase, state_phrase,
-              category_phrase].compact
-      lead = self["who"] == "everyone" ? "Everyone" : "With a history"
-      rest.empty? ? lead : "#{lead}, #{rest.to_sentence}"
+      phrases = [priors_phrase, tenure_phrase, active_phrase, state_phrase,
+                 category_phrase].compact
+      prefix = self["who"] == "everyone" ? "Everyone" : "With a history"
+      phrases.empty? ? prefix : "#{prefix}, #{phrases.to_sentence}"
     end
 
     def summary
-      seen = rows.empty? ? "none" : "#{first_shown} to #{last_shown} of #{number_with_delimiter(total)}"
-      [seen, sort_label].join(" · ")
+      range = rows.empty? ? "none" : "#{first_visible} to #{last_visible} of #{number_with_delimiter(total)}"
+      [range, sort_label].join(" · ")
     end
 
     def empty_note
@@ -229,8 +229,8 @@ module Fd
       count.to_s.reverse.scan(/\d{1,3}/).join(",").reverse
     end
 
-    def chosen_facets
-      @chosen_facets ||= FACET_KEYS.filter_map { |key|
+    def selected_facets
+      @selected_facets ||= FACET_KEYS.filter_map { |key|
         raw = @params[key].to_s
         [key, raw] if allowed?(key, raw) && raw != DEFAULTS[key]
       }.to_h
@@ -263,13 +263,13 @@ module Fd
     end
 
     def page_rows
-      return [] if asked? && hits.empty?
+      return [] if searching? && hits.empty?
 
-      (asked? ? searched_rows : browsed_rows).map { |row| row_from(row) }
+      (searching? ? searched_rows : browsed_rows).map { |row| row_from(row) }
     end
 
     def searched_rows
-      ask(<<~SQL, limit: LIMIT, offset: searched_page? ? 0 : (page - 1) * LIMIT)
+      select_rows(<<~SQL, limit: LIMIT, offset: searched_page? ? 0 : (page - 1) * LIMIT)
         WITH #{aggregates}
         SELECT * FROM roster WHERE #{roster_where}
         ORDER BY #{roster_order}
@@ -278,16 +278,16 @@ module Fd
     end
 
     def browsed_rows
-      ask(<<~SQL, limit: LIMIT, offset: (page - 1) * LIMIT)
+      select_rows(<<~SQL, limit: LIMIT, offset: (page - 1) * LIMIT)
         WITH #{listed(paged_ids)}
         SELECT * FROM roster ORDER BY place
       SQL
     end
 
     def all_rows
-      return [] if asked? && matched.ids.empty?
+      return [] if searching? && matched.ids.empty?
 
-      ask(<<~SQL, asked? ? { hits: matched.ids } : {}).map { |row| row_from(row) }
+      select_rows(<<~SQL, searching? ? { hits: matched.ids } : {}).map { |row| row_from(row) }
         WITH #{aggregates}
         SELECT * FROM roster WHERE #{roster_where} ORDER BY #{roster_order}
       SQL
@@ -305,7 +305,7 @@ module Fd
     end
 
     def searched_page?
-      asked? && !narrowed?
+      searching? && !narrowed?
     end
 
     def hits
@@ -318,16 +318,16 @@ module Fd
 
     def searched
       @searched ||= begin
-        wanted = [@params["page"].to_i, 1].max
-        found = finder.find(limit: LIMIT, offset: (wanted - 1) * LIMIT)
-        last = [(found.total / LIMIT.to_f).ceil, 1].max
-        wanted > last ? finder.find(limit: LIMIT, offset: (last - 1) * LIMIT) : found
+        requested_page = [@params["page"].to_i, 1].max
+        result = finder.find(limit: LIMIT, offset: (requested_page - 1) * LIMIT)
+        last_page = [(result.total / LIMIT.to_f).ceil, 1].max
+        requested_page > last_page ? finder.find(limit: LIMIT, offset: (last_page - 1) * LIMIT) : result
       end
     end
 
     def counts_per_view
       label = VIEWS.keys.map { |key| "count(*) FILTER (WHERE #{view_clause(key)}) AS #{key}" }
-      row = ask(<<~SQL).first
+      row = select_rows(<<~SQL).first
         WITH #{aggregates}
         SELECT #{label.join(", ")} FROM roster
       SQL

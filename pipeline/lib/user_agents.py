@@ -16,12 +16,12 @@ def digest(ua):
 
 
 def ids(conn, agents):
-    held = sorted({one for one in agents if one})
-    if not held:
+    unique_agents = sorted({one for one in agents if one})
+    if not unique_agents:
         return {}
-    read = [useragent.parse(one) for one in held]
-    conn.execute(UPSERT_SQL, (held, [one["ua_app"] for one in read], [one["ua_os"] for one in read]))
-    return dict(conn.execute(IDS_SQL, ([digest(one) for one in held],)).fetchall())
+    parsed = [useragent.parse(one) for one in unique_agents]
+    conn.execute(UPSERT_SQL, (unique_agents, [one["ua_app"] for one in parsed], [one["ua_os"] for one in parsed]))
+    return dict(conn.execute(IDS_SQL, ([digest(one) for one in unique_agents],)).fetchall())
 
 
 def id_of(agents, ua):

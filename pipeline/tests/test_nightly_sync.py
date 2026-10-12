@@ -189,12 +189,12 @@ def test_a_partial_parent_still_names_the_stage_that_failed():
 def test_every_terminal_parent_outcome_is_classified():
     from jobs.nightly_sync import parent_fault, parent_status
 
-    for cancelled, ran, skipped, cut, failed in [
+    for cancelled, completed, skipped, cut, failed in [
         (True, 0, 0, 0, []),
         (False, 0, 0, 0, []),
         (False, 2, 0, 0, [("a", "x"), ("b", "y")]),
     ]:
-        status = parent_status(cancelled, ran, skipped, cut, failed)
+        status = parent_status(cancelled, completed, skipped, cut, failed)
         klass, detail = parent_fault(status, cancelled, failed)
         assert klass is not None, status
         assert detail

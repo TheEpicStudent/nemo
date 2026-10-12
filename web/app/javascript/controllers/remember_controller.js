@@ -4,11 +4,11 @@ export default class extends Controller {
   static values = { key: String, open: Boolean }
 
   connect() {
-    const held = this.held
-    if (held !== null) this.element.open = held
+    const storedOpen = this.storedOpen
+    if (storedOpen !== null) this.element.open = storedOpen
   }
 
-  keep() {
+  persist() {
     if (!this.hasKeyValue) return
 
     try {
@@ -22,12 +22,12 @@ export default class extends Controller {
     return `mn-open-${this.keyValue}`
   }
 
-  get held() {
+  get storedOpen() {
     if (!this.hasKeyValue) return null
 
     try {
-      const was = localStorage.getItem(this.store)
-      return was === null ? null : was === "1"
+      const stored = localStorage.getItem(this.store)
+      return stored === null ? null : stored === "1"
     } catch {
       return null
     }

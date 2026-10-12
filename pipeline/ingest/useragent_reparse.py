@@ -26,15 +26,15 @@ def pass_over(conn, batch=BATCH):
     if not rows:
         return 0
 
-    read = []
+    updates = []
     for agent_id, ua in rows:
-        seen = useragent.parse(ua)
-        read.append((seen["ua_app"], seen["ua_os"], agent_id))
+        parsed = useragent.parse(ua)
+        updates.append((parsed["ua_app"], parsed["ua_os"], agent_id))
 
     with conn.cursor() as cur:
-        cur.executemany(REREAD, read)
+        cur.executemany(REREAD, updates)
     conn.commit()
-    return len(read)
+    return len(updates)
 
 
 def run(conn):

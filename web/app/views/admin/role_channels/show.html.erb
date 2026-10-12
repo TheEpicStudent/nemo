@@ -26,7 +26,7 @@
               <tr>
                 <td>
                   <span class="two-line">
-                    <b>#<%= @named[row.channel_id]&.name || row.channel_id %></b>
+                    <b>#<%= @channels_by_id[row.channel_id]&.name || row.channel_id %></b>
                     <span class="mono"><%= row.channel_id %></span>
                   </span>
                 </td>
@@ -56,19 +56,19 @@
   </div>
 </section>
 
-<% if @reaches.any? %>
+<% if @role_user_ids.any? %>
   <section class="section">
     <div class="section-head">
       <h2 class="section-title">Who this reaches</h2>
     </div>
     <div class="card card-flush">
       <div class="cardbar">
-        <span class="card-sub"><%= pluralize(@reaches.size, Authz.role_label(@role).downcase) %></span>
+        <span class="card-sub"><%= pluralize(@role_user_ids.size, Authz.role_label(@role).downcase) %></span>
       </div>
       <div class="scroll">
         <table class="data-table">
           <tbody>
-            <% @reaches.each do |user_id| %>
+            <% @role_user_ids.each do |user_id| %>
               <tr>
                 <td><b><%= person_name(user_id) %></b></td>
                 <td class="detail-cell"><%= pluralize(@channels.size, "shared channel") %></td>

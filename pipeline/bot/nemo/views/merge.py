@@ -1,8 +1,8 @@
 from bot.nemo.views import edit
 
 CALLBACK = "case_merge"
-KEEP = "merge_keep"
-FOLD = "merge_fold"
+TARGET = "merge_keep"
+DUPLICATES = "merge_fold"
 
 OPTION_LIMIT = 100
 TEXT_LIMIT = 75
@@ -19,28 +19,28 @@ def option(one):
             "value": str(case_id)}
 
 
-def build_view(cases, keep=None, fold=()):
+def build_view(cases, target=None, duplicates=()):
     options = [option(one) for one in cases[:OPTION_LIMIT]]
     by_id = {one["value"]: one for one in options}
 
-    keeping = {
+    target_select = {
         "type": "static_select",
-        "action_id": KEEP,
+        "action_id": TARGET,
         "placeholder": {"type": "plain_text", "text": "the case that stays open"},
         "options": options,
     }
-    if str(keep) in by_id:
-        keeping["initial_option"] = by_id[str(keep)]
+    if str(target) in by_id:
+        target_select["initial_option"] = by_id[str(target)]
 
-    folding = {
+    duplicates_select = {
         "type": "multi_static_select",
-        "action_id": FOLD,
+        "action_id": DUPLICATES,
         "placeholder": {"type": "plain_text", "text": "cases to close into it"},
         "options": options,
     }
-    picked = [by_id[str(one)] for one in fold if str(one) in by_id]
-    if picked:
-        folding["initial_options"] = picked
+    selected_options = [by_id[str(one)] for one in duplicates if str(one) in by_id]
+    if selected_options:
+        duplicates_select["initial_options"] = selected_options
 
     return {
         "type": "modal",
@@ -49,39 +49,39 @@ def build_view(cases, keep=None, fold=()):
         "submit": {"type": "plain_text", "text": "Merge"},
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": [
-            {"type": "input", "block_id": KEEP,
-             "label": {"type": "plain_text", "text": "Keep open"}, "element": keeping},
-            {"type": "input", "block_id": FOLD,
-             "label": {"type": "plain_text", "text": "Close into it"}, "element": folding},
+            {"type": "input", "block_id": TARGET,
+             "label": {"type": "plain_text", "text": "Keep open"}, "element": target_select},
+            {"type": "input", "block_id": DUPLICATES,
+             "label": {"type": "plain_text", "text": "Close into it"}, "element": duplicates_select},
         ],
     }
 
 
 def submitted_values(state):
     values = state.get("values", {})
-    keep = (values.get(KEEP, {}).get(KEEP, {}).get("selected_option") or {}).get("value")
-    fold = values.get(FOLD, {}).get(FOLD, {}).get("selected_options") or []
+    target_id = (values.get(TARGET, {}).get(TARGET, {}).get("selected_option") or {}).get("value")
+    duplicate_options = values.get(DUPLICATES, {}).get(DUPLICATES, {}).get("selected_options") or []
     return {
-        "keep": int(keep) if keep else None,
-        "fold": [int(one["value"]) for one in fold],
+        "target": int(target_id) if target_id else None,
+        "duplicates": [int(one["value"]) for one in duplicate_options],
     }
 
 
 def validation_errors(values):
-    if not values.get("keep"):
-        return {KEEP: "Pick the case that stays open."}
-    if not values.get("fold"):
-        return {FOLD: "Pick at least one case to close into it."}
-    if values["keep"] in values["fold"]:
-        return {FOLD: "The case you keep cannot close into itself."}
+    if not values.get("target"):
+        return {TARGET: "Pick the case that stays open."}
+    if not values.get("duplicates"):
+        return {DUPLICATES: "Pick at least one case to close into it."}
+    if values["target"] in values["duplicates"]:
+        return {DUPLICATES: "The case you keep cannot close into itself."}
     return None
 
 
-def asked(text):
+def parse_case_ids(text):
     numbers = []
     for word in (text or "").replace(",", " ").split():
         word = word.lstrip("#")
         if word.isdigit():
             numbers.append(int(word))
-    keep, *fold = numbers or [None]
-    return keep, fold
+    target_id, *duplicate_ids = numbers or [None]
+    return target_id, duplicate_ids

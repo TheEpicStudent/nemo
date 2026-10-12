@@ -1,0 +1,4 @@
+<turbo-frame id="audit-facet-<%= facet %>" class="audit-facet" target="_top" loading="lazy"
+             src="<%= fd_audit_facet_path(@query.to_params.merge("facet" => facet)) %>">
+  <%= render "facet_#{facet}", counts: nil %>
+</turbo-frame>

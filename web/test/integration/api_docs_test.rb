@@ -48,7 +48,7 @@ class ApiDocsTest < ActionDispatch::IntegrationTest
     get doc_path(@topic.slug)
 
     listed = css_select("#errors .doc-def > dt").map { |dt| dt.text.split.first }
-    assert_equal Api::V1::BaseController::CALLER_ERRORS.map { |_status, key, _said| key }.sort,
+    assert_equal Api::V1::BaseController::CALLER_ERRORS.map { |_status, key, _message| key }.sort,
       listed.sort
   end
 

@@ -20,9 +20,9 @@ class FdMemberRecordTest < ActionDispatch::IntegrationTest
   end
 
   test "the priors format_number uses the definition, not the case count" do
-    acted = make_case(subject: SUBJECT, opened_at: 40.days.ago, resolved_at: 30.days.ago,
+    action_taken_case = make_case(subject: SUBJECT, opened_at: 40.days.ago, resolved_at: 30.days.ago,
       resolution: "action_taken")
-    act_on acted
+    act_on action_taken_case
     make_case(subject: SUBJECT, opened_at: 20.days.ago, resolved_at: 10.days.ago,
       resolution: "no_action")
     make_case(subject: SUBJECT, opened_at: 2.days.ago)
@@ -79,14 +79,14 @@ class FdMemberRecordTest < ActionDispatch::IntegrationTest
 
   test "I can remove my own standing note and nobody else's" do
     post fd_member_notes_path(SUBJECT), params: { body: "mine to remove" }
-    mine = Fd::Note.for_subject(SUBJECT).sole
-    theirs = Fd::Note.create!(subject_user_id: SUBJECT, body: "not mine", author: "UFF9")
+    own_note = Fd::Note.for_subject(SUBJECT).sole
+    other_note = Fd::Note.create!(subject_user_id: SUBJECT, body: "not mine", author: "UFF9")
 
-    delete fd_member_note_path(SUBJECT, theirs)
-    assert_nil theirs.reload.deleted_at
+    delete fd_member_note_path(SUBJECT, other_note)
+    assert_nil other_note.reload.deleted_at
     assert_match(/Only the author of a note can remove it/, flash[:alert])
 
-    delete fd_member_note_path(SUBJECT, mine)
-    assert_not_nil mine.reload.deleted_at
+    delete fd_member_note_path(SUBJECT, own_note)
+    assert_not_nil own_note.reload.deleted_at
   end
 end

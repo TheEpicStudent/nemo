@@ -5,42 +5,42 @@ import pytest
 from bot.nemo import memberguards
 from bot.nemo.enforcement import channel_ban, shush, sweep
 
-WHO = "U1"
-ROOM = "C1"
-HOUSE = "CHOUSE"
-ENDS = dt.datetime(2026, 3, 10, 12, tzinfo=dt.UTC)
+USER_ID = "U1"
+CHANNEL_ID = "C1"
+LOG_CHANNEL_ID = "CHOUSE"
+EXPIRES_AT = dt.datetime(2026, 3, 10, 12, tzinfo=dt.UTC)
 
 
 class Conn:
-    def __init__(self, lifts=True, settings=None):
-        self.lifts = lifts
+    def __init__(self, lift_returns_row=True, settings=None):
+        self.lift_returns_row = lift_returns_row
         self.settings = settings or {}
-        self.ran = []
+        self.statements = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.statements.append((sql, args))
         return self
 
     def fetchone(self):
-        sql, args = self.ran[-1]
+        sql, args = self.statements[-1]
         if "SET state = 'lifted'" in sql:
-            return (7,) if self.lifts else None
+            return (7,) if self.lift_returns_row else None
         if "FROM fd.app_settings" in sql:
-            held = self.settings.get(args[0])
-            return (held,) if held is not None else None
+            value = self.settings.get(args[0])
+            return (value,) if value is not None else None
         return (1,)
 
     def fetchall(self):
         return []
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.statements if mark in sql]
 
     def executed(self, mark):
-        return any(mark in sql for sql, _ in self.ran)
+        return any(mark in sql for sql, _ in self.statements)
 
     def verbs(self):
-        return [args[3] for args in self.did("INSERT INTO fd.member_guard_events")]
+        return [args[3] for args in self.args_for("INSERT INTO fd.member_guard_events")]
 
 
 class Slack:
@@ -53,8 +53,8 @@ class Slack:
 
 
 def guard(**over):
-    row = {"id": 7, "kind": "shush", "subject_id": WHO, "channel_id": None,
-           "reason": "being awful", "expires_at": ENDS, "case_id": 412}
+    row = {"id": 7, "kind": "shush", "subject_id": USER_ID, "channel_id": None,
+           "reason": "being awful", "expires_at": EXPIRES_AT, "case_id": 412}
     row.update(over)
     return row
 
@@ -98,21 +98,21 @@ def test_lifting_one_that_ran_out_says_why_and_notifies_them():
     conn, client = Conn(), Slack()
     assert sweep.lapse(client, conn, guard())
 
-    lifted = conn.did("SET state = 'lifted'")[0]
-    assert lifted[0] == "nemo"
-    assert lifted[1] == sweep.LAPSED_BECAUSE
+    lift_args = conn.args_for("SET state = 'lifted'")[0]
+    assert lift_args[0] == "nemo"
+    assert lift_args[1] == sweep.LAPSED_BECAUSE
     assert "released" in conn.verbs()
     assert "Your shush has ended" in client.posted[0]["text"]
 
 
 def test_a_ban_that_ran_out_says_they_can_come_back():
     conn, client = Conn(), Slack()
-    sweep.lapse(client, conn, guard(kind="channel_ban", channel_id=ROOM))
-    assert f"ban from <#{ROOM}> has ended" in client.posted[0]["text"]
+    sweep.lapse(client, conn, guard(kind="channel_ban", channel_id=CHANNEL_ID))
+    assert f"ban from <#{CHANNEL_ID}> has ended" in client.posted[0]["text"]
 
 
 def test_one_somebody_lifted_first_is_left_alone():
-    conn, client = Conn(lifts=False), Slack()
+    conn, client = Conn(lift_returns_row=False), Slack()
     assert not sweep.lapse(client, conn, guard())
     assert conn.verbs() == []
     assert client.posted == []
@@ -136,13 +136,13 @@ def test_only_what_nemo_carries_is_retried():
 
 
 def test_retrying_goes_back_through_the_enforcement(monkeypatch):
-    taken = []
-    monkeypatch.setattr(shush, "take_up", lambda c, conn, g: taken.append(g["id"]))
+    processed_ids = []
+    monkeypatch.setattr(shush, "take_up", lambda c, conn, guard_row: processed_ids.append(guard_row["id"]))
     monkeypatch.setattr(memberguards, "dropped_awhile", lambda conn: [guard()])
     monkeypatch.setattr(sweep, "session", _session(Conn()))
 
     assert sweep.sweep_dropped(Slack()) == 1
-    assert taken == [7]
+    assert processed_ids == [7]
 
 
 def _session(conn):
@@ -165,8 +165,8 @@ def test_the_nudge_names_who_what_when_and_the_case():
 
 
 def test_a_ban_in_the_nudge_names_its_channel():
-    line = sweep.line_about(guard(kind="channel_ban", channel_id=ROOM))
-    assert f"channel ban in <#{ROOM}>" in line
+    line = sweep.line_about(guard(kind="channel_ban", channel_id=CHANNEL_ID))
+    assert f"channel ban in <#{CHANNEL_ID}>" in line
 
 
 def test_one_on_no_case_is_called_out_in_the_nudge():
@@ -176,21 +176,21 @@ def test_one_on_no_case_is_called_out_in_the_nudge():
 def test_the_nudge_goes_out_once_and_is_written_down(monkeypatch):
     conn = Conn()
     monkeypatch.setattr(memberguards, "ending_not_notified", lambda c, within: [guard()])
-    monkeypatch.setattr(sweep.channel, "internal_log_channel", lambda c: HOUSE)
+    monkeypatch.setattr(sweep.channel, "internal_log_channel", lambda c: LOG_CHANNEL_ID)
     monkeypatch.setattr(sweep, "session", _session(conn))
     client = Slack()
 
     assert sweep.sweep_ending(client) == 1
-    assert client.posted[0]["channel"] == HOUSE
+    assert client.posted[0]["channel"] == LOG_CHANNEL_ID
     assert "Ending soon" in client.posted[0]["text"]
-    recorded = conn.did("INSERT INTO fd.member_guard_events")[0]
+    recorded = conn.args_for("INSERT INTO fd.member_guard_events")[0]
     assert recorded[3] == memberguards.NOTIFIED
     assert recorded[6] == memberguards.ENDING
 
 
 def test_nothing_ending_says_nothing(monkeypatch):
     monkeypatch.setattr(memberguards, "ending_not_notified", lambda c, within: [])
-    monkeypatch.setattr(sweep.channel, "internal_log_channel", lambda c: HOUSE)
+    monkeypatch.setattr(sweep.channel, "internal_log_channel", lambda c: LOG_CHANNEL_ID)
     monkeypatch.setattr(sweep, "session", _session(Conn()))
     client = Slack()
 
@@ -206,7 +206,7 @@ def test_the_same_guard_is_not_nudged_twice_in_a_day():
 @pytest.mark.parametrize("enforcement", [shush, channel_ban])
 def test_every_enforcement_can_be_let_go(enforcement):
     conn, client = Conn(), Slack()
-    enforcement.lift(client, conn, guard(kind=enforcement.KIND, channel_id=ROOM))
+    enforcement.lift(client, conn, guard(kind=enforcement.KIND, channel_id=CHANNEL_ID))
     assert client.posted, f"{enforcement.KIND} says nothing when it ends"
 
 

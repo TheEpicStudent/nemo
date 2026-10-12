@@ -61,7 +61,7 @@ def test_a_migration_with_no_lock_trouble_applies_once():
     assert conn.commits == 1
 
 
-NUMBERS_REUSED_BEFORE_THE_GUARD = frozenset({"0140"})
+ALLOWED_DUPLICATE_NUMBERS = frozenset({"0140"})
 
 
 def test_every_migration_number_is_used_once():
@@ -70,14 +70,14 @@ def test_every_migration_number_is_used_once():
     from lib.paths import MIGRATIONS_DIR, MIGRATIONS_POST_DIR
 
     for folder in (MIGRATIONS_DIR, MIGRATIONS_POST_DIR):
-        seen = Counter(path.name.split("_", 1)[0] for path in folder.glob("*.sql"))
-        clashes = sorted(
+        counts = Counter(path.name.split("_", 1)[0] for path in folder.glob("*.sql"))
+        duplicates = sorted(
             number
-            for number, count in seen.items()
-            if count > 1 and number not in NUMBERS_REUSED_BEFORE_THE_GUARD
+            for number, count in counts.items()
+            if count > 1 and number not in ALLOWED_DUPLICATE_NUMBERS
         )
-        assert not clashes, (
-            f"{folder.name} reuses migration number(s) {clashes}. The runner keys "
+        assert not duplicates, (
+            f"{folder.name} reuses migration number(s) {duplicates}. The runner keys "
             "raw.schema_version on the filename, so a number cannot be reclaimed once "
             "applied: pick the next free number instead"
         )

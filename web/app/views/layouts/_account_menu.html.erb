@@ -1,18 +1,18 @@
-<% shown = Fd::Names.for([staff.user_id]) %>
+<% names = Fd::Names.for([staff.user_id]) %>
 <%= render layout: "shared/dropdown", locals: {
       css: "account-menu", trigger_css: "account-face", pop_css: "account-pop",
-      label: "#{shown[staff.user_id]}, and your account",
+      label: "#{names[staff.user_id]}, and your account",
       trigger: tag.img(src: cachet_face_url(staff.user_id), class: "avatar", alt: "",
         width: 24, height: 24,
-        data: { cachet_face: staff.user_id, cachet_initial: shown.initial(staff.user_id),
+        data: { cachet_face: staff.user_id, cachet_initial: names.initial(staff.user_id),
                 cachet_tone: avatar_tone(staff.user_id) }) } do %>
     <div class="account-head">
       <%= tag.img(src: cachet_face_url(staff.user_id), class: "avatar avatar-lg", alt: "", width: 28, height: 28,
-            data: { cachet_face: staff.user_id, cachet_initial: shown.initial(staff.user_id),
+            data: { cachet_face: staff.user_id, cachet_initial: names.initial(staff.user_id),
                     cachet_tone: avatar_tone(staff.user_id) }) %>
       <span class="two-line">
-        <b><span data-cachet-name="<%= staff.user_id %>"><%= shown[staff.user_id] %></span></b>
-        <span><%= held_label(staff) %></span>
+        <b><span data-cachet-name="<%= staff.user_id %>"><%= names[staff.user_id] %></span></b>
+        <span><%= role_summary(staff) %></span>
       </span>
     </div>
 

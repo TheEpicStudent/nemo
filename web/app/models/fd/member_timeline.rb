@@ -26,14 +26,14 @@ module Fd
       @names = names
       @channels = ChannelNames.for(
         record.guards.map(&:channel_id) +
-          record.actions.filter_map { |one| one.details["channel_id"] if one.details.is_a?(Hash) }
+          record.actions.filter_map { |action| action.details["channel_id"] if action.details.is_a?(Hash) }
       )
     end
 
     def entries(only = "all")
-      wanted = KINDS.key?(only) ? only : "all"
+      kind = KINDS.key?(only) ? only : "all"
       all = case_entries + logged_entries + action_entries + guard_entries + note_entries
-      all = all.select { |entry| entry.kind == wanted } unless wanted == "all"
+      all = all.select { |entry| entry.kind == kind } unless kind == "all"
       all.sort_by { |entry| [-entry.at.to_i, -entry.case_id.to_i] }
     end
 

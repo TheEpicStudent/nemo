@@ -38,7 +38,7 @@
                     <span class="chip chip-off">Muted until <%= incident.muted_until.strftime("%-d %b %H:%M") %></span>
                   <% elsif incident.acked_at %>
                     <span class="chip chip-off">Acked by <%= incident.acked_by %></span>
-                  <% elsif may_tune %>
+                  <% elsif may_edit_setting %>
                     <span class="dial-set">
                       <%= button_to "Ack", engine_ack_incident_path(source_key: incident.source_key, kind: incident.kind),
                             class: "btn btn-sm", form: { class: "contents" } %>
@@ -149,7 +149,7 @@
       </div>
       <div class="card-tools">
         <span class="queue-label">Mode</span>
-        <%= render "setting_value", source: Engine::Setting::ENGINE, name: "breaker_mode", may_tune: may_tune %>
+        <%= render "setting_value", source: Engine::Setting::ENGINE, name: "breaker_mode", may_edit_setting: may_edit_setting %>
       </div>
     </div>
     <% if breakers.any? %>
@@ -182,7 +182,7 @@
                 <td class="col-num"><%= row.expected.to_i + 1 %></td>
                 <td class="col-num"><%= short_age(row.checked_at) %></td>
                 <td class="col-btn">
-                  <% if row.status == "fail" && may_tune %>
+                  <% if row.status == "fail" && may_edit_setting %>
                     <%= button_to "Hold closed tonight", engine_override_breaker_path(source_key: row.assertion.split(":", 2).last),
                           class: "btn btn-sm", form: { class: "contents" } %>
                   <% end %>

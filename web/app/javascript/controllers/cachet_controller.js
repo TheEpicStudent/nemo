@@ -4,29 +4,29 @@ const HOST = "https://cachet.hackclub.com"
 const TTL = 12 * 60 * 60 * 1000
 const LANES = 8
 const NAME = "[data-cachet-name]"
-const FACE = "img[data-cachet-face]"
+const AVATAR = "img[data-cachet-face]"
 
-const held = new Map()
-const flying = new Map()
+const profileCache = new Map()
+const pendingRequests = new Map()
 const queue = []
-let busy = 0
+let activeRequests = 0
 
-function remembered(id) {
-  if (held.has(id)) return held.get(id)
+function cachedProfile(id) {
+  if (profileCache.has(id)) return profileCache.get(id)
   try {
     const raw = sessionStorage.getItem(`cachet:${id}`)
     if (!raw) return null
     const row = JSON.parse(raw)
     if (Date.now() - row.at > TTL) return null
-    held.set(id, row.profile)
+    profileCache.set(id, row.profile)
     return row.profile
   } catch {
     return null
   }
 }
 
-function remember(id, profile) {
-  held.set(id, profile)
+function cacheProfile(id, profile) {
+  profileCache.set(id, profile)
   try {
     sessionStorage.setItem(`cachet:${id}`, JSON.stringify({ at: Date.now(), profile }))
   } catch {
@@ -35,35 +35,35 @@ function remember(id, profile) {
 }
 
 function drain() {
-  while (busy < LANES && queue.length > 0) {
-    const { id, settle } = queue.shift()
-    busy += 1
+  while (activeRequests < LANES && queue.length > 0) {
+    const { id, resolve } = queue.shift()
+    activeRequests += 1
     fetch(`${HOST}/users/${encodeURIComponent(id)}`, { headers: { Accept: "application/json" } })
       .then((response) => (response.ok ? response.json() : null))
       .then((body) => {
         const known = body && body.displayName && body.displayName !== "Unknown"
         const profile = { name: known ? body.displayName : null, image: known ? body.imageUrl : null }
-        if (known || (body && body.displayName === "Unknown")) remember(id, profile)
-        settle(profile)
+        if (known || (body && body.displayName === "Unknown")) cacheProfile(id, profile)
+        resolve(profile)
       })
-      .catch(() => settle(null))
+      .catch(() => resolve(null))
       .finally(() => {
-        busy -= 1
-        flying.delete(id)
+        activeRequests -= 1
+        pendingRequests.delete(id)
         drain()
       })
   }
 }
 
 export function profile(id) {
-  const had = remembered(id)
-  if (had) return Promise.resolve(had)
-  if (flying.has(id)) return flying.get(id)
+  const cached = cachedProfile(id)
+  if (cached) return Promise.resolve(cached)
+  if (pendingRequests.has(id)) return pendingRequests.get(id)
 
-  const wait = new Promise((settle) => queue.push({ id, settle }))
-  flying.set(id, wait)
+  const request = new Promise((resolve) => queue.push({ id, resolve }))
+  pendingRequests.set(id, request)
   drain()
-  return wait
+  return request
 }
 
 function fallback(img) {
@@ -81,25 +81,25 @@ function fill(node) {
   if (node.dataset.cachetDone) return
   node.dataset.cachetDone = "1"
 
-  if (node.matches(FACE)) {
+  if (node.matches(AVATAR)) {
     const id = node.dataset.cachetFace
     node.addEventListener("error", () => fallback(node), { once: true })
-    profile(id).then((found) => {
-      if (found && found.name === null && node.isConnected) fallback(node)
+    profile(id).then((result) => {
+      if (result && result.name === null && node.isConnected) fallback(node)
     })
     return
   }
 
   const id = node.dataset.cachetName
-  profile(id).then((found) => {
-    if (found && found.name && node.isConnected) node.textContent = found.name
+  profile(id).then((result) => {
+    if (result && result.name && node.isConnected) node.textContent = result.name
   })
 }
 
 export function hydrate(root) {
   if (!(root instanceof Element)) return
-  if (root.matches(`${NAME}, ${FACE}`)) fill(root)
-  for (const node of root.querySelectorAll(`${NAME}, ${FACE}`)) fill(node)
+  if (root.matches(`${NAME}, ${AVATAR}`)) fill(root)
+  for (const node of root.querySelectorAll(`${NAME}, ${AVATAR}`)) fill(node)
 }
 
 export default class extends Controller {

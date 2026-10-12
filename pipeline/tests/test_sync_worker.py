@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from jobs.nightly_sync import stage_plan
-from jobs.sync_worker import missed_tonight, next_run_at, slot_today, wait_seconds
+from jobs.sync_worker import missed_today, next_run_at, slot_today, wait_seconds
 
 
 def test_a_later_time_today_stays_today():
@@ -51,22 +51,22 @@ def test_the_wait_never_drops_below_a_second():
 
 def test_a_boot_after_the_slot_with_no_run_is_a_missed_night():
     now = datetime(2026, 9, 20, 9, 51)
-    assert missed_tonight("03:00", now, already_ran=False)
+    assert missed_today("03:00", now, already_ran=False)
 
 
 def test_a_boot_after_the_slot_does_not_rerun_a_night_that_already_ran():
     now = datetime(2026, 9, 20, 9, 51)
-    assert not missed_tonight("03:00", now, already_ran=True)
+    assert not missed_today("03:00", now, already_ran=True)
 
 
 def test_a_boot_before_the_slot_waits_for_it():
     now = datetime(2026, 9, 20, 2, 36)
-    assert not missed_tonight("03:00", now, already_ran=False)
+    assert not missed_today("03:00", now, already_ran=False)
 
 
 def test_the_slot_minute_itself_counts_as_missed():
     now = datetime(2026, 9, 20, 3, 0)
-    assert missed_tonight("03:00", now, already_ran=False)
+    assert missed_today("03:00", now, already_ran=False)
 
 
 def test_the_slot_is_read_the_same_way_the_schedule_reads_it():
@@ -98,7 +98,7 @@ def test_the_cap_holds_even_with_the_startup_flag_on(monkeypatch):
 def test_an_unreadable_ledger_refuses_to_catch_up():
     from jobs import sync_worker
 
-    assert not sync_worker.missed_tonight(
+    assert not sync_worker.missed_today(
         "03:00", datetime(2026, 9, 20, 9, 51), *(True, sync_worker.MAX_CATCH_UPS)
     )
 
@@ -113,15 +113,15 @@ def test_a_crash_loop_cannot_keep_starting_nightlies():
     from jobs import sync_worker
 
     now = datetime(2026, 9, 20, 9, 51)
-    assert sync_worker.missed_tonight("03:00", now, False, crashed=0)
-    assert not sync_worker.missed_tonight("03:00", now, False, crashed=sync_worker.MAX_CATCH_UPS)
+    assert sync_worker.missed_today("03:00", now, False, abandoned=0)
+    assert not sync_worker.missed_today("03:00", now, False, abandoned=sync_worker.MAX_CATCH_UPS)
 
 
 def test_only_an_abandoned_night_counts_toward_the_cap():
     from jobs import sync_worker
 
     assert "FILTER (WHERE status = 'abandoned')" in sync_worker.RAN_TODAY_SQL, (
-        "a clean deploy must not burn a catch-up; only a crashed night should"
+        "a clean deploy must not burn a catch-up; only a abandoned night should"
     )
 
 

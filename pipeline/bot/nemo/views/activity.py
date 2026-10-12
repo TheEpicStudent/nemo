@@ -42,11 +42,11 @@ def crowd_line(viewers, crowd):
     return f" · {share}% of the channel"
 
 
-def replies_line(found):
-    if found is None:
+def replies_line(archived_message):
+    if archived_message is None:
         return "not landed yet"
-    count = found.get("reply_count") or 0
-    people = found.get("reply_users_count") or 0
+    count = archived_message.get("reply_count") or 0
+    people = archived_message.get("reply_users_count") or 0
     if not count:
         return "none"
     return f"{n(count)} from {n(people)} {'person' if people == 1 else 'people'}"
@@ -86,14 +86,14 @@ def chart_block(file_id, span):
     }
 
 
-def build_view(channel_id, ts, author_id, text, stats, found=None, crowd=None,
+def build_view(channel_id, ts, author_id, text, stats, archived_message=None, crowd=None,
          chart=None, activity_url=None):
     fields = [
         f"*Viewers*\n{n(stats['viewers'])}{crowd_line(stats['viewers'], crowd)}",
         f"*Reacted*\n{n(stats['reacted'])}",
         f"*Clicked a link*\n{n(stats['clicked'])}",
         f"*Shared*\n{n(stats['shared'])}",
-        f"*Replies*\n{replies_line(found)}",
+        f"*Replies*\n{replies_line(archived_message)}",
     ]
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": quoted(text)}},

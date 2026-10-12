@@ -10,7 +10,7 @@ class WalkMismatchError(RuntimeError):
     """The walk did not read the number of items the endpoint reported."""
 
 
-def check_walk(what, seen, expected, page_size, short_at=SHORT_AT):
+def check_walk(what, walked_rows, expected, page_size, short_at=SHORT_AT):
     if short_at is not NO_FLOOR and short_at <= 0:
         raise ValueError(
             f"{what}: short_at={short_at} leaves no floor, so no walk can ever read short. "
@@ -20,9 +20,9 @@ def check_walk(what, seen, expected, page_size, short_at=SHORT_AT):
     if expected is None:
         return None
 
-    if seen > expected + page_size:
+    if walked_rows > expected + page_size:
         raise WalkMismatchError(
-            f"{what}: walked {seen} rows against a num_found of {expected}, "
+            f"{what}: walked {walked_rows} rows against a num_found of {expected}, "
             "refusing to commit"
         )
 
@@ -30,8 +30,8 @@ def check_walk(what, seen, expected, page_size, short_at=SHORT_AT):
         return UNVERIFIED
 
     floor = int(expected * short_at)
-    if expected > 0 and seen < floor:
-        print(f"{what}: walked {seen} rows against a num_found of {expected}, under the {floor} floor, short")
+    if expected > 0 and walked_rows < floor:
+        print(f"{what}: walked {walked_rows} rows against a num_found of {expected}, under the {floor} floor, short")
         return SHORT
 
     return COMPLETE
@@ -41,15 +41,15 @@ def should_prune(verdict):
     return verdict == COMPLETE
 
 
-def window_totals(counted, window):
-    landed, held = 0, 0
-    for start, stop, rows in counted:
+def window_totals(row_counts, window):
+    window_rows, other_max_rows = 0, 0
+    for start, stop, rows in row_counts:
         if (start, stop) == window:
-            landed = rows
+            window_rows = rows
         else:
-            held = max(held, rows)
-    return landed, held
+            other_max_rows = max(other_max_rows, rows)
+    return window_rows, other_max_rows
 
 
-def supersedes(landed, held, floor=SHORT_AT):
-    return landed >= int(held * floor)
+def supersedes(window_rows, other_max_rows, floor=SHORT_AT):
+    return window_rows >= int(other_max_rows * floor)

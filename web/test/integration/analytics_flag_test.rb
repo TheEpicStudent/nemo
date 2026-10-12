@@ -13,12 +13,12 @@ class AnalyticsFlagTest < ActionDispatch::IntegrationTest
     Current.forget_flags
   end
 
-  def turn_it_off
+  def disable_analytics
     Fd::Flag.set!(:analytics, false, by: @me.user_id)
   end
 
   test "with it off, every analytics page sends you to the queue" do
-    turn_it_off
+    disable_analytics
 
     [community_path, channels_path, engine_path].each do |where|
       get where
@@ -28,7 +28,7 @@ class AnalyticsFlagTest < ActionDispatch::IntegrationTest
   end
 
   test "with it off, the pipeline's buttons are refused too, not just its page" do
-    turn_it_off
+    disable_analytics
 
     post engine_sync_path
     assert_redirected_to fd_cases_path
@@ -43,7 +43,7 @@ class AnalyticsFlagTest < ActionDispatch::IntegrationTest
   end
 
   test "turning it off does not take the channel names with it" do
-    turn_it_off
+    disable_analytics
     kase = make_case
     Fd::CaseThread.create!(case_id: kase.id, channel_id: "C0LOUNGE", thread_ts: "1.1",
       is_primary: true, added_by: @me.user_id)

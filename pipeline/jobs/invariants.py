@@ -39,9 +39,9 @@ def i1_planned_stages_have_rows(conn):
     """).fetchone()
     if row is None:
         return ("I1", "pass", "no completed nightly yet", "n/a")
-    night, children, planned = row
+    logical_date, children, planned = row
     ok = planned is not None and children >= planned
-    return ("I1", "pass" if ok else "fail", f"{children} stage rows on {night}", f"{planned} planned")
+    return ("I1", "pass" if ok else "fail", f"{children} stage rows on {logical_date}", f"{planned} planned")
 
 
 def i4_counts_nullable(conn):
@@ -53,9 +53,9 @@ def i4_counts_nullable(conn):
     """, ([schema for schema, _ in COUNT_TABLES],
           [table for _, table in COUNT_TABLES],
           list(COUNT_COLUMNS))).fetchall()
-    bad = [name for name, nullable, default in rows if nullable == "NO" and default and "0" in default]
-    return ("I4", "fail" if bad else "pass",
-            ", ".join(bad) if bad else "every count column is nullable",
+    violations = [name for name, nullable, default in rows if nullable == "NO" and default and "0" in default]
+    return ("I4", "fail" if violations else "pass",
+            ", ".join(violations) if violations else "every count column is nullable",
             "no count column is NOT NULL DEFAULT 0")
 
 
@@ -85,14 +85,14 @@ def i3_terminal_failures_classified(conn):
 
 
 def i11_day_sources_recent(conn):
-    walked = [day_source for day_source, _ in DAY_LEDGERS]
+    day_sources = [day_source for day_source, _ in DAY_LEDGERS]
     rows = conn.execute("""
         SELECT source, max(ds), (current_date - max(ds))::integer
         FROM raw.analytics_day
         WHERE source = ANY(%s)
         GROUP BY source
         ORDER BY source
-    """, (walked,)).fetchall()
+    """, (day_sources,)).fetchall()
     if not rows:
         return ("I11", "pass", "no day source has loaded yet", f"within {DAY_LAG_LIMIT} days")
     stale = [f"{source} stopped at {newest} ({behind}d)" for source, newest, behind in rows
@@ -104,15 +104,15 @@ def i11_day_sources_recent(conn):
 
 
 def i12_day_ledgers_agree(conn):
-    torn = []
+    mismatches = []
     measured = 0
     for day_source, coverage_key in DAY_LEDGERS:
-        era = conn.execute("""
+        bounds = conn.execute("""
             SELECT min(slice_key::date), max(slice_key::date)
             FROM ingest.slice_coverage
             WHERE source_key = %s AND slice_key ~ '^\\d{4}-\\d{2}-\\d{2}$'
         """, (coverage_key,)).fetchone()
-        if era is None or era[0] is None:
+        if bounds is None or bounds[0] is None:
             continue
         measured += 1
         loaded_without_slice, complete_without_day = conn.execute("""
@@ -131,15 +131,15 @@ def i12_day_ledgers_agree(conn):
                         WHERE d.source IN (%(day)s, 'seed_' || %(day)s)
                           AND d.ds::text = c.slice_key AND d.loaded
                     ))
-        """, {"day": day_source, "key": coverage_key, "from": era[0], "to": era[1]}).fetchone()
+        """, {"day": day_source, "key": coverage_key, "from": bounds[0], "to": bounds[1]}).fetchone()
         if loaded_without_slice:
-            torn.append(f"{day_source}: {loaded_without_slice} loaded day(s) with no slice")
+            mismatches.append(f"{day_source}: {loaded_without_slice} loaded day(s) with no slice")
         if complete_without_day:
-            torn.append(f"{coverage_key}: {complete_without_day} complete slice(s) with no loaded day")
+            mismatches.append(f"{coverage_key}: {complete_without_day} complete slice(s) with no loaded day")
     if not measured:
         return ("I12", "pass", "no day source has claimed a slice yet", "both ledgers agree")
-    return ("I12", "fail" if torn else "pass",
-            "; ".join(torn) if torn else f"{measured} day source(s) agree across both ledgers",
+    return ("I12", "fail" if mismatches else "pass",
+            "; ".join(mismatches) if mismatches else f"{measured} day source(s) agree across both ledgers",
             "every loaded day in the slice era has a slice, and every complete slice has a loaded day")
 
 

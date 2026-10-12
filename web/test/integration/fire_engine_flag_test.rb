@@ -13,12 +13,12 @@ class FireEngineFlagTest < ActionDispatch::IntegrationTest
     Current.forget_flags
   end
 
-  def turn_it_off
+  def disable_fire_engine
     Fd::Flag.set!(:fire_engine, false, by: @me.user_id)
   end
 
   test "with it off, every fire engine page sends you to the overview" do
-    turn_it_off
+    disable_fire_engine
     kase = make_case
 
     [fd_cases_path, fd_case_path(kase), fd_members_path, fd_search_path].each do |where|
@@ -29,7 +29,7 @@ class FireEngineFlagTest < ActionDispatch::IntegrationTest
   end
 
   test "with it off, writing to a case is refused too, not just reading one" do
-    turn_it_off
+    disable_fire_engine
     kase = make_case
 
     assert_no_difference "Fd::Note.count" do
@@ -39,7 +39,7 @@ class FireEngineFlagTest < ActionDispatch::IntegrationTest
   end
 
   test "with it off, settings stays reachable so it can be turned back on" do
-    turn_it_off
+    disable_fire_engine
 
     get admin_flags_path
     assert_response :success
@@ -49,7 +49,7 @@ class FireEngineFlagTest < ActionDispatch::IntegrationTest
   end
 
   test "with both sections off, the fallback is settings rather than a loop" do
-    turn_it_off
+    disable_fire_engine
     Fd::Flag.set!(:analytics, false, by: @me.user_id)
 
     get fd_cases_path
@@ -61,7 +61,7 @@ class FireEngineFlagTest < ActionDispatch::IntegrationTest
 
   test "turning it off deletes nothing" do
     kase = make_case
-    turn_it_off
+    disable_fire_engine
 
     assert Fd::Case.exists?(kase.id)
 

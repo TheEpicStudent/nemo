@@ -91,9 +91,9 @@ module FdChannelsHelper
     standing&.refused? && standing.why == NEEDS_INVITE
   end
 
-  def channel_seat_label(seat, standing)
-    return nil if seat
-    return tag.p(outside_label(standing), class: "sev-crit") if seat == false
+  def channel_seat_label(inside, standing)
+    return nil if inside
+    return tag.p(outside_label(standing), class: "sev-crit") if inside == false
     return nil if standing.nil? || standing.inside?
     return tag.p("nemo was taken out of here", class: "sev-crit") if standing.verb == "left"
     return tag.p(INVITE_NOTE, class: "sev-warn") if needs_invite?(standing)
@@ -104,8 +104,8 @@ module FdChannelsHelper
   def outside_label(standing)
     return "nothing is enforced, #{INVITE_NOTE}" if needs_invite?(standing)
 
-    why = standing&.refused? && standing.why.presence
-    return "nothing is enforced, nemo could not get in: #{why}" if why
+    refusal_reason = standing&.refused? && standing.why.presence
+    return "nothing is enforced, nemo could not get in: #{refusal_reason}" if refusal_reason
 
     "nothing is enforced, nemo is not in this channel"
   end
@@ -145,13 +145,13 @@ module FdChannelsHelper
   end
 
   def guard_face(subject_id)
-    face(subject_id.to_s.match?(Fd::Names::PERSON) ? subject_id : nil)
+    avatar(subject_id.to_s.match?(Fd::Names::PERSON) ? subject_id : nil)
   end
 
-  def at_minute(at)
-    return "n/a" if at.nil?
+  def at_minute(time)
+    return "n/a" if time.nil?
 
-    at.in_time_zone(Time.zone).strftime("%-d %b %Y, %H:%M")
+    time.in_time_zone(Time.zone).strftime("%-d %b %Y, %H:%M")
   end
 
   def vouched_line(allow)

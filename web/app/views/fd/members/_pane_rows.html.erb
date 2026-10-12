@@ -1,22 +1,22 @@
 <% rows.each do |row| %>
   <% member = names.member(row.user_id) %>
-  <% seen = context[row.user_id] %>
+  <% member_context = context[row.user_id] %>
   <% grant = grants[row.user_id] %>
-  <% shown = person_name(row.user_id) %>
+  <% member_name = person_name(row.user_id) %>
   <% raw_handle = member&.handle.presence || row.user_id %>
   <% member_handle = raw_handle.start_with?("@") ? raw_handle : "@#{raw_handle}" %>
   <%= link_to fd_member_path(row.user_id, local_assigns.fetch(:carry, {})), class: "queue-row member-queue-row", role: "option",
         aria: { selected: (open_id == row.user_id).to_s },
         data: { pane_filter_target: "row", action: "click->pane#hide" } do %>
     <span class="queue-top member-queue-top">
-      <%= face(row.user_id) %>
+      <%= avatar(row.user_id) %>
       <span class="queue-category trunc"><%= member_handle %></span>
-      <span class="queue-age"><%= fact_number(seen&.messages_posted) %></span>
+      <span class="queue-age"><%= fact_number(member_context&.messages_posted) %></span>
     </span>
 
     <span class="queue-subject trunc">
-      <%= shown %> &middot;
-      <%= seen&.cohort_at ? "here since #{seen.cohort_at.to_date.strftime('%b %Y')}" : "tenure unavailable" %>
+      <%= member_name %> &middot;
+      <%= member_context&.cohort_at ? "here since #{member_context.cohort_at.to_date.strftime('%b %Y')}" : "tenure unavailable" %>
     </span>
 
     <span class="queue-meta">

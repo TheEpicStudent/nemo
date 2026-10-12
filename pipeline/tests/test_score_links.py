@@ -4,7 +4,7 @@ from psycopg import errors
 from jobs import score_links as links
 from lib.graph import components
 
-MARKS = {"floor": 3.0, "strong": 5.0, "certain": 8.0}
+THRESHOLDS = {"floor": 3.0, "strong": 5.0, "certain": 8.0}
 
 
 class Result:
@@ -72,9 +72,9 @@ def test_the_hub_is_the_account_in_most_pairs():
 
 
 def test_bands_follow_the_scoring_marks():
-    assert links.band_of(9, MARKS) == "certain"
-    assert links.band_of(5, MARKS) == "strong"
-    assert links.band_of(3, MARKS) == "worth a look"
+    assert links.band_of(9, THRESHOLDS) == "certain"
+    assert links.band_of(5, THRESHOLDS) == "strong"
+    assert links.band_of(3, THRESHOLDS) == "worth a look"
 
 
 def test_only_schema_qualified_lowercase_tables_are_scored():
@@ -85,7 +85,7 @@ def test_only_schema_qualified_lowercase_tables_are_scored():
 
 
 def test_measure_scores_verdicts_people_and_aliases(monkeypatch):
-    monkeypatch.setattr(links, "scoring", lambda: MARKS)
+    monkeypatch.setattr(links, "scoring", lambda: THRESHOLDS)
     monkeypatch.setattr(links, "catalogue", lambda: {"staff_domains": ["hackclub.com"]})
     among = [("U1", "U2", 9.0), ("U2", "U3", 4.0), ("U6", "U7", 5.5)]
     conn = Conn({
@@ -151,7 +151,7 @@ def test_a_missing_links_table_exits_2_with_the_database_message(monkeypatch, ca
             raise errors.UndefinedTable('relation "fd.nope" does not exist\nLINE 4: FROM "fd"."nope"')
 
     monkeypatch.setattr(links, "load_dotenv", lambda *_args: None)
-    monkeypatch.setattr(links, "scoring", lambda: MARKS)
+    monkeypatch.setattr(links, "scoring", lambda: THRESHOLDS)
     monkeypatch.setattr(links, "catalogue", lambda: {})
     monkeypatch.setattr(links, "connect", lambda *_args: Missing())
 
@@ -173,20 +173,20 @@ def test_each_band_gets_the_lowest_score_that_reaches_its_precision():
     pairs = [(9.0, True), (8.5, True), (6.0, True), (6.0, False), (4.0, True), (4.0, False),
              (3.5, False), (None, True), (None, False)]
 
-    found = links.suggest_cutoffs(pairs, TARGETS)
+    suggestion = links.suggest_cutoffs(pairs, TARGETS)
 
-    assert found["enough"] and (found["right"], found["wrong"]) == (5, 4)
-    assert found["cuts"]["floor"]["cut"] == 3.5
-    assert found["cuts"]["strong"]["cut"] == 8.5
-    assert found["cuts"]["certain"]["cut"] == 8.5
-    assert found["cuts"]["strong"]["recall"] == 2 / 5
+    assert suggestion["enough"] and (suggestion["right"], suggestion["wrong"]) == (5, 4)
+    assert suggestion["cuts"]["floor"]["cut"] == 3.5
+    assert suggestion["cuts"]["strong"]["cut"] == 8.5
+    assert suggestion["cuts"]["certain"]["cut"] == 8.5
+    assert suggestion["cuts"]["strong"]["recall"] == 2 / 5
 
 
 def test_too_few_verdicts_suggest_nothing():
-    found = links.suggest_cutoffs([(9.0, True), (3.0, False)], TARGETS)
+    suggestion = links.suggest_cutoffs([(9.0, True), (3.0, False)], TARGETS)
 
-    assert not found["enough"]
-    assert found["cuts"] == {}
+    assert not suggestion["enough"]
+    assert suggestion["cuts"] == {}
 
 
 def test_render_prints_the_current_and_the_suggested_cut():

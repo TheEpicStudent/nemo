@@ -7,37 +7,37 @@ const chartPaths = Object.keys(
   JSON.parse(document.querySelector("script[type=importmap]").text).imports
 ).filter((path) => /^charts\/.*_controller$/.test(path))
 
-const waiting = new Map(chartPaths.map((path) => [
+const pendingCharts = new Map(chartPaths.map((path) => [
   path.replace(/^charts\//, "").replace(/_controller$/, "").replace(/_/g, "-"),
   path
 ]))
 
-let watcher = null
+let observer = null
 
-function drawn(name) {
+function isOnPage(name) {
   return document.querySelector(`[data-controller~="${name}"]`) !== null
 }
 
-function registerDrawnCharts() {
-  for (const [name, path] of waiting) {
-    if (!drawn(name)) continue
+function registerPageCharts() {
+  for (const [name, path] of pendingCharts) {
+    if (!isOnPage(name)) continue
 
-    waiting.delete(name)
+    pendingCharts.delete(name)
     import(path)
       .then((module) => application.register(name, module.default))
       .catch((error) => console.error(`Failed to register chart controller: ${name} (${path})`, error))
   }
-  if (waiting.size === 0 && watcher) {
-    watcher.disconnect()
-    watcher = null
+  if (pendingCharts.size === 0 && observer) {
+    observer.disconnect()
+    observer = null
   }
 }
 
-registerDrawnCharts()
+registerPageCharts()
 
-if (waiting.size > 0) {
-  watcher = new MutationObserver(registerDrawnCharts)
-  watcher.observe(document.documentElement, {
+if (pendingCharts.size > 0) {
+  observer = new MutationObserver(registerPageCharts)
+  observer.observe(document.documentElement, {
     attributeFilter: ["data-controller"],
     subtree: true,
     childList: true

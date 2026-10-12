@@ -2,7 +2,7 @@ class Authz
   class Override < ApplicationRecord
     self.table_name = "app.role_override"
 
-    def self.moved?(key)
+    def self.changed?(key)
       where(capability: key.to_s).exists?
     end
 

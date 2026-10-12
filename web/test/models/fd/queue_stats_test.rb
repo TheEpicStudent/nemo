@@ -38,11 +38,11 @@ class Fd::QueueStatsTest < ActiveSupport::TestCase
   end
 
   test "a case with somebody on it never counts as the oldest unassigned" do
-    lonely = make_case(opened_at: 90.days.ago)
-    assert_equal lonely.opened_at.to_i, stats.oldest_unassigned.to_i
+    unassigned_case = make_case(opened_at: 90.days.ago)
+    assert_equal unassigned_case.opened_at.to_i, stats.oldest_unassigned.to_i
 
-    lonely.assign!("UME")
-    assert_not_equal lonely.opened_at.to_i, stats.oldest_unassigned&.to_i
+    unassigned_case.assign!("UME")
+    assert_not_equal unassigned_case.opened_at.to_i, stats.oldest_unassigned&.to_i
   end
 
   test "opened this month counts how many of those are already closed" do
@@ -85,9 +85,9 @@ class Fd::QueueStatsTest < ActiveSupport::TestCase
   def interpolate(sorted)
     return nil if sorted.empty?
 
-    spot = 0.5 * (sorted.size - 1)
-    low = sorted[spot.floor]
-    high = sorted[spot.ceil]
-    low + ((high - low) * (spot - spot.floor))
+    position = 0.5 * (sorted.size - 1)
+    low = sorted[position.floor]
+    high = sorted[position.ceil]
+    low + ((high - low) * (position - position.floor))
   end
 end

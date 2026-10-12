@@ -2,71 +2,71 @@ module Fd
   class BlockedDomainsController < BaseController
     permit "app.configure"
 
-    LONGEST = 253
+    MAX_DOMAIN_LENGTH = 253
 
     def create
-      return refuse!("member.deactivate") if effect == BlockedDomain::DEACTIVATE &&
+      return deny!("member.deactivate") if effect == BlockedDomain::DEACTIVATE &&
         !current_account&.may?("member.deactivate")
 
-      problem = objection
-      return refuse(problem) if problem
+      error = validation_error
+      return redirect_with_alert(error) if error
 
       writing do
-        one = BlockedDomain.add!(domain: domain_param, by: current_account.user_id,
+        blocked_domain = BlockedDomain.add!(domain: domain_param, by: current_account.user_id,
           match_mode: match_mode, effect: effect, note: params[:note])
-        audit(one, "added", after: { "domain" => one.domain, "match_mode" => one.match_mode,
-          "effect" => one.effect })
+        audit(blocked_domain, "added", after: { "domain" => blocked_domain.domain,
+          "match_mode" => blocked_domain.match_mode, "effect" => blocked_domain.effect })
       end
 
-      redirect_to here, notice: "#{domain_param} is on the list, set to #{effect}"
+      redirect_to return_path, notice: "#{domain_param} is on the list, set to #{effect}"
     rescue ActiveRecord::RecordNotUnique
-      refuse("Already on the list")
+      redirect_with_alert("Already on the list")
     end
 
     def destroy
-      one = BlockedDomain.active.find_by(id: params[:id])
-      return refuse("Not on the list") if one.nil?
+      blocked_domain = BlockedDomain.active.find_by(id: params[:id])
+      return redirect_with_alert("Not on the list") if blocked_domain.nil?
 
       writing do
-        one.retire!(by: current_account.user_id)
-        audit(one, "removed", before: { "active" => true }, after: { "active" => false })
+        blocked_domain.retire!(by: current_account.user_id)
+        audit(blocked_domain, "removed", before: { "active" => true }, after: { "active" => false })
       end
 
-      redirect_to here, notice: "#{one.domain} removed from the list"
+      redirect_to return_path, notice: "#{blocked_domain.domain} removed from the list"
     end
 
     private
 
-    def here(**over) = fd_configuration_path(tab: "domains", **over)
+    def return_path(**extra_params) = fd_configuration_path(tab: "domains", **extra_params)
 
     def domain_param = params[:domain].to_s.strip.downcase.delete_prefix("@")
 
     def match_mode
-      asked = params[:match_mode].to_s
-      BlockedDomain::MATCHES.include?(asked) ? asked : BlockedDomain::EXACT
+      requested = params[:match_mode].to_s
+      BlockedDomain::MATCHES.include?(requested) ? requested : BlockedDomain::EXACT
     end
 
     def effect
-      asked = params[:effect].to_s
-      BlockedDomain::EFFECTS.include?(asked) ? asked : BlockedDomain::FLAG
+      requested = params[:effect].to_s
+      BlockedDomain::EFFECTS.include?(requested) ? requested : BlockedDomain::FLAG
     end
 
     def overridden? = params[:anyway].present?
 
-    def objection
+    def validation_error
       return "no domain given" if domain_param.blank?
-      return "a domain is under #{LONGEST} characters" if domain_param.length > LONGEST
+      return "a domain is under #{MAX_DOMAIN_LENGTH} characters" if domain_param.length > MAX_DOMAIN_LENGTH
       return "#{domain_param} is not a domain" unless BlockedDomain.valid_domain?(domain_param)
       return nil if overridden?
 
-      crowd = BlockedDomain.people_on(domain_param, match_mode: match_mode)
-      return nil unless BlockedDomain.too_many?(crowd)
+      account_count = BlockedDomain.people_on(domain_param, match_mode: match_mode)
+      return nil unless BlockedDomain.too_many?(account_count)
 
-      wrong!(:domain, "#{domain_param} is on #{helpers.pluralize(crowd, 'account')} already", domain_param)
+      wrong!(:domain, "#{domain_param} is on #{helpers.pluralize(account_count, 'account')} already", domain_param)
     end
 
-    def refuse(why)
-      redirect_to here(do: "domain"), alert: (why unless flash[:field_error])
+    def redirect_with_alert(message)
+      redirect_to return_path(do: "domain"), alert: (message unless flash[:field_error])
     end
   end
 end

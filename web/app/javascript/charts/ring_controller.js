@@ -2,16 +2,16 @@ import { Controller } from "@hotwired/stimulus"
 
 const STROKE = 10
 const GAP = 5
-const INK = [1, 2, 3, 4, 5, 0]
+const SERIES_COLORS = [1, 2, 3, 4, 5, 0]
 
 const esc = (s) =>
   String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;")
 
 const F = (n) => Number(n || 0).toLocaleString("en-US")
 
-const pct = (part, whole) => {
-  if (!(whole > 0)) return "n/a"
-  const v = (part / whole) * 100
+const pct = (part, total) => {
+  if (!(total > 0)) return "n/a"
+  const v = (part / total) * 100
   return v >= 10 || v === 0 ? `${Math.round(v)}%` : `${v.toFixed(1)}%`
 }
 
@@ -37,7 +37,7 @@ export default class extends Controller {
     return (this.itemsValue || [])
       .map((item) => ({ ...item, value: Number(item.value) || 0 }))
       .sort((a, b) => b.value - a.value)
-      .map((item, i) => ({ ...item, ink: item.ink ?? INK[i % INK.length] }))
+      .map((item, i) => ({ ...item, seriesColor: item.seriesColor ?? SERIES_COLORS[i % SERIES_COLORS.length] }))
   }
 
   get total() {
@@ -52,29 +52,29 @@ export default class extends Controller {
     const size = this.hasSizeValue && this.sizeValue > 0 ? this.sizeValue : 200
     const c = size / 2
     const total = this.total
-    const rings = items.map((item, i) => {
+    const bandMarkup = items.map((item, i) => {
       const r = c - STROKE / 2 - i * (STROKE + GAP)
       if (r < STROKE * 2) return ""
       return `<g class="ring-band" data-i="${i}" style="--i:${i}">` +
         `<circle class="ring-track" cx="${c}" cy="${c}" r="${r}" stroke-width="${STROKE}"/>` +
         (item.value > 0
-          ? `<path class="ring-arc ser-${item.ink}" d="${arc(c, c, r, item.value / total)}"
+          ? `<path class="ring-arc ser-${item.seriesColor}" d="${arc(c, c, r, item.value / total)}"
               stroke-width="${STROKE}" pathLength="1"/>`
           : "") + "</g>"
     }).join("")
 
     const legend = items.map((item, i) =>
-      `<li class="ring-row" data-i="${i}" data-action="mouseenter->ring#lit mouseleave->ring#unlit">
-        <span class="ring-name"><i class="ser-${item.ink}"></i>${esc(item.label)}</span>
+      `<li class="ring-row" data-i="${i}" data-action="mouseenter->ring#highlight mouseleave->ring#clearHighlight">
+        <span class="ring-name"><i class="ser-${item.seriesColor}"></i>${esc(item.label)}</span>
         <span class="ring-num">${F(item.value)}<span>${pct(item.value, total)}</span></span>
-        <span class="ring-bar"><b class="ser-${item.ink}" style="width:${
+        <span class="ring-bar"><b class="ser-${item.seriesColor}" style="width:${
           Math.min(100, (item.value / total) * 100).toFixed(1)}%"></b></span>
       </li>`).join("")
 
     this.element.innerHTML = `<div class="ring-art">
         <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img"
           aria-label="${esc(`${this.labelValue || "total"} ${F(total)}: ${items.map((item) =>
-            `${item.label} ${F(item.value)}`).join(", ")}`)}">${rings}</svg>
+            `${item.label} ${F(item.value)}`).join(", ")}`)}">${bandMarkup}</svg>
         <div class="ring-mid"><b>${F(total)}</b><span>${esc(this.labelValue || "")}</span></div>
       </div>
       <ul class="ring-legend">${legend}</ul>`
@@ -82,14 +82,14 @@ export default class extends Controller {
     setTimeout(() => this.element.classList.remove("is-entering"), 1600)
   }
 
-  lit(event) {
+  highlight(event) {
     const i = event.currentTarget.dataset.i
     this.element.classList.add("lit")
     this.element.querySelectorAll("[data-i]").forEach((el) =>
       el.classList.toggle("on", el.dataset.i === i))
   }
 
-  unlit() {
+  clearHighlight() {
     this.element.classList.remove("lit")
     this.element.querySelectorAll(".on").forEach((el) => el.classList.remove("on"))
   }

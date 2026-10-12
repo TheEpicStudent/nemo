@@ -229,14 +229,14 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
 
     get fd_case_merge_path(@dup_one)
-    first = css_select("#merge-around .merge-pick input.tick").map { |tick| tick["value"] }
+    first_page = css_select("#merge-around .merge-pick input.tick").map { |tick| tick["value"] }
 
     get fd_case_merge_path(@dup_one, page: 2)
 
     assert_response :success
-    next_lot = css_select(".merge-pick input.tick").map { |tick| tick["value"] }
-    assert_equal Fd::MergesController::PER_PAGE, next_lot.size
-    assert_empty first & next_lot, "a case must not be offered twice"
+    second_page = css_select(".merge-pick input.tick").map { |tick| tick["value"] }
+    assert_equal Fd::MergesController::PER_PAGE, second_page.size
+    assert_empty first_page & second_page, "a case must not be offered twice"
     assert_select "template[data-expand-next]", count: 1
   end
 
@@ -268,12 +268,12 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     end
     sign_in_as(@me)
 
-    asked = []
-    listen = ->(*, payload) { asked << payload[:sql] if payload[:sql].to_s.include?("FROM \"fd\".\"case_reports\"") }
-    ActiveSupport::Notifications.subscribed(listen, "sql.active_record") { get fd_case_merge_path(@dup_one) }
+    queries = []
+    subscriber = ->(*, payload) { queries << payload[:sql] if payload[:sql].to_s.include?("FROM \"fd\".\"case_reports\"") }
+    ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") { get fd_case_merge_path(@dup_one) }
 
     assert_response :success
-    assert_operator asked.size, :<=, 2, "the reports must be preloaded, not read per candidate"
+    assert_operator queries.size, :<=, 2, "the reports must be preloaded, not read per candidate"
   end
 
   def in_order

@@ -31,7 +31,7 @@ class Channels::WindowTest < ActiveSupport::TestCase
     assert_equal 30, w.days
     assert w.pulled?
     assert_nil w.join
-    assert_nil w.asked
+    assert_nil w.requested_days
     assert_equal "r.messages_posted_by_members", w.measure_sql
     assert_empty w.measures
   end
@@ -47,7 +47,7 @@ class Channels::WindowTest < ActiveSupport::TestCase
     assert_equal 7, w.days
     assert_equal Date.new(2026, 8, 30), w.start_date
     assert_equal EDGE, w.end_date
-    assert_equal 7, w.asked
+    assert_equal 7, w.requested_days
     assert_equal "a.range_messages", w.measure_sql
     assert_equal({ "messages" => "a.range_messages" }, w.measures)
   end
@@ -108,17 +108,17 @@ class Channels::WindowTest < ActiveSupport::TestCase
   test "a custom range is carried in the query rather than a preset" do
     w = build(nil, start_on: Date.new(2026, 8, 20), end_on: Date.new(2026, 8, 29))
 
-    assert_nil w.asked
-    assert_equal Date.new(2026, 8, 20), w.asked_start
-    assert_equal Date.new(2026, 8, 29), w.asked_end
+    assert_nil w.requested_days
+    assert_equal Date.new(2026, 8, 20), w.requested_start
+    assert_equal Date.new(2026, 8, 29), w.requested_end
   end
 
   test "a preset carries no custom dates" do
     w = build("7")
 
     assert_not w.custom?
-    assert_nil w.asked_start
-    assert_nil w.asked_end
+    assert_nil w.requested_start
+    assert_nil w.requested_end
   end
 
   test "a custom range past the measured edge is pulled back to it" do

@@ -170,31 +170,31 @@ module Fd
     }.freeze
 
     NAMES = "m.display_name, m.handle".freeze
-    SHOWN = "m.display_name, m.handle, m.title".freeze
+    DISPLAY_COLUMNS = "m.display_name, m.handle, m.title".freeze
 
     private
 
     def aggregates
-      asked? ? listed("ARRAY[:hits]::text[]") : whole
+      searching? ? listed("ARRAY[:hits]::text[]") : full_aggregates
     end
 
-    def whole
-      AGGREGATES.sub(NAMES, context_asked? ? SHOWN + CONTEXT_COLUMNS : SHOWN)
-        .sub("CONTEXT_JOIN", context_asked? ? CONTEXT_JOIN : "")
+    def full_aggregates
+      AGGREGATES.sub(NAMES, include_context? ? DISPLAY_COLUMNS + CONTEXT_COLUMNS : DISPLAY_COLUMNS)
+        .sub("CONTEXT_JOIN", include_context? ? CONTEXT_JOIN : "")
         .sub("PEOPLE_FROM", conduct_only? ? TOUCHED : EVERYONE)
     end
 
     def listed(ids)
-      LISTED_AGGREGATES.sub(NAMES, SHOWN + CONTEXT_COLUMNS).sub("LISTED_IDS") { ids }
+      LISTED_AGGREGATES.sub(NAMES, DISPLAY_COLUMNS + CONTEXT_COLUMNS).sub("LISTED_IDS") { ids }
     end
 
     def paged_ids
-      "ARRAY(WITH #{whole} SELECT user_id FROM roster WHERE #{roster_where} " \
+      "ARRAY(WITH #{full_aggregates} SELECT user_id FROM roster WHERE #{roster_where} " \
         "ORDER BY #{sort_order} LIMIT :limit OFFSET :offset)"
     end
 
-    def context_asked?
-      asked? || !default?("tenure") || !default?("active") || self["sort"] == "messages"
+    def include_context?
+      searching? || !default?("tenure") || !default?("active") || self["sort"] == "messages"
     end
 
     def conduct_only?
@@ -239,32 +239,32 @@ module Fd
     end
 
     def roster_order
-      return sort_order unless asked?
+      return sort_order unless searching?
 
       "place, #{sort_order}"
     end
 
     def sort_order
-      way = descending? ? "DESC" : "ASC"
-      tie = descending? ? "ASC" : "DESC"
+      direction = descending? ? "DESC" : "ASC"
+      tiebreak_direction = descending? ? "ASC" : "DESC"
 
       case self["sort"]
       when "name"
         "lower(coalesce(nullif(display_name, ''), nullif(handle, ''), user_id)) " \
-          "#{descending? ? 'ASC' : 'DESC'}, user_id #{tie}"
+          "#{descending? ? 'ASC' : 'DESC'}, user_id #{tiebreak_direction}"
       when *SORTS.keys
-        "#{SORTS.fetch(self['sort'])} #{way} NULLS LAST, user_id #{tie}"
+        "#{SORTS.fetch(self['sort'])} #{direction} NULLS LAST, user_id #{tiebreak_direction}"
       else
-        "last_case_at #{way} NULLS LAST, user_id #{tie}"
+        "last_case_at #{direction} NULLS LAST, user_id #{tiebreak_direction}"
       end
     end
 
     def roster_binds
-      held = { category: self["category"], prior_since: Case::PRIOR_WINDOW.ago }
-      asked? ? held.merge(hits: hits) : held
+      binds = { category: self["category"], prior_since: Case::PRIOR_WINDOW.ago }
+      searching? ? binds.merge(hits: hits) : binds
     end
 
-    def ask(sql, extra = {})
+    def select_rows(sql, extra = {})
       Case.connection.select_all(Case.sanitize_sql([sql, roster_binds.merge(extra)]))
     end
   end

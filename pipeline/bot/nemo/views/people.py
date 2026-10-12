@@ -67,13 +67,13 @@ def build_view(case_id, participants=(), assignees=(), can_people=True, can_assi
     return view
 
 
-def chosen(values, block_id):
+def selected_users(values, block_id):
     return values.get(block_id, {}).get(block_id, {}).get("selected_users") or []
 
 
 def submitted_values(state):
     values = state.get("values", {})
-    return {"subjects": chosen(values, WHO), "assignees": chosen(values, ASSIGN)}
+    return {"subjects": selected_users(values, WHO), "assignees": selected_users(values, ASSIGN)}
 
 
 def removed(value):
@@ -81,8 +81,8 @@ def removed(value):
     return user_id, role, int(case_id) if case_id.isdigit() else None
 
 
-def validation_errors(values, shown):
+def validation_errors(values, block_ids):
     if values.get("subjects") or values.get("assignees"):
         return None
-    first = WHO if WHO in shown else ASSIGN
+    first = WHO if WHO in block_ids else ASSIGN
     return {first: "Pick somebody first."}

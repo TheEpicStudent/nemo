@@ -4,7 +4,7 @@
       <label class="field-label">
         Word
         <%= text_field_tag :word, nil, class: "input", id: nil, autocomplete: "off",
-              maxlength: Fd::AutomodWordsController::LONGEST %>
+              maxlength: Fd::AutomodWordsController::MAX_WORD_LENGTH %>
       </label>
       <label class="field-label">
         Match
@@ -23,7 +23,7 @@
       </label>
     </div>
     <div class="modal-foot">
-      <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Cancel</button>
+      <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
       <%= submit_tag "Add", class: "btn btn-primary" %>
     </div>
   <% end %>

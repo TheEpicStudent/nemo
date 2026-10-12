@@ -4,62 +4,62 @@ module Api
       BEARER = /\ABearer (.+)\z/i
 
       WINDOW = 60
-      KEPT_FOR = 2.minutes
+      BUCKET_TTL = 2.minutes
 
-      before_action :require_a_token
+      before_action :require_token
       before_action :approved_for_scope
       before_action :within_budget
 
       private
 
       def approved_for_scope
-        return if ::Api::Approval.held?(current_token.app_id)
+        return if ::Api::Approval.active?(current_token.app_id)
 
-        refuse(:forbidden, "not_approved")
+        render_error(:forbidden, "not_approved")
       end
 
       attr_reader :current_token
 
       def within_budget
         limit = current_token.rate
-        used = Rails.cache.increment(bucket, 1, expires_in: KEPT_FOR).to_i
+        used = Rails.cache.increment(bucket, 1, expires_in: BUCKET_TTL).to_i
         budget!(limit, used)
         return if used <= limit
 
-        response.headers["Retry-After"] = left.to_s
-        refuse(:too_many_requests, "rate_limited", retry_after: left)
+        response.headers["Retry-After"] = seconds_until_reset.to_s
+        render_error(:too_many_requests, "rate_limited", retry_after: seconds_until_reset)
       end
 
       def bucket
         "api/rate/#{current_token.id}/#{Time.current.to_i / WINDOW}"
       end
 
-      def left
+      def seconds_until_reset
         WINDOW - (Time.current.to_i % WINDOW)
       end
 
       def budget!(limit, used)
         response.headers["RateLimit-Limit"] = limit.to_s
         response.headers["RateLimit-Remaining"] = [limit - used, 0].max.to_s
-        response.headers["RateLimit-Reset"] = left.to_s
+        response.headers["RateLimit-Reset"] = seconds_until_reset.to_s
       end
 
-      def require_a_token
-        return refuse(:service_unavailable, "api_off") if Fd::Flag.off?(:public_api)
+      def require_token
+        return render_error(:service_unavailable, "api_off") if Fd::Flag.off?(:public_api)
 
-        key = presented
-        return refuse(:unauthorized, "invalid_token") if key.blank?
+        key = bearer_token
+        return render_error(:unauthorized, "invalid_token") if key.blank?
 
         token = ::Api::Token.find_by(digest: ::Api::Token.digest_of(key))
-        return refuse(:unauthorized, "invalid_token") if token.nil?
-        return refuse(:unauthorized, "revoked_token") if token.revoked?
-        return refuse(:unauthorized, "expired_token") if token.expired?
+        return render_error(:unauthorized, "invalid_token") if token.nil?
+        return render_error(:unauthorized, "revoked_token") if token.revoked?
+        return render_error(:unauthorized, "expired_token") if token.expired?
 
         @current_token = token
         token.used!
       end
 
-      def presented
+      def bearer_token
         request.authorization.to_s[BEARER, 1]
       end
 
@@ -85,7 +85,7 @@ module Api
         [503, "api_off", "The public_api flag is off. Applies to every route."]
       ].freeze
 
-      def refuse(status, error, **extra)
+      def render_error(status, error, **extra)
         render json: { error: error, message: CALLER_ERROR_MESSAGES[error] }.compact.merge(extra), status: status
       end
     end

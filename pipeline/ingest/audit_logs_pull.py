@@ -30,7 +30,7 @@ LOGIN_ACTIONS = (
 )
 
 LOGIN_SET = frozenset(LOGIN_ACTIONS)
-SEATED = frozenset({"user_login", "user_login_failed", "anomaly"})
+LOGIN_ATTEMPT_ACTIONS = frozenset({"user_login", "user_login_failed", "anomaly"})
 SESSION_START = "user_login"
 NOT_OWN_SESSION = frozenset({"INVITED", "KICKED"})
 
@@ -46,8 +46,8 @@ ACTION_SETS = {
 }
 DEFAULT_BACKFILL_SETS = ("login_and_channel",)
 JOINED = "joined"
-LEFT = "left"
-ROOMED = {"user_channel_join": JOINED, "user_channel_leave": LEFT}
+DEPARTED = "left"
+MEMBERSHIP_VERBS = {"user_channel_join": JOINED, "user_channel_leave": DEPARTED}
 
 DEFAULT_HORIZON_DAYS = 90
 LAP_SECONDS = 1
@@ -135,16 +135,16 @@ MOST_ACTIONS = 30
 REFUSED = 400
 
 _refused = set()
-_refusals = threading.Lock()
+_refused_lock = threading.Lock()
 
 
 def refused_actions():
-    with _refusals:
+    with _refused_lock:
         return frozenset(_refused)
 
 
-def forget_refusals():
-    with _refusals:
+def clear_refusals():
+    with _refused_lock:
         _refused.clear()
 
 
@@ -156,12 +156,12 @@ def usable(actions):
     if not actions:
         return actions
 
-    held = refused_actions()
-    return tuple(one for one in actions if one not in held)
+    refused = refused_actions()
+    return tuple(one for one in actions if one not in refused)
 
 
 def find_refusals(client, actions):
-    found = []
+    denied = []
     for one in actions:
         try:
             client.call(METHOD, {"limit": 1, "action": one},
@@ -169,17 +169,17 @@ def find_refusals(client, actions):
         except ProxyError as failure:
             if not is_permission_denied(failure):
                 raise
-            found.append(one)
+            denied.append(one)
 
-    if found:
-        with _refusals:
-            _refused.update(found)
-        log_refusals(found)
-    return found
+    if denied:
+        with _refused_lock:
+            _refused.update(denied)
+        log_refusals(denied)
+    return denied
 
 
-def log_refusals(found):
-    print(f"{TAIL}: slack will not take {', '.join(sorted(found))}, leaving them out")
+def log_refusals(denied):
+    print(f"{TAIL}: slack will not take {', '.join(sorted(denied))}, leaving them out")
 
 
 def tail_actions():
@@ -203,12 +203,12 @@ def stamp(seconds):
         return None
 
 
-def whose(entry, key):
-    held = entry.get(key) or {}
-    kind = held.get("type")
+def kind_and_id(entry, key):
+    party = entry.get(key) or {}
+    kind = party.get("type")
     if not kind:
         return None, None
-    body = held.get(kind) or {}
+    body = party.get(kind) or {}
     return kind, body.get("id")
 
 
@@ -218,11 +218,11 @@ def landable(entry):
 
 
 def address(value):
-    held = str(value or "").strip()
-    if not held:
+    text = str(value or "").strip()
+    if not text:
         return None
     try:
-        return str(ipaddress.ip_address(held))
+        return str(ipaddress.ip_address(text))
     except ValueError:
         return None
 
@@ -249,10 +249,10 @@ def event_uuid(value):
 
 
 def email_of(entry, key):
-    held = entry.get(key) or {}
-    if held.get("type") != "user":
+    party = entry.get(key) or {}
+    if party.get("type") != "user":
         return None
-    email = str((held.get("user") or {}).get("email") or "").strip().lower()
+    email = str((party.get("user") or {}).get("email") or "").strip().lower()
     return email or None
 
 
@@ -261,28 +261,28 @@ def channel_of(entry):
     kind = entity.get("type")
     body = entity.get(kind) or {} if kind else {}
     if kind == "channel":
-        found = body.get("id")
+        channel_id = body.get("id")
     else:
-        found = body.get("channel") or body.get("channel_id")
-    return found if isinstance(found, str) and found else None
+        channel_id = body.get("channel") or body.get("channel_id")
+    return channel_id if isinstance(channel_id, str) and channel_id else None
 
 
 def agent_of(entry):
     return str((entry.get("context") or {}).get("ua") or "").strip() or None
 
 
-def monthly_row(entry, source_key, ours, agents, held):
+def monthly_row(entry, source_key, ours, agents, catalogue):
     event_id = event_uuid(entry.get("id"))
     at = stamp(entry.get("date_create"))
     if event_id is None or at is None or not entry.get("action"):
         return None
     context = entry.get("context") or {}
     app_id = ((context.get("app") or {}).get("id")) or None
-    actor_kind, actor_id = whose(entry, "actor")
-    entity_kind, entity_id = whose(entry, "entity")
+    actor_kind, actor_id = kind_and_id(entry, "actor")
+    entity_kind, entity_id = kind_and_id(entry, "entity")
     agent = agent_of(entry)
     return (
-        event_id, at, entry["action"], audit_actions.entry(entry["action"], held)["category"],
+        event_id, at, entry["action"], audit_actions.entry(entry["action"], catalogue)["category"],
         actor_kind, actor_id, email_of(entry, "actor"), entity_kind, entity_id,
         email_of(entry, "entity"), channel_of(entry), app_id, bool(app_id and app_id in ours),
         address(context.get("ip_address")), user_agents.id_of(agents, agent),
@@ -296,8 +296,8 @@ def view_row(entry, code, agents, ours):
     if event_id is None or at is None:
         return None
     context = entry.get("context") or {}
-    _actor_kind, actor_id = whose(entry, "actor")
-    _entity_kind, entity_id = whose(entry, "entity")
+    _actor_kind, actor_id = kind_and_id(entry, "actor")
+    _entity_kind, entity_id = kind_and_id(entry, "entity")
     app_id = ((context.get("app") or {}).get("id")) or None
     agent = agent_of(entry)
     return (
@@ -307,7 +307,7 @@ def view_row(entry, code, agents, ours):
     )
 
 
-def landed_ids(cur, sql, rows):
+def inserted_ids(cur, sql, rows):
     if not rows:
         return set()
     cur.executemany(sql, rows, returning=True)
@@ -319,7 +319,7 @@ def write_new_shape(conn, entries, source_key, ours):
     if not times:
         return set(), {}
     conn.execute(ENSURE_MONTHS_SQL, {"first": min(times).date().replace(day=1), "ahead": MONTHS_AHEAD})
-    held = audit_actions.catalogue()
+    catalogue = audit_actions.catalogue()
     codes = dict(conn.execute(VIEW_CODES_SQL).fetchall())
     agents = user_agents.ids(conn, [agent_of(entry) for entry in entries])
     monthly, view = [], []
@@ -330,23 +330,23 @@ def write_new_shape(conn, entries, source_key, ours):
             if row:
                 view.append(row)
         else:
-            row = monthly_row(entry, source_key, ours, agents, held)
+            row = monthly_row(entry, source_key, ours, agents, catalogue)
             if row:
                 monthly.append(row)
     with conn.cursor() as cur:
-        fresh = landed_ids(cur, MONTHLY_SQL, monthly) | landed_ids(cur, VIEW_SQL, view)
-    return fresh, agents
+        new_ids = inserted_ids(cur, MONTHLY_SQL, monthly) | inserted_ids(cur, VIEW_SQL, view)
+    return new_ids, agents
 
 
 def login_row(entry):
-    kind, user_id = whose(entry, "actor")
+    kind, user_id = kind_and_id(entry, "actor")
     at = stamp(entry.get("date_create"))
     if not user_id or at is None:
         return None
 
     context = entry.get("context") or {}
     ip = address(context.get("ip_address"))
-    if entry.get("action") not in SEATED:
+    if entry.get("action") not in LOGIN_ATTEMPT_ACTIONS:
         if kind != "user" or ip is None or not own_session(entry):
             return None
     return (
@@ -356,13 +356,13 @@ def login_row(entry):
 
 
 def identity_row(entry):
-    who = (entry.get("actor") or {}).get("user") or {}
+    actor_user = (entry.get("actor") or {}).get("user") or {}
     if (entry.get("actor") or {}).get("type") != "user":
         return None
 
-    user_id = who.get("id")
-    email = (who.get("email") or "").strip() or None
-    name = (who.get("name") or "").strip() or None
+    user_id = actor_user.get("id")
+    email = (actor_user.get("email") or "").strip() or None
+    name = (actor_user.get("name") or "").strip() or None
     if not user_id or email is None:
         return None
 
@@ -370,18 +370,18 @@ def identity_row(entry):
 
 
 def channel_row(entry):
-    verb = ROOMED.get(entry.get("action"))
+    verb = MEMBERSHIP_VERBS.get(entry.get("action"))
     if verb is None:
         return None
 
-    _kind, user_id = whose(entry, "actor")
-    room = (entry.get("entity") or {}).get("channel") or {}
+    _kind, user_id = kind_and_id(entry, "actor")
+    channel = (entry.get("entity") or {}).get("channel") or {}
     at = stamp(entry.get("date_create"))
-    if not entry.get("id") or not user_id or not room.get("id") or at is None:
+    if not entry.get("id") or not user_id or not channel.get("id") or at is None:
         return None
 
     return (
-        entry["id"], at, user_id, room["id"], room.get("name"), room.get("privacy"),
+        entry["id"], at, user_id, channel["id"], channel.get("name"), channel.get("privacy"),
         verb, bool((entry.get("details") or {}).get("is_workflow")),
     )
 
@@ -422,40 +422,40 @@ def hourly(logins, agents):
     latest = {}
     for row in logins:
         latest[(row[0], row[1])] = row
-    held = {}
+    buckets = {}
     for user_id, at, action, ip, ua, _session, _event in latest.values():
         key = (user_id, hour_of(at), ip, user_agents.id_of(agents, ua))
-        first, last, hits, signed_in, failed, flagged = held.get(key, (at, at, 0, 0, 0, 0))
-        held[key] = (min(first, at), max(last, at), hits + 1, signed_in + (action == SESSION_START),
+        first, last, hits, signed_in, failed, flagged = buckets.get(key, (at, at, 0, 0, 0, 0))
+        buckets[key] = (min(first, at), max(last, at), hits + 1, signed_in + (action == SESSION_START),
                      failed + (action == "user_login_failed"), flagged + (action == "anomaly"))
     return [(*key, first, last, hits, signed_in, failed, flagged, hits)
             for key, (first, last, hits, signed_in, failed, flagged)
-            in sorted(held.items(), key=lambda one: (one[0][0], one[0][1], str(one[0][2]), one[0][3] or 0))]
+            in sorted(buckets.items(), key=lambda one: (one[0][0], one[0][1], str(one[0][2]), one[0][3] or 0))]
 
 
 def insert_rows(conn, entries, source_key, ours, counts):
-    logins, rooms, landed = [], [], []
-    named = {}
+    logins, memberships, accepted = [], [], []
+    identities = {}
     for entry in entries:
         if not landable(entry):
             counts.rows_rejected += 1
             dead_letter(conn, source_key, {"keys": sorted(entry)}, "no uuid id, action or date")
             continue
-        landed.append(entry)
-        seated = login_row(entry)
-        if seated:
-            logins.append(seated)
-        roomed = channel_row(entry)
-        if roomed:
-            rooms.append(roomed)
-        knew = identity_row(entry)
-        if knew:
-            named[knew[0]] = knew
+        accepted.append(entry)
+        login = login_row(entry)
+        if login:
+            logins.append(login)
+        membership = channel_row(entry)
+        if membership:
+            memberships.append(membership)
+        identity = identity_row(entry)
+        if identity:
+            identities[identity[0]] = identity
 
     logins = own_sessions(conn, logins)
-    if landed:
-        fresh, agents = write_new_shape(conn, landed, source_key, ours)
-        counted = hourly([row for row in logins if row[6] in fresh], agents)
+    if accepted:
+        new_ids, agents = write_new_shape(conn, accepted, source_key, ours)
+        counted = hourly([row for row in logins if row[6] in new_ids], agents)
         sessions = session_rows(logins)
         with conn.cursor() as cur:
             if counted:
@@ -464,40 +464,40 @@ def insert_rows(conn, entries, source_key, ours, counts):
                 cur.executemany(SESSION_SQL, sessions)
             if logins:
                 member_seen.logged_in(cur, [(row[0], row[1]) for row in logins if row[2] == SESSION_START])
-            if rooms:
-                cur.executemany(CHANNEL_SQL, rooms)
-            if named:
-                cur.executemany(IDENTITY_SQL, list(named.values()))
+            if memberships:
+                cur.executemany(CHANNEL_SQL, memberships)
+            if identities:
+                cur.executemany(IDENTITY_SQL, list(identities.values()))
     conn.commit()
-    counts.rows_in += len(landed)
-    return len(landed), len(logins)
+    counts.rows_in += len(accepted)
+    return len(accepted), len(logins)
 
 
 def walk(client, conn, source_key, counts, oldest=None, latest=None, actions=None,
          start_cursor=None, on_cursor=None):
-    asked = {}
+    params = {}
     if oldest is not None:
-        asked["oldest"] = int(oldest.timestamp())
+        params["oldest"] = int(oldest.timestamp())
     if latest is not None:
-        asked["latest"] = int(latest.timestamp())
-    held = usable(actions)
-    if actions and not held:
+        params["latest"] = int(latest.timestamp())
+    allowed = usable(actions)
+    if actions and not allowed:
         return 0, 0
-    if held:
-        asked["action"] = ",".join(held[:MOST_ACTIONS])
+    if allowed:
+        params["action"] = ",".join(allowed[:MOST_ACTIONS])
 
     ours = nemo_ids()
-    held = []
-    landed = seated = 0
+    pending = []
+    event_count = login_count = 0
 
     def flush():
-        nonlocal landed, seated
-        if not held:
+        nonlocal event_count, login_count
+        if not pending:
             return
-        grew, lit = insert_rows(conn, held, source_key, ours, counts)
-        landed += grew
-        seated += lit
-        held.clear()
+        events_added, logins_added = insert_rows(conn, pending, source_key, ours, counts)
+        event_count += events_added
+        login_count += logins_added
+        pending.clear()
 
     def page_done(cursor, _page):
         flush()
@@ -506,28 +506,28 @@ def walk(client, conn, source_key, counts, oldest=None, latest=None, actions=Non
 
     def pages():
         return client.paginate(
-            METHOD, asked, "entries", page_size=PAGE, cursor_param="cursor",
+            METHOD, params, "entries", page_size=PAGE, cursor_param="cursor",
             credential=CREDENTIAL, page_param="limit",
             cursor_field="response_metadata.next_cursor",
             start_cursor=start_cursor, on_page=page_done, allow_empty_pages=True,
         )
 
     try:
-        held.extend(pages())
+        pending.extend(pages())
     except ProxyError as failure:
-        if not is_permission_denied(failure) or not held_actions(asked):
+        if not is_permission_denied(failure) or not requested_actions(params):
             raise
-        if not find_refusals(client, held_actions(asked)):
+        if not find_refusals(client, requested_actions(params)):
             raise
         return walk(client, conn, source_key, counts, oldest=oldest, latest=latest,
                     actions=actions, start_cursor=start_cursor, on_cursor=on_cursor)
 
     flush()
-    return landed, seated
+    return event_count, login_count
 
 
-def held_actions(asked):
-    raw = asked.get("action")
+def requested_actions(params):
+    raw = params.get("action")
     return tuple(raw.split(",")) if raw else ()
 
 
@@ -539,14 +539,14 @@ def watermark(conn):
 WINDOW_MARK = "|"
 
 
-def keep_place(conn, source_key, oldest, cursor):
+def save_window_cursor(conn, source_key, oldest, cursor):
     if not cursor:
         save_cursor(conn, source_key, "")
         return
     save_cursor(conn, source_key, f"{int(oldest.timestamp())}{WINDOW_MARK}{cursor}")
 
 
-def held_place(conn, source_key):
+def load_window_cursor(conn, source_key):
     mark_and_cursor = get_cursor(conn, source_key) or ""
     mark, _, cursor = mark_and_cursor.partition(WINDOW_MARK)
     if not cursor or not mark.isdigit():
@@ -561,9 +561,9 @@ def drop_cursor(conn, source_key):
 
 def tail(conn, client=None):
     client = client or ProxyClient.for_source(TAIL)
-    held, window = held_place(conn, TAIL)
+    saved_cursor, window = load_window_cursor(conn, TAIL)
 
-    if held:
+    if saved_cursor:
         oldest = window
     else:
         since = watermark(conn) or datetime.now(UTC) - timedelta(hours=FIRST_TAIL_HOURS)
@@ -571,21 +571,21 @@ def tail(conn, client=None):
 
     try:
         with ingest_run(conn, TAIL) as counts:
-            landed, seated = walk(
+            event_count, login_count = walk(
                 client, conn, TAIL, counts, oldest=oldest, actions=tail_actions(),
-                start_cursor=held,
-                on_cursor=lambda cursor: keep_place(conn, TAIL, oldest, cursor),
+                start_cursor=saved_cursor,
+                on_cursor=lambda cursor: save_window_cursor(conn, TAIL, oldest, cursor),
             )
             save_cursor(conn, TAIL, "")
     except ProxyError as failure:
-        if held and is_permission_denied(failure):
+        if saved_cursor and is_permission_denied(failure):
             drop_cursor(conn, TAIL)
             print(f"{TAIL}: slack would not take the saved cursor, dropped it "
                   f"so the next pass starts from the watermark")
         raise
 
-    print(f"{TAIL}: {landed} event(s), {seated} login(s) since {oldest:%Y-%m-%d %H:%M}")
-    return landed
+    print(f"{TAIL}: {event_count} event(s), {login_count} login(s) since {oldest:%Y-%m-%d %H:%M}")
+    return event_count
 
 
 def slice_keys(days):
@@ -646,16 +646,16 @@ def backfill(conn, client=None, actions=LOGIN_AND_CHANNEL_ACTIONS):
 
     try:
         with ingest_run(conn, BACKFILL, slice_key=slice_key) as counts:
-            landed, seated = walk(client, conn, source_key, counts,
+            event_count, login_count = walk(client, conn, source_key, counts,
                                   oldest=start, latest=stop, actions=actions)
     except Exception as failure:
         coverage.settle_aside(source_key, slice_key, fence, "short", note=str(failure))
         raise
 
-    coverage.settle(conn, source_key, slice_key, fence, "complete", landed=landed)
+    coverage.settle(conn, source_key, slice_key, fence, "complete", landed=event_count)
     conn.commit()
-    print(f"{source_key} {slice_key}: {landed} event(s), {seated} login(s)")
-    return landed
+    print(f"{source_key} {slice_key}: {event_count} event(s), {login_count} login(s)")
+    return event_count
 
 
 def backfill_next(conn, client=None):

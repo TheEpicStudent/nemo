@@ -80,18 +80,18 @@ def signed(by):
 
 def leave_note(client, guard_id, channel_id, thread_ts, by):
     with session() as conn:
-        kept = guards.note_for(conn, guard_id)
-    if kept is None:
+        note_row = guards.note_for(conn, guard_id)
+    if note_row is None:
         return None
 
-    note, text, already = kept
+    note, text, already = note_row
     if already:
         return already
     if not note:
         return None
 
     try:
-        answer = client.chat_postMessage(
+        response = client.chat_postMessage(
             channel=channel_id, thread_ts=thread_ts, text=text,
             blocks=[note, signed(by)], unfurl_links=False,
         )
@@ -99,7 +99,7 @@ def leave_note(client, guard_id, channel_id, thread_ts, by):
         log.warning("nemo: guard %s could not leave the note: %s", guard_id, failure)
         return None
 
-    ts = (answer or {}).get("ts")
+    ts = (response or {}).get("ts")
     if ts:
         with session() as conn:
             guards.note_posted(conn, guard_id, ts)
@@ -107,8 +107,8 @@ def leave_note(client, guard_id, channel_id, thread_ts, by):
 
 
 def notice_still_posted(messages, thread_ts, note_ts=None):
-    kept = {thread_ts, note_ts} if note_ts else {thread_ts}
-    stamps = [one["ts"] for one in messages if one.get("ts") and one["ts"] not in kept]
+    excluded_ts = {thread_ts, note_ts} if note_ts else {thread_ts}
+    stamps = [one["ts"] for one in messages if one.get("ts") and one["ts"] not in excluded_ts]
     return stamps or [thread_ts]
 
 
@@ -152,7 +152,7 @@ def destroy(client, guard_id):
 
     named = names_for(client, messages)
     with session() as conn:
-        guards.keep_transcript(conn, gid, channel_id, thread_ts, messages, named)
+        guards.store_transcript(conn, gid, channel_id, thread_ts, messages, named)
     log.info("nemo: guard %s kept %s message(s) before deleting", gid, len(messages))
 
     note_ts = leave_note(client, gid, channel_id, thread_ts, by)
@@ -169,19 +169,19 @@ def destroy(client, guard_id):
 
         stamps = notice_still_posted(messages, thread_ts, note_ts)
 
-        gone = 0
+        removed_count = 0
         for ts in stamps:
             try:
                 remove(client, channel_id, ts)
-                gone += 1
+                removed_count += 1
             except Exception as failure:
                 log.warning("nemo: guard %s could not delete %s: %s", gid, ts, failure)
 
-        deleted += gone
+        deleted += removed_count
         with session() as conn:
-            guards.progressed(conn, gid, gone)
+            guards.progressed(conn, gid, removed_count)
 
-        if gone == 0:
+        if removed_count == 0:
             failed = "slack refused every delete in a pass"
             break
         if stamps == [thread_ts]:
@@ -219,7 +219,7 @@ def note_it(conn, guard, user_id, ts):
     if warned_ts is None or ts <= warned_ts:
         return False
 
-    guards.kept(conn, gid, channel_id, user_id, ts)
+    guards.record_message(conn, gid, channel_id, user_id, ts)
     return True
 
 
@@ -227,7 +227,7 @@ def delete_notice(client, guard_id, channel_id, ts):
     try:
         remove(client, channel_id, ts)
     except Exception as failure:
-        if not privileged.gone(failure):
+        if not privileged.already_deleted(failure):
             log.warning("nemo: guard %s could not remove %s yet: %s", guard_id, ts, failure)
             return False
         log.info("nemo: guard %s found %s already gone", guard_id, ts)
@@ -261,14 +261,14 @@ def sweep_removals(client):
     if not waiting:
         return 0
 
-    gone = 0
+    removed_count = 0
     for guard_id, channel_id, ts in waiting:
         if delete_notice(client, guard_id, channel_id, ts):
-            gone += 1
+            removed_count += 1
 
     log.info("nemo: cleared %s of %s message(s) the guard could not remove first time",
-             gone, len(waiting))
-    return gone
+             removed_count, len(waiting))
+    return removed_count
 
 
 def escalate(guard_id, user_id, channel_id, thread_ts, messages):

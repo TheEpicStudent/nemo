@@ -13,9 +13,9 @@ export default class extends Controller {
   }
 
   show() {
-    const picked = this.element.querySelector("input:checked")
-    this.labelTarget.textContent = picked
-      ? picked.dataset.label
+    const checkedInput = this.element.querySelector("input:checked")
+    this.labelTarget.textContent = checkedInput
+      ? checkedInput.dataset.label
       : this.labelTarget.dataset.blank
   }
 }

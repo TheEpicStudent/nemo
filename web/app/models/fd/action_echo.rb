@@ -11,7 +11,7 @@ module Fd
     end
 
     def self.body_for(action)
-      target = action.aimed_at_member? ? "<@#{action.target_user_id}>" : "a thread"
+      target = action.targets_member? ? "<@#{action.target_user_id}>" : "a thread"
       label = FdHelper::ACTION_LABELS.fetch(action.type_key) { action.type_key.tr("_", " ").capitalize }
       lines = ["#{label} logged on #{target}"]
       lines[-1] += ": #{action.reason}" if action.reason.presence

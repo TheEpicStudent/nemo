@@ -2,7 +2,7 @@ require "test_helper"
 
 class MemberAccessTest < ActionDispatch::IntegrationTest
   SCOPE = "channel_manager".freeze
-  WHY = "a slack bot that routes design questions".freeze
+  REASON = "a slack bot that routes design questions".freeze
 
   setup do
     Fd::Flag.set!(:public_api, true, by: "UBOSS")
@@ -16,7 +16,7 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
     Current.forget_flags
   end
 
-  def register(name: "Triage Bot", blurb: "routes design questions", reason: WHY, scope: SCOPE)
+  def register(name: "Triage Bot", blurb: "routes design questions", reason: REASON, scope: SCOPE)
     post settings_apps_path,
       params: { name: name, blurb: blurb, scope: scope, reason: reason }
   end
@@ -70,10 +70,10 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
   end
 
   test "a member cannot mint for somebody else's app" do
-    theirs = make_app!("UOTHER9", name: "Theirs")
+    other_app = make_app!("UOTHER9", name: "Theirs")
 
     assert_no_difference -> { Api::Token.count } do
-      post settings_tokens_path, params: { app_id: theirs.id, name: "Toolbox" }
+      post settings_tokens_path, params: { app_id: other_app.id, name: "Toolbox" }
     end
 
     assert_match(/not yours/, flash[:alert])
@@ -90,49 +90,49 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
 
   test "approving grants the app the scope and unlocks minting" do
     register
-    asked = Api::AccessRequest.sole
+    access_request = Api::AccessRequest.sole
 
     sign_in_as(@reviewer)
-    post settle_settings_request_path(asked), params: { verdict: "Approve" }
+    post settle_settings_request_path(access_request), params: { verdict: "Approve" }
 
-    assert_equal "approved", asked.reload.state
-    assert Api::Approval.held?(asked.app_id)
+    assert_equal "approved", access_request.reload.state
+    assert Api::Approval.active?(access_request.app_id)
 
     sign_in_as(@member)
     assert_difference -> { Api::Token.count }, 1 do
-      post settings_tokens_path, params: { app_id: asked.app_id, name: "Toolbox" }
+      post settings_tokens_path, params: { app_id: access_request.app_id, name: "Toolbox" }
     end
   end
 
   test "declining settles the request and grants nothing" do
     register
-    asked = Api::AccessRequest.sole
+    access_request = Api::AccessRequest.sole
 
     sign_in_as(@reviewer)
-    post settle_settings_request_path(asked), params: { verdict: "Decline", note: "no" }
+    post settle_settings_request_path(access_request), params: { verdict: "Decline", note: "no" }
 
-    assert_equal ["declined", "no"], [asked.reload.state, asked.note]
-    assert_not Api::Approval.held?(asked.app_id)
+    assert_equal ["declined", "no"], [access_request.reload.state, access_request.note]
+    assert_not Api::Approval.active?(access_request.app_id)
   end
 
   test "a member withdraws their own request and nobody else's" do
     register
-    asked = Api::AccessRequest.sole
+    access_request = Api::AccessRequest.sole
 
     sign_in_as(Account.create!(user_id: "UASK2"))
-    delete withdraw_settings_request_path(asked)
-    assert_equal "pending", asked.reload.state
+    delete withdraw_settings_request_path(access_request)
+    assert_equal "pending", access_request.reload.state
 
     sign_in_as(@member)
-    delete withdraw_settings_request_path(asked)
-    assert_equal "withdrawn", asked.reload.state
+    delete withdraw_settings_request_path(access_request)
+    assert_equal "withdrawn", access_request.reload.state
   end
 
   test "opting in to one app says nothing about another" do
-    mine = make_app!(@member.user_id, name: "Mine")
-    theirs = make_app!("UOTHER9", name: "Theirs")
-    _token, key = Api::Token.mint!(theirs, "Toolbox")
-    Api::Consent.set!("USUBJECT1", mine.id, SCOPE, true, via: "dashboard")
+    consented_app = make_app!(@member.user_id, name: "Mine")
+    requesting_app = make_app!("UOTHER9", name: "Theirs")
+    _token, key = Api::Token.mint!(requesting_app, "Toolbox")
+    Api::Consent.set!("USUBJECT1", consented_app.id, SCOPE, true, via: "dashboard")
 
     get "/api/v1/channels/C0DESIGN99/managers/USUBJECT1",
       headers: { "Authorization" => "Bearer #{key}" }
@@ -143,9 +143,9 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
   end
 
   test "opting in to the asking app answers it" do
-    theirs = make_app!("UOTHER9", name: "Theirs")
-    _token, key = Api::Token.mint!(theirs, "Toolbox")
-    Api::Consent.set!("USUBJECT1", theirs.id, SCOPE, true, via: "dashboard")
+    requesting_app = make_app!("UOTHER9", name: "Theirs")
+    _token, key = Api::Token.mint!(requesting_app, "Toolbox")
+    Api::Consent.set!("USUBJECT1", requesting_app.id, SCOPE, true, via: "dashboard")
 
     get "/api/v1/channels/C0DESIGN99/managers/USUBJECT1",
       headers: { "Authorization" => "Bearer #{key}" }
@@ -179,16 +179,16 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
 
     assert_predicate app.reload, :retired?
     assert_predicate token.reload, :revoked?
-    assert_not Api::Approval.held?(app.id)
+    assert_not Api::Approval.active?(app.id)
   end
 
   test "retiring an app takes its waiting request out of the queue" do
     register
-    asked = Api::AccessRequest.sole
+    access_request = Api::AccessRequest.sole
 
-    delete settings_app_path(asked.app)
+    delete settings_app_path(access_request.app)
 
-    assert_equal "withdrawn", asked.reload.state
+    assert_equal "withdrawn", access_request.reload.state
     assert_empty Api::AccessRequest.queue
 
     sign_in_as(@reviewer)
@@ -199,23 +199,23 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
 
   test "a request for an app somebody retired is never left reviewable" do
     register
-    asked = Api::AccessRequest.sole
-    asked.app.update!(retired_at: Time.current)
+    access_request = Api::AccessRequest.sole
+    access_request.app.update!(retired_at: Time.current)
 
     assert_empty Api::AccessRequest.queue
   end
 
   test "rotating keeps the row and kills the old secret" do
     app = make_app!(@member.user_id)
-    token, was = Api::Token.mint!(app, "Toolbox")
+    token, old_secret = Api::Token.mint!(app, "Toolbox")
 
     assert_no_difference -> { Api::Token.count } do
       post rotate_settings_token_path(token)
     end
 
-    now = css_select(".secret code").sole.text
-    assert_not_equal was, now
-    assert_equal Api::Token.digest_of(now), token.reload.digest
+    new_secret = css_select(".secret code").sole.text
+    assert_not_equal old_secret, new_secret
+    assert_equal Api::Token.digest_of(new_secret), token.reload.digest
     assert_equal "Toolbox", token.name
     assert_not_nil token.rotated_at
   end

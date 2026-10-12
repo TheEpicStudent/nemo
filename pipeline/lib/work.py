@@ -238,9 +238,9 @@ WHERE  work_kind = %(kind)s AND target_key = ANY(%(keys)s) AND state = 'pending'
 def prioritize(conn, kind, keys, priority):
     with conn.cursor() as cur:
         cur.execute(PRIORITIZE_SQL, {"kind": kind, "keys": list(keys), "priority": priority})
-        moved = cur.rowcount
+        updated = cur.rowcount
     conn.commit()
-    return moved
+    return updated
 
 
 def depth(conn, kind):

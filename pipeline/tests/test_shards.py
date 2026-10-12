@@ -40,16 +40,16 @@ def test_describe_counts_the_pool_without_printing_a_token():
 
 def test_a_bot_token_in_the_pool_is_called_out():
     env = {"INGEST_TOKEN_1": "xoxb-a-bot-token"}
-    trouble = shards.problems(env)
-    assert len(trouble) == 1
-    assert "not a user token" in trouble[0]
+    problems = shards.problems(env)
+    assert len(problems) == 1
+    assert "not a user token" in problems[0]
     assert "not a user token" in shards.describe(env)
 
 
 def test_a_repeated_token_is_called_out_because_it_shares_one_budget():
     env = {"INGEST_TOKEN_1": "xoxp-same", "INGEST_TOKEN_2": "xoxp-same"}
-    trouble = shards.problems(env)
-    assert any("repeats INGEST_TOKEN_1" in note for note in trouble)
+    problems = shards.problems(env)
+    assert any("repeats INGEST_TOKEN_1" in note for note in problems)
 
 
 def test_a_healthy_pool_reports_no_trouble():
@@ -75,7 +75,7 @@ def pool_of(n, per_minute=50.0, clock=None):
     return shards.Pool(env=env, per_minute=per_minute, clock=clock), clock
 
 
-def allowed_in(seconds, n, per_minute=50.0):
+def grants_within(seconds, n, per_minute=50.0):
     pool, clock = pool_of(n, per_minute)
     granted = 0
     while clock.t < seconds:
@@ -94,10 +94,10 @@ def test_the_pool_ceiling_is_the_sum_of_its_shards():
 
 
 def test_n_shards_allow_n_times_the_requests():
-    one = allowed_in(60.0, 1)
-    assert one == allowed_in(60.0, 1)
+    single_shard = grants_within(60.0, 1)
+    assert single_shard == grants_within(60.0, 1)
     for n in (2, 3, 5):
-        assert allowed_in(60.0, n) == one * n
+        assert grants_within(60.0, n) == single_shard * n
 
 
 def test_an_empty_pool_acquires_nothing_without_waiting():
@@ -110,8 +110,8 @@ def test_a_parked_shard_is_skipped_and_the_next_one_serves():
     first, _ = pool.acquire("m")
     pool.cooldown(first, "m", 30)
     for _ in range(3):
-        served, wait = pool.acquire("m")
-        assert served is not first
+        acquired, wait = pool.acquire("m")
+        assert acquired is not first
         assert wait == 0.0
 
 
@@ -120,24 +120,24 @@ def test_when_every_shard_is_parked_the_wait_is_the_shortest_remaining():
     a, b = pool.shards
     pool.cooldown(a, "m", 45)
     pool.cooldown(b, "m", 12)
-    served, wait = pool.acquire("m")
-    assert served is None
+    acquired, wait = pool.acquire("m")
+    assert acquired is None
     assert wait == 12.0
     clock.advance(12.1)
-    served, _ = pool.acquire("m")
-    assert served is b
+    acquired, _ = pool.acquire("m")
+    assert acquired is b
 
 
 def test_parking_is_per_method_because_slack_counts_per_method():
     pool, _ = pool_of(1)
     shard, _ = pool.acquire("conversations.replies")
     pool.cooldown(shard, "conversations.replies", 60)
-    served, wait = pool.acquire("conversations.history")
-    assert served is shard
+    acquired, wait = pool.acquire("conversations.history")
+    assert acquired is shard
     assert wait == 0.0
-    blocked, held = pool.acquire("conversations.replies")
-    assert blocked is None
-    assert held == 60.0
+    acquired_on_parked, parked_wait = pool.acquire("conversations.replies")
+    assert acquired_on_parked is None
+    assert parked_wait == 60.0
 
 
 def test_round_robin_spreads_the_work_evenly():
@@ -146,8 +146,8 @@ def test_round_robin_spreads_the_work_evenly():
         shard, wait = pool.acquire("m")
         if not shard:
             clock.advance(wait)
-    taken = [count for _, count, _, _ in pool.rates()]
-    assert max(taken) - min(taken) <= 1
+    counts = [count for _, count, _, _ in pool.rates()]
+    assert max(counts) - min(counts) <= 1
 
 
 def test_a_park_is_capped_so_a_bad_retry_after_cannot_stall_a_shard_forever():
@@ -169,21 +169,21 @@ def fake_pool(n, per_minute=600.0, throttle_first=()):
     clock = Clock()
     env = {f"INGEST_TOKEN_{i}": f"xoxp-{i}" for i in range(1, n + 1)}
     pool = shards.Pool(env=env, per_minute=per_minute, clock=clock)
-    seen = []
+    invoked = []
     for shard in pool.shards:
         def invoke(method, params, timeout=None, _s=shard):
-            seen.append(_s.name())
-            if _s.name() in throttle_first and seen.count(_s.name()) == 1:
+            invoked.append(_s.name())
+            if _s.name() in throttle_first and invoked.count(_s.name()) == 1:
                 raise shards.ThrottledError(5)
             cursor = params.get("cursor")
             page = 0 if not cursor else int(cursor)
-            nxt = str(page + 1) if page + 1 < 3 else ""
+            next_cursor = str(page + 1) if page + 1 < 3 else ""
             return {
                 "messages": [{"ts": f"{page}.{i}"} for i in range(2)],
-                "response_metadata": {"next_cursor": nxt},
+                "response_metadata": {"next_cursor": next_cursor},
             }
         shard.invoke = invoke
-    return pool, clock, seen
+    return pool, clock, invoked
 
 
 def walk(client):
@@ -195,31 +195,31 @@ def walk(client):
 
 
 def test_the_sharded_client_inherits_pagination_and_walks_every_page():
-    pool, clock, seen = fake_pool(2)
+    pool, clock, invoked = fake_pool(2)
     client = shards.ShardedClient(pool=pool, sleep=clock.advance)
     assert len(walk(client)) == 6
-    assert len(seen) == 3
+    assert len(invoked) == 3
 
 
 def test_pages_of_one_walk_spread_across_shards():
-    pool, clock, seen = fake_pool(2)
+    pool, clock, invoked = fake_pool(2)
     client = shards.ShardedClient(pool=pool, sleep=clock.advance)
     walk(client)
-    assert seen == ["INGEST_TOKEN_1", "INGEST_TOKEN_2", "INGEST_TOKEN_1"]
+    assert invoked == ["INGEST_TOKEN_1", "INGEST_TOKEN_2", "INGEST_TOKEN_1"]
 
 
 def test_a_throttle_parks_that_shard_and_another_finishes_the_walk():
-    pool, clock, seen = fake_pool(2, throttle_first=("INGEST_TOKEN_1",))
+    pool, clock, invoked = fake_pool(2, throttle_first=("INGEST_TOKEN_1",))
     client = shards.ShardedClient(pool=pool, sleep=clock.advance)
     assert len(walk(client)) == 6
     first, second = pool.shards
     assert first.throttles == 1
     assert first.parked_for("conversations.replies") == 5.0
-    assert second.taken == 3
+    assert second.acquired_count == 3
 
 
 def test_a_lone_throttled_shard_waits_and_then_recovers():
-    pool, clock, seen = fake_pool(1, throttle_first=("INGEST_TOKEN_1",))
+    pool, clock, invoked = fake_pool(1, throttle_first=("INGEST_TOKEN_1",))
     client = shards.ShardedClient(pool=pool, sleep=clock.advance)
     assert len(walk(client)) == 6
     assert pool.shards[0].throttles == 1
@@ -260,31 +260,31 @@ def test_the_pool_summary_reads_as_a_heartbeat_note():
 def test_the_shard_check_reads_a_survey_without_calling_slack():
     from checks import shards as check
 
-    found = [
+    probes = [
         (1, ({"ok": True, "team_id": "T1", "user_id": "U1"}, None)),
         (2, ({"ok": True, "team_id": "T1", "user_id": "U1"}, None)),
     ]
-    assert check.pool_configured(None, found)[1] == "pass"
-    assert check.tokens_valid(None, found)[1] == "pass"
-    assert check.tokens_are_user_tokens(None, found)[1] == "pass"
-    assert check.tokens_single_workspace(None, found)[1] == "pass"
+    assert check.pool_configured(None, probes)[1] == "pass"
+    assert check.tokens_valid(None, probes)[1] == "pass"
+    assert check.tokens_are_user_tokens(None, probes)[1] == "pass"
+    assert check.tokens_single_workspace(None, probes)[1] == "pass"
 
 
 def test_the_shard_check_catches_a_dead_a_bot_and_a_foreign_token():
     from checks import shards as check
 
-    dead = [(1, (None, "invalid_auth"))]
-    assert check.tokens_valid(None, dead)[1] == "fail"
-    assert "invalid_auth" in check.tokens_valid(None, dead)[2]
+    invalid = [(1, (None, "invalid_auth"))]
+    assert check.tokens_valid(None, invalid)[1] == "fail"
+    assert "invalid_auth" in check.tokens_valid(None, invalid)[2]
 
     bot = [(1, ({"ok": True, "team_id": "T1", "bot_id": "B1"}, None))]
     assert check.tokens_are_user_tokens(None, bot)[1] == "fail"
 
-    foreign = [
+    mixed_workspaces = [
         (1, ({"ok": True, "team_id": "T1"}, None)),
         (2, ({"ok": True, "team_id": "T2"}, None)),
     ]
-    assert check.tokens_single_workspace(None, foreign)[1] == "fail"
+    assert check.tokens_single_workspace(None, mixed_workspaces)[1] == "fail"
 
 
 def test_an_unconfigured_pool_warns_rather_than_failing():
@@ -308,14 +308,14 @@ def test_the_bucket_never_over_issues_under_concurrent_fetchers():
     granted = []
     barrier = threading.Barrier(20)
 
-    def grab():
+    def acquire_repeatedly():
         barrier.wait()
         for _ in range(20):
             ok, _ = bucket.take()
             if ok:
                 granted.append(1)
 
-    threads = [threading.Thread(target=grab) for _ in range(20)]
+    threads = [threading.Thread(target=acquire_repeatedly) for _ in range(20)]
     for t in threads:
         t.start()
     for t in threads:
@@ -328,27 +328,27 @@ def test_the_pool_hands_every_fetcher_a_distinct_turn():
     from collections import Counter
 
     pool, _ = pool_of(5, per_minute=60000.0)
-    seen = []
-    guard = threading.Lock()
+    acquired_names = []
+    lock = threading.Lock()
     barrier = threading.Barrier(20)
 
-    def grab():
+    def acquire_repeatedly():
         barrier.wait()
         for _ in range(50):
             shard, _ = pool.acquire("m")
             if shard:
-                with guard:
-                    seen.append(shard.name())
+                with lock:
+                    acquired_names.append(shard.name())
 
-    threads = [threading.Thread(target=grab) for _ in range(20)]
+    threads = [threading.Thread(target=acquire_repeatedly) for _ in range(20)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    spread = Counter(seen)
-    assert len(spread) == 5
-    assert max(spread.values()) - min(spread.values()) <= len(seen) // 10
-    assert sum(spread.values()) == sum(s.taken for s in pool.shards)
+    per_shard = Counter(acquired_names)
+    assert len(per_shard) == 5
+    assert max(per_shard.values()) - min(per_shard.values()) <= len(acquired_names) // 10
+    assert sum(per_shard.values()) == sum(s.acquired_count for s in pool.shards)
 
 
 def test_parking_and_counting_survive_concurrent_throttles():
@@ -357,16 +357,16 @@ def test_parking_and_counting_survive_concurrent_throttles():
     pool, _ = pool_of(3, per_minute=60000.0)
     barrier = threading.Barrier(15)
 
-    def churn():
+    def acquire_and_release():
         barrier.wait()
         for _ in range(30):
             shard, _ = pool.acquire("m")
             if shard:
                 pool.cooldown(shard, "m", 0)
 
-    threads = [threading.Thread(target=churn) for _ in range(15)]
+    threads = [threading.Thread(target=acquire_and_release) for _ in range(15)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    assert sum(s.throttles for s in pool.shards) == sum(s.taken for s in pool.shards)
+    assert sum(s.throttles for s in pool.shards) == sum(s.acquired_count for s in pool.shards)

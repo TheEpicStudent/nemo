@@ -19,7 +19,7 @@
       <% people_in_order(people).each do |person| %>
         <div class="person-block">
           <div class="line-row text-strong person-row">
-            <%= face(person.user_id, css: "person-face") %>
+            <%= avatar(person.user_id, css: "person-face") %>
             <span class="grow two-line">
               <b>
                 <%= handle(person.user_id) %>

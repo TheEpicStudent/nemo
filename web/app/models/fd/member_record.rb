@@ -121,11 +121,11 @@ module Fd
       return "in" unless subject_cases.include?(kase)
       return "open" unless kase.resolved?
 
-      acted_on.include?(kase.id) ? "done" : "clear"
+      actioned_cases.include?(kase.id) ? "done" : "clear"
     end
 
-    def acted_on
-      @acted_on ||= Action.where(case_id: spread.map(&:id)).distinct.pluck(:case_id).to_set
+    def actioned_cases
+      @actioned_cases ||= Action.where(case_id: spread.map(&:id)).distinct.pluck(:case_id).to_set
     end
   end
 end

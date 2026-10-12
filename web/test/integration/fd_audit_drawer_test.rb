@@ -76,13 +76,13 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
 
   test "related events are the same actor within 15 minutes, each opening in the drawer" do
     id = slack!
-    near = slack!(action: "user_logout", at: AT + 5.minutes)
+    related_id = slack!(action: "user_logout", at: AT + 5.minutes)
     slack!(action: "user_logout", at: AT + 40.minutes)
     slack!(actor: "UDRAWOTHER", at: AT + 1.minute)
 
     get fd_audit_event_path(source: "slack", id: id)
     links = css_select(".audit-related a.audit-related-row")
-    assert_equal [fd_audit_event_path(source: "slack", id: near)], links.map { |one| one["href"] }
+    assert_equal [fd_audit_event_path(source: "slack", id: related_id)], links.map { |one| one["href"] }
     assert_select ".audit-related-all", count: 0
   end
 

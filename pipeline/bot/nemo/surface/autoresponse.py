@@ -13,11 +13,11 @@ def plain(name):
 
 def is_a_person(client, user_id):
     try:
-        found = (client.users_info(user=user_id) or {}).get("user") or {}
+        user = (client.users_info(user=user_id) or {}).get("user") or {}
     except Exception as failure:
         log.info("nemo: could not look up %s: %s", user_id, failure)
         return False
-    return not found.get("is_bot") and not found.get("deleted")
+    return not user.get("is_bot") and not user.get("deleted")
 
 
 @on_event("reaction_added", open_to_all=True)

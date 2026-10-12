@@ -14,7 +14,7 @@ log = logging.getLogger("bot.nemo")
 SHORTCUT = "message_activity"
 
 NOT_A_POST = "That is a reply. Activity is counted on top-level posts only."
-NOT_SHOWN = "This channel does not show how posts did."
+NOT_ENABLED = "This channel does not show how posts did."
 NOT_YOURS = "That post is not yours."
 NOT_NOW = "Slack would not say how that post did just now. Try again in a minute."
 
@@ -23,13 +23,13 @@ FILE_SETTLES = 0.8
 FILE_TRIES = 3
 
 
-def filled(client, view_id, shown, plain):
+def filled(client, view_id, chart_view, fallback_view):
     """Poll until the uploaded file is usable in a block; render without the
     chart on timeout."""
     for attempt in range(FILE_TRIES):
         last = attempt == FILE_TRIES - 1
         try:
-            return client.views_update(view_id=view_id, view=plain if last else shown)
+            return client.views_update(view_id=view_id, view=fallback_view if last else chart_view)
         except SlackApiError as failure:
             if NO_FILE not in str(failure):
                 raise
@@ -53,7 +53,7 @@ def refused(conn, ctx, why, ts):
 
 
 @on_shortcut(SHORTCUT, needs="message.read")
-def asked(ctx):
+def open_activity_modal(ctx):
     message = ctx.body.get("message") or {}
     ts = message.get("ts")
     if not ts or not ctx.channel_id:
@@ -63,11 +63,11 @@ def asked(ctx):
 
     author_id = message.get("user")
     with session() as conn:
-        if not activity.shown(conn, ctx.channel_id):
-            return ctx.post_ephemeral(NOT_SHOWN)
+        if not activity.activity_enabled(conn, ctx.channel_id):
+            return ctx.post_ephemeral(NOT_ENABLED)
         if not activity.may_read(ctx.user_id, author_id):
             return refused(conn, ctx, NOT_YOURS, ts)
-        found = activity.landed(conn, ctx.channel_id, ts)
+        archived_message = activity.archived_message(conn, ctx.channel_id, ts)
         crowd = activity.members(conn, ctx.channel_id)
 
     opened = ctx.client.views_open(trigger_id=ctx.trigger_id, view=card.loading_view())
@@ -75,18 +75,18 @@ def asked(ctx):
 
     stats = activity.fetch(ctx.channel_id, ts)
     if stats is None:
-        shown = plain = card.error_view(NOT_NOW)
+        chart_view = fallback_view = card.error_view(NOT_NOW)
     else:
-        posted_at = (found or {}).get("posted_at") or dt.datetime.fromtimestamp(float(ts), dt.UTC)
+        posted_at = (archived_message or {}).get("posted_at") or dt.datetime.fromtimestamp(float(ts), dt.UTC)
         file_id, span = activity.chart(ctx.client, stats["curves"], posted_at, stats["viewers"])
         args = (ctx.channel_id, ts, author_id, message.get("text"), stats)
-        kept = {"found": found, "crowd": crowd,
+        view_kwargs = {"archived_message": archived_message, "crowd": crowd,
                 "activity_url": channel.app_url(f"/messages/{ctx.channel_id}/{ts}")}
-        shown = card.build_view(*args, chart=(file_id, span) if file_id else None, **kept)
-        plain = card.build_view(*args, **kept)
+        chart_view = card.build_view(*args, chart=(file_id, span) if file_id else None, **view_kwargs)
+        fallback_view = card.build_view(*args, **view_kwargs)
 
     if view_id:
-        filled(ctx.client, view_id, shown, plain)
+        filled(ctx.client, view_id, chart_view, fallback_view)
     log.info("nemo: %s read how %s/%s did", ctx.user_id, ctx.channel_id, ts)
     return stats
 

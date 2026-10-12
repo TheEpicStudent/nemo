@@ -73,10 +73,10 @@ module Channels
 
     private
 
-    def pct(part, whole)
-      return nil if whole.to_i.zero?
+    def pct(part, total)
+      return nil if total.to_i.zero?
 
-      (part * 100.0 / whole).round(1)
+      (part * 100.0 / total).round(1)
     end
   end
 end

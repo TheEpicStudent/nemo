@@ -46,7 +46,7 @@ def proxy():
 
 
 NOT_THERE = ("channel_not_found", "not_in_channel")
-ALREADY_GONE = ("message_not_found", "already_deleted")
+ALREADY_DELETED = ("message_not_found", "already_deleted")
 
 _admin = {}
 
@@ -56,16 +56,16 @@ def absent(failure):
     return any(one in text for one in NOT_THERE)
 
 
-def gone(failure):
+def already_deleted(failure):
     text = str(failure)
-    return any(one in text for one in ALREADY_GONE)
+    return any(one in text for one in ALREADY_DELETED)
 
 
 def admin_user_id():
     if "id" not in _admin:
         report = proxy().verify() or {}
-        found = (report.get("credentials") or {}).get("admin") or {}
-        _admin["id"] = found.get("user_id")
+        admin = (report.get("credentials") or {}).get("admin") or {}
+        _admin["id"] = admin.get("user_id")
         if not _admin["id"]:
             log.warning("privileged: the proxy will not say who the admin account is")
     return _admin["id"]
@@ -117,7 +117,7 @@ DEACTIVATED = "deactivated"
 REACTIVATED = "reactivated"
 
 
-def carried(user_id, method, done, doing):
+def set_account_state(user_id, method, done, doing):
     how = deactivation_mode()
     if how == OFF:
         return "off"
@@ -143,18 +143,18 @@ def profile(user_id):
         return None
 
     try:
-        found = proxy().call(PROFILE, {"user": user_id},
+        response = proxy().call(PROFILE, {"user": user_id},
                              credential="admin", max_retries=1)
     except Exception as failure:  # noqa: BLE001
         log.warning("privileged: could not read the profile of %s: %s", user_id, failure)
         return None
 
-    return (found or {}).get("user")
+    return (response or {}).get("user")
 
 
 def deactivate(user_id):
-    return carried(user_id, DEACTIVATE, DEACTIVATED, "deactivate")
+    return set_account_state(user_id, DEACTIVATE, DEACTIVATED, "deactivate")
 
 
 def reactivate(user_id):
-    return carried(user_id, ACTIVATE, REACTIVATED, "put back")
+    return set_account_state(user_id, ACTIVATE, REACTIVATED, "put back")

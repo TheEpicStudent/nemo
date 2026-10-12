@@ -15,7 +15,7 @@ ENTITY_TYPE = "member_link_verdict"
 
 KNOWN_SQL = "SELECT user_id FROM fd.member WHERE user_id = ANY(%s)"
 
-HELD_SQL = """
+EXISTING_SQL = """
 SELECT id, verdict, decided_by, note
 FROM fd.member_link_verdict
 WHERE a_user_id = %s AND b_user_id = %s
@@ -51,48 +51,48 @@ def split_ids(values):
     return [piece.strip() for value in values or [] for piece in value.split(",") if piece.strip()]
 
 
-def planned(by, main, chosen):
+def planned(by, main, selections):
     malformed = [one for one in [by, main] if not USER_ID.match(one or "")]
-    picks = {}
+    assignments = {}
     for verdict in VERDICTS:
-        for account in split_ids(chosen.get(verdict)):
+        for account in split_ids(selections.get(verdict)):
             if not USER_ID.match(account):
                 malformed.append(account)
             elif account == main:
                 raise VerdictError(f"{account} is the main account, it cannot be paired with itself")
-            elif picks.get(account, verdict) != verdict:
-                raise VerdictError(f"{account} is listed under both {picks[account]} and {verdict}")
+            elif assignments.get(account, verdict) != verdict:
+                raise VerdictError(f"{account} is listed under both {assignments[account]} and {verdict}")
             else:
-                picks[account] = verdict
+                assignments[account] = verdict
     if malformed:
         raise VerdictError(f"not Slack user IDs: {', '.join(malformed)}")
-    if not picks:
+    if not assignments:
         raise VerdictError("no accounts listed, pass at least one of " +
                            ", ".join(f"--{one.replace('_', '-')}" for one in VERDICTS))
-    return picks
+    return assignments
 
 
 def unknown(conn, ids):
     rows = conn.execute(KNOWN_SQL, (sorted(ids),)).fetchall()
-    held = {row[0] for row in rows}
-    return sorted(set(ids) - held)
+    known = {row[0] for row in rows}
+    return sorted(set(ids) - known)
 
 
 def record(conn, by, main, account, verdict, note=None):
     a, b = ordered(main, account)
-    held = conn.execute(HELD_SQL, (a, b)).fetchone()
+    existing = conn.execute(EXISTING_SQL, (a, b)).fetchone()
     before = None
-    if held is None:
+    if existing is None:
         row = conn.execute(INSERT_SQL, (a, b, verdict, by, note)).fetchone()
         verdict_id = row[0]
         outcome = "recorded"
     else:
-        verdict_id, was, was_by, was_note = held
-        note = was_note if note is None else note
-        if (was, was_note) == (verdict, note):
+        verdict_id, previous_verdict, previous_by, previous_note = existing
+        note = previous_note if note is None else note
+        if (previous_verdict, previous_note) == (verdict, note):
             return "unchanged"
         conn.execute(UPDATE_SQL, (verdict, by, note, verdict_id))
-        before = {"verdict": was, "decided_by": was_by, "note": was_note}
+        before = {"verdict": previous_verdict, "decided_by": previous_by, "note": previous_note}
         outcome = "changed"
     after = {"a_user_id": a, "b_user_id": b, "verdict": verdict, "decided_by": by, "note": note}
     audit.record(conn, ENTITY_TYPE, verdict_id, verb_for(verdict), by,
@@ -100,33 +100,33 @@ def record(conn, by, main, account, verdict, note=None):
     return outcome
 
 
-def run(conn, by, main, picks, note=None):
-    missing = unknown(conn, {by, main, *picks})
+def run(conn, by, main, assignments, note=None):
+    missing = unknown(conn, {by, main, *assignments})
     if missing:
         raise VerdictError(f"not in fd.member: {', '.join(missing)}")
-    tally = {}
-    for account, verdict in sorted(picks.items()):
+    outcome_counts = {}
+    for account, verdict in sorted(assignments.items()):
         outcome = record(conn, by, main, account, verdict, note)
-        tally[outcome] = tally.get(outcome, 0) + 1
+        outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
         print(f"{outcome:<9} {verdict:<16} {main} {account}")
     conn.commit()
-    print(", ".join(f"{count} {outcome}" for outcome, count in sorted(tally.items())))
-    return tally
+    print(", ".join(f"{count} {outcome}" for outcome, count in sorted(outcome_counts.items())))
+    return outcome_counts
 
 
 def parser():
-    held = argparse.ArgumentParser(
+    arg_parser = argparse.ArgumentParser(
         prog="nemo verdict",
         description="record a verdict for each listed account paired with the main account",
     )
-    held.add_argument("--by", required=True, help="Slack user ID of the person deciding")
-    held.add_argument("--main", required=True, help="Slack user ID every listed account is paired with")
+    arg_parser.add_argument("--by", required=True, help="Slack user ID of the person deciding")
+    arg_parser.add_argument("--main", required=True, help="Slack user ID every listed account is paired with")
     for verdict in VERDICTS:
-        held.add_argument(f"--{verdict.replace('_', '-')}", dest=verdict, nargs="+",
-                          metavar="USER_ID", help="Slack user IDs, space or comma separated")
-    held.add_argument("--note", help="kept on every pair recorded in this run")
-    held.add_argument("--dsn", help="Postgres DSN to use instead of the environment configuration")
-    return held
+        arg_parser.add_argument(f"--{verdict.replace('_', '-')}", dest=verdict, nargs="+",
+                                metavar="USER_ID", help="Slack user IDs, space or comma separated")
+    arg_parser.add_argument("--note", help="kept on every pair recorded in this run")
+    arg_parser.add_argument("--dsn", help="Postgres DSN to use instead of the environment configuration")
+    return arg_parser
 
 
 def main(argv=None):
@@ -134,11 +134,11 @@ def main(argv=None):
     load_dotenv(ENV_FILE)
     note = (args.note or "").strip() or None
     try:
-        picks = planned(args.by, args.main, {one: getattr(args, one) for one in VERDICTS})
+        assignments = planned(args.by, args.main, {one: getattr(args, one) for one in VERDICTS})
         with connect(args.dsn) as conn:
-            run(conn, args.by, args.main, picks, note)
-    except VerdictError as refusal:
-        print(f"nemo verdict: {refusal}", file=sys.stderr)
+            run(conn, args.by, args.main, assignments, note)
+    except VerdictError as error:
+        print(f"nemo verdict: {error}", file=sys.stderr)
         return 2
     return 0
 

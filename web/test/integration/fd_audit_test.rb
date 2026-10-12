@@ -82,16 +82,16 @@ class FdAuditTest < ActionDispatch::IntegrationTest
 
     assert_equal %w[user_login], query("view" => "slack").rows.map(&:verb)
 
-    asked = query("view" => "slack", "q" => "did:file_downloaded").rows
-    assert_equal %w[file_downloaded], asked.map(&:verb)
-    assert_equal "F0FILE01", asked.first.entity_id
-    assert_equal "86.12.44.9", asked.first.ip
+    rows = query("view" => "slack", "q" => "did:file_downloaded").rows
+    assert_equal %w[file_downloaded], rows.map(&:verb)
+    assert_equal "F0FILE01", rows.first.entity_id
+    assert_equal "86.12.44.9", rows.first.ip
   end
 
   test "a high volume read opens on its own page" do
     id = slim!(action: "file_downloaded")
 
-    row = Fd::AuditQuery.one("slack", id)
+    row = Fd::AuditQuery.find_one("slack", id)
     assert_equal "file_downloaded", row.verb
     assert_equal WHO, row.actor_id
   end
@@ -129,9 +129,9 @@ class FdAuditTest < ActionDispatch::IntegrationTest
     slack!(ip: "203.0.113.9")
     slack!(ip: "198.51.100.4", id: SecureRandom.uuid)
 
-    found = query("q" => "203.0.113.9").rows
-    assert_equal 1, found.size
-    assert_equal "203.0.113.9", found.first.ip
+    rows = query("q" => "203.0.113.9").rows
+    assert_equal 1, rows.size
+    assert_equal "203.0.113.9", rows.first.ip
   end
 
   test "a filter on who it was about reaches both logs" do
@@ -139,8 +139,8 @@ class FdAuditTest < ActionDispatch::IntegrationTest
     engine!(subject: "UOTHER", verb: "noted")
     slack!(actor: WHO)
 
-    found = query("q" => "about:#{WHO}").rows
-    assert_equal %w[performed user_login].sort, found.map(&:verb).sort
+    rows = query("q" => "about:#{WHO}").rows
+    assert_equal %w[performed user_login].sort, rows.map(&:verb).sort
   end
 
   test "a filter on what happened narrows to that verb" do
@@ -163,9 +163,9 @@ class FdAuditTest < ActionDispatch::IntegrationTest
 
     first = query
     assert_not_nil first.rows.last
-    carried = first.to_params.merge("before_at" => first.rows.last.at.iso8601(6),
+    next_page_params = first.to_params.merge("before_at" => first.rows.last.at.iso8601(6),
       "before_id" => first.rows.last.id)
-    assert_empty Fd::AuditQuery.new(carried, actor: @me).rows
+    assert_empty Fd::AuditQuery.new(next_page_params, actor: @me).rows
   end
 
   test "a row says which fields moved and what they were" do
@@ -201,9 +201,9 @@ class FdAuditTest < ActionDispatch::IntegrationTest
     slack!(ip: "86.12.44.9", actor: WHO)
     slack!(ip: "198.51.100.4", actor: "UOTHER", id: SecureRandom.uuid)
 
-    found = query("q" => "86.12.44.9").rows
-    assert_equal 1, found.size
-    assert_equal "86.12.44.9", found.first.ip
+    rows = query("q" => "86.12.44.9").rows
+    assert_equal 1, rows.size
+    assert_equal "86.12.44.9", rows.first.ip
   end
 
   test "a range finds every address inside it" do
@@ -234,21 +234,21 @@ class FdAuditTest < ActionDispatch::IntegrationTest
   test "a whole email handed to domain is read as its domain" do
     slack!(email: "kid@throwaway.example", actor: "UKID")
 
-    asked = Fd::AuditSearch.parse("domain:kid@throwaway.example")
-    assert_equal [["domain", "throwaway.example"]], asked.terms.map { |one| [one.kind, one.value] }
+    search = Fd::AuditSearch.parse("domain:kid@throwaway.example")
+    assert_equal [["domain", "throwaway.example"]], search.terms.map { |one| [one.kind, one.value] }
     assert_equal 1, query("q" => "domain:kid@throwaway.example").rows.size
   end
 
   test "a bare domain handed to email is read as a domain" do
-    asked = Fd::AuditSearch.parse("email:throwaway.example")
-    assert_equal [["domain", "throwaway.example"]], asked.terms.map { |one| [one.kind, one.value] }
+    search = Fd::AuditSearch.parse("email:throwaway.example")
+    assert_equal [["domain", "throwaway.example"]], search.terms.map { |one| [one.kind, one.value] }
   end
 
   test "an email nobody may read finds nothing rather than everything" do
     engine!(subject: WHO, verb: "performed")
 
-    blind = Fd::AuditQuery.new({ "when" => "any", "q" => "kid@school.example" }, actor: nil)
-    assert_empty blind.rows
+    anonymous_query = Fd::AuditQuery.new({ "when" => "any", "q" => "kid@school.example" }, actor: nil)
+    assert_empty anonymous_query.rows
   end
 
   test "a term the parser cannot place falls back to searching the text" do
@@ -260,12 +260,12 @@ class FdAuditTest < ActionDispatch::IntegrationTest
   end
 
   test "a chip can be taken off without losing the rest of the search" do
-    asked = query("q" => "about:#{WHO} did:resolved")
-    first = asked.terms.first
+    audit_query = query("q" => "about:#{WHO} did:resolved")
+    first = audit_query.terms.first
 
-    left = asked.without_params(first)["q"]
-    assert_not_includes left.to_s, first.value
-    assert_includes left.to_s, "resolved"
+    remaining_query = audit_query.without_params(first)["q"]
+    assert_not_includes remaining_query.to_s, first.value
+    assert_includes remaining_query.to_s, "resolved"
   end
 
   test "the page opens on slack, since that is the log with the volume" do
@@ -274,7 +274,7 @@ class FdAuditTest < ActionDispatch::IntegrationTest
     get fd_audit_path
     assert_select %(.view[aria-current="true"]), text: /Slack/
     assert_select "main .segmented", false, "the range control is gone, the search carries it"
-    assert_select ".ractions .queue-search"
+    assert_select ".toolbar .audit-query input[name=add]"
   end
 
   test "the help is a dialog that can actually be opened" do
@@ -386,12 +386,12 @@ class FdAuditTest < ActionDispatch::IntegrationTest
 
   test "asking for the fire engine tab by hand does not hand it over" do
     engine!(verb: "resolved")
-    them = hold_role!("UFF", "firefighter")
-    asked = Fd::AuditQuery.new({ "view" => "engine" }, actor: them)
+    firefighter = hold_role!("UFF", "firefighter")
+    audit_query = Fd::AuditQuery.new({ "view" => "engine" }, actor: firefighter)
 
-    assert_equal "slack", asked.view
-    assert_empty asked.rows
-    assert_empty Fd::AuditQuery.new({ "q" => "source:engine" }, actor: them).rows
+    assert_equal "slack", audit_query.view
+    assert_empty audit_query.rows
+    assert_empty Fd::AuditQuery.new({ "q" => "source:engine" }, actor: firefighter).rows
   end
 
   test "a firefighter cannot open the panel for a fire engine event" do

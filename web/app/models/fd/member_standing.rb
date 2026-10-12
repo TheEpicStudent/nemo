@@ -30,12 +30,12 @@ module Fd
       record.open_case
     end
 
-    def holders
+    def holder_ids
       open_case&.assignee_user_ids || []
     end
 
-    def held_by
-      holders.first
+    def holder_id
+      holder_ids.first
     end
 
     def cases

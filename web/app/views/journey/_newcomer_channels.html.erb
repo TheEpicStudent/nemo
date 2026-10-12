@@ -13,11 +13,11 @@
     <ul class="sharebars" aria-label="Newcomers by channel" data-controller="chart-tooltip"
         data-action="mouseover->chart-tooltip#show mouseleave->chart-tooltip#clear">
       <% newcomer_channels.each do |c| %>
-        <% drawn = bands.call(c) %>
+        <% channel_bands = bands.call(c) %>
         <% posting = c.newcomers_posting.to_i %>
         <li class="sharebar" data-tip="<%= {
           title: "##{c.name}",
-          rows: drawn.map do |band|
+          rows: channel_bands.map do |band|
             row = { label: band[:label], value: number_with_delimiter(band[:value]),
                     tone: band[:tone] }
             unless band[:cls] == "funnel-a"
@@ -30,7 +30,7 @@
             <span class="sharebar-label"><%= channel_name_cell(c.channel_id, c.name) %></span>
             <span class="sharebar-value"><%= number_with_delimiter(posting) %></span>
           </div>
-          <% drawn.sort_by { |band| -band[:value] }.each do |band| %>
+          <% channel_bands.sort_by { |band| -band[:value] }.each do |band| %>
             <div class="sharebar-fill <%= band[:cls] %>" style="--share: <%= width.call(band[:value]) %>" aria-hidden="true"></div>
           <% end %>
         </li>

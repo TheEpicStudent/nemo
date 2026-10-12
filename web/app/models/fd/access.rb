@@ -25,7 +25,7 @@ module Fd
 
     def self.why_not(staff, key, record = nil)
       return nil if allow?(staff, key, record)
-      return "you hold no access" if staff.nil? || Authz.roles_held(staff.user_id).empty?
+      return "you hold no access" if staff.nil? || Authz.effective_roles(staff.user_id).empty?
       return Authz.refusal(key) unless Authz.holds?(staff, key)
 
       "that is not yours"

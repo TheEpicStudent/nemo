@@ -5,12 +5,12 @@ module Fd
     MEMBER_ID = /\A[UW][A-Z0-9]{2,}\z/
 
     def create
-      return refuse!("member.deactivate") if deactivating?(kind)
+      return deny!("member.deactivate") if deactivating?(kind)
 
-      problem = guard_objection
-      if problem
+      error = guard_error
+      if error
         return redirect_to(fd_member_path(subject_id, do: "guard"),
-          alert: (problem unless flash[:field_error]))
+          alert: (error unless flash[:field_error]))
       end
 
       guard = nil
@@ -18,26 +18,26 @@ module Fd
 
       if guard.nil?
         return redirect_to fd_member_path(subject_id),
-          alert: "#{named(subject_id)} is already under a #{label(kind)}"
+          alert: "#{display_name(subject_id)} is already under a #{label(kind)}"
       end
 
       redirect_to fd_member_path(subject_id),
-        notice: "#{label(kind)} held on #{named(subject_id)}, on no case"
+        notice: "#{label(kind)} held on #{display_name(subject_id)}, on no case"
     end
 
     def update
       guard = MemberGuard.still_on.find(params[:id])
-      return refuse!("member.deactivate", guard) if deactivating?(guard.kind)
+      return deny!("member.deactivate", guard) if deactivating?(guard.kind)
 
       if expiry.nil?
         return redirect_to fd_member_path(guard.subject_id),
           alert: "Enter the date it should run until"
       end
 
-      was = guard.expires_at
+      previous_expiry = guard.expires_at
       writing do
         guard.run_until!(expiry)
-        audit(guard, "extended", before: { "expires_at" => was },
+        audit(guard, "extended", before: { "expires_at" => previous_expiry },
           after: { "expires_at" => expiry })
       end
 
@@ -47,17 +47,17 @@ module Fd
 
     def destroy
       guard = MemberGuard.still_on.find(params[:id])
-      return refuse!("member.deactivate", guard) if deactivating?(guard.kind)
+      return deny!("member.deactivate", guard) if deactivating?(guard.kind)
 
-      was = guard.state
+      previous_state = guard.state
       writing do
         guard.lift!(by: current_account.user_id, reason: lift_reason)
-        audit(guard, "lifted", before: { "state" => was },
+        audit(guard, "lifted", before: { "state" => previous_state },
           after: { "state" => guard.state, "lift_reason" => lift_reason })
       end
 
       redirect_to fd_member_path(guard.subject_id),
-        notice: "#{label(guard.kind)} lifted on #{named(guard.subject_id)}"
+        notice: "#{label(guard.kind)} lifted on #{display_name(guard.subject_id)}"
     end
 
     private
@@ -76,7 +76,7 @@ module Fd
 
     def label(key) = FdHelper::ACTION_LABELS.fetch(key, key).downcase
 
-    def named(user_id) = Names.for([user_id])[user_id]
+    def display_name(user_id) = Names.for([user_id])[user_id]
 
     def expires_on_param = params[:expires_on].to_s.strip
 
@@ -88,7 +88,7 @@ module Fd
       nil
     end
 
-    def guard_objection
+    def guard_error
       return "pick what to hold" unless MemberGuard::KINDS.include?(kind)
       return "#{subject_id} is not a member id" unless subject_id.match?(MEMBER_ID)
       if kind == MemberGuard::CHANNEL_BAN && !channel_id.match?(SlackLink::CHANNEL)

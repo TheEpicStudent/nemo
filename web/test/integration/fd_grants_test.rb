@@ -6,20 +6,20 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
   end
 
-  def give(user_id: "U0AFF1", role: "firefighter", **rest)
-    post admin_grants_path, params: { user_id: user_id, role: role }.merge(rest)
+  def post_grant(user_id: "U0AFF1", role: "firefighter", **extra_params)
+    post admin_grants_path, params: { user_id: user_id, role: role }.merge(extra_params)
     Current.forget_roles
   end
 
-  def held(user_id = "U0AFF1")
+  def role_grant(user_id = "U0AFF1")
     Current.forget_roles
     Authz::Grant.live.roles.find_by(user_id: user_id)
   end
 
   test "giving access records the role and who gave it" do
-    give
+    post_grant
 
-    grant = held
+    grant = role_grant
     assert_equal "firefighter", grant.name
     assert_equal "UME", grant.granted_by
     assert_redirected_to admin_person_path("U0AFF1")
@@ -28,41 +28,41 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
   end
 
   test "a grant needs somebody" do
-    give(user_id: "")
+    post_grant(user_id: "")
     assert_match(/Search for a member/, flash[:alert])
 
-    give(user_id: "not-an-id")
+    post_grant(user_id: "not-an-id")
     assert_match(/is not a Slack user id/, flash[:alert])
 
     assert_equal 0, Authz::Grant.for_person("U0AFF1").count
   end
 
   test "changing a role ends the old grant and starts a new one" do
-    give
-    give(role: "gardener")
+    post_grant
+    post_grant(role: "gardener")
 
-    assert_equal "gardener", held.name
+    assert_equal "gardener", role_grant.name
     assert_equal 2, Authz::Grant.for_person("U0AFF1").roles.count
     assert_equal 1, Authz::Grant.for_person("U0AFF1").roles.where.not(revoked_at: nil).count
   end
 
   test "taking everything back leaves the person holding nothing, and says so in the trail" do
-    give
-    grant = held
+    post_grant
+    grant = role_grant
 
     delete admin_grant_path("U0AFF1")
 
-    assert_nil held
+    assert_nil role_grant
     assert_equal "UME", grant.reload.revoked_by
   end
 
   test "unpicking the fire department grant_source takes that grant back" do
-    give
-    grant = held
+    post_grant
+    grant = role_grant
 
     post admin_grants_path, params: { user_id: "U0AFF1" }
 
-    assert_nil held
+    assert_nil role_grant
     assert Fd::AuditEntry.exists?(entity_type: "capability_grant", entity_id: grant.id,
       verb: "revoked")
   end
@@ -76,24 +76,24 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
 
   test "a lead cannot reach the grant endpoints at all" do
     delete logout_path
-    hand = Account.create!(user_id: "ULEAD")
+    firefighter = Account.create!(user_id: "ULEAD")
     Authz::Grant.grant!("ULEAD", kind: "role", name: "firefighter", by: "UME")
     Current.forget_roles
-    sign_in_as(hand)
+    sign_in_as(firefighter)
 
-    give
+    post_grant
 
-    assert_nil held
+    assert_nil role_grant
     assert_redirected_to root_path
   end
 
   test "making somebody a manager is written to the trail, and ends their old role" do
-    give
+    post_grant
     post admin_grants_path, params: { user_id: "U0AFF1", role: "community_manager" }
     Current.forget_roles
 
     assert_predicate Account.find("U0AFF1"), :manager?
-    assert_equal "community_manager", held.name
+    assert_equal "community_manager", role_grant.name
     assert_equal 1, Authz::Grant.for_person("U0AFF1").roles.where.not(revoked_at: nil).count
     assert Fd::AuditEntry.where(verb: "granted")
       .any? { |row| row.after&.dig("role") == "community_manager" }
@@ -116,23 +116,23 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
   end
 
   test "a reason is kept on the grant when one is given" do
-    give(reason: "covering the weekend")
+    post_grant(reason: "covering the weekend")
 
-    assert_equal "covering the weekend", held.reason
+    assert_equal "covering the weekend", role_grant.reason
   end
 
   test "a grant without a reason is still allowed, since the field is optional" do
-    give
+    post_grant
 
-    grant = held
+    grant = role_grant
     assert_nil grant.reason
     assert_equal "firefighter", grant.name
   end
 
   test "a blank reason is stored as nothing rather than an empty string" do
-    give(reason: "   ")
+    post_grant(reason: "   ")
 
-    assert_nil held.reason
+    assert_nil role_grant.reason
   end
 
   test "naming a channel on somebody with no role hands out no role" do
@@ -142,7 +142,7 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
       channels: [channel.channel_id] }
     Current.forget_roles
 
-    assert_empty Authz.roles_held("U0AFF1")
+    assert_empty Authz.effective_roles("U0AFF1")
     assert Authz.holds?(Account.find("U0AFF1"), "channel.read"),
       "channel.read is everyone's, so the channel row is enough on its own"
     assert Channels::Audience::Grant.live
@@ -156,10 +156,10 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
       scopes: ["channel.backfill"], channels: [channel.channel_id], reason: "the sync rota" }
     Current.forget_roles
 
-    assert_equal "gardener", held.name
-    got = Authz.held("U0AFF1")
-    assert_equal "added", got["channel.backfill"]
-    assert_equal "baseline", got["channel.read"],
+    assert_equal "gardener", role_grant.name
+    capabilities = Authz.effective_capabilities("U0AFF1")
+    assert_equal "added", capabilities["channel.backfill"]
+    assert_equal "baseline", capabilities["channel.read"],
       "gardener already carries channel.read, so it is not granted twice"
     assert Channels::Audience::Grant.live
       .exists?(user_id: "U0AFF1", channel_id: channel.channel_id)

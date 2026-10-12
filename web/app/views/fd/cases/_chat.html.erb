@@ -24,7 +24,7 @@
         <% end %>
       </span>
     <% elsif thread %>
-      <%= thread.anonymous? ? anonymous_face : face(thread.reporter_user_id) %>
+      <%= thread.anonymous? ? anonymous_face : avatar(thread.reporter_user_id) %>
       <span class="grow two-line">
         <b>
           <% if thread.anonymous? %>
@@ -49,8 +49,8 @@
                 data-action="chat-filter#onlyReplies">Replies</button>
       </span>
     <% end %>
-    <% here = Fd::ChatPresence.here(kase.id) %>
-    <%= render "fd/cases/presence", case_id: kase.id, user_ids: here, names: Fd::Names.for(here) %>
+    <% present_user_ids = Fd::ChatPresence.present_user_ids(kase.id) %>
+    <%= render "fd/cases/presence", case_id: kase.id, user_ids: present_user_ids, names: Fd::Names.for(present_user_ids) %>
   </div>
 
   <%= turbo_stream_from chat_stream(kase) %>
@@ -69,8 +69,8 @@
         <% end %>
         <div class="cfield" data-action="click->chat#focus">
           <span class="chat-pill" data-chat-target="pill" hidden>
-            <span data-chat-target="aim">internal</span>
-            <button type="button" class="chat-pill-x" data-action="click->chat#drop"
+            <span data-chat-target="recipient">internal</span>
+            <button type="button" class="chat-pill-x" data-action="click->chat#clearRecipient"
                     data-chat-target="drop" aria-label="talk to the team instead">&times;</button>
           </span>
           <%= hidden_field_tag :anon, "", data: { chat_target: "anon" }, id: nil %>

@@ -1,13 +1,13 @@
 require "test_helper"
 
 class Community::CalendarTest < ActiveSupport::TestCase
-  def build(rows, today: Date.new(2026, 9, 18), held: nil, **rest)
+  def build(rows, today: Date.new(2026, 9, 18), day_rows: nil, **overrides)
     window_end = today.end_of_week(:monday)
-    posted = rows.map { |on, messages, _rooms, _replies| [on, messages, messages] }
+    posted = rows.map { |on, messages, _channels, _replies| [on, messages, messages] }
     Community::Calendar.new(
-      held: held || rows.map { |on, messages, rooms, replies| [on, rooms, replies, messages] },
+      day_rows: day_rows || rows.map { |on, messages, channels, replies| [on, channels, replies, messages] },
       posted: posted, window_start: window_end - (53 * 7 - 1),
-      window_end: window_end, today: today, **rest)
+      window_end: window_end, today: today, **overrides)
   end
 
   test "the grid is always a full 53 weeks of days" do
@@ -19,22 +19,22 @@ class Community::CalendarTest < ActiveSupport::TestCase
   end
 
   test "the ramp steps on the member's own days, not the workspace's" do
-    quiet = build((1..40).map { |n| [Date.new(2026, 9, 1) - n, (n % 4) + 1, 1, 0] })
-    loud = build((1..40).map { |n| [Date.new(2026, 9, 1) - n, n * 25, 9, 4] })
+    low_volume = build((1..40).map { |n| [Date.new(2026, 9, 1) - n, (n % 4) + 1, 1, 0] })
+    high_volume = build((1..40).map { |n| [Date.new(2026, 9, 1) - n, n * 25, 9, 4] })
 
-    assert_equal 5, quiet.cells.map(&:step).max, "a quiet member still reaches the top step"
-    assert_equal 5, loud.cells.map(&:step).max
-    assert_operator loud.peak, :>, quiet.peak
+    assert_equal 5, low_volume.cells.map(&:step).max, "a quiet member still reaches the top step"
+    assert_equal 5, high_volume.cells.map(&:step).max
+    assert_operator high_volume.peak, :>, low_volume.peak
   end
 
   test "a day with nothing on it sits on step zero" do
     cal = build([[Date.new(2026, 9, 14), 12, 3, 2]])
 
     cell = cal.cells.find { |cell| cell.on == Date.new(2026, 9, 14) }
-    quiet = cal.cells.find { |cell| cell.on == Date.new(2026, 9, 15) }
+    empty_cell = cal.cells.find { |cell| cell.on == Date.new(2026, 9, 15) }
 
     assert_operator cell.step, :>, 0
-    assert_equal 0, quiet.step
+    assert_equal 0, empty_cell.step
     assert_equal 1, cal.active_days
   end
 
@@ -69,7 +69,7 @@ class Community::CalendarTest < ActiveSupport::TestCase
 
   test "a day spent where the archive cannot see still counts" do
     on = Date.new(2026, 9, 12)
-    cal = Community::Calendar.new(held: [], posted: [[on, 55, 32]],
+    cal = Community::Calendar.new(day_rows: [], posted: [[on, 55, 32]],
       window_start: Date.new(2026, 9, 18).end_of_week(:monday) - (53 * 7 - 1),
       window_end: Date.new(2026, 9, 18).end_of_week(:monday), today: Date.new(2026, 9, 18))
 
@@ -78,14 +78,14 @@ class Community::CalendarTest < ActiveSupport::TestCase
     assert_equal 55, cell.messages
     assert_equal 32, cell.in_channels
     assert_equal 23, cell.elsewhere
-    assert_equal 0, cell.rooms
-    assert cell.unseen?, "the archive holds none of it"
+    assert_equal 0, cell.channels
+    assert cell.unarchived?, "the archive holds none of it"
     assert_equal 1, cal.active_days
   end
 
   test "a day the archive holds but Slack has not published yet stays lit" do
     on = Date.new(2026, 9, 17)
-    cal = Community::Calendar.new(held: [[on, 2, 1, 6]], posted: [],
+    cal = Community::Calendar.new(day_rows: [[on, 2, 1, 6]], posted: [],
       window_start: Date.new(2026, 9, 18).end_of_week(:monday) - (53 * 7 - 1),
       window_end: Date.new(2026, 9, 18).end_of_week(:monday), today: Date.new(2026, 9, 18))
 
@@ -98,22 +98,22 @@ class Community::CalendarTest < ActiveSupport::TestCase
 
   test "the archive still supplies the breakdown when it has the day" do
     on = Date.new(2026, 9, 12)
-    cal = Community::Calendar.new(held: [[on, 4, 9, 20]], posted: [[on, 20, 20]],
+    cal = Community::Calendar.new(day_rows: [[on, 4, 9, 20]], posted: [[on, 20, 20]],
       window_start: Date.new(2026, 9, 18).end_of_week(:monday) - (53 * 7 - 1),
       window_end: Date.new(2026, 9, 18).end_of_week(:monday), today: Date.new(2026, 9, 18))
 
     cell = cal.cells.find { |cell| cell.on == on }
     assert_equal 20, cell.messages
-    assert_equal 4, cell.rooms
+    assert_equal 4, cell.channels
     assert_equal 9, cell.replies
     assert_equal 0, cell.elsewhere
-    assert_not cell.unseen?
+    assert_not cell.unarchived?
   end
 
   test "the run follows the days that are lit, not the one it was handed" do
     today = Date.new(2026, 9, 18)
-    lit = (0..20).map { |n| [today - n, 5, 5] }
-    cal = Community::Calendar.new(held: [], posted: lit,
+    posted_days = (0..20).map { |n| [today - n, 5, 5] }
+    cal = Community::Calendar.new(day_rows: [], posted: posted_days,
       window_start: today.end_of_week(:monday) - (53 * 7 - 1),
       window_end: today.end_of_week(:monday), today: today,
       run_from: Date.new(2026, 1, 1), run_to: Date.new(2026, 1, 2))

@@ -14,7 +14,7 @@ class Proxy:
         self.close_after_first = close_after_first
         self.connections = set()
         self.calls = 0
-        owner = self
+        proxy_server = self
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -22,17 +22,17 @@ class Proxy:
 
             def do_POST(self):
                 self.rfile.read(int(self.headers["Content-Length"]))
-                owner.connections.add(self.client_address[1])
-                owner.calls += 1
-                body = json.dumps({"ok": owner.status < 400, "detail": "budget: spent"}).encode()
-                self.send_response(owner.status)
+                proxy_server.connections.add(self.client_address[1])
+                proxy_server.calls += 1
+                body = json.dumps({"ok": proxy_server.status < 400, "detail": "budget: spent"}).encode()
+                self.send_response(proxy_server.status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
-                if owner.status == 429:
+                if proxy_server.status == 429:
                     self.send_header("Retry-After", "1")
                 self.end_headers()
                 self.wfile.write(body)
-                if owner.close_after_first and owner.calls == 1:
+                if proxy_server.close_after_first and proxy_server.calls == 1:
                     self.close_connection = True
 
             def log_message(self, *args):
@@ -52,16 +52,16 @@ class Proxy:
 
 @pytest.fixture
 def proxy():
-    made = []
+    proxies = []
 
     def start(**kwargs):
         one = Proxy(**kwargs)
-        made.append(one)
+        proxies.append(one)
         return one
 
     yield start
-    proxy_client._kept.pool = {}
-    for one in made:
+    proxy_client._connections.pool = {}
+    for one in proxies:
         one.stop()
 
 
@@ -99,7 +99,7 @@ def test_without_keep_alive_every_call_opens_a_connection(proxy):
 def test_a_connection_idle_too_long_is_replaced(proxy, monkeypatch):
     server = proxy()
     client = server.client()
-    monkeypatch.setattr(proxy_client, "KEEP_IDLE_SECONDS", -1)
+    monkeypatch.setattr(proxy_client, "KEEPALIVE_IDLE_SECONDS", -1)
 
     client.call("chat.delete", max_retries=0)
     client.call("chat.delete", max_retries=0)
@@ -155,5 +155,5 @@ def test_a_kept_connection_turns_off_nagle(proxy):
     server = proxy()
     server.client().call("chat.delete", max_retries=0)
 
-    (conn, _at), = proxy_client._kept.pool.values()
+    (conn, _at), = proxy_client._connections.pool.values()
     assert conn.sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY)

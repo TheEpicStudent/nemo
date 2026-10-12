@@ -3,13 +3,13 @@ module Fd
     permit "app.configure"
 
     TABS = %w[automod domains responses].freeze
-    SHOWN = 50
+    LIST_LIMIT = 50
 
     def show
       @tab = params[:tab].presence_in(TABS) || TABS.first
       @words = AutomodWord.watching
-      @retired = AutomodWord.retired.newest_first.limit(SHOWN).to_a
-      @matches = AutomodMatch.newest_first.limit(SHOWN).to_a
+      @retired = AutomodWord.retired.newest_first.limit(LIST_LIMIT).to_a
+      @matches = AutomodMatch.newest_first.limit(LIST_LIMIT).to_a
       load_domains
       load_responses
       @channels = ChannelNames.for(@matches.map(&:channel_id) + [@autoresponse_channel])
@@ -25,8 +25,8 @@ module Fd
 
     def load_domains
       @domains = BlockedDomain.watching
-      @retired_domains = BlockedDomain.retired.newest_first.limit(SHOWN).to_a
-      @screens = JoinScreen.caught.recent_first.limit(SHOWN).to_a
+      @retired_domains = BlockedDomain.retired.newest_first.limit(LIST_LIMIT).to_a
+      @screens = JoinScreen.caught.recent_first.limit(LIST_LIMIT).to_a
     end
 
     def load_responses

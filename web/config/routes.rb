@@ -94,6 +94,10 @@ Rails.application.routes.draw do
     get "audit", to: "audits#show", as: :audit, defaults: { format: "html" }
     get "audit/event", to: "audits#event", as: :audit_event
     get "audit/histogram", to: "audits#histogram", as: :audit_histogram
+    get "audit/rows", to: "audits#rows", as: :audit_rows
+    get "audit/facet", to: "audits#facet", as: :audit_facet
+    get "audit/export", to: "audits#export", as: :audit_export, defaults: { format: "csv" }
+    resources :audit_saved_queries, only: [:create, :destroy], path: "audit/saved"
     get "slack_account/callback", to: "slack_accounts#callback", as: :slack_account_callback
     resource :slack_account, only: [:create, :destroy], controller: "slack_accounts"
     resource :role_permission, only: [:update, :destroy], controller: "role_permissions"
@@ -118,8 +122,8 @@ Rails.application.routes.draw do
       as: :"#{stage}_journey"
   end
 
-  ApplicationHelper::MOVED.each do |was, now|
-    get was, to: redirect("/journey/#{now}")
+  ApplicationHelper::LEGACY_JOURNEY_PATHS.each do |legacy_path, stage|
+    get legacy_path, to: redirect("/journey/#{stage}")
   end
 
   resources :channels, only: [:index, :show] do

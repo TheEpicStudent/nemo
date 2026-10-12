@@ -13,7 +13,7 @@ def capture(monkeypatch):
 
     monkeypatch.setattr(channel_watch, "session", session)
     monkeypatch.setattr(channel_watch.channel_dim, "record",
-                        lambda conn, channel_id, **seen: recorded.append((channel_id, seen)))
+                        lambda conn, channel_id, **fields: recorded.append((channel_id, fields)))
     return recorded
 
 

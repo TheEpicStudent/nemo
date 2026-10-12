@@ -27,10 +27,10 @@
   <% if @guards_on.any? %>
     <div class="people-list">
       <% @guards_on.rows.each do |guard| %>
-        <% here = fd_channel_path(guard.channel_id, tab: guard_tab(guard.kind)) %>
+        <% guard_href = fd_channel_path(guard.channel_id, tab: guard_tab(guard.kind)) %>
         <div class="line-row text-strong">
           <span class="grow two-line">
-            <b><%= link_to channels[guard.channel_id], here, class: "lnk" %></b>
+            <b><%= link_to channels[guard.channel_id], guard_href, class: "lnk" %></b>
             <span>
               <%= guard_label(guard.kind) %>
               <span aria-hidden="true">&middot;</span>

@@ -22,7 +22,7 @@ OVER = "Your shush has ended. You can post again."
 
 
 def take_up(client, conn, guard):
-    if not memberguards.holding(conn, guard["id"]):
+    if not memberguards.mark_enforced(conn, guard["id"]):
         return False
 
     notify.dm_subject(client, conn, guard, APPLIED_DM.format(
@@ -49,16 +49,16 @@ def remove(client, conn, guard, channel_id, ts):
                     guard["id"], ts, channel_id, failure)
         return False
 
-    memberguards.holding(conn, guard["id"])
+    memberguards.mark_enforced(conn, guard["id"])
     memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], channel_id,
                           DELETED, message_ts=ts)
     return True
 
 
 @on_event("message", open_to_all=True)
-def seen(ctx):
+def on_message(ctx):
     event = ctx.payload or {}
-    channel_id, subject_id, ts = notify.ours(event)
+    channel_id, subject_id, ts = notify.message_target(event)
     if not channel_id:
         return None
     if channel_id == channel.internal_log_channel():

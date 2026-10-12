@@ -39,12 +39,12 @@ module Profile
     MEASURED_SOURCES = %w[member_day member_day_import].freeze
     DAILY_SOURCE = "member_day".freeze
 
-    def self.span_key(asked)
-      SPANS.key?(asked.to_s) ? asked.to_s : DEFAULT_SPAN
+    def self.span_key(requested)
+      SPANS.key?(requested.to_s) ? requested.to_s : DEFAULT_SPAN
     end
 
-    def self.basis(asked)
-      STREAK_BASES.key?(asked.to_s) ? asked.to_s : DEFAULT_BASIS
+    def self.basis(requested)
+      STREAK_BASES.key?(requested.to_s) ? requested.to_s : DEFAULT_BASIS
     end
 
     def self.on(value)
@@ -61,8 +61,8 @@ module Profile
       @span_key = self.class.span_key(span)
       @streak_basis = self.class.basis(streak)
       @zone = Community::Clock.known_zone(zone)
-      @asked_start = self.class.on(start_on)
-      @asked_end = self.class.on(end_on)
+      @requested_start = self.class.on(start_on)
+      @requested_end = self.class.on(end_on)
     end
 
     def span = SPANS.fetch(@span_key)
@@ -82,11 +82,11 @@ module Profile
     def custom?
       return @custom unless @custom.nil?
 
-      @custom = (@asked_start || @asked_end).present? && floor.present?
+      @custom = (@requested_start || @requested_end).present? && floor.present?
     end
 
     def window
-      @window ||= custom? ? asked_window : preset_window
+      @window ||= custom? ? custom_window : preset_window
     end
 
     def window_start = window.first
@@ -122,18 +122,18 @@ module Profile
     def slack(from = window_start, to = window_end)
       @slack ||= {}
       @slack[[from, to]] ||= begin
-        found = read(
+        totals = read(
           Analytics::MemberActivity.mine(@user_id).between(from, to),
           SLACK.transform_values { |column| "sum(#{column})" }.merge(rows: "count(*)")
         )
-        rows = found.delete(:rows)
-        rows.zero? && measured?(from, to) ? found.transform_values { 0 } : found
+        rows = totals.delete(:rows)
+        rows.zero? && measured?(from, to) ? totals.transform_values { 0 } : totals
       end
     end
 
-    def held(from = window_start, to = window_end)
-      @held ||= {}
-      @held[[from, to]] ||= read(
+    def archived(from = window_start, to = window_end)
+      @archived ||= {}
+      @archived[[from, to]] ||= read(
         Analytics::MartMemberDay.mine(@user_id).between(from, to), ARCHIVE
       )
     end
@@ -211,7 +211,7 @@ module Profile
     end
 
     def any?
-      held[:messages].to_i.positive? || slack[:days_active].to_i.positive?
+      archived[:messages].to_i.positive? || slack[:days_active].to_i.positive?
     end
 
     def measured_through
@@ -221,9 +221,9 @@ module Profile
 
     private
 
-    def asked_window
-      to = (@asked_end || ceiling).clamp(floor, ceiling)
-      from = (@asked_start || to).clamp(floor, to)
+    def custom_window
+      to = (@requested_end || ceiling).clamp(floor, ceiling)
+      from = (@requested_start || to).clamp(floor, to)
       [from, to]
     end
 
@@ -257,8 +257,8 @@ module Profile
     end
 
     def read(scope, columns)
-      picked = columns.values.map { |sql| Arel.sql(sql) }
-      values = Array(scope.pluck(*picked).first)
+      selects = columns.values.map { |sql| Arel.sql(sql) }
+      values = Array(scope.pluck(*selects).first)
       columns.keys.each_with_index.to_h { |key, i| [key, values[i]&.to_i] }
     end
   end

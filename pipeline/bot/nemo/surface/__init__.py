@@ -37,32 +37,32 @@ def bind(kind, key, fn, tag=None):
     ENTRIES.append(SurfaceEntry(kind, key, None, fn, open_to_all=True, tag=name))
 
 
-def keep(kind, key, needs, refuse_block=None, open_to_all=False):
-    def hold(fn):
+def register_entry(kind, key, needs, refuse_block=None, open_to_all=False):
+    def decorator(fn):
         ENTRIES.append(SurfaceEntry(kind, key, needs, fn, refuse_block, open_to_all))
         return fn
 
-    return hold
+    return decorator
 
 
 def on_shortcut(key, *, needs=None, open_to_all=False):
-    return keep(SHORTCUT, key, needs, open_to_all=open_to_all)
+    return register_entry(SHORTCUT, key, needs, open_to_all=open_to_all)
 
 
 def on_action(key, *, needs=None, open_to_all=False):
-    return keep(ACTION, key, needs, open_to_all=open_to_all)
+    return register_entry(ACTION, key, needs, open_to_all=open_to_all)
 
 
 def on_view(key, *, needs=None, refuse_block=None, open_to_all=False):
-    return keep(VIEW, key, needs, refuse_block, open_to_all)
+    return register_entry(VIEW, key, needs, refuse_block, open_to_all)
 
 
 def on_event(key, *, needs=None, open_to_all=False):
-    return keep(EVENT, key, needs, open_to_all=open_to_all)
+    return register_entry(EVENT, key, needs, open_to_all=open_to_all)
 
 
 def on_command(key, *, needs=None, open_to_all=False):
-    return keep(COMMAND, key, needs, open_to_all=open_to_all)
+    return register_entry(COMMAND, key, needs, open_to_all=open_to_all)
 
 
 class Ctx:
@@ -75,17 +75,17 @@ class Ctx:
 
     @property
     def user_id(self):
-        found = self.body.get("user")
-        if isinstance(found, dict):
-            return found.get("id")
-        return found or self.payload.get("user")
+        user = self.body.get("user")
+        if isinstance(user, dict):
+            return user.get("id")
+        return user or self.payload.get("user")
 
     @property
     def channel_id(self):
-        found = self.body.get("channel")
-        if isinstance(found, dict):
-            return found.get("id")
-        return found or self.payload.get("channel")
+        channel = self.body.get("channel")
+        if isinstance(channel, dict):
+            return channel.get("id")
+        return channel or self.payload.get("channel")
 
     @property
     def message_ts(self):
@@ -182,10 +182,10 @@ def fanned(entries):
     runners = [(one, guarded(one)) for one in entries]
 
     def run(ack=None, body=None, client=None, payload=None):
-        held = {"ack": ack, "body": body, "client": client, "payload": payload}
+        handler_kwargs = {"ack": ack, "body": body, "client": client, "payload": payload}
         for entry, runner in runners:
             try:
-                runner(**held)
+                runner(**handler_kwargs)
             except Exception:
                 log.exception("nemo: %s:%s failed", entry.kind, entry.key)
 

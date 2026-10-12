@@ -10,8 +10,8 @@ def test_i11_grades_only_the_day_sources_the_walk_writes():
 
 
 def test_i11_ignores_a_finished_import():
-    walked = [day_source for day_source, _ in invariants.DAY_LEDGERS]
-    assert "member_day_import" not in walked
+    day_sources = [day_source for day_source, _ in invariants.DAY_LEDGERS]
+    assert "member_day_import" not in day_sources
 
 
 def test_r6_counts_only_units_revive_should_have_taken_and_did_not():

@@ -33,7 +33,7 @@
   <div class="metrics">
     <div class="metric">
       <span class="metric-key">Tonight</span>
-      <span class="metric-value <%= @orphaned ? "crit" : run_ink(@run) %>"><%= @run.nil? ? "No run" : (@orphaned ? "Stuck" : @run.status.to_s.upcase_first) %></span>
+      <span class="metric-value <%= @orphaned ? "crit" : run_status_color(@run) %>"><%= @run.nil? ? "No run" : (@orphaned ? "Stuck" : @run.status.to_s.upcase_first) %></span>
       <span class="metric-note">
         <% if @run.nil? %>
           <span>Nothing recorded yet</span>
@@ -111,19 +111,19 @@
 
 <% elsif @tab == "sources" %>
   <%= render "sources", sources: @sources, active_request: @active_request,
-        matrix: @matrix, nights: @nights, open: @open, may_tune: @may_tune,
+        matrix: @matrix, nights: @nights, open: @open, may_edit_setting: @may_edit_setting,
         run: @run, step_output: @step_output %>
 
 <% elsif @tab == "coverage" %>
   <%= render "slices", slices: @slices, day_strips: @day_strips %>
-  <%= render "coverage", day_coverage: @day_coverage, held: @held %>
+  <%= render "coverage", day_coverage: @day_coverage, consecutive_days: @consecutive_days %>
 
 <% elsif @tab == "queues" %>
   <%= render "queues", queues: @queues %>
 
 <% elsif @tab == "faults" %>
   <%= render "faults", incidents: @incidents, breakers: @breakers, local_faults: @local_faults,
-        taxonomy: @taxonomy, beats: @beats, breaker_mode: @breaker_mode, may_tune: @may_tune,
+        taxonomy: @taxonomy, beats: @beats, breaker_mode: @breaker_mode, may_edit_setting: @may_edit_setting,
         headlines: @headlines %>
 
 <% elsif @tab == "backfill" %>
@@ -137,5 +137,5 @@
   <%= render "storage", storage: @storage %>
 
 <% elsif @tab == "tuning" %>
-  <%= render "tuning", may_tune: @may_tune, sources: @sources %>
+  <%= render "tuning", may_edit_setting: @may_edit_setting, sources: @sources %>
 <% end %>

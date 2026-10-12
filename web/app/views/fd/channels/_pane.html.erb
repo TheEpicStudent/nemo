@@ -28,9 +28,9 @@
     <% else %>
       <div class="empty">
         <p class="empty-title">
-          <%= query.asked? ? "No channel matches that" : "No channels have been read yet" %>
+          <%= query.searching? ? "No channel matches that" : "No channels have been read yet" %>
         </p>
-        <% unless query.asked? %>
+        <% unless query.searching? %>
         <% end %>
       </div>
     <% end %>

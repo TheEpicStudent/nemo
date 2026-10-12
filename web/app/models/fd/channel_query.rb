@@ -34,13 +34,13 @@ module Fd
 
     attr_reader :term, :page
 
-    def asked? = term.length >= MIN_TERM
+    def searching? = term.length >= MIN_TERM
 
     def rows
       @rows ||= begin
-        found = ask(PER_PAGE + 1)
-        @more = found.size > PER_PAGE
-        found.first(PER_PAGE)
+        results = fetch_rows(PER_PAGE + 1)
+        @more = results.size > PER_PAGE
+        results.first(PER_PAGE)
       end
     end
 
@@ -55,7 +55,7 @@ module Fd
 
     private
 
-    def ask(limit)
+    def fetch_rows(limit)
       sql = <<~SQL
         SELECT c.channel_id, c.name, c.visibility, c.archived, c.last_active_at,
                s.messages_posted, s.total_members
@@ -72,24 +72,24 @@ module Fd
     end
 
     def where_clause
-      return "" unless asked?
+      return "" unless searching?
 
       "WHERE (lower(c.name) LIKE :within OR lower(c.channel_id) LIKE :within)\n"
     end
 
     def order
-      return BUSIEST unless asked?
+      return BUSIEST unless searching?
 
       "#{CLOSEST}, #{BUSIEST}"
     end
 
     def binds(limit)
-      held = { limit: limit, offset: (page - 1) * PER_PAGE }
-      return held unless asked?
+      params = { limit: limit, offset: (page - 1) * PER_PAGE }
+      return params unless searching?
 
       text = term.downcase
       like = Case.sanitize_sql_like(text)
-      held.merge(exact: text, starts: "#{like}%", within: "%#{like}%")
+      params.merge(exact: text, starts: "#{like}%", within: "%#{like}%")
     end
   end
 end

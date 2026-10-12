@@ -1,21 +1,21 @@
 module Prometheus
   class Mirror
-    FRESH_FOR = 60.seconds
+    CHECK_TTL = 60.seconds
 
-    def self.freshen(user_id)
+    def self.refresh_if_due(user_id)
       return false if user_id.blank?
       return false unless Roster.configured?
       return false unless Appointment.for_person(user_id).exists?
-      return false unless asking_again?(user_id)
+      return false unless check_due?(user_id)
 
       refresh(user_id)
     end
 
-    def self.asking_again?(user_id)
+    def self.check_due?(user_id)
       key = "prometheus/checked/#{user_id}"
       return false if Rails.cache.read(key)
 
-      Rails.cache.write(key, Time.current.to_i, expires_in: FRESH_FOR)
+      Rails.cache.write(key, Time.current.to_i, expires_in: CHECK_TTL)
       true
     end
 
@@ -23,18 +23,18 @@ module Prometheus
       return false if user_id.blank?
       return false unless Roster.configured?
 
-      settle(user_id, Roster.channels_for(user_id))
+      replace_appointments(user_id, Roster.channels_for(user_id))
       true
     rescue Roster::Error, Roster::NotConfiguredError => e
       Rails.logger.warn("[prometheus] could not read #{user_id}: #{e.message}")
       false
     end
 
-    def self.settle(user_id, channels)
-      held = rows_for(user_id, channels)
+    def self.replace_appointments(user_id, channels)
+      rows = rows_for(user_id, channels)
       Appointment.transaction do
         Appointment.for_person(user_id).delete_all
-        Appointment.insert_all!(held) if held.any?
+        Appointment.insert_all!(rows) if rows.any?
       end
       Current.forget_roles
     end
@@ -42,15 +42,15 @@ module Prometheus
     def self.reconcile_all
       return false unless Roster.configured?
 
-      held = Roster.every_appointment.filter_map { |one| row_from(one) }.uniq { |row| row.values_at(:user_id, :channel_id) }
-      return refuse_to_empty if held.empty? && Appointment.exists?
+      rows = Roster.every_appointment.filter_map { |record| row_from(record) }.uniq { |row| row.values_at(:user_id, :channel_id) }
+      return refuse_to_empty if rows.empty? && Appointment.exists?
 
       Appointment.transaction do
         Appointment.delete_all
-        Appointment.insert_all!(held) if held.any?
+        Appointment.insert_all!(rows) if rows.any?
       end
       Current.forget_roles
-      held.size
+      rows.size
     rescue Roster::Error, Roster::NotConfiguredError => e
       Rails.logger.warn("[prometheus] reconcile stopped: #{e.message}")
       false
@@ -73,7 +73,7 @@ module Prometheus
 
     def self.rows_for(user_id, channels)
       seen_at = Time.current
-      Array(channels).filter_map { |one| row_for(user_id, one, seen_at) }
+      Array(channels).filter_map { |record| row_for(user_id, record, seen_at) }
         .uniq { |row| row[:channel_id] }
     end
 

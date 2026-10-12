@@ -23,10 +23,10 @@ class Slack::MrkdwnTest < ActiveSupport::TestCase
   end
 
   test "styles nest" do
-    found = inline("*_both_*").first
+    element = inline("*_both_*").first
 
-    assert_equal "both", found["text"]
-    assert_equal({ "bold" => true, "italic" => true }, found["style"])
+    assert_equal "both", element["text"]
+    assert_equal({ "bold" => true, "italic" => true }, element["style"])
   end
 
   test "a delimiter touching nothing is left as text" do
@@ -40,8 +40,8 @@ class Slack::MrkdwnTest < ActiveSupport::TestCase
   end
 
   test "a wrapped link keeps its label, a bare one stands alone" do
-    wrapped = inline("<https://hack.club|the club>").first
-    assert_equal({ "type" => "link", "url" => "https://hack.club", "text" => "the club" }, wrapped)
+    labelled_link = inline("<https://hack.club|the club>").first
+    assert_equal({ "type" => "link", "url" => "https://hack.club", "text" => "the club" }, labelled_link)
 
     assert_equal({ "type" => "link", "url" => "https://hack.club" },
       inline("https://hack.club").first)
@@ -56,24 +56,24 @@ class Slack::MrkdwnTest < ActiveSupport::TestCase
   end
 
   test "a run of quoted lines is one quote block" do
-    found = parts("&gt; they said\n&gt; and then\nmine")
+    elements = parts("&gt; they said\n&gt; and then\nmine")
 
-    assert_equal "rich_text_quote", found.first["type"]
-    assert_equal "they said\nand then", found.first["elements"].first["text"]
-    assert_equal "rich_text_section", found.last["type"]
+    assert_equal "rich_text_quote", elements.first["type"]
+    assert_equal "they said\nand then", elements.first["elements"].first["text"]
+    assert_equal "rich_text_section", elements.last["type"]
   end
 
   test "a fence is preformatted and keeps its delimiters literal" do
-    found = parts("look:\n```\n*not bold*\n```")
+    elements = parts("look:\n```\n*not bold*\n```")
 
-    assert_equal "rich_text_preformatted", found.last["type"]
-    assert_equal "*not bold*", found.last["elements"].first["text"]
+    assert_equal "rich_text_preformatted", elements.last["type"]
+    assert_equal "*not bold*", elements.last["elements"].first["text"]
   end
 
   test "inline code is never parsed for styles inside it" do
-    found = inline("`*raw*`").first
+    element = inline("`*raw*`").first
 
-    assert_equal "*raw*", found["text"]
-    assert_equal({ "code" => true }, found["style"])
+    assert_equal "*raw*", element["text"]
+    assert_equal({ "code" => true }, element["style"])
   end
 end

@@ -9,8 +9,8 @@ CAPABILITIES = yaml.safe_load(CAPABILITIES_FILE.read_text())["capabilities"]
 
 
 def test_every_surface_names_a_capability_or_is_open():
-    silent = [one for one in surface.ENTRIES if not one.open_to_all and not one.needs]
-    assert silent == [], f"these write without declaring a capability: {silent}"
+    undeclared = [one for one in surface.ENTRIES if not one.open_to_all and not one.needs]
+    assert undeclared == [], f"these write without declaring a capability: {undeclared}"
 
 
 def test_every_named_capability_exists():
@@ -39,52 +39,52 @@ def test_the_thread_guards_are_registered():
 def test_only_the_join_watcher_handles_team_join():
     from bot.nemo.surface import join_watch
 
-    joins = [one.fn for one in surface.ENTRIES if (one.kind, one.key) == (surface.EVENT, "team_join")]
-    assert joins == [join_watch.arrived], "a second fd.member_joins writer makes every joiner look known"
+    join_handlers = [one.fn for one in surface.ENTRIES if (one.kind, one.key) == (surface.EVENT, "team_join")]
+    assert join_handlers == [join_watch.arrived], "a second fd.member_joins writer makes every joiner look known"
 
 
 def test_the_message_watcher_is_open_to_everyone():
-    watcher = [one for one in surface.ENTRIES if one.kind == surface.EVENT]
-    assert watcher, "the guarded-thread watcher is not registered"
-    assert all(one.open_to_all for one in watcher)
+    event_entries = [one for one in surface.ENTRIES if one.kind == surface.EVENT]
+    assert event_entries, "the guarded-thread watcher is not registered"
+    assert all(one.open_to_all for one in event_entries)
 
 
 def test_one_key_gets_one_listener_that_runs_every_handler():
-    ran = []
+    calls = []
     entries = [
-        surface.SurfaceEntry(surface.EVENT, "message", None, lambda ctx: ran.append("first"),
+        surface.SurfaceEntry(surface.EVENT, "message", None, lambda ctx: calls.append("first"),
                       open_to_all=True),
-        surface.SurfaceEntry(surface.EVENT, "message", None, lambda ctx: ran.append("second"),
+        surface.SurfaceEntry(surface.EVENT, "message", None, lambda ctx: calls.append("second"),
                       open_to_all=True),
     ]
     surface.fanned(entries)(ack=None, body={}, client=None, payload={})
-    assert ran == ["first", "second"], "bolt stops at the first answer, so we must fan out"
+    assert calls == ["first", "second"], "bolt stops at the first answer, so we must fan out"
 
 
 def test_one_failing_handler_does_not_silence_the_others():
-    ran = []
+    calls = []
 
-    def angry(ctx):
+    def raising_handler(ctx):
         raise RuntimeError("no")
 
     entries = [
-        surface.SurfaceEntry(surface.EVENT, "message", None, angry, open_to_all=True),
-        surface.SurfaceEntry(surface.EVENT, "message", None, lambda ctx: ran.append("still ran"),
+        surface.SurfaceEntry(surface.EVENT, "message", None, raising_handler, open_to_all=True),
+        surface.SurfaceEntry(surface.EVENT, "message", None, lambda ctx: calls.append("still ran"),
                       open_to_all=True),
     ]
     surface.fanned(entries)(ack=None, body={}, client=None, payload={})
-    assert ran == ["still ran"], "a handler that throws must not take the others down"
+    assert calls == ["still ran"], "a handler that throws must not take the others down"
 
 
 def test_an_event_without_an_ack_does_not_blow_up():
-    ran = []
-    entry = surface.SurfaceEntry(surface.EVENT, "message", None, lambda ctx: ran.append("ok"),
+    calls = []
+    entry = surface.SurfaceEntry(surface.EVENT, "message", None, lambda ctx: calls.append("ok"),
                           open_to_all=True)
     surface.guarded(entry)(ack=None, body={}, client=None, payload={})
-    assert ran == ["ok"], "bolt passes events no ack, so calling one must not be attempted"
+    assert calls == ["ok"], "bolt passes events no ack, so calling one must not be attempted"
 
 
-class Nothing:
+class NoopApp:
     def __getattr__(self, _name):
         def hook(*_a, **_k):
             return lambda fn: fn
@@ -93,7 +93,7 @@ class Nothing:
 
 
 def test_the_firehouse_and_the_guard_share_the_message_key():
-    handlers.register(Nothing(), lambda *a, **k: None)
+    handlers.register(NoopApp(), lambda *a, **k: None)
     on_message = [one for one in surface.ENTRIES
                   if one.kind == surface.EVENT and one.key == "message"]
     assert len(on_message) >= 2, "the guard watcher and the case-thread reader must both be held"
@@ -103,7 +103,7 @@ def test_the_firehouse_and_the_guard_share_the_message_key():
 def test_a_cold_guard_cache_does_not_silence_enforcement():
     from bot.nemo import guards
 
-    was_loaded, was_watched = guards._loaded, set(guards._watched)
+    saved_loaded, saved_watched = guards._loaded, set(guards._watched)
     try:
         guards._loaded = False
         guards._watched.clear()
@@ -111,7 +111,7 @@ def test_a_cold_guard_cache_does_not_silence_enforcement():
         guards._loaded = True
         assert guards.watching("C_ANY", "1.1") is False
     finally:
-        guards._loaded, guards._watched = was_loaded, was_watched
+        guards._loaded, guards._watched = saved_loaded, saved_watched
 
 
 def test_the_listener_names_the_arguments_bolt_injects():
@@ -119,11 +119,11 @@ def test_the_listener_names_the_arguments_bolt_injects():
 
     from bot.nemo import surface as s
 
-    for made in (s.fanned([]), s.guarded(s.SurfaceEntry(s.EVENT, "message", None,
+    for handler in (s.fanned([]), s.guarded(s.SurfaceEntry(s.EVENT, "message", None,
                                                  lambda ctx: None, open_to_all=True))):
-        named = inspect.getfullargspec(made).args
+        named = inspect.getfullargspec(handler).args
         assert set(s.INJECTED) <= set(named), (
-            f"bolt injects only named arguments, {made} would be handed nothing: {named}"
+            f"bolt injects only named arguments, {handler} would be handed nothing: {named}"
         )
 
 
@@ -142,7 +142,7 @@ def test_a_delete_invites_the_admin_then_retries_once():
 
     tries, invited = [], []
 
-    def flaky(channel_id, ts, max_retries=2):
+    def failing_delete(channel_id, ts, max_retries=2):
         tries.append(ts)
         if len(tries) == 1:
             raise RuntimeError("channel_not_found")
@@ -151,13 +151,13 @@ def test_a_delete_invites_the_admin_then_retries_once():
         def conversations_invite(self, channel, users):
             invited.append((channel, users))
 
-    was_delete, was_who = privileged.delete_message, privileged.admin_user_id
+    saved_delete, saved_admin = privileged.delete_message, privileged.admin_user_id
     try:
-        privileged.delete_message = flaky
+        privileged.delete_message = failing_delete
         privileged.admin_user_id = lambda: "UADMIN"
         guard_actions.remove(Client(), "C1", "1.1")
     finally:
-        privileged.delete_message, privileged.admin_user_id = was_delete, was_who
+        privileged.delete_message, privileged.admin_user_id = saved_delete, saved_admin
 
     assert invited == [("C1", "UADMIN")], "the admin must be invited before the retry"
     assert tries == ["1.1", "1.1"], "the delete is retried exactly once after the invite"

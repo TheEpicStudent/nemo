@@ -12,7 +12,7 @@ from bot.nemo.channel import (
     is_foreign_message_error,
     mark_card,
     mark_root,
-    only_the_face,
+    author_display_fields,
     root_mark,
     unfurl_opening,
 )
@@ -31,7 +31,7 @@ WHERE case_id = %s AND mirrored_as = 'card' AND deleted_at IS NULL
 ORDER BY id LIMIT 1
 """
 
-OPENING_CARRIED = """
+MARK_OPENING_MIRRORED = """
 UPDATE fd.case_chat SET mirrored_ts = %s, mirrored_at = now(), last_seen_at = now()
 WHERE id = %s AND mirrored_ts IS NULL
 """
@@ -50,7 +50,7 @@ WHERE c.id = %s AND c.card_ts IS NULL
   AND NOT EXISTS (SELECT 1 FROM fd.case_reports r WHERE r.case_id = c.id)
 """
 
-KEPT = """
+SET_CARD = """
 UPDATE fd.cases SET card_channel_id = %s, card_thread_ts = %s, card_ts = %s,
                     card_digest = %s, updated_at = now()
 WHERE id = %s AND card_ts IS NULL
@@ -71,10 +71,10 @@ def mark_key(case, thread_ts):
     return f"root:{root_mark(case)}" if thread_ts else card_mark(case)
 
 
-def mark(client, channel_id, thread_ts, ts, case, fresh=False):
+def mark(client, channel_id, thread_ts, ts, case, is_new=False):
     if thread_ts:
-        return mark_root(client, channel_id, thread_ts, ts, case, fresh=fresh)
-    return mark_card(client, channel_id, ts, case, fresh=fresh)
+        return mark_root(client, channel_id, thread_ts, ts, case, is_new=is_new)
+    return mark_card(client, channel_id, ts, case, is_new=is_new)
 
 
 def gather(conn, case_id):
@@ -136,7 +136,7 @@ def thread_extras(client, conn, case, channel_id, card_ts):
 def face(client, case):
     if not case["opening_id"] or not case["opened_by"]:
         return {}
-    return only_the_face(client, False, case["opened_by"])
+    return author_display_fields(client, False, case["opened_by"])
 
 
 def post(client, conn, case_id, channel_id, thread_ts=None):
@@ -144,10 +144,10 @@ def post(client, conn, case_id, channel_id, thread_ts=None):
     if case is None or case["card_ts"]:
         return case and case["card_ts"]
 
-    held = conn.execute(CLAIM_CARD, (case_id,)).fetchone()
-    if held and held[0]:
+    row = conn.execute(CLAIM_CARD, (case_id,)).fetchone()
+    if row and row[0]:
         log.info("nemo: case %s went up while we were asking, leaving it", case_id)
-        return held[0]
+        return row[0]
 
     built = views.queued.build_blocks(case)
     sent = client.chat_postMessage(
@@ -161,13 +161,13 @@ def post(client, conn, case_id, channel_id, thread_ts=None):
         **face(client, case),
     )
     conn.execute(
-        KEPT, (channel_id, thread_ts, sent["ts"], card_state(mark_key(case, thread_ts)), case_id)
+        SET_CARD, (channel_id, thread_ts, sent["ts"], card_state(mark_key(case, thread_ts)), case_id)
     )
-    mark(client, channel_id, thread_ts, sent["ts"], case, fresh=True)
+    mark(client, channel_id, thread_ts, sent["ts"], case, is_new=True)
     if not thread_ts:
         thread_extras(client, conn, case, channel_id, sent["ts"])
     if case["opening_id"]:
-        conn.execute(OPENING_CARRIED, (sent["ts"], case["opening_id"]))
+        conn.execute(MARK_OPENING_MIRRORED, (sent["ts"], case["opening_id"]))
     log.info("nemo: case %s has a card in %s", case_id, channel_id)
     return sent["ts"]
 

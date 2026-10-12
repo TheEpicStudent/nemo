@@ -9,23 +9,23 @@ THREAD = "100.000"
 class Conn:
     def __init__(self, rows=None):
         self.rows = rows or {}
-        self.ran = []
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def fetchone(self):
         for mark, row in self.rows.items():
-            if mark in self.ran[-1][0]:
+            if mark in self.executed[-1][0]:
                 return row
         return None
 
     def fetchall(self):
         return []
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.executed if mark in sql]
 
 
 class Slack:
@@ -50,13 +50,13 @@ def internal_log(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def faces(monkeypatch):
+def stub_posting_identity(monkeypatch):
     monkeypatch.setattr(
-        case_queue, "only_the_face", lambda client, anonymous, user_id: {"username": user_id}
+        case_queue, "author_display_fields", lambda client, anonymous, user_id: {"username": user_id}
     )
 
 
-def opened(card_ts=None, reported=False, opening=None):
+def case_rows(card_ts=None, reported=False, opening=None):
     return {
         "SELECT id, category_key": (41, None, None, None, card_ts, None, "UOPENER", None, None,
                                     None),
@@ -67,18 +67,18 @@ def opened(card_ts=None, reported=False, opening=None):
 
 
 def test_a_case_opened_without_a_report_gets_a_card_in_the_firehouse():
-    conn, slack = Conn(opened()), Slack()
+    conn, slack = Conn(case_rows()), Slack()
 
     ts = case_queue.card(slack, conn, 41)
 
     assert ts == "9.9"
     assert slack.posted[0]["channel"] == INTERNAL_LOG
     assert slack.posted[0]["thread_ts"] is None
-    assert conn.did("UPDATE fd.cases SET card_channel_id")[0][:3] == (INTERNAL_LOG, None, "9.9")
+    assert conn.args_for("UPDATE fd.cases SET card_channel_id")[0][:3] == (INTERNAL_LOG, None, "9.9")
 
 
 def test_a_card_can_be_sent_somewhere_other_than_the_firehouse():
-    conn, slack = Conn(opened()), Slack()
+    conn, slack = Conn(case_rows()), Slack()
 
     case_queue.card(slack, conn, 41, "C_ELSE")
 
@@ -86,14 +86,14 @@ def test_a_card_can_be_sent_somewhere_other_than_the_firehouse():
 
 
 def test_a_case_that_came_in_as_a_report_is_left_to_its_report_card():
-    conn, slack = Conn(opened(reported=True)), Slack()
+    conn, slack = Conn(case_rows(reported=True)), Slack()
 
     assert case_queue.card(slack, conn, 41) is None
     assert slack.posted == []
 
 
 def test_a_case_that_already_has_a_card_does_not_get_a_second_one():
-    conn, slack = Conn(opened(card_ts="8.8")), Slack()
+    conn, slack = Conn(case_rows(card_ts="8.8")), Slack()
 
     assert case_queue.card(slack, conn, 41) is None
     assert case_queue.post(slack, conn, 41, INTERNAL_LOG) == "8.8"
@@ -101,7 +101,7 @@ def test_a_case_that_already_has_a_card_does_not_get_a_second_one():
 
 
 def test_a_card_claimed_while_we_were_asking_is_left_alone():
-    conn, slack = Conn(opened()), Slack()
+    conn, slack = Conn(case_rows()), Slack()
     conn.rows["FOR UPDATE"] = ("7.7",)
 
     assert case_queue.post(slack, conn, 41, INTERNAL_LOG) == "7.7"
@@ -109,39 +109,39 @@ def test_a_card_claimed_while_we_were_asking_is_left_alone():
 
 
 def test_a_thread_card_still_goes_into_its_thread():
-    conn, slack = Conn(opened()), Slack()
+    conn, slack = Conn(case_rows()), Slack()
 
     case_queue.post(slack, conn, 41, "C1", THREAD)
 
     assert slack.posted[0]["thread_ts"] == THREAD
-    assert conn.did("UPDATE fd.cases SET card_channel_id")[0][:3] == ("C1", THREAD, "9.9")
+    assert conn.args_for("UPDATE fd.cases SET card_channel_id")[0][:3] == ("C1", THREAD, "9.9")
 
 
 def test_what_happened_is_quoted_on_the_card_in_the_openers_name():
-    conn, slack = Conn(opened(opening=(7, "kept posting invite links"))), Slack()
+    conn, slack = Conn(case_rows(opening=(7, "kept posting invite links"))), Slack()
 
     case_queue.card(slack, conn, 41)
 
-    sent, header = slack.posted
-    assert sent["username"] == "UOPENER"
-    assert [b["type"] for b in sent["blocks"]] == ["rich_text"]
-    assert "kept posting invite links" in str(sent["blocks"][0])
+    card_post, header = slack.posted
+    assert card_post["username"] == "UOPENER"
+    assert [b["type"] for b in card_post["blocks"]] == ["rich_text"]
+    assert "kept posting invite links" in str(card_post["blocks"][0])
     assert header["thread_ts"] == "9.9" and header["text"] == "Case 41"
-    assert conn.did("UPDATE fd.case_chat SET mirrored_ts") == [("9.9", 7)]
+    assert conn.args_for("UPDATE fd.case_chat SET mirrored_ts") == [("9.9", 7)]
 
 
 def test_a_card_with_nothing_said_goes_up_as_nemo():
-    conn, slack = Conn(opened()), Slack()
+    conn, slack = Conn(case_rows()), Slack()
 
     case_queue.card(slack, conn, 41)
 
     assert "username" not in slack.posted[0]
     assert [b["type"] for b in slack.posted[0]["blocks"]] == ["section"]
-    assert conn.did("UPDATE fd.case_chat SET mirrored_ts") == []
+    assert conn.args_for("UPDATE fd.case_chat SET mirrored_ts") == []
 
 
 def test_a_new_card_waits_with_an_hourglass():
-    conn, slack = Conn(opened()), Slack()
+    conn, slack = Conn(case_rows()), Slack()
 
     case_queue.card(slack, conn, 41)
 
@@ -150,7 +150,7 @@ def test_a_new_card_waits_with_an_hourglass():
 
 
 def test_a_thread_card_leaves_the_tracking_to_the_message_it_answers():
-    conn, slack = Conn(opened()), Slack()
+    conn, slack = Conn(case_rows()), Slack()
 
     case_queue.post(slack, conn, 41, "C1", THREAD)
 
@@ -158,7 +158,7 @@ def test_a_thread_card_leaves_the_tracking_to_the_message_it_answers():
 
 
 def resolved_in_thread(resolution="no_action"):
-    rows = opened(card_ts="8.8")
+    rows = case_rows(card_ts="8.8")
     rows["SELECT id, category_key"] = (41, None, "2026-10-11", "C1", "8.8", "old", "UOPENER",
                                        resolution, THREAD, None)
     return rows
@@ -179,9 +179,9 @@ def test_a_resolved_thread_case_is_checked_on_the_message_it_answers():
 
     added = [one for one in slack.reacted if not one.get("removed")]
     assert added == [{"channel": "C1", "timestamp": THREAD, "name": "white_check_mark"}]
-    taken_off_card = {one["name"] for one in slack.reacted
-                      if one.get("removed") and one["timestamp"] == "8.8"}
-    assert "hourglass_flowing_sand" in taken_off_card, "nemo's own hourglass leaves the card"
+    removed_reactions = {one["name"] for one in slack.reacted
+                         if one.get("removed") and one["timestamp"] == "8.8"}
+    assert "hourglass_flowing_sand" in removed_reactions, "nemo's own hourglass leaves the card"
 
 
 def test_a_merged_thread_case_shows_the_repeat_on_its_message():

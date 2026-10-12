@@ -6,10 +6,10 @@ export default class extends Controller {
   static targets = ["channel"]
 
   connect() {
-    this.fit()
+    this.toggleChannel()
   }
 
-  fit() {
+  toggleChannel() {
     if (!this.hasChannelTarget) return
 
     const kind = this.element.querySelector('input[name="kind"]:checked')?.value

@@ -3,40 +3,40 @@ module Fd
     permit "channel.guard"
 
     def create
-      return refuse("That is not a valid guard kind") unless ChannelGuard.kind?(kind)
-      return refuse("This channel is already guarded") if live_guard
+      return redirect_with_alert("That is not a valid guard kind") unless ChannelGuard.kind?(kind)
+      return redirect_with_alert("This channel is already guarded") if live_guard
 
-      problem = settings_objection
-      return refuse(problem) if problem
+      error = settings_error
+      return redirect_with_alert(error) if error
 
       writing do
         guard = ChannelGuard.create!(kind: kind, channel_id: channel_id,
-          settings: asked_settings, opened_by: current_account.user_id)
+          settings: requested_settings, opened_by: current_account.user_id)
         audit(guard, "opened", after: guard.settings)
       end
 
-      redirect_to here, notice: "#{guard_label_text.upcase_first} turned on"
+      redirect_to return_path, notice: "#{guard_label_text.upcase_first} turned on"
     end
 
     def update
       guard = live_guard
-      return refuse("This channel is not guarded that way") if guard.nil?
+      return redirect_with_alert("This channel is not guarded that way") if guard.nil?
 
-      problem = settings_objection
-      return refuse(problem) if problem
+      error = settings_error
+      return redirect_with_alert(error) if error
 
-      was = guard.settings
+      previous_settings = guard.settings
       writing do
-        guard.update!(settings: was.merge(asked_settings), updated_at: Time.current)
-        audit(guard, "tuned", before: was, after: guard.settings)
+        guard.update!(settings: previous_settings.merge(requested_settings), updated_at: Time.current)
+        audit(guard, "tuned", before: previous_settings, after: guard.settings)
       end
 
-      redirect_to here, notice: "#{guard_label_text.upcase_first} updated"
+      redirect_to return_path, notice: "#{guard_label_text.upcase_first} updated"
     end
 
     def destroy
       guard = live_guard
-      return refuse("This channel is not guarded that way") if guard.nil?
+      return redirect_with_alert("This channel is not guarded that way") if guard.nil?
 
       writing do
         guard.update!(state: "lifted", lifted_at: Time.current,
@@ -44,7 +44,7 @@ module Fd
         audit(guard, "lifted")
       end
 
-      redirect_to here, notice: "#{guard_label_text.upcase_first} turned off; the list is kept"
+      redirect_to return_path, notice: "#{guard_label_text.upcase_first} turned off; the list is kept"
     end
 
     private
@@ -65,11 +65,11 @@ module Fd
       FdChannelsHelper::GUARD_LABELS.fetch(kind, kind).downcase
     end
 
-    def here
+    def return_path
       fd_channel_path(channel_id, tab: kind)
     end
 
-    def asked_settings
+    def requested_settings
       case kind
       when ChannelGuard::SLOWMODE
         { "seconds" => seconds, "threads" => params[:threads].present? }
@@ -83,16 +83,16 @@ module Fd
     end
 
     def seconds
-      given = params[:seconds].to_s.strip
-      given.present? ? given.to_i : ChannelGuard::SECONDS_TO_START
+      value = params[:seconds].to_s.strip
+      value.present? ? value.to_i : ChannelGuard::SECONDS_TO_START
     end
 
     def min_age_days
-      given = params[:min_age_days].to_s.strip
-      given.present? ? given.to_i : ChannelGuard::DAYS_TO_START
+      value = params[:min_age_days].to_s.strip
+      value.present? ? value.to_i : ChannelGuard::DAYS_TO_START
     end
 
-    def settings_objection
+    def settings_error
       case kind
       when ChannelGuard::SLOWMODE
         return nil if params[:seconds].to_s.strip.blank?
@@ -107,9 +107,9 @@ module Fd
       nil
     end
 
-    def refuse(why)
+    def redirect_with_alert(message)
       redirect_to fd_channel_path(channel_id, tab: ChannelGuard.kind?(kind) ? kind : nil),
-        alert: why
+        alert: message
     end
   end
 end

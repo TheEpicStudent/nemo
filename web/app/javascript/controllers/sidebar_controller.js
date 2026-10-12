@@ -17,9 +17,9 @@ export default class extends Controller {
     if (!this.nav) return
 
     this.mobile = window.matchMedia(MOBILE)
-    this.root.classList.toggle(ICON, this.remembered(MODE) === "icon")
+    this.root.classList.toggle(ICON, this.readCookie(MODE) === "icon")
 
-    const width = parseInt(this.remembered(WIDTH), 10)
+    const width = parseInt(this.readCookie(WIDTH), 10)
     if (width >= MIN && width <= MAX) this.root.style.setProperty("--sidebar-w", `${width}px`)
   }
 
@@ -35,7 +35,7 @@ export default class extends Controller {
 
     const icon = this.root.classList.toggle(ICON)
     this.root.classList.remove(OPEN)
-    this.remember(MODE, icon ? "icon" : "wide")
+    this.writeCookie(MODE, icon ? "icon" : "wide")
   }
 
   close() {
@@ -48,8 +48,8 @@ export default class extends Controller {
     event.preventDefault()
     this.rail = event.currentTarget
     this.from = event.clientX
-    this.was = this.nav.getBoundingClientRect().width
-    this.moved = false
+    this.startWidth = this.nav.getBoundingClientRect().width
+    this.hasMoved = false
     this.rail.setPointerCapture(event.pointerId)
     this.root.classList.add(DRAGGING)
   }
@@ -58,20 +58,20 @@ export default class extends Controller {
     if (this.from == null) return
 
     const delta = event.clientX - this.from
-    if (!this.moved && Math.abs(delta) <= SLOP) return
+    if (!this.hasMoved && Math.abs(delta) <= SLOP) return
 
-    this.moved = true
+    this.hasMoved = true
     if (this.root.classList.contains(ICON)) {
       if (delta < 24) return
 
       this.root.classList.remove(ICON)
-      this.remember(MODE, "wide")
-      this.was = MIN
+      this.writeCookie(MODE, "wide")
+      this.startWidth = MIN
       this.from = event.clientX
       return
     }
 
-    const width = Math.min(MAX, Math.max(MIN, this.was + delta))
+    const width = Math.min(MAX, Math.max(MIN, this.startWidth + delta))
     this.root.style.setProperty("--sidebar-w", `${Math.round(width)}px`)
   }
 
@@ -80,7 +80,7 @@ export default class extends Controller {
 
     this.rail?.releasePointerCapture?.(event.pointerId)
     this.root.classList.remove(DRAGGING)
-    const dragged = this.moved
+    const dragged = this.hasMoved
     this.from = null
     this.rail = null
 
@@ -90,17 +90,17 @@ export default class extends Controller {
     }
 
     const width = parseInt(this.root.style.getPropertyValue("--sidebar-w"), 10)
-    if (width) this.remember(WIDTH, String(width))
+    if (width) this.writeCookie(WIDTH, String(width))
   }
 
-  remembered(name) {
+  readCookie(name) {
     return document.cookie
       .split("; ")
       .find((pair) => pair.startsWith(`${name}=`))
       ?.split("=")[1]
   }
 
-  remember(name, value) {
+  writeCookie(name, value) {
     document.cookie = `${name}=${value}; path=/; max-age=31536000; samesite=lax`
   }
 }

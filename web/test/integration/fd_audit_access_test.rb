@@ -28,7 +28,7 @@ class FdAuditAccessTest < ActionDispatch::IntegrationTest
     id
   end
 
-  def logged(field_class)
+  def access_log_subjects(field_class)
     AccessLog.where(actor_id: @ff.user_id, field_class: field_class).pluck(:subject_user_id)
   end
 
@@ -105,13 +105,13 @@ class FdAuditAccessTest < ActionDispatch::IntegrationTest
     slack!
     move_capability!("firefighter", "identity.read", false, by: "UBOSS")
 
-    [IP, EMAIL, "domain:alts.example", "text:#{IP}"].each do |asked|
-      get fd_audit_path(q: asked)
+    [IP, EMAIL, "domain:alts.example", "text:#{IP}"].each do |search|
+      get fd_audit_path(q: search)
       assert_response :success
-      assert_select ".empty-title", "Not yours to search by address or email"
+      assert_select ".empty-title", "Requires identity.read"
       assert_no_match(/user login/, response.body)
     end
-    assert_empty logged("identity_search")
+    assert_empty access_log_subjects("identity_search")
   end
 
   test "an address search logs the people it showed" do
@@ -120,24 +120,24 @@ class FdAuditAccessTest < ActionDispatch::IntegrationTest
 
     get fd_audit_path(q: IP)
     assert_match(/user login/, response.body)
-    assert_equal [WHO, "UAUDOTHER"].sort, logged("identity_search").sort
+    assert_equal [WHO, "UAUDOTHER"].sort, access_log_subjects("identity_search").sort
 
     get fd_audit_path(q: "invite spam")
-    assert_equal 2, logged("identity_search").size
+    assert_equal 2, access_log_subjects("identity_search").size
   end
 
   test "a slack search about somebody logs them" do
     slack!
 
     get fd_audit_path(q: "actor:#{WHO}")
-    assert_equal [WHO], logged("audit")
+    assert_equal [WHO], access_log_subjects("audit")
 
     get fd_audit_path
-    assert_equal [WHO], logged("audit")
+    assert_equal [WHO], access_log_subjects("audit")
   end
 
   test "a search about somebody outside slack does not log a slack read" do
     get fd_audit_path(view: "reads", q: "about:#{WHO}")
-    assert_empty logged("audit")
+    assert_empty access_log_subjects("audit")
   end
 end

@@ -1,0 +1,31 @@
+<%= render layout: "shared/dropdown", locals: {
+      label: "Saved queries", trigger_css: "btn", pop_css: "audit-saved-pop",
+      trigger: safe_join([audit_icon("bookmark"), tag.span("Saved queries")]) } do %>
+  <% @saved.each do |saved| %>
+    <div class="audit-saved-row">
+      <%= link_to fd_audit_path(saved.params), class: "btn" do %>
+        <span><%= saved.name %></span>
+        <span class="menu-count mono"><%= saved.query %></span>
+      <% end %>
+      <% if saved.removable_by?(current_account) %>
+        <%= button_to fd_audit_saved_query_path(saved), method: :delete, class: "btn btn-ghost btn-only btn-sm",
+              aria: { label: "Remove #{saved.name}" }, form_class: "contents" do %>
+          <%= audit_icon("x", size: 13) %>
+        <% end %>
+      <% end %>
+    </div>
+  <% end %>
+  <% if @query.searching? %>
+    <div class="menu-sep"></div>
+    <%= form_with url: fd_audit_saved_queries_path, method: :post, class: "audit-saved-form" do %>
+      <%= hidden_field_tag :query, @query.term, id: nil %>
+      <%= hidden_field_tag :view, @query.to_params["view"], id: nil %>
+      <%= text_field_tag :name, nil, id: "audit_saved_name", class: "input", placeholder: "Name",
+            maxlength: Fd::AuditSavedQuery::LONGEST_NAME, required: true, aria: { label: "Name" } %>
+      <label class="audit-saved-shared">
+        <%= check_box_tag :shared, "1", false, id: "audit_saved_shared" %> Shared
+      </label>
+      <%= submit_tag "Save", class: "btn btn-primary btn-sm", name: nil %>
+    <% end %>
+  <% end %>
+<% end %>

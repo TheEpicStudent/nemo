@@ -1,5 +1,5 @@
-<% settled = growth_months.select(&:claim_rate_30d) %>
-<% mean = settled.any? ? (settled.sum { |m| m.claim_rate_30d.to_f } / settled.size * 100).round(1) : nil %>
+<% complete_months = growth_months.select(&:claim_rate_30d) %>
+<% mean = complete_months.any? ? (complete_months.sum { |m| m.claim_rate_30d.to_f } / complete_months.size * 100).round(1) : nil %>
 
 <section class="section">
   <div class="section-head">

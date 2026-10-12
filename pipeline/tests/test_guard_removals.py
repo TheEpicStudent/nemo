@@ -1,16 +1,16 @@
 from bot.nemo import guard_removals
 
-ROOM = "C1"
+CHANNEL_ID = "C1"
 
 
 class Conn:
-    def __init__(self, pending=(), still=True):
+    def __init__(self, pending=(), rows_remain=True):
         self.pending = list(pending)
-        self.still = still
-        self.ran = []
+        self.rows_remain = rows_remain
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         self.last = sql
         return self
 
@@ -18,13 +18,13 @@ class Conn:
         return self.pending
 
     def fetchone(self):
-        return (self.still,)
+        return (self.rows_remain,)
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.executed if mark in sql]
 
 
-class _held:
+class _conn_context:
     def __init__(self, conn):
         self.conn = conn
 
@@ -41,100 +41,100 @@ def throttled():
     return failure
 
 
-def drained(monkeypatch, conn, outcomes=None, settled=None):
-    tried = []
+def run_drain(monkeypatch, conn, outcomes=None, on_settled=None):
+    attempts = []
     outcomes = dict(outcomes or {})
 
     def remove(client, channel_id, ts, max_retries=2):
-        tried.append((ts, max_retries))
+        attempts.append((ts, max_retries))
         if ts in outcomes:
             raise outcomes[ts]
         return True
 
-    monkeypatch.setattr(guard_removals, "session", lambda: _held(conn))
+    monkeypatch.setattr(guard_removals, "session", lambda: _conn_context(conn))
     monkeypatch.setattr(guard_removals.guard_actions, "remove", remove)
-    more = guard_removals.drain(object(), settled)
-    return tried, more
+    more_pending = guard_removals.drain(object(), on_settled)
+    return attempts, more_pending
 
 
 def pending(*ts):
-    return [(n, ROOM, one) for n, one in enumerate(ts, start=1)]
+    return [(n, CHANNEL_ID, one) for n, one in enumerate(ts, start=1)]
 
 
 def test_queued_deletes_are_retried_without_sleeping(monkeypatch):
     conn = Conn(pending("1.1", "1.2"))
-    woke = []
+    wake_calls = []
 
-    tried, more = drained(monkeypatch, conn, settled=lambda: woke.append(1))
+    attempts, more_pending = run_drain(monkeypatch, conn, on_settled=lambda: wake_calls.append(1))
 
-    assert tried == [("1.1", 0), ("1.2", 0)]
-    assert conn.did("SET remove_pending = false, detail = NULL") == [(1,), (2,)]
-    assert woke == [1]
-    assert more is False
+    assert attempts == [("1.1", 0), ("1.2", 0)]
+    assert conn.args_for("SET remove_pending = false, detail = NULL") == [(1,), (2,)]
+    assert wake_calls == [1]
+    assert more_pending is False
 
 
 def test_a_rate_limit_stops_the_pass_without_spending_an_attempt(monkeypatch):
     conn = Conn(pending("1.1", "1.2", "1.3"))
 
-    tried, more = drained(monkeypatch, conn, {"1.2": throttled()})
+    attempts, more_pending = run_drain(monkeypatch, conn, {"1.2": throttled()})
 
-    assert [ts for ts, _ in tried] == ["1.1", "1.2"]
-    assert conn.did("SET remove_pending = false, detail = NULL") == [(1,)]
-    assert not conn.did("remove_attempts = remove_attempts + 1")
-    assert more is False
+    assert [ts for ts, _ in attempts] == ["1.1", "1.2"]
+    assert conn.args_for("SET remove_pending = false, detail = NULL") == [(1,)]
+    assert not conn.args_for("remove_attempts = remove_attempts + 1")
+    assert more_pending is False
 
 
 def test_another_failure_spends_an_attempt_and_keeps_going(monkeypatch):
-    conn = Conn(pending("1.1", "1.2"), still=True)
-    woke = []
+    conn = Conn(pending("1.1", "1.2"), rows_remain=True)
+    wake_calls = []
 
-    drained(monkeypatch, conn, {"1.1": RuntimeError("cant_delete_message")},
-            settled=lambda: woke.append(1))
+    run_drain(monkeypatch, conn, {"1.1": RuntimeError("cant_delete_message")},
+              on_settled=lambda: wake_calls.append(1))
 
-    (failed,) = conn.did("remove_attempts = remove_attempts + 1")
+    (failed,) = conn.args_for("remove_attempts = remove_attempts + 1")
     assert failed == ("cant_delete_message", guard_removals.GIVE_UP_AFTER,
                       guard_removals.GIVE_UP_AFTER, 1)
-    assert conn.did("SET remove_pending = false, detail = NULL") == [(2,)]
-    assert woke == [1]
+    assert conn.args_for("SET remove_pending = false, detail = NULL") == [(2,)]
+    assert wake_calls == [1]
 
 
 def test_giving_up_wakes_the_notices(monkeypatch, caplog):
-    conn = Conn(pending("1.1"), still=False)
-    woke = []
+    conn = Conn(pending("1.1"), rows_remain=False)
+    wake_calls = []
     caplog.set_level("WARNING", logger="bot.nemo")
 
-    drained(monkeypatch, conn, {"1.1": RuntimeError("cant_delete_message")},
-            settled=lambda: woke.append(1))
+    run_drain(monkeypatch, conn, {"1.1": RuntimeError("cant_delete_message")},
+              on_settled=lambda: wake_calls.append(1))
 
-    assert woke == [1]
+    assert wake_calls == [1]
     assert any("gave up deleting 1.1" in one.getMessage() for one in caplog.records)
 
 
 def test_a_message_already_gone_counts_as_removed(monkeypatch):
     conn = Conn(pending("1.1"))
 
-    drained(monkeypatch, conn, {"1.1": RuntimeError("message_not_found")})
+    run_drain(monkeypatch, conn, {"1.1": RuntimeError("message_not_found")})
 
-    assert conn.did("SET remove_pending = false, detail = NULL") == [(1,)]
-    assert not conn.did("remove_attempts = remove_attempts + 1")
+    assert conn.args_for("SET remove_pending = false, detail = NULL") == [(1,)]
+    assert not conn.args_for("remove_attempts = remove_attempts + 1")
 
 
 def test_nothing_pending_wakes_nothing(monkeypatch):
-    woke = []
+    wake_calls = []
 
-    tried, more = drained(monkeypatch, Conn(), settled=lambda: woke.append(1))
+    attempts, more_pending = run_drain(monkeypatch, Conn(), on_settled=lambda: wake_calls.append(1))
 
-    assert tried == []
-    assert woke == []
-    assert more is False
+    assert attempts == []
+    assert wake_calls == []
+    assert more_pending is False
 
 
 def test_a_full_pass_asks_for_another(monkeypatch):
     monkeypatch.setattr(guard_removals, "PER_DRAIN", 2)
 
-    _tried, more = drained(monkeypatch, Conn(pending("1.1", "1.2")))
+    _attempts, more_pending = run_drain(monkeypatch, Conn(pending("1.1", "1.2")))
 
-    assert more is True
+    assert more_pending is True
 
 
 def test_the_claim_takes_only_queued_deletes():

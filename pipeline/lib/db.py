@@ -205,28 +205,28 @@ class AlreadyRunningError(RuntimeError):
 
 @contextmanager
 def instance_lock(name: str):
-    holder = connect()
+    lock_conn = connect()
     try:
-        taken = holder.execute(
+        acquired = lock_conn.execute(
             "SELECT pg_try_advisory_lock(%s, hashtext(%s))",
             (SINGLETON_NAMESPACE, name),
         ).fetchone()[0]
-        holder.commit()
-        if not taken:
+        lock_conn.commit()
+        if not acquired:
             raise AlreadyRunningError(
                 f"another {name} already holds the singleton lock on this database, "
                 "so this one would double every in-process rate budget"
             )
         try:
-            yield holder
+            yield lock_conn
         finally:
-            holder.execute(
+            lock_conn.execute(
                 "SELECT pg_advisory_unlock(%s, hashtext(%s))",
                 (SINGLETON_NAMESPACE, name),
             )
-            holder.commit()
+            lock_conn.commit()
     finally:
-        holder.close()
+        lock_conn.close()
 
 
 BUILD_LOCK = "dbt-build"
@@ -243,17 +243,17 @@ def build_lock(wait_seconds=None, poll_seconds=BUILD_POLL_SECONDS,
                clock=time.monotonic, sleep=time.sleep):
     if wait_seconds is None:
         wait_seconds = build_wait_seconds()
-    holder = connect()
+    lock_conn = connect()
     deadline = clock() + wait_seconds
     waited = False
     try:
         while True:
-            taken = holder.execute(
+            acquired = lock_conn.execute(
                 "SELECT pg_try_advisory_lock(%s, hashtext(%s))",
                 (SINGLETON_NAMESPACE, BUILD_LOCK),
             ).fetchone()[0]
-            holder.commit()
-            if taken:
+            lock_conn.commit()
+            if acquired:
                 if waited:
                     print(f"dbt: the {BUILD_LOCK} lock came free, building now")
                 break
@@ -267,15 +267,15 @@ def build_lock(wait_seconds=None, poll_seconds=BUILD_POLL_SECONDS,
                 print(f"dbt: another build holds the {BUILD_LOCK} lock, waiting up to {wait_seconds}s")
             sleep(poll_seconds)
         try:
-            yield holder
+            yield lock_conn
         finally:
-            holder.execute(
+            lock_conn.execute(
                 "SELECT pg_advisory_unlock(%s, hashtext(%s))",
                 (SINGLETON_NAMESPACE, BUILD_LOCK),
             )
-            holder.commit()
+            lock_conn.commit()
     finally:
-        holder.close()
+        lock_conn.close()
 
 
 CLEAN_OUTCOMES = frozenset({"ok", "partial", "skipped"})
@@ -320,8 +320,8 @@ class RunCounts:
 def clean_outcome(counts: RunCounts) -> str:
     if counts.status in CLEAN_OUTCOMES and counts.status != "ok":
         return counts.status
-    seen = counts.rows_in + counts.rows_rejected
-    if counts.rows_rejected and seen and counts.rows_rejected / seen > REJECT_PARTIAL_AT:
+    total_rows = counts.rows_in + counts.rows_rejected
+    if counts.rows_rejected and total_rows and counts.rows_rejected / total_rows > REJECT_PARTIAL_AT:
         return "partial"
     return "ok"
 
@@ -378,7 +378,7 @@ WHERE r.status = 'running' AND r.suspected_dead_at IS NOT NULL AND r.worker = h.
   AND (h.worker_boot IS NULL OR h.worker_boot IS NOT DISTINCT FROM r.worker_boot)
 """
 
-MY_BEAT_IS_FRESH_SQL = """
+OWN_HEARTBEAT_RECENT_SQL = """
 SELECT 1 FROM raw.worker_heartbeat
 WHERE worker = %s AND beat_at >= now() - make_interval(secs => %s)
 """
@@ -401,7 +401,7 @@ def suspect_dead_runs(
     conn: psycopg.Connection, after_seconds: int = RUN_SUSPECT_SECONDS, reclaim_seconds=None
 ) -> list[tuple[int, str]]:
     with conn.cursor() as cur:
-        cur.execute(MY_BEAT_IS_FRESH_SQL, (worker(), after_seconds))
+        cur.execute(OWN_HEARTBEAT_RECENT_SQL, (worker(), after_seconds))
         if cur.fetchone() is None:
             return []
         cur.execute(REVIVE_SQL, {"after": after_seconds})
@@ -427,17 +427,17 @@ RETURNING id, source
 
 
 def clear_stale_sessions(conn: psycopg.Connection) -> list[tuple[int, str]]:
-    gone = "swept: the worker restarted, so this run's process is gone"
+    error_detail = "swept: the worker restarted, so this run's process is gone"
     with conn.cursor() as cur:
-        cur.execute(ORPHAN_SQL, (gone, worker(), WORKER_BOOT))
+        cur.execute(ORPHAN_SQL, (error_detail, worker(), WORKER_BOOT))
         orphans = cur.fetchall()
     conn.commit()
     return orphans
 
 
 def stale_after_hours(conn: psycopg.Connection) -> int:
-    budgeted = -(-settings.budget_minutes(conn) // 60)
-    return max(STALE_AFTER_HOURS, budgeted + STALE_GRACE_HOURS)
+    budget_hours = -(-settings.budget_minutes(conn) // 60)
+    return max(STALE_AFTER_HOURS, budget_hours + STALE_GRACE_HOURS)
 
 
 def sweep_stale_runs(
@@ -445,7 +445,7 @@ def sweep_stale_runs(
 ) -> list[tuple[int, str]]:
     if max_age_hours is None:
         max_age_hours = stale_after_hours(conn)
-    swept = f"swept: still running {max_age_hours} hours after it started, no worker claimed it"
+    error_detail = f"swept: still running {max_age_hours} hours after it started, no worker claimed it"
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -457,7 +457,7 @@ def sweep_stale_runs(
               AND started_at < now() - make_interval(hours => %s)
             RETURNING id, source
             """,
-            (swept, max_age_hours),
+            (error_detail, max_age_hours),
         )
         return cur.fetchall()
 
@@ -498,15 +498,15 @@ def save_cursor(conn: psycopg.Connection, source: str, cursor: str, channel_id: 
 
 
 def analyze(tables) -> str | None:
-    refused = []
+    notices = []
     try:
         with connect() as stats_conn:
-            stats_conn.add_notice_handler(lambda note: refused.append(note.message_primary))
+            stats_conn.add_notice_handler(lambda note: notices.append(note.message_primary))
             for table in tables:
                 stats_conn.execute(f"ANALYZE {table}")
     except Exception as exc:
         return f"{type(exc).__name__}: {exc}"
-    return refused[0] if refused else None
+    return notices[0] if notices else None
 
 
 def get_walk(

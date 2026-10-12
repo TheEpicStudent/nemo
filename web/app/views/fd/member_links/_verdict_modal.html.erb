@@ -1,4 +1,4 @@
-<div data-controller="verdict" data-action="click@window->verdict#pick">
+<div data-controller="verdict" data-action="click@window->verdict#select">
   <%= render layout: "fd/modal", locals: { id: "link-verdict", title: "Verdict" } do %>
     <%= form_with url: fd_link_verdicts_path, method: :post, html: { autocomplete: "off" } do %>
       <%= hidden_field_tag :a, nil, id: nil, data: { verdict_target: "a" } %>
@@ -24,7 +24,7 @@
         </label>
       </div>
       <div class="modal-foot">
-        <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Cancel</button>
+        <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
         <%= submit_tag "Save", class: "btn btn-primary" %>
       </div>
     <% end %>

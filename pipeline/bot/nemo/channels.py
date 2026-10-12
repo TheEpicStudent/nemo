@@ -91,17 +91,17 @@ def react_channels(conn):
 
 def mode(conn):
     row = conn.execute(HOW, (SETTING,)).fetchone()
-    found = (row[0] if row else "").strip().lower()
-    return found if found in MODES else FALL_BACK
+    configured = (row[0] if row else "").strip().lower()
+    return configured if configured in MODES else FALL_BACK
 
 
 def set_mode(conn, how, by=None):
-    found = (how or "").strip().lower()
-    if found not in MODES:
+    normalized = (how or "").strip().lower()
+    if normalized not in MODES:
         raise ValueError(f"{how!r} is not one of {', '.join(MODES)}")
 
-    conn.execute(SET_HOW, (SETTING, found, by))
-    return found
+    conn.execute(SET_HOW, (SETTING, normalized, by))
+    return normalized
 
 
 def guarded_channels(conn):
@@ -112,21 +112,21 @@ def team():
     return os.environ.get("SLACK_TEAM_ID", "").strip()
 
 
-def _paged(call, **asked):
+def _paged(call, **params):
     where = team()
     if where:
-        asked["team_id"] = where
+        params["team_id"] = where
 
-    found = set()
+    channel_ids = set()
     cursor = None
     while True:
-        answer = call(limit=PAGE, cursor=cursor, **asked)
-        for channel in answer.get("channels") or []:
+        response = call(limit=PAGE, cursor=cursor, **params)
+        for channel in response.get("channels") or []:
             if channel.get("id") and not channel.get("is_archived"):
-                found.add(channel["id"])
-        cursor = (answer.get("response_metadata") or {}).get("next_cursor") or ""
+                channel_ids.add(channel["id"])
+        cursor = (response.get("response_metadata") or {}).get("next_cursor") or ""
         if not cursor:
-            return found
+            return channel_ids
 
 
 def public_channels(client):
@@ -137,7 +137,7 @@ def joined_channels(client):
     return _paged(client.users_conversations, types=SEATED_TYPES, exclude_archived=True)
 
 
-def wanted(client, conn, how=None):
+def target_channels(client, conn, how=None):
     how = how or mode(conn)
     if how == OFF:
         return set()
@@ -160,8 +160,8 @@ def inside(conn, channel_id):
 
 
 def refusal(failure):
-    answer = getattr(failure, "response", None)
-    data = getattr(answer, "data", None) or {}
+    response = getattr(failure, "response", None)
+    data = getattr(response, "data", None) or {}
     return data.get("error") or type(failure).__name__
 
 
@@ -171,14 +171,14 @@ def joinable(conn, channel_id):
 
 def is_member(client, channel_id):
     try:
-        found = (client.conversations_info(channel=channel_id) or {}).get("channel") or {}
+        channel_info = (client.conversations_info(channel=channel_id) or {}).get("channel") or {}
     except Exception as failure:
         log.info("nemo: could not tell whether we sit in %s: %s", channel_id, failure)
         return None
-    return found.get("is_member")
+    return channel_info.get("is_member")
 
 
-def found_private(client, conn, channel_id, by):
+def mark_private(client, conn, channel_id, by):
     channel_dim.record(conn, channel_id, visibility=channel_dim.PRIVATE)
     if is_member(client, channel_id):
         record_membership(conn, channel_id, True)
@@ -200,7 +200,7 @@ def join(client, conn, channel_id, by=None, verb="joined"):
     except Exception as failure:
         why = refusal(failure)
         if why in CANNOT_JOIN:
-            return found_private(client, conn, channel_id, by)
+            return mark_private(client, conn, channel_id, by)
         if why in ALREADY_IN:
             record_membership(conn, channel_id, True)
             log.info("nemo: %s already had us in it", channel_id)
@@ -214,33 +214,33 @@ def join(client, conn, channel_id, by=None, verb="joined"):
     return True
 
 
-def seen(conn, seated):
-    was = {row[0] for row in conn.execute(WAS_INSIDE).fetchall()}
+def sync_membership(conn, joined_ids):
+    previous_ids = {row[0] for row in conn.execute(WAS_INSIDE).fetchall()}
 
-    for channel_id in sorted(seated - was):
+    for channel_id in sorted(joined_ids - previous_ids):
         conn.execute(SEATED, (channel_id, True))
-    for channel_id in sorted(was - seated):
+    for channel_id in sorted(previous_ids - joined_ids):
         conn.execute(SEATED, (channel_id, False))
         noted(conn, channel_id, "left", "gone at the sweep")
 
-    return len(seated - was), len(was - seated)
+    return len(joined_ids - previous_ids), len(previous_ids - joined_ids)
 
 
 def missing(client):
     with session() as conn:
         how = mode(conn)
-        want = wanted(client, conn, how)
+        target_ids = target_channels(client, conn, how)
 
-    seated = joined_channels(client)
+    joined_ids = joined_channels(client)
     with session() as conn:
-        took, lost = seen(conn, seated)
-    if took or lost:
-        log.info("nemo: sits in %s channel(s), %s new, %s gone", len(seated), took, lost)
+        added, removed = sync_membership(conn, joined_ids)
+    if added or removed:
+        log.info("nemo: sits in %s channel(s), %s new, %s gone", len(joined_ids), added, removed)
 
-    if how == OFF or not want:
+    if how == OFF or not target_ids:
         return how, []
 
-    return how, sorted(want - seated)
+    return how, sorted(target_ids - joined_ids)
 
 
 def reconcile(client, cap=None):
@@ -249,12 +249,12 @@ def reconcile(client, cap=None):
         return how, 0, 0
 
     cap = per_sweep() if cap is None else cap
-    waiting = pace()
+    delay = pace()
     joined = refused = 0
 
-    for spot, channel_id in enumerate(absent[:cap] if cap else absent):
-        if spot and waiting:
-            time.sleep(waiting)
+    for index, channel_id in enumerate(absent[:cap] if cap else absent):
+        if index and delay:
+            time.sleep(delay)
         with session() as conn:
             if join(client, conn, channel_id):
                 joined += 1

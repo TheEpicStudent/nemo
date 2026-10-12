@@ -53,20 +53,20 @@ def role_capability_rows(data=None):
 def objections(data=None):
     data = data or table()
     known = set(capabilities(data))
-    wrong = []
+    errors = []
     for key, one in capabilities(data).items():
         scope = one.get("record_scope")
         if scope is not None and scope not in SCOPES:
-            wrong.append(f"{key} declares an unknown record scope {scope!r}")
+            errors.append(f"{key} declares an unknown record scope {scope!r}")
         if not one.get("area"):
-            wrong.append(f"{key} declares no area")
+            errors.append(f"{key} declares no area")
     for name, one in roles(data).items():
         if one.get("everything") and one.get("capabilities"):
-            wrong.append(f"{name} is a superadmin, it must not list capabilities")
+            errors.append(f"{name} is a superadmin, it must not list capabilities")
         for key in one.get("capabilities") or []:
             if key not in known:
-                wrong.append(f"{name} holds {key}, which is not a capability")
-    return wrong
+                errors.append(f"{name} holds {key}, which is not a capability")
+    return errors
 
 
 SYNC = """
@@ -94,9 +94,9 @@ ON CONFLICT DO NOTHING
 
 def sync(conn):
     data = table()
-    wrong = objections(data)
-    if wrong:
-        raise ValueError("db/capabilities.yml is not consistent: " + "; ".join(wrong))
+    errors = objections(data)
+    if errors:
+        raise ValueError("db/capabilities.yml is not consistent: " + "; ".join(errors))
 
     rows = flat(data)
     with conn.cursor() as cur:

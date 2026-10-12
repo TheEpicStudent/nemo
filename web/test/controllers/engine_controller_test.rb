@@ -154,7 +154,7 @@ class EngineControllerTest < ActionDispatch::IntegrationTest
   end
 
   def firefighter
-    boss = hold_role!("UTESTCM9", "community_manager")
+    manager = hold_role!("UTESTCM9", "community_manager")
     hold_role!("UHAND9", "firefighter")
     Account.find("UHAND9")
   end
@@ -182,8 +182,8 @@ class EngineControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "a firefighter cannot cancel a sync somebody else queued" do
-    boss = hold_role!("UTESTCM8", "community_manager")
-    queued = SyncRequest.queue!(kind: "full", requested_by: boss.user_id)
+    manager = hold_role!("UTESTCM8", "community_manager")
+    queued = SyncRequest.queue!(kind: "full", requested_by: manager.user_id)
     sign_in_as(firefighter)
 
     post engine_cancel_path

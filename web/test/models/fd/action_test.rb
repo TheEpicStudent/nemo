@@ -53,15 +53,15 @@ module Fd
 
     test "live and reversed scopes partition the table" do
       kase = Fd::Case.create!(opened_by: "UFF1", external_ref: "test:action:scopes")
-      kept = Fd::Action.create!(case_id: kase.id, type_key: "warning",
+      live_action = Fd::Action.create!(case_id: kase.id, type_key: "warning",
         target_user_id: "USEED0000001", decided_by: "UFF1", performed_by: "UFF1")
-      undone = Fd::Action.create!(case_id: kase.id, type_key: "shush",
+      reversed_action = Fd::Action.create!(case_id: kase.id, type_key: "shush",
         target_user_id: "USEED0000001", decided_by: "UFF1", performed_by: "UFF1",
         reversed_at: Time.current, reversed_by: "UFF2")
 
-      assert_includes kase.actions.live, kept
-      assert_not_includes kase.actions.live, undone
-      assert_includes kase.actions.reversed, undone
+      assert_includes kase.actions.live, live_action
+      assert_not_includes kase.actions.live, reversed_action
+      assert_includes kase.actions.reversed, reversed_action
       assert_equal kase.actions.count, kase.actions.live.count + kase.actions.reversed.count
     end
 

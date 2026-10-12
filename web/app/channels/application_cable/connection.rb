@@ -10,8 +10,8 @@ module ApplicationCable
     private
 
     def staff_id
-      held = cookies.encrypted["_web_session"]
-      held && held["user_id"]
+      session_data = cookies.encrypted["_web_session"]
+      session_data && session_data["user_id"]
     end
   end
 end

@@ -3,23 +3,23 @@ module Fd
     PERSON = /\A[UW][A-Z0-9]+\z/
 
     def self.for(user_ids)
-      wanted = Array(user_ids).flatten.compact.uniq.grep(PERSON)
-      return none if wanted.empty?
+      ids = Array(user_ids).flatten.compact.uniq.grep(PERSON)
+      return none if ids.empty?
 
-      new(members: Member.where(user_id: wanted).index_by(&:user_id))
+      new(members: Member.where(user_id: ids).index_by(&:user_id))
     end
 
     def self.none = new
 
     def initialize(members: {})
       @members = members
-      @shown = {}
+      @display_cache = {}
     end
 
     def [](user_id)
       return "n/a" if user_id.blank?
 
-      @shown[user_id] ||= label_for(user_id) ||
+      @display_cache[user_id] ||= label_for(user_id) ||
         (user_id.match?(PERSON) ? "@#{user_id}" : user_id)
     end
 
@@ -28,8 +28,8 @@ module Fd
     end
 
     def initial(user_id)
-      shown = self[user_id].sub(/\A@/, "").strip
-      shown.present? ? shown[0].upcase : "?"
+      label = self[user_id].sub(/\A@/, "").strip
+      label.present? ? label[0].upcase : "?"
     end
 
     def member(user_id)

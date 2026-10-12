@@ -17,10 +17,10 @@ def test_the_backfill_goes_first_until_every_channel_is_walked():
 
 
 def test_the_backfill_takes_the_whole_batch_until_every_channel_is_walked():
-    assert history.backfill_share(200, left=1188) == 200
-    assert history.backfill_share(200, left=0) == 50
-    assert history.backfill_share(200, left=0, full=True) == 200
-    assert history.backfill_share(2, left=0) == 1
+    assert history.backfill_share(200, remaining=1188) == 200
+    assert history.backfill_share(200, remaining=0) == 50
+    assert history.backfill_share(200, remaining=0, full=True) == 200
+    assert history.backfill_share(2, remaining=0) == 1
 
 
 def test_revisit_from_steps_back_one_lookback_and_never_below_zero():

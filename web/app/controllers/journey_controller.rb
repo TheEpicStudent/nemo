@@ -6,8 +6,8 @@ class JourneyController < ApplicationController
   LIFECYCLE_COHORTS = 12
 
   def acquisition
-    asked = params[:growth_months].to_i
-    @growth_span = HomeHelper::GROWTH_SPANS.include?(asked) ? asked : HomeHelper::DEFAULT_GROWTH_SPAN
+    requested_span = params[:growth_months].to_i
+    @growth_span = HomeHelper::GROWTH_SPANS.include?(requested_span) ? requested_span : HomeHelper::DEFAULT_GROWTH_SPAN
     @growth_months = Analytics::MartGrowth.order(month: :desc).limit(@growth_span).to_a.reverse
 
     @lifecycle = Journey::Lifecycle.recent(LIFECYCLE_COHORTS)
@@ -50,19 +50,19 @@ class JourneyController < ApplicationController
 
   def distribution
     @top_poster_months = Analytics::MartTopPosters.distinct.order(month: :desc).pluck(:month)
-    @top_posters_month = asked_month(:top_posters_month) || @top_poster_months.first
+    @top_posters_month = requested_month(:top_posters_month) || @top_poster_months.first
     @top_posters = Analytics::MartTopPosters
       .where(month: @top_posters_month).order(:rank).limit(10)
 
     @days_measured = @top_posters.map(&:days_measured).max.to_i
     @activity_bands = Analytics::MartActivityDistribution.order(:band_order).to_a
-    @poster_bands = @activity_bands.reject { |b| b.band_order.zero? }
+    @poster_bands = @activity_bands.reject { |band| band.band_order.zero? }
     @concentration = Analytics::MartParticipationConcentration.curve.to_a
   end
 
   private
 
-  def asked_month(key)
+  def requested_month(key)
     Date.iso8601(params[key].to_s)
   rescue ArgumentError
     nil

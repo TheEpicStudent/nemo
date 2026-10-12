@@ -1,13 +1,13 @@
 require "test_helper"
 
 class Channels::WelcomeTest < ActiveSupport::TestCase
-  def build(**rest)
+  def build(**overrides)
     row = Analytics::MartChannelNewcomers.new({
       channel_id: "C1", newcomers: 100, answered_by_member: 80, answered_fast: 60,
       answered_by_bot: 5, unanswered: 15, measured_day_30: 90, returned_day_30: 45,
       answered_share: 0.8, fast_share: 0.6, returned_share: 0.5,
       median_latency_seconds: 372, fast_reply_seconds: 3600
-    }.merge(rest))
+    }.merge(overrides))
     Channels::Welcome.new(row, "C1")
   end
 
@@ -41,10 +41,10 @@ class Channels::WelcomeTest < ActiveSupport::TestCase
   end
 
   test "coming back is measured against the newcomers old enough to judge" do
-    back = build(measured_day_30: 90, returned_day_30: 45).returned
+    returned = build(measured_day_30: 90, returned_day_30: 45).returned
 
-    assert_equal 45, back.count
-    assert_equal 50.0, back.share
+    assert_equal 45, returned.count
+    assert_equal 50.0, returned.share
   end
 
   test "coming back says nothing until somebody is old enough to judge" do

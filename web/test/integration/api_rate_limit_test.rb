@@ -12,11 +12,11 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
     Current.forget_flags
   end
 
-  def ask(key = @secret)
+  def get_token(key = @secret)
     get api_v1_token_path, headers: { "Authorization" => "Bearer #{key}" }
   end
 
-  def budget
+  def rate_limit_headers
     response.headers.slice("RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset")
   end
 
@@ -29,31 +29,31 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
 
   test "every answer says how much budget is left" do
     with_a_real_cache do
-      ask
+      get_token
 
       assert_response :success
-      assert_equal "20", budget["RateLimit-Limit"]
-      assert_equal "19", budget["RateLimit-Remaining"]
-      assert budget["RateLimit-Reset"].to_i.between?(1, 60)
+      assert_equal "20", rate_limit_headers["RateLimit-Limit"]
+      assert_equal "19", rate_limit_headers["RateLimit-Remaining"]
+      assert rate_limit_headers["RateLimit-Reset"].to_i.between?(1, 60)
     end
   end
 
   test "the remaining budget counts down, and stops at nought" do
     with_a_real_cache do
-      3.times { ask }
-      assert_equal "17", budget["RateLimit-Remaining"]
+      3.times { get_token }
+      assert_equal "17", rate_limit_headers["RateLimit-Remaining"]
 
-      20.times { ask }
-      assert_equal "0", budget["RateLimit-Remaining"], "it never goes negative"
+      20.times { get_token }
+      assert_equal "0", rate_limit_headers["RateLimit-Remaining"], "it never goes negative"
     end
   end
 
   test "past the budget it refuses, and says when to come back" do
     with_a_real_cache do
-      20.times { ask }
+      20.times { get_token }
       assert_response :success
 
-      ask
+      get_token
 
       assert_response :too_many_requests
       assert_equal "rate_limited", body["error"]
@@ -64,16 +64,16 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
 
   test "one token running hot does not spend another token's budget" do
     with_a_real_cache do
-      arcade = make_app!("UOWNER2", name: "Arcade")
-      other, spare = Api::Token.mint!(arcade, "Arcade")
-      21.times { ask }
+      other_app = make_app!("UOWNER2", name: "Arcade")
+      other_token, other_secret = Api::Token.mint!(other_app, "Arcade")
+      21.times { get_token }
       assert_response :too_many_requests
 
-      ask(spare)
+      get_token(other_secret)
 
       assert_response :success
-      assert_equal "19", budget["RateLimit-Remaining"]
-      assert_equal other.rate, budget["RateLimit-Limit"].to_i
+      assert_equal "19", rate_limit_headers["RateLimit-Remaining"]
+      assert_equal other_token.rate, rate_limit_headers["RateLimit-Limit"].to_i
     end
   end
 
@@ -81,21 +81,21 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
     with_a_real_cache do
       @token.update!(rate_limit: 2)
 
-      2.times { ask }
+      2.times { get_token }
       assert_response :success
-      assert_equal "2", budget["RateLimit-Limit"]
+      assert_equal "2", rate_limit_headers["RateLimit-Limit"]
 
-      ask
+      get_token
       assert_response :too_many_requests
     end
   end
 
   test "a refusal before the token is known carries no budget at all" do
     with_a_real_cache do
-      ask("nemo_live_neverissuedatall12")
+      get_token("nemo_live_neverissuedatall12")
 
       assert_response :unauthorized
-      assert_empty budget, "there is no budget to report without a token"
+      assert_empty rate_limit_headers, "there is no budget to report without a token"
     end
   end
 
@@ -106,7 +106,7 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
         headers: { "Authorization" => "Bearer #{@secret}" }
 
       assert_response :success
-      assert_equal "19", budget["RateLimit-Remaining"]
+      assert_equal "19", rate_limit_headers["RateLimit-Remaining"]
     end
   end
 end

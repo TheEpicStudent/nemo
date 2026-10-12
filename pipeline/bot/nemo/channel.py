@@ -46,7 +46,7 @@ LIMIT 1
 """
 
 
-SHOWN = """
+INBOUND_MESSAGES = """
 SELECT m.id, coalesce(o.body, m.body), m.posted_at, m.mirrored_ts, m.deleted_at,
        c.handed_off_at
 FROM fd.intake_messages m
@@ -165,11 +165,11 @@ def card_mark(case):
 
 def crossed_by_hand(client, channel_id, ts):
     try:
-        found = client.reactions_get(channel=channel_id, timestamp=ts)
+        response = client.reactions_get(channel=channel_id, timestamp=ts)
     except Exception as failure:
         log.warning("nemo: could not read the reactions on %s: %s", ts, failure)
         return False
-    reactions = ((found or {}).get("message") or {}).get("reactions") or []
+    reactions = ((response or {}).get("message") or {}).get("reactions") or []
     return any((one.get("name") or "").split("::")[0] in NOT_CONDUCT_MARKS for one in reactions)
 
 
@@ -181,33 +181,33 @@ def react(client, method, channel_id, ts, name):
             log.warning("nemo: could not change %s on %s: %s", name, ts, failure)
 
 
-def mark_card(client, channel_id, ts, case, fresh=False):
-    wanted = card_mark(case)
+def mark_card(client, channel_id, ts, case, is_new=False):
+    target_mark = card_mark(case)
     if case.get("resolution") == "not_conduct" and crossed_by_hand(client, channel_id, ts):
-        wanted = None
-    if not fresh:
+        target_mark = None
+    if not is_new:
         for name in CARD_MARKS:
-            if name != wanted:
+            if name != target_mark:
                 react(client, "reactions_remove", channel_id, ts, name)
-    if wanted:
-        react(client, "reactions_add", channel_id, ts, wanted)
+    if target_mark:
+        react(client, "reactions_add", channel_id, ts, target_mark)
 
 
 def root_mark(case):
     return card_mark(case) if case.get("resolved_at") else None
 
 
-def mark_root(client, channel_id, root_ts, card_ts, case, fresh=False):
-    wanted = root_mark(case)
+def mark_root(client, channel_id, root_ts, card_ts, case, is_new=False):
+    target_mark = root_mark(case)
     if case.get("resolution") == "not_conduct" and crossed_by_hand(client, channel_id, root_ts):
-        wanted = None
-    if not fresh:
+        target_mark = None
+    if not is_new:
         for name in CARD_MARKS:
-            if name != wanted:
+            if name != target_mark:
                 react(client, "reactions_remove", channel_id, root_ts, name)
             react(client, "reactions_remove", channel_id, card_ts, name)
-    if wanted:
-        react(client, "reactions_add", channel_id, root_ts, wanted)
+    if target_mark:
+        react(client, "reactions_add", channel_id, root_ts, target_mark)
 
 
 _internal_log = {}
@@ -287,11 +287,11 @@ def post_line(client, conn, case_id, text):
         return None
 
 
-def post_merge_note(client, conn, keep, closed, by):
+def post_merge_note(client, conn, target_id, closed, by):
     if not closed:
         return None
-    text = views.lines.merged(by, closed, keep, case_url)
-    for case_id in (keep, *closed):
+    text = views.lines.merged(by, closed, target_id, case_url)
+    for case_id in (target_id, *closed):
         post_line(client, conn, case_id, text)
     return text
 
@@ -323,17 +323,17 @@ def post_header(client, conn, case, room, thread_ts):
 def read_linked(client, channel_id, ts, thread_ts=None):
     try:
         if thread_ts and thread_ts != ts:
-            found = client.conversations_replies(
+            response = client.conversations_replies(
                 channel=channel_id, ts=thread_ts, oldest=ts, latest=ts, inclusive=True, limit=5
             )
         else:
-            found = client.conversations_history(
+            response = client.conversations_history(
                 channel=channel_id, oldest=ts, latest=ts, inclusive=True, limit=1
             )
     except Exception as failure:
         log.info("nemo: could not read %s in %s: %s", ts, channel_id, failure)
         return None
-    message = next((one for one in found.get("messages") or [] if one.get("ts") == ts), None)
+    message = next((one for one in response.get("messages") or [] if one.get("ts") == ts), None)
     if message is None:
         return None
     return {
@@ -349,15 +349,15 @@ def read_linked(client, channel_id, ts, thread_ts=None):
 
 
 def linked_shares(client, text):
-    shares, seen = [], set()
+    shares, visited = [], set()
     for one in views.linked.occurrences(text):
         key = (one["channel_id"], one["ts"])
-        if key in seen:
+        if key in visited:
             continue
-        seen.add(key)
-        found = read_linked(client, one["channel_id"], one["ts"], one["thread_ts"])
-        if found:
-            shares.append(found)
+        visited.add(key)
+        share = read_linked(client, one["channel_id"], one["ts"], one["thread_ts"])
+        if share:
+            shares.append(share)
     return shares
 
 
@@ -378,13 +378,13 @@ def unfurl_opening(client, conn, case_id, channel_id, thread_ts):
     numbered = views.linked.numbering(body, [], 1)
     if not numbered["links"]:
         return None
-    found = views.linked.items(numbered, linked_shares(client, body))
+    items = views.linked.items(numbered, linked_shares(client, body))
     try:
         sent = client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
-            text=views.linked.fallback(found),
-            blocks=views.linked.reply_blocks(found),
+            text=views.linked.fallback(items),
+            blocks=views.linked.reply_blocks(items),
             unfurl_links=False,
             unfurl_media=False,
         )
@@ -444,7 +444,7 @@ def gather(conn, case_id):
         subject[0] for subject in conn.execute(SUBJECTS, (case["case_id"],)).fetchall()
     ]
     case["assignees"] = [
-        held[0] for held in conn.execute(ASSIGNEES, (case["case_id"],)).fetchall()
+        assignee[0] for assignee in conn.execute(ASSIGNEES, (case["case_id"],)).fetchall()
     ]
     case["live_actions"] = conn.execute(LIVE_ACTION_COUNT, (case["case_id"],)).fetchone()[0]
 
@@ -492,42 +492,42 @@ def numbers(conn, conversation_id):
             "kind": kind, "source_channel_id": channel_id, "source_ts": ts, "permalink": permalink,
         })
 
-    found = {}
+    numberings = {}
     start = 1
-    rows = conn.execute(SHOWN, (conversation_id,)).fetchall()
+    rows = conn.execute(INBOUND_MESSAGES, (conversation_id,)).fetchall()
     for at, (message_id, text, posted_at, mirrored, deleted, handed_off) in enumerate(rows):
         if at and not (handed_off and posted_at > handed_off):
             continue
         if at and deleted and not mirrored:
             continue
-        found[message_id] = views.linked.numbering(text, shares.get(message_id), start)
-        start += views.linked.size(found[message_id])
-    return found
+        numberings[message_id] = views.linked.numbering(text, shares.get(message_id), start)
+        start += views.linked.size(numberings[message_id])
+    return numberings
 
 
 def forwarded_files(client, conn, message_id):
-    held = {}
+    files_by_id = {}
     uploaded = False
     for file_id, slack_file_id, name, mimetype, sha, mirrored in conn.execute(
         FORWARDED_FILES, (message_id,)
     ).fetchall():
-        shown = name or (sha or slack_file_id)[:12]
+        display_name = name or (sha or slack_file_id)[:12]
         if not attachments.shows_inline(mimetype):
-            held[slack_file_id] = {"id": None, "name": shown, "image": False}
+            files_by_id[slack_file_id] = {"id": None, "name": display_name, "image": False}
             continue
         if not mirrored:
             body, _ = attachments.blobs.body_of(conn, sha)
             if body is None:
                 continue
-            mirrored = attachments.held_in_slack(client, shown, body)
+            mirrored = attachments.upload_file(client, display_name, body)
             if not mirrored:
                 continue
             conn.execute(attachments.MIRRORED, (mirrored, message_id, file_id))
             uploaded = True
-        held[slack_file_id] = {"id": mirrored, "name": shown, "image": True}
+        files_by_id[slack_file_id] = {"id": mirrored, "name": display_name, "image": True}
     if uploaded:
         time.sleep(attachments.FILE_INDEX_DELAY)
-    return held
+    return files_by_id
 
 
 def unfurl(client, conn, message_id, channel_id, thread_ts):
@@ -538,10 +538,10 @@ def unfurl(client, conn, message_id, channel_id, thread_ts):
     if handled and not posted:
         return None
 
-    found = views.linked.items(
+    items = views.linked.items(
         numbers(conn, conversation_id).get(message_id), shares_for(conn, message_id)
     )
-    blocks = views.linked.reply_blocks(found, forwarded_files(client, conn, message_id))
+    blocks = views.linked.reply_blocks(items, forwarded_files(client, conn, message_id))
 
     if not blocks:
         if not posted:
@@ -552,7 +552,7 @@ def unfurl(client, conn, message_id, channel_id, thread_ts):
     if posted:
         if fingerprint != digest:
             client.chat_update(
-                channel=channel_id, ts=posted, text=views.linked.fallback(found), blocks=blocks
+                channel=channel_id, ts=posted, text=views.linked.fallback(items), blocks=blocks
             )
             conn.execute(UNFURLED, (None, fingerprint, message_id))
         return posted
@@ -560,7 +560,7 @@ def unfurl(client, conn, message_id, channel_id, thread_ts):
     sent = client.chat_postMessage(
         channel=channel_id,
         thread_ts=thread_ts,
-        text=views.linked.fallback(found),
+        text=views.linked.fallback(items),
         blocks=blocks,
         unfurl_links=False,
         unfurl_media=False,
@@ -571,14 +571,14 @@ def unfurl(client, conn, message_id, channel_id, thread_ts):
 
 
 def carry_unfurls(client, conn, case_id, channel_id=None):
-    carried = 0
+    unfurled_count = 0
     for message_id, thread_ts, stored in conn.execute(UNFURLS_ON_CASE, (case_id,)).fetchall():
         try:
             if unfurl(client, conn, message_id, room_of(stored, channel_id, conn), thread_ts):
-                carried += 1
+                unfurled_count += 1
         except Exception as failure:
             log.warning("nemo: message %s's links would not unfurl: %s", message_id, failure)
-    return carried
+    return unfurled_count
 
 
 def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
@@ -590,10 +590,10 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
         log.info("nemo: case %s is already in the internal_log", case_id)
         return case["forwarded_ts"]
 
-    held = conn.execute(CLAIM_CARD, (case["report_id"],)).fetchone()
-    if held and held[0]:
+    row = conn.execute(CLAIM_CARD, (case["report_id"],)).fetchone()
+    if row and row[0]:
         log.info("nemo: case %s went up while we were asking, leaving it", case_id)
-        return held[0]
+        return row[0]
 
     built = views.report.build_blocks(case)
     room = channel_id or internal_log_channel(conn)
@@ -605,7 +605,7 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
         metadata=views.report.metadata(case),
         unfurl_links=False,
         unfurl_media=False,
-        **only_the_face(client, case["is_anonymous"], case["reporter_user_id"]),
+        **author_display_fields(client, case["is_anonymous"], case["reporter_user_id"]),
     )
     ts = sent["ts"]
 
@@ -614,7 +614,7 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
         "card_rendered_at = now() WHERE id = %s AND forwarded_ts IS NULL",
         (ts, card_state(card_mark(case)), room, case["report_id"]),
     )
-    mark_card(client, room, ts, case, fresh=True)
+    mark_card(client, room, ts, case, is_new=True)
     post_header(client, conn, case, room, ts)
     if case["message_id"]:
         conn.execute(
@@ -629,7 +629,7 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
     if case["message_id"]:
         attachments.share(
             client, conn, case["message_id"], room, ts,
-            wearing=as_reporter(client, case["is_anonymous"], case["reporter_user_id"]),
+            author_fields=as_reporter(client, case["is_anonymous"], case["reporter_user_id"]),
         )
 
     log.info("nemo: case %s posted to the internal_log at %s", case_id, ts)
@@ -637,9 +637,9 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
 
 
 def anonymous_face():
-    found = os.environ.get("ANONYMOUS_ICON_URL")
-    if found:
-        return found
+    icon_url = os.environ.get("ANONYMOUS_ICON_URL")
+    if icon_url:
+        return icon_url
 
     host = os.environ.get("APP_HOST", "")
     if not host or host.startswith(("localhost", "127.")):
@@ -647,29 +647,29 @@ def anonymous_face():
     return app_url("/anonymous.png")
 
 
-def only_the_face(client, anonymous, reporter_user_id):
-    worn = as_reporter(client, anonymous, reporter_user_id)
-    worn.pop("metadata", None)
-    return worn
+def author_display_fields(client, anonymous, reporter_user_id):
+    author_fields = as_reporter(client, anonymous, reporter_user_id)
+    author_fields.pop("metadata", None)
+    return author_fields
 
 
 def as_reporter(client, anonymous, reporter_user_id):
     if anonymous or not reporter_user_id:
-        worn = {"username": ANONYMOUS}
+        author_fields = {"username": ANONYMOUS}
         icon = anonymous_face()
         if icon:
-            worn["icon_url"] = icon
-        return worn
+            author_fields["icon_url"] = icon
+        return author_fields
 
-    seen = profile.profile(client, reporter_user_id)
-    wearing = {"username": seen["name"]}
-    if seen["icon"]:
-        wearing["icon_url"] = seen["icon"]
-    wearing["metadata"] = {
+    member_profile = profile.profile(client, reporter_user_id)
+    author_fields = {"username": member_profile["name"]}
+    if member_profile["icon"]:
+        author_fields["icon_url"] = member_profile["icon"]
+    author_fields["metadata"] = {
         "event_type": "nemo_message",
         "event_payload": {"source_user_id": reporter_user_id},
     }
-    return wearing
+    return author_fields
 
 
 def post_follow_up(client, conn, message_id, channel_id=None):
@@ -687,7 +687,7 @@ def post_follow_up(client, conn, message_id, channel_id=None):
     numbered = numbers(conn, conversation_id).get(message_id)
     ts = attachments.share(
         client, conn, message_id, room, forwarded,
-        wearing=as_reporter(client, anonymous, reporter),
+        author_fields=as_reporter(client, anonymous, reporter),
         body=views.linked.numbered_text(
             views.report.escape_but_mentions(quote_text(body)), numbered
         ),
@@ -784,7 +784,7 @@ ORDER BY woke_at LIMIT 50
 """
 
 
-SOMETHING_TO_CARRY = """
+HAS_UNMIRRORED_CONTENT = """
 coalesce(btrim(m.body), '') <> '' OR EXISTS (
     SELECT 1 FROM fd.intake_message_files mf
     JOIN fd.intake_files f ON f.id = mf.file_id
@@ -802,7 +802,7 @@ JOIN fd.intake_conversations c ON c.id = m.conversation_id
 JOIN fd.case_reports r ON r.id = c.report_id
 WHERE r.case_id = %s AND m.direction = 'inbound' AND m.mirrored_ts IS NULL
   AND m.deleted_at IS NULL AND c.handed_off_at IS NOT NULL
-  AND m.posted_at > c.handed_off_at AND ({SOMETHING_TO_CARRY})
+  AND m.posted_at > c.handed_off_at AND ({HAS_UNMIRRORED_CONTENT})
 ORDER BY m.posted_at, m.id
 """
 
@@ -814,7 +814,7 @@ JOIN fd.intake_conversations c ON c.id = m.conversation_id
 JOIN fd.case_reports r ON r.id = c.report_id
 WHERE m.direction = 'inbound' AND m.mirrored_ts IS NULL AND m.deleted_at IS NULL
   AND c.handed_off_at IS NOT NULL AND m.posted_at > c.handed_off_at
-  AND ({SOMETHING_TO_CARRY})
+  AND ({HAS_UNMIRRORED_CONTENT})
 LIMIT 100
 """
 
@@ -855,14 +855,14 @@ def carry_files(client, conn, case_id, channel_id=None):
         FILES_ON_CASE, (case_id,)
     ).fetchall():
         try:
-            carried = attachments.share(
+            posted_ts = attachments.share(
                 client, conn, message_id, room_of(stored, channel_id, conn), forwarded_ts,
-                wearing=as_reporter(client, anonymous, reporter),
+                author_fields=as_reporter(client, anonymous, reporter),
             )
         except Exception as failure:
             log.warning("nemo: message %s's file would not carry: %s", message_id, failure)
             continue
-        if carried:
+        if posted_ts:
             sent += 1
     return sent
 
@@ -876,16 +876,16 @@ def unannounced_reopens(conn):
 
 
 def carry_follow_ups(client, conn, case_id, channel_id=None):
-    carried = 0
+    posted_count = 0
     for (message_id,) in conn.execute(FOLLOW_UPS_WAITING, (case_id,)).fetchall():
         try:
-            landed = post_follow_up(client, conn, message_id, channel_id)
+            posted_ts = post_follow_up(client, conn, message_id, channel_id)
         except Exception as failure:
             log.warning("nemo: message %s would not carry: %s", message_id, failure)
             continue
-        if landed:
-            carried += 1
-    return carried
+        if posted_ts:
+            posted_count += 1
+    return posted_count
 
 
 def post_reopen_notice(client, conn, case_id, channel_id=None):
@@ -894,9 +894,9 @@ def post_reopen_notice(client, conn, case_id, channel_id=None):
         return None
 
     was = row[0]
-    found = post_reopen_announcement(client, conn, case_id, was, channel_id)
+    posted_ts = post_reopen_announcement(client, conn, case_id, was, channel_id)
     conn.execute(REOPEN_ANNOUNCED, (case_id,))
-    return found
+    return posted_ts
 
 
 def post_reopen_announcement(client, conn, case_id, was, channel_id=None):
@@ -916,11 +916,11 @@ def post_reopen_announcement(client, conn, case_id, was, channel_id=None):
 
 
 def echo(client, thread_ts, sent_by, body, signed, channel_id=None):
-    seen = profile.profile(client, sent_by)
-    wearing = {"username": seen["name"]}
-    if seen["icon"]:
-        wearing["icon_url"] = seen["icon"]
-    wearing["metadata"] = {
+    member_profile = profile.profile(client, sent_by)
+    author_fields = {"username": member_profile["name"]}
+    if member_profile["icon"]:
+        author_fields["icon_url"] = member_profile["icon"]
+    author_fields["metadata"] = {
         "event_type": "nemo_message",
         "event_payload": {"source_user_id": sent_by},
     }
@@ -937,7 +937,7 @@ def echo(client, thread_ts, sent_by, body, signed, channel_id=None):
             text=text,
             unfurl_links=False,
             unfurl_media=False,
-            **wearing,
+            **author_fields,
         )
     except Exception as failure:
         log.warning("nemo: the thread did not hear about the reply: %s", failure)
@@ -948,14 +948,14 @@ def echo(client, thread_ts, sent_by, body, signed, channel_id=None):
 
 def mirror(client, conn, case_id, channel_id=None):
     room = card_room(conn, case_id, channel_id)
-    carried = 0
+    mirrored_count = 0
 
     for chat_id, author, body, thread_ts in chat.waiting(conn, case_id):
-        seen = profile.profile(client, author)
-        wearing = {"username": seen["name"]}
-        if seen["icon"]:
-            wearing["icon_url"] = seen["icon"]
-        wearing["metadata"] = {
+        member_profile = profile.profile(client, author)
+        author_fields = {"username": member_profile["name"]}
+        if member_profile["icon"]:
+            author_fields["icon_url"] = member_profile["icon"]
+        author_fields["metadata"] = {
             "event_type": "nemo_message",
             "event_payload": {"source_user_id": author},
         }
@@ -967,21 +967,21 @@ def mirror(client, conn, case_id, channel_id=None):
                 text=views.report.escape_but_mentions(body),
                 unfurl_links=False,
                 unfurl_media=False,
-                **wearing,
+                **author_fields,
             )
         except Exception as failure:
             log.warning("nemo: chat %s did not reach the thread: %s", chat_id, failure)
             continue
 
         chat.mirrored(conn, chat_id, sent["ts"])
-        carried += 1
+        mirrored_count += 1
 
-    if carried:
-        log.info("nemo: carried %s message(s) into case %s's thread", carried, case_id)
-    return carried
+    if mirrored_count:
+        log.info("nemo: carried %s message(s) into case %s's thread", mirrored_count, case_id)
+    return mirrored_count
 
 
-KEEP_ECHO = """
+INSERT_ECHO = """
 INSERT INTO fd.case_chat
     (case_id, author_user_id, blocks, channel_id, ts, mirrored_ts, mirrored_at, mirrored_as,
      source_app)
@@ -990,18 +990,18 @@ RETURNING id
 """
 
 
-def post_echo(client, conn, case_id, blocks, by, fallback_text, trouble):
+def post_echo(client, conn, case_id, blocks, by, fallback_text, log_format):
     thread_ts = thread_for(conn, case_id)
     if thread_ts is None:
         log.info("nemo: case %s has no thread yet, the echo has nowhere to go", case_id)
         return None
 
     room = card_room(conn, case_id)
-    seen = profile.profile(client, by)
-    wearing = {"username": seen["name"]}
-    if seen["icon"]:
-        wearing["icon_url"] = seen["icon"]
-    wearing["metadata"] = {
+    member_profile = profile.profile(client, by)
+    author_fields = {"username": member_profile["name"]}
+    if member_profile["icon"]:
+        author_fields["icon_url"] = member_profile["icon"]
+    author_fields["metadata"] = {
         "event_type": "nemo_message",
         "event_payload": {"source_user_id": by},
     }
@@ -1014,13 +1014,13 @@ def post_echo(client, conn, case_id, blocks, by, fallback_text, trouble):
             text=fallback_text,
             unfurl_links=False,
             unfurl_media=False,
-            **wearing,
+            **author_fields,
         )
     except Exception as failure:
-        log.warning(trouble, case_id, failure)
+        log.warning(log_format, case_id, failure)
         return None
 
-    conn.execute(KEEP_ECHO, (case_id, by, Jsonb(blocks), room, sent["ts"], sent["ts"]))
+    conn.execute(INSERT_ECHO, (case_id, by, Jsonb(blocks), room, sent["ts"], sent["ts"]))
     return sent["ts"]
 
 

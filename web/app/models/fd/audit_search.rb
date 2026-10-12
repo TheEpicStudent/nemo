@@ -13,7 +13,7 @@ module Fd
     DATE = /\A\d{4}-\d{2}-\d{2}\z/
 
     KINDS = %w[actor about ip action category channel email domain source is show text
-               before after last app session].freeze
+               before after last app session network country].freeze
 
     OPERATORS = {
       "actor" => "actor", "by" => "actor", "who" => "actor",
@@ -28,13 +28,19 @@ module Fd
       "is" => "is",
       "before" => "before", "after" => "after", "since" => "after",
       "last" => "last", "within" => "last",
-      "app" => "app", "session" => "session"
+      "app" => "app", "session" => "session",
+      "network" => "network", "net" => "network",
+      "country" => "country", "cc" => "country"
     }.freeze
 
-    SOURCES = %w[engine slack read fire_engine].freeze
-    DOERS = %w[nemo human nobody].freeze
+    NETWORKS = { "stable" => "Stable", "rotating" => "Rotating", "vpn" => "VPN",
+                 "hosting" => "Hosting", "tor" => "Tor" }.freeze
+    COUNTRY = /\A[a-z]{2}\z/i
 
-    PAIR = /\A([a-z_]+):(.+)\z/i
+    SOURCES = %w[engine slack read fire_engine].freeze
+    ACTOR_TYPES = %w[nemo human nobody].freeze
+
+    QUALIFIED = /\A([a-z_]+):(.+)\z/i
 
     def self.parse(query, actor: nil)
       new(query, actor: actor)
@@ -57,15 +63,15 @@ module Fd
       terms.select { |term| term.kind == kind }.map(&:value)
     end
 
-    def one(kind) = of(kind).first
+    def first_value(kind) = of(kind).first
 
     def text = of("text").join(" ")
 
     def text? = text.length >= 2
 
     def without(term)
-      kept = terms.reject { |one| one.kind == term.kind && one.value == term.value }
-      kept.map { |one| label_for(one) }.join(" ")
+      remaining = terms.reject { |existing| existing.kind == term.kind && existing.value == term.value }
+      remaining.map { |existing| label_for(existing) }.join(" ")
     end
 
     def label_for(term)
@@ -77,11 +83,11 @@ module Fd
     def to_s = terms.map { |term| label_for(term) }.join(" ")
 
     def since
-      held = one("last")
-      return nil if held.nil?
+      window = first_value("last")
+      return nil if window.nil?
 
-      count = held.to_i
-      held.end_with?("h") ? count.hours.ago : (Date.current - (count - 1)).in_time_zone
+      count = window.to_i
+      window.end_with?("h") ? count.hours.ago : (Date.current - (count - 1)).in_time_zone
     end
 
     def identity?
@@ -99,30 +105,30 @@ module Fd
       of("text").any? { |value| value.match?(IDENTITY_TEXT) }
     end
 
-    def people_for_email
-      return @people_for_email if defined?(@people_for_email)
+    def member_ids_for_email
+      return @member_ids_for_email if defined?(@member_ids_for_email)
 
-      wanted = of("email").map(&:downcase)
+      emails = of("email").map(&:downcase)
       domains = of("domain").map(&:downcase)
-      @people_for_email =
-        if !identity? || (wanted.empty? && domains.empty?)
+      @member_ids_for_email =
+        if !identity? || (emails.empty? && domains.empty?)
           []
         else
-          MemberIdentity.kept.where(held_email(wanted, domains)).pluck(:user_id)
+          MemberIdentity.kept.where(email_condition(emails, domains)).pluck(:user_id)
         end
     end
 
-    def people_for_ip
-      return @people_for_ip if defined?(@people_for_ip)
+    def member_ids_for_ip
+      return @member_ids_for_ip if defined?(@member_ids_for_ip)
 
-      wanted = of("ip")
-      @people_for_ip =
-        wanted.empty? ? [] : LoginEvent.addressed.where(held_ip(wanted)).distinct.pluck(:user_id)
+      addresses = of("ip")
+      @member_ids_for_ip =
+        addresses.empty? ? [] : LoginEvent.addressed.where(ip_condition(addresses)).distinct.pluck(:user_id)
     end
 
     private
 
-    def held_email(emails, domains)
+    def email_condition(emails, domains)
       parts = []
       binds = {}
       if emails.any?
@@ -136,9 +142,9 @@ module Fd
       [parts.join(" OR "), binds]
     end
 
-    def held_ip(wanted)
-      parts = wanted.map { |query| query.include?("/") ? "ip << ?::inet" : "ip = ?::inet" }
-      [parts.join(" OR "), *wanted]
+    def ip_condition(addresses)
+      parts = addresses.map { |query| query.include?("/") ? "ip << ?::inet" : "ip = ?::inet" }
+      [parts.join(" OR "), *addresses]
     end
 
     QUOTED = /"([^"]*)"|(\S+)/
@@ -148,45 +154,47 @@ module Fd
     end
 
     def term_for(token)
-      found = PAIR.match(token)
-      return typed(found[1].downcase, found[2]) if found && OPERATORS.key?(found[1].downcase)
+      match = QUALIFIED.match(token)
+      return qualified_term(match[1].downcase, match[2]) if match && OPERATORS.key?(match[1].downcase)
 
-      guessed(token)
+      inferred_term(token)
     end
 
-    def typed(operator, query)
+    def qualified_term(operator, query)
       kind = OPERATORS.fetch(operator)
       value = query.strip.delete_prefix("@").delete_prefix("#")
       return nil if value.blank?
 
       case kind
-      when "actor", "about" then person(kind, value)
-      when "channel" then channel(value)
-      when "source" then source(value)
-      when "category" then category(value)
-      when "show" then shown(value)
-      when "is" then doer(value)
-      when "before", "after" then when_at(kind, value)
-      when "last" then recent(value)
-      when "app" then app(value)
-      when "session" then session(value)
-      when "domain" then addressed("domain", value)
-      when "email" then addressed("email", value)
+      when "actor", "about" then member_term(kind, value)
+      when "channel" then channel_term(value)
+      when "source" then source_term(value)
+      when "category" then category_term(value)
+      when "show" then show_term(value)
+      when "is" then actor_type_term(value)
+      when "before", "after" then time_term(kind, value)
+      when "last" then window_term(value)
+      when "app" then app_term(value)
+      when "network" then network_term(value)
+      when "country" then country_term(value)
+      when "session" then session_term(value)
+      when "domain" then email_term("domain", value)
+      when "email" then email_term("email", value)
       else Term.new(kind: kind, value: value, label: "#{operator} #{value}")
       end
     end
 
-    def guessed(token)
+    def inferred_term(token)
       query = token.strip
       return nil if query.blank?
 
-      return person("about", query.delete_prefix("@")) if query.start_with?("@")
-      return channel(query.delete_prefix("#")) if query.start_with?("#")
+      return member_term("about", query.delete_prefix("@")) if query.start_with?("@")
+      return channel_term(query.delete_prefix("#")) if query.start_with?("#")
       return Term.new(kind: "ip", value: query, label: query) if address?(query)
-      return person("about", query) if query.match?(MEMBER)
-      return channel(query) if query.match?(CHANNEL)
+      return member_term("about", query) if query.match?(MEMBER)
+      return channel_term(query) if query.match?(CHANNEL)
       return Term.new(kind: "email", value: query, label: query) if query.match?(EMAIL)
-      return when_at("after", query) if query.match?(DATE)
+      return time_term("after", query) if query.match?(DATE)
 
       Term.new(kind: "text", value: query, label: query)
     end
@@ -195,11 +203,14 @@ module Fd
       query.match?(IPV4) || (query.include?(":") && query.match?(IPV6))
     end
 
-    def person(kind, query)
-      found = query.match?(MEMBER) ? query.upcase : by_handle(query)
-      return Term.new(kind: "text", value: query, label: query) if found.nil?
+    def member_term(kind, query)
+      return Term.new(kind: kind, value: actor.user_id, label: "#{kind} me", hint: actor.user_id) if
+        query.casecmp?("me") && actor&.user_id.present?
 
-      Term.new(kind: kind, value: found, label: "#{kind} #{query}", hint: found)
+      user_id = query.match?(MEMBER) ? query.upcase : by_handle(query)
+      return Term.new(kind: "text", value: query, label: query) if user_id.nil?
+
+      Term.new(kind: kind, value: user_id, label: "#{kind} #{query}", hint: user_id)
     end
 
     def by_handle(query)
@@ -207,75 +218,88 @@ module Fd
         .limit(1).pick(:user_id)
     end
 
-    def channel(query)
-      found = query.match?(CHANNEL) ? query.upcase : by_channel_name(query)
-      return Term.new(kind: "text", value: query, label: query) if found.nil?
+    def channel_term(query)
+      channel_id = query.match?(CHANNEL) ? query.upcase : by_channel_name(query)
+      return Term.new(kind: "text", value: query, label: query) if channel_id.nil?
 
-      Term.new(kind: "channel", value: found, label: "in #{query}", hint: found)
+      Term.new(kind: "channel", value: channel_id, label: "in #{query}", hint: channel_id)
     end
 
     def by_channel_name(query)
       Analytics::DimChannel.where("lower(name) = ?", query.downcase).limit(1).pick(:channel_id)
     end
 
-    def addressed(kind, query)
-      held = query.downcase
-      return Term.new(kind: "domain", value: held.split("@").last, label: "domain #{held.split('@').last}") if
-        kind == "domain" && held.include?("@")
-      return Term.new(kind: "domain", value: held, label: "domain #{held}") if
-        kind == "email" && !held.include?("@") && held.match?(DOMAIN)
+    def email_term(kind, query)
+      normalized = query.downcase
+      return Term.new(kind: "domain", value: normalized.split("@").last, label: "domain #{normalized.split('@').last}") if
+        kind == "domain" && normalized.include?("@")
+      return Term.new(kind: "domain", value: normalized, label: "domain #{normalized}") if
+        kind == "email" && !normalized.include?("@") && normalized.match?(DOMAIN)
 
-      Term.new(kind: kind, value: held, label: "#{kind} #{held}")
+      Term.new(kind: kind, value: normalized, label: "#{kind} #{normalized}")
     end
 
-    SHOWN = { "high_volume" => "high_volume", "high-volume" => "high_volume", "busy" => "high_volume" }.freeze
+    SHOW_VALUES = { "high_volume" => "high_volume", "high-volume" => "high_volume", "busy" => "high_volume" }.freeze
 
-    def shown(query)
-      held = SHOWN[query.downcase]
-      return nil if held.nil?
+    def show_term(query)
+      value = SHOW_VALUES[query.downcase]
+      return nil if value.nil?
 
-      Term.new(kind: "show", value: held, label: "high-volume actions")
+      Term.new(kind: "show", value: value, label: "high-volume actions")
     end
 
-    def category(query)
+    def category_term(query)
       key = AuditCatalogue.category_for(query)
       return nil if key.nil?
 
       Term.new(kind: "category", value: key, label: AuditCatalogue.category_label(key))
     end
 
-    def doer(query)
-      held = query.downcase
-      held = "human" if held == "person"
-      return nil unless DOERS.include?(held)
+    def actor_type_term(query)
+      actor_type = query.downcase
+      actor_type = "human" if actor_type == "person"
+      return nil unless ACTOR_TYPES.include?(actor_type)
 
-      Term.new(kind: "is", value: held, label: "by #{held == 'human' ? 'a person' : held}")
+      Term.new(kind: "is", value: actor_type, label: "actor type #{actor_type}")
     end
 
-    def source(query)
-      held = query.downcase
-      held = "fire_engine" if held == "engine"
-      return nil unless SOURCES.include?(held)
+    def source_term(query)
+      source = query.downcase
+      source = "fire_engine" if source == "engine"
+      return nil unless SOURCES.include?(source)
 
-      Term.new(kind: "source", value: held, label: "source #{query}")
+      Term.new(kind: "source", value: source, label: "source #{query}")
     end
 
-    STAMP = /\A\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/
+    TIMESTAMP = /\A\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/
     MINUTE = "%Y-%m-%dT%H:%M".freeze
 
-    def when_at(kind, query)
+    def time_term(kind, query)
       at = Time.zone.parse(query)
       return nil if at.nil?
 
-      value = query.match?(STAMP) ? at.strftime(MINUTE) : at.to_date.iso8601
+      value = query.match?(TIMESTAMP) ? at.strftime(MINUTE) : at.to_date.iso8601
       Term.new(kind: kind, value: value, label: "#{kind} #{value.tr('T', ' ')}")
     rescue ArgumentError
       nil
     end
 
+    def network_term(query)
+      network_class = query.downcase
+      return nil unless NETWORKS.key?(network_class)
+
+      Term.new(kind: "network", value: network_class, label: "network #{NETWORKS.fetch(network_class)}")
+    end
+
+    def country_term(query)
+      return nil unless query.match?(COUNTRY)
+
+      Term.new(kind: "country", value: query.upcase, label: "country #{query.upcase}")
+    end
+
     APP = /\A[AB][A-Z0-9]{2,}\z/i
 
-    def app(query)
+    def app_term(query)
       return nil unless query.match?(APP)
 
       Term.new(kind: "app", value: query.upcase, label: "app #{query.upcase}")
@@ -283,22 +307,22 @@ module Fd
 
     SESSION = /\A\d{1,19}\z/
 
-    def session(query)
+    def session_term(query)
       return nil unless query.match?(SESSION)
 
       Term.new(kind: "session", value: query, label: "session #{query}")
     end
 
-    RECENT = /\A(\d{1,3})(h|d)\z/i
+    WINDOW = /\A(\d{1,3})(h|d)\z/i
     UNITS = { "h" => "hour", "d" => "day" }.freeze
 
-    def recent(query)
-      found = RECENT.match(query.delete(" "))
-      return nil if found.nil? || found[1].to_i.zero?
+    def window_term(query)
+      match = WINDOW.match(query.delete(" "))
+      return nil if match.nil? || match[1].to_i.zero?
 
-      count = found[1].to_i
-      unit = UNITS.fetch(found[2].downcase)
-      Term.new(kind: "last", value: "#{count}#{found[2].downcase}",
+      count = match[1].to_i
+      unit = UNITS.fetch(match[2].downcase)
+      Term.new(kind: "last", value: "#{count}#{match[2].downcase}",
         label: "last #{count == 1 ? unit : "#{count} #{unit.pluralize}"}")
     end
   end

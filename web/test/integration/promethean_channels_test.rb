@@ -2,11 +2,11 @@ require "test_helper"
 
 class PrometheanChannelsTest < ActionDispatch::IntegrationTest
   WHO = "UPROMCH01".freeze
-  GHOST = "CGHOSTNOTHERE".freeze
+  UNMEASURED_CHANNEL = "CGHOSTNOTHERE".freeze
 
   setup do
     @staff = Account.find_or_create_by!(user_id: WHO)
-    @measured = Analytics::DimChannel.where(archived: false).first
+    @channel = Analytics::DimChannel.where(archived: false).first
     Prometheus::Appointment.delete_all
     Current.forget_roles
   end
@@ -16,7 +16,7 @@ class PrometheanChannelsTest < ActionDispatch::IntegrationTest
     Current.forget_roles
   end
 
-  def appoint(channel_id, role = "manager")
+  def create_appointment(channel_id, role = "manager")
     Prometheus::Appointment.insert_all!([
       { user_id: WHO, channel_id: channel_id, role: role, seen_at: Time.current }
     ])
@@ -24,41 +24,41 @@ class PrometheanChannelsTest < ActionDispatch::IntegrationTest
   end
 
   test "a manager appointment carries the role and the channel" do
-    skip "no measured channel in the warehouse" if @measured.nil?
-    appoint(@measured.channel_id)
+    skip "no measured channel in the warehouse" if @channel.nil?
+    create_appointment(@channel.channel_id)
 
-    assert_equal ["promethean"], Authz.roles_held(WHO)
-    assert Channels::Audience.may_see?(@staff, @measured.channel_id)
+    assert_equal ["promethean"], Authz.effective_roles(WHO)
+    assert Channels::Audience.may_see?(@staff, @channel.channel_id)
   end
 
   test "a moderator appointment carries nothing" do
-    skip "no measured channel in the warehouse" if @measured.nil?
-    appoint(@measured.channel_id, "moderator")
+    skip "no measured channel in the warehouse" if @channel.nil?
+    create_appointment(@channel.channel_id, "moderator")
 
-    assert_empty Authz.roles_held(WHO)
-    assert_not Channels::Audience.may_see?(@staff, @measured.channel_id)
+    assert_empty Authz.effective_roles(WHO)
+    assert_not Channels::Audience.may_see?(@staff, @channel.channel_id)
   end
 
   test "a channel the warehouse has never seen is listed as unmeasured" do
-    appoint(GHOST)
+    create_appointment(UNMEASURED_CHANNEL)
 
-    assert_equal [GHOST], Channels::Audience.unmeasured_for(@staff)
-    assert Channels::Audience.may_see?(@staff, GHOST)
+    assert_equal [UNMEASURED_CHANNEL], Channels::Audience.unmeasured_for(@staff)
+    assert Channels::Audience.may_see?(@staff, UNMEASURED_CHANNEL)
   end
 
   test "the unmeasured channel page explains itself rather than refusing" do
-    appoint(GHOST)
+    create_appointment(UNMEASURED_CHANNEL)
     sign_in_as(@staff)
 
-    get channel_path(GHOST)
+    get channel_path(UNMEASURED_CHANNEL)
 
     assert_response :success
     assert_match(/Analytics isn't available for this channel yet/, response.body)
-    assert_match GHOST, response.body
+    assert_match UNMEASURED_CHANNEL, response.body
   end
 
   test "a channel they hold nothing on is still refused" do
-    appoint(GHOST)
+    create_appointment(UNMEASURED_CHANNEL)
     sign_in_as(@staff)
 
     get channel_path("CSOMEONEELSE")
@@ -67,13 +67,13 @@ class PrometheanChannelsTest < ActionDispatch::IntegrationTest
   end
 
   test "the index carries the unmeasured channel" do
-    appoint(GHOST)
+    create_appointment(UNMEASURED_CHANNEL)
     sign_in_as(@staff)
 
     get channels_path
 
     assert_response :success
-    assert_match GHOST, response.body
+    assert_match UNMEASURED_CHANNEL, response.body
     assert_match(/no data for this channel yet/, response.body)
   end
 

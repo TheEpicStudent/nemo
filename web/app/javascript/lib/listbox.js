@@ -2,10 +2,10 @@ import { placePop, clearPop } from "lib/place_pop"
 
 const CACHET = "https://cachet.hackclub.com"
 const SVG = "http://www.w3.org/2000/svg"
-let made = 0
+let idCounter = 0
 
-export function askingFor(where, term) {
-  const url = new URL(where, window.location.origin)
+export function searchUrl(path, term) {
+  const url = new URL(path, window.location.origin)
   url.searchParams.set("q", term)
   return url
 }
@@ -17,7 +17,7 @@ export function span(className, text) {
   return el
 }
 
-export function face(id, initial) {
+export function avatarImage(id, initial) {
   const img = document.createElement("img")
   img.className = "avatar"
   img.src = `${CACHET}/users/${encodeURIComponent(id)}/r`
@@ -27,13 +27,13 @@ export function face(id, initial) {
   return img
 }
 
-export function named(id, name) {
+export function nameLabel(id, name) {
   const el = span("combo-name", name)
   if (name === `@${id}`) el.dataset.cachetName = id
   return el
 }
 
-function hash() {
+function channelIcon() {
   const svg = document.createElementNS(SVG, "svg")
   svg.setAttribute("viewBox", "0 0 24 24")
   svg.setAttribute("fill", "none")
@@ -51,7 +51,7 @@ function hash() {
 function option(id) {
   const row = document.createElement("div")
   row.className = "combo-opt"
-  row.id = `combo-opt-${++made}`
+  row.id = `combo-opt-${++idCounter}`
   row.setAttribute("role", "option")
   row.setAttribute("aria-selected", "false")
   row.dataset.id = id
@@ -63,9 +63,9 @@ export function personOption(member) {
   row.dataset.name = member.name
   row.dataset.initial = member.initial || ""
 
-  const bare = member.name.replace(/^@/, "")
-  row.append(face(member.id, member.initial), named(member.id, member.name))
-  if (member.handle && member.handle !== bare) row.append(span("combo-sub", `@${member.handle}`))
+  const plainName = member.name.replace(/^@/, "")
+  row.append(avatarImage(member.id, member.initial), nameLabel(member.id, member.name))
+  if (member.handle && member.handle !== plainName) row.append(span("combo-sub", `@${member.handle}`))
   if (member.deleted) row.append(span("combo-end", "Deactivated"))
   return row
 }
@@ -73,29 +73,29 @@ export function personOption(member) {
 export function channelOption(channel) {
   const row = option(channel.id)
   row.dataset.name = channel.name
-  row.append(hash(), span("combo-name", channel.name), span("combo-end mono", channel.id))
+  row.append(channelIcon(), span("combo-name", channel.name), span("combo-end mono", channel.id))
   return row
 }
 
 const OPTIONS = { member: personOption, channel: channelOption }
 
 export class Listbox {
-  constructor({ pop, list, anchor, kind, empty, input, pick }) {
+  constructor({ pop, list, anchor, kind, empty, input, onSelect }) {
     this.pop = pop
     this.list = list || pop
     this.anchor = anchor
     this.input = input
     this.build = OPTIONS[kind] || personOption
     this.empty = empty || "No results"
-    this.onPick = pick
+    this.onSelect = onSelect
     this.at = -1
-    this.onMove = () => { if (this.open) this.place() }
+    this.onMove = () => { if (this.open) this.position() }
     this.list.setAttribute("role", "listbox")
-    this.list.id ||= `combo-list-${++made}`
+    this.list.id ||= `combo-list-${++idCounter}`
     this.input?.setAttribute("aria-controls", this.list.id)
     this.list.addEventListener("pointerdown", (event) => event.preventDefault())
-    this.list.addEventListener("click", (event) => this.clicked(event))
-    this.list.addEventListener("pointermove", (event) => this.hovered(event))
+    this.list.addEventListener("click", (event) => this.onClick(event))
+    this.list.addEventListener("pointermove", (event) => this.onPointerMove(event))
   }
 
   get open() {
@@ -122,7 +122,7 @@ export class Listbox {
     if (!this.open) this.pop.showPopover()
     this.input?.setAttribute("aria-expanded", "true")
     this.anchor.setAttribute("aria-expanded", "true")
-    this.place()
+    this.position()
     window.addEventListener("resize", this.onMove)
     document.addEventListener("scroll", this.onMove, true)
   }
@@ -138,7 +138,7 @@ export class Listbox {
     document.removeEventListener("scroll", this.onMove, true)
   }
 
-  place() {
+  position() {
     if (this.pop.classList.contains("combo-pop-fit")) {
       this.pop.style.width = `${this.anchor.getBoundingClientRect().width}px`
     }
@@ -146,10 +146,10 @@ export class Listbox {
   }
 
   mark() {
-    this.rows().forEach((row, spot) => {
-      const on = spot === this.at
-      row.setAttribute("aria-selected", on ? "true" : "false")
-      if (on) {
+    this.rows().forEach((row, index) => {
+      const isActive = index === this.at
+      row.setAttribute("aria-selected", isActive ? "true" : "false")
+      if (isActive) {
         row.scrollIntoView({ block: "nearest" })
         this.input?.setAttribute("aria-activedescendant", row.id)
       }
@@ -158,12 +158,12 @@ export class Listbox {
   }
 
   move(step) {
-    const all = this.rows()
-    if (all.length === 0) return
+    const optionRows = this.rows()
+    if (optionRows.length === 0) return
 
     this.at = this.at < 0
-      ? (step > 0 ? 0 : all.length - 1)
-      : (this.at + step + all.length) % all.length
+      ? (step > 0 ? 0 : optionRows.length - 1)
+      : (this.at + step + optionRows.length) % optionRows.length
     this.mark()
   }
 
@@ -171,18 +171,18 @@ export class Listbox {
     return this.rows()[this.at] || null
   }
 
-  hovered(event) {
+  onPointerMove(event) {
     const row = event.target.closest(".combo-opt")
-    const spot = this.rows().indexOf(row)
-    if (spot < 0 || spot === this.at) return
+    const index = this.rows().indexOf(row)
+    if (index < 0 || index === this.at) return
 
-    this.at = spot
+    this.at = index
     this.mark()
   }
 
-  clicked(event) {
+  onClick(event) {
     const row = event.target.closest(".combo-opt")
-    if (row) this.onPick(row.dataset)
+    if (row) this.onSelect(row.dataset)
   }
 
   keys(event, { tab = false } = {}) {
@@ -195,10 +195,10 @@ export class Listbox {
     }
 
     if (event.key === "Home" || event.key === "End") {
-      const all = this.rows()
-      if (all.length === 0) return false
+      const optionRows = this.rows()
+      if (optionRows.length === 0) return false
       event.preventDefault()
-      this.at = event.key === "Home" ? 0 : all.length - 1
+      this.at = event.key === "Home" ? 0 : optionRows.length - 1
       this.mark()
       return true
     }
@@ -214,7 +214,7 @@ export class Listbox {
       const row = this.current()
       if (!row) return false
       event.preventDefault()
-      this.onPick(row.dataset)
+      this.onSelect(row.dataset)
       return true
     }
 

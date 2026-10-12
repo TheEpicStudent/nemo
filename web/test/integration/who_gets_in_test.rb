@@ -39,7 +39,7 @@ class WhoGetsInTest < ActionDispatch::IntegrationTest
   end
 
   def token_guarded?(name)
-    filters_of(name).include?(:require_a_token)
+    filters_of(name).include?(:require_token)
   end
 
   def guarded_controllers
@@ -154,7 +154,7 @@ class WhoGetsInTest < ActionDispatch::IntegrationTest
     hold_role!("UFRESH", "firefighter")
 
     assert Account.exists?("UFRESH")
-    assert_equal %w[firefighter], Authz.roles_held("UFRESH")
+    assert_equal %w[firefighter], Authz.effective_roles("UFRESH")
   end
 
   test "a grant taken back shuts the door on the next request" do
@@ -202,7 +202,7 @@ class WhoGetsInTest < ActionDispatch::IntegrationTest
     Authz.grantable_roles.each do |role|
       hold_role!("UNOROLE", role)
       Current.forget_roles
-      assert_equal [role], Authz.roles_held("UNOROLE"),
+      assert_equal [role], Authz.effective_roles("UNOROLE"),
         "the role a grant names is the role they hold"
     end
 
@@ -212,14 +212,14 @@ class WhoGetsInTest < ActionDispatch::IntegrationTest
   end
 
   test "the manager sits above both ladders, held by the flag" do
-    boss = hold_role!("UABOVE", "community_manager")
+    manager = hold_role!("UABOVE", "community_manager")
 
-    assert_equal [Fd::Access::MANAGER_ROLE], Authz.roles_held(boss.user_id),
+    assert_equal [Fd::Access::MANAGER_ROLE], Authz.effective_roles(manager.user_id),
       "the manager role is what a manager holds now"
-    assert_predicate boss, :manager?
-    assert boss.may?("case.read"), "a manager runs the Fire Department"
-    assert Authz.holds?(boss, "channel.all"), "a manager reads every channel"
-    assert Authz.holds?(boss, "engine.manage"), "a manager runs the engine"
-    assert Authz.holds?(boss, "access.grant"), "a manager hands access out"
+    assert_predicate manager, :manager?
+    assert manager.may?("case.read"), "a manager runs the Fire Department"
+    assert Authz.holds?(manager, "channel.all"), "a manager reads every channel"
+    assert Authz.holds?(manager, "engine.manage"), "a manager runs the engine"
+    assert Authz.holds?(manager, "access.grant"), "a manager hands access out"
   end
 end

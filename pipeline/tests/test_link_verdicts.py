@@ -18,8 +18,8 @@ class Result:
 
 
 class Conn:
-    def __init__(self, held=None, members=()):
-        self.held = dict(held or {})
+    def __init__(self, existing=None, members=()):
+        self.existing = dict(existing or {})
         self.members = set(members)
         self.calls = []
         self.committed = False
@@ -28,9 +28,9 @@ class Conn:
         self.calls.append((sql.strip(), params))
         if sql == verdicts.KNOWN_SQL:
             return Result([(one,) for one in params[0] if one in self.members])
-        if sql == verdicts.HELD_SQL:
-            held = self.held.get(tuple(params))
-            return Result([held] if held else [])
+        if sql == verdicts.EXISTING_SQL:
+            existing = self.existing.get(tuple(params))
+            return Result([existing] if existing else [])
         if sql == verdicts.INSERT_SQL:
             return Result([(41,)])
         return Result([])
@@ -38,7 +38,7 @@ class Conn:
     def commit(self):
         self.committed = True
 
-    def did(self, prefix):
+    def args_for(self, prefix):
         return [params for sql, params in self.calls if sql.startswith(prefix)]
 
 
@@ -62,10 +62,10 @@ def test_the_verdicts_match_the_table_check():
 
 
 def test_ids_split_on_commas_and_spaces():
-    picks = verdicts.planned("U09", "U01", {"same_person": ["U02,U03", " U04 "], "household": ["U05"]})
+    planned = verdicts.planned("U09", "U01", {"same_person": ["U02,U03", " U04 "], "household": ["U05"]})
 
-    assert picks == {"U02": "same_person", "U03": "same_person", "U04": "same_person",
-                     "U05": "household"}
+    assert planned == {"U02": "same_person", "U03": "same_person", "U04": "same_person",
+                       "U05": "household"}
 
 
 def test_an_account_under_two_verdicts_is_refused():
@@ -93,8 +93,8 @@ def test_a_new_pair_is_inserted_and_audited_against_the_listed_account():
 
     assert verdicts.record(conn, "U09", "U05", "U02", "same_person") == "recorded"
 
-    assert conn.did("INSERT INTO fd.member_link_verdict") == [("U02", "U05", "same_person", "U09", None)]
-    [row] = conn.did("INSERT INTO fd.audit")
+    assert conn.args_for("INSERT INTO fd.member_link_verdict") == [("U02", "U05", "same_person", "U09", None)]
+    [row] = conn.args_for("INSERT INTO fd.audit")
     assert row[0] == "U09"
     assert row[2:5] == ("member_link_verdict", 41, "linked")
     assert row[5] is None
@@ -103,21 +103,21 @@ def test_a_new_pair_is_inserted_and_audited_against_the_listed_account():
 
 
 def test_the_same_verdict_again_writes_nothing():
-    conn = Conn(held={("U02", "U05"): (7, "same_person", "U08", None)})
+    conn = Conn(existing={("U02", "U05"): (7, "same_person", "U08", None)})
 
     assert verdicts.record(conn, "U09", "U05", "U02", "same_person") == "unchanged"
 
-    assert conn.did("UPDATE") == []
-    assert conn.did("INSERT") == []
+    assert conn.args_for("UPDATE") == []
+    assert conn.args_for("INSERT") == []
 
 
 def test_a_changed_verdict_keeps_the_note_and_audits_the_old_verdict():
-    conn = Conn(held={("U02", "U05"): (7, "same_person", "U08", "shared a laptop")})
+    conn = Conn(existing={("U02", "U05"): (7, "same_person", "U08", "shared a laptop")})
 
     assert verdicts.record(conn, "U09", "U05", "U02", "household") == "changed"
 
-    assert conn.did("UPDATE fd.member_link_verdict") == [("household", "U09", "shared a laptop", 7)]
-    [row] = conn.did("INSERT INTO fd.audit")
+    assert conn.args_for("UPDATE fd.member_link_verdict") == [("household", "U09", "shared a laptop", 7)]
+    [row] = conn.args_for("INSERT INTO fd.audit")
     assert row[4] == "unlinked"
     assert row[5].obj == {"verdict": "same_person", "decided_by": "U08", "note": "shared a laptop"}
     assert row[6].obj["verdict"] == "household"
@@ -129,16 +129,16 @@ def test_unknown_accounts_stop_the_run_before_anything_is_written():
     with pytest.raises(VerdictError, match="not in fd.member: U02"):
         verdicts.run(conn, "U09", "U05", {"U02": "same_person"})
 
-    assert conn.did("INSERT") == []
+    assert conn.args_for("INSERT") == []
     assert not conn.committed
 
 
 def test_a_run_commits_after_every_pair():
     conn = Conn(members={"U09", "U05", "U02", "U03"})
 
-    tally = verdicts.run(conn, "U09", "U05", {"U02": "same_person", "U03": "staff_test"})
+    counts = verdicts.run(conn, "U09", "U05", {"U02": "same_person", "U03": "staff_test"})
 
-    assert tally == {"recorded": 2}
+    assert counts == {"recorded": 2}
     assert conn.committed
 
 

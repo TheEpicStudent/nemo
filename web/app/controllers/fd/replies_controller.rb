@@ -4,11 +4,11 @@ module Fd
 
     def create
       kase = Case.find(params[:case_id])
-      read = Marks.read(params[:body], aimed: true)
+      parsed = Marks.read(params[:body], to_reporter: true)
       sent = nil
 
       writing do
-        sent = Outgoing.queue(conversation_for(kase), read.body, mode: mode(read),
+        sent = Outgoing.queue(conversation_for(kase), parsed.body, mode: mode(parsed),
           by: current_account.user_id, asked: params[:conversation_id].present?)
         answered(kase, sent.queued) if sent.queued
       end
@@ -27,10 +27,10 @@ module Fd
     private
 
     def conversation_for(kase)
-      family = IntakeConversation.for_case(kase.family_ids).open_ones
-      return family.first if params[:conversation_id].blank?
+      conversations = IntakeConversation.for_case(kase.family_ids).open
+      return conversations.first if params[:conversation_id].blank?
 
-      family.find_by(id: params[:conversation_id])
+      conversations.find_by(id: params[:conversation_id])
     end
 
     def answered(kase, queued)
@@ -42,8 +42,8 @@ module Fd
       fd_case_path(kase, tab: "report")
     end
 
-    def mode(read)
-      read.signed? && params[:anon] != "1" ? "signed" : "body"
+    def mode(parsed)
+      parsed.signed? && params[:anon] != "1" ? "signed" : "body"
     end
   end
 end

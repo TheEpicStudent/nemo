@@ -67,7 +67,7 @@ def normalized(value):
     return text or None
 
 
-def whole(user):
+def valid_user(user):
     if not isinstance(user, dict):
         return None
     return user if user.get("id") else None
@@ -102,13 +102,13 @@ def identity_row(user):
     )
 
 
-def keep(conn, user):
+def upsert_member(conn, user):
     conn.execute(MEMBER, member_row(user))
     conn.execute(IDENTITY, identity_row(user))
     return user["id"]
 
 
 def arrived(conn, user):
-    fresh = conn.execute(JOINED, (user["id"],)).fetchone()
-    keep(conn, user)
-    return bool(fresh)
+    inserted = conn.execute(JOINED, (user["id"],)).fetchone()
+    upsert_member(conn, user)
+    return bool(inserted)

@@ -13,16 +13,16 @@ export default class extends Controller {
     document.removeEventListener("mn:theme", this.onTheme)
   }
 
-  pick(event) {
+  select(event) {
     const key = event.currentTarget.dataset.themeKey
     if (!key) return
 
-    window.MnTheme?.pick(key, this.origin(event))
+    window.MnTheme?.select(key, this.origin(event))
   }
 
   flip(event) {
-    const live = document.documentElement.getAttribute("data-theme")
-    window.MnTheme?.pick(live === "lightsout" ? "light" : "lightsout", this.origin(event))
+    const activeTheme = document.documentElement.getAttribute("data-theme")
+    window.MnTheme?.select(activeTheme === "lightsout" ? "light" : "lightsout", this.origin(event))
   }
 
   tint(event) {
@@ -43,13 +43,13 @@ export default class extends Controller {
     if (!window.MnTheme) return
 
     const { pinned, accent } = window.MnTheme.state()
-    const live = document.documentElement.getAttribute("data-theme")
+    const activeTheme = document.documentElement.getAttribute("data-theme")
 
     this.optionTargets.forEach((el) => {
       const key = el.dataset.themeKey
       el.setAttribute("aria-pressed", key === pinned ? "true" : "false")
-      el.classList.toggle("on", key === live)
-      el.classList.toggle("auto", !pinned && key === live)
+      el.classList.toggle("on", key === activeTheme)
+      el.classList.toggle("auto", !pinned && key === activeTheme)
     })
 
     this.accentTargets.forEach((el) => {
@@ -57,10 +57,10 @@ export default class extends Controller {
       else el.setAttribute("aria-pressed", accent ? "true" : "false")
     })
 
-    this.mirror(this.optionTargets.find((el) => el.dataset.themeKey === live), pinned)
+    this.syncNameLabel(this.optionTargets.find((el) => el.dataset.themeKey === activeTheme), pinned)
   }
 
-  mirror(option, pinned) {
+  syncNameLabel(option, pinned) {
     if (!option) return
 
     if (this.hasNameTarget) {

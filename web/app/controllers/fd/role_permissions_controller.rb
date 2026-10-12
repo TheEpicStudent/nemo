@@ -1,6 +1,6 @@
 module Fd
   class RolePermissionsController < BaseController
-    skip_before_action :needs_the_engine
+    skip_before_action :require_engine
     permit "access.grant"
 
     def update
@@ -9,12 +9,12 @@ module Fd
       allowed = params[:allowed] == "1"
 
       writing do
-        row = move!(role, key, allowed)
+        row = set_override!(role, key, allowed)
         audit(row, allowed ? "granted" : "revoked", entity_id: "#{role}/#{key}",
           after: { "permission" => key, "role" => role, "allowed" => allowed })
       end
 
-      redirect_to admin_roles_path, notice: moved_note(role, key, allowed)
+      redirect_to admin_roles_path, notice: override_notice(role, key, allowed)
     rescue NotAllowedError => e
       redirect_to admin_roles_path, alert: e.message
     end
@@ -39,7 +39,7 @@ module Fd
 
     class NotAllowedError < StandardError; end
 
-    def move!(role, key, allowed)
+    def set_override!(role, key, allowed)
       check!(role, key, allowed)
       Authz::Override.upsert({ role: role, capability: key, allowed: allowed,
                                changed_by: current_account.user_id, changed_at: Time.current },
@@ -49,10 +49,10 @@ module Fd
     end
 
     def check!(role, key, _allowed)
-      refuse "#{role} is not a role" unless Authz.role_names.include?(role)
-      refuse "#{role} holds everything already" if Authz.superadmin?(role)
-      refuse "#{key} is not a capability" unless Authz.keys.include?(key)
-      refuse "#{key} cannot be moved" if Authz.locked?(key)
+      raise_not_allowed "#{role} is not a role" unless Authz.role_names.include?(role)
+      raise_not_allowed "#{role} holds everything already" if Authz.superadmin?(role)
+      raise_not_allowed "#{key} is not a capability" unless Authz.keys.include?(key)
+      raise_not_allowed "#{key} cannot be moved" if Authz.locked?(key)
     end
 
     def back_to_default?(row)
@@ -69,15 +69,15 @@ module Fd
       }
     end
 
-    def moved_note(role, key, allowed)
+    def override_notice(role, key, allowed)
       label = Authz.role_label(role).downcase
       return "#{label}s can now #{Authz.label(key).downcase}" if allowed
 
       "#{key} is no longer theirs"
     end
 
-    def refuse(why)
-      raise NotAllowedError, why
+    def raise_not_allowed(message)
+      raise NotAllowedError, message
     end
   end
 end

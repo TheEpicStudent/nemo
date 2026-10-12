@@ -16,11 +16,11 @@ module Fd
     end
 
     def rows
-      @rows ||= built
+      @rows ||= build_rows
     end
 
     def total
-      @total ||= picked("count(*) AS found").first["found"].to_i
+      @total ||= query_rows("count(*) AS found").first["found"].to_i
     end
 
     def member_ids
@@ -29,8 +29,8 @@ module Fd
 
     private
 
-    def picked(select = "kind, id, at")
-      return AuditEntry.connection.select_all("SELECT 0 AS found WHERE false") if nothing_asked?
+    def query_rows(select = "kind, id, at")
+      return AuditEntry.connection.select_all("SELECT 0 AS found WHERE false") if no_sources?
 
       sql = <<~SQL
         WITH picked AS (#{audit_side}#{reads_side})
@@ -43,7 +43,7 @@ module Fd
       )
     end
 
-    def nothing_asked?
+    def no_sources?
       audit_side.strip.empty? && reads_side.strip.empty?
     end
 
@@ -51,11 +51,11 @@ module Fd
       return "" if @only && @only != READ && Authz.events(@only).empty?
       return "" if @only == READ
 
-      mine = @user_id ? "AND a.actor_user_id = :who" : ""
+      actor_filter = @user_id ? "AND a.actor_user_id = :who" : ""
       <<~SQL
         SELECT 'audit' AS kind, a.id AS id, a.occurred_at AS at
         FROM fd.audit a
-        WHERE a.occurred_at >= :since AND a.verb <> 'refused' #{mine} #{only_clause}
+        WHERE a.occurred_at >= :since AND a.verb <> 'refused' #{actor_filter} #{only_clause}
       SQL
     end
 
@@ -64,14 +64,14 @@ module Fd
     def reads_side
       return "" if @only && @only != READ
 
-      mine = @user_id ? "AND l.actor_id = :who" : ""
-      lead = audit_side.empty? ? "" : "UNION ALL"
+      actor_filter = @user_id ? "AND l.actor_id = :who" : ""
+      union_prefix = audit_side.empty? ? "" : "UNION ALL"
       classes = AuditEntry.sanitize_sql(["l.field_class IN (?)", IDENTITY_READS])
       <<~SQL
-        #{lead}
+        #{union_prefix}
         SELECT 'read' AS kind, l.id AS id, l.looked_at AS at
         FROM access_log l
-        WHERE l.looked_at >= :since AND #{classes} #{mine}
+        WHERE l.looked_at >= :since AND #{classes} #{actor_filter}
       SQL
     end
 
@@ -81,14 +81,14 @@ module Fd
       pairs = Authz.events(@only).map { |event| event.split("/") }
       return "AND false" if pairs.empty?
 
-      changed = pairs.map { |type, verb|
+      conditions = pairs.map { |type, verb|
         AuditEntry.sanitize_sql(["(a.entity_type = ? AND a.verb = ?)", type, verb])
       }
-      "AND (#{changed.join(' OR ')})"
+      "AND (#{conditions.join(' OR ')})"
     end
 
     def entries
-      AuditEntry.where(id: @picked_ids).recent_first.to_a
+      AuditEntry.where(id: @audit_ids).recent_first.to_a
     end
 
     def narrow(scope, events)
@@ -98,18 +98,18 @@ module Fd
       scope.where(pairs.map { "(entity_type = ? AND verb = ?)" }.join(" OR "), *pairs.flatten)
     end
 
-    def built
-      chosen = picked.to_a
-      @picked_ids = chosen.select { |row| row["kind"] == "audit" }.map { |row| row["id"] }
-      read_rows = reads_for(chosen.select { |row| row["kind"] == "read" }.map { |row| row["id"] })
+    def build_rows
+      result_rows = query_rows.to_a
+      @audit_ids = result_rows.select { |row| row["kind"] == "audit" }.map { |row| row["id"] }
+      read_rows = reads_for(result_rows.select { |row| row["kind"] == "read" }.map { |row| row["id"] })
 
-      found = entries
-      @actions = Action.where(id: ids(found, "action")).index_by(&:id)
-      @notes = Note.where(id: ids(found, "note")).index_by(&:id)
-      @reports = CaseReport.where(id: ids(found, "report")).index_by(&:id)
+      audit_entries = entries
+      @actions = Action.where(id: ids(audit_entries, "action")).index_by(&:id)
+      @notes = Note.where(id: ids(audit_entries, "note")).index_by(&:id)
+      @reports = CaseReport.where(id: ids(audit_entries, "report")).index_by(&:id)
 
-      made = found.map { |row| row_for(row).tap { |one| one.actor = row.actor_user_id } }
-      (made + read_rows).sort_by { |row| -row.at.to_i }
+      audit_rows = audit_entries.map { |row| row_for(row).tap { |trail_row| trail_row.actor = row.actor_user_id } }
+      (audit_rows + read_rows).sort_by { |row| -row.at.to_i }
     end
 
     def reads_for(ids)
@@ -123,8 +123,8 @@ module Fd
       end
     end
 
-    def ids(found, *types)
-      found.select { |row| types.include?(row.entity_type) }.map(&:entity_id)
+    def ids(audit_entries, *types)
+      audit_entries.select { |row| types.include?(row.entity_type) }.map(&:entity_id)
     end
 
     def row_for(row)
@@ -135,7 +135,7 @@ module Fd
       when "note" then note_row(row, event)
       when "grant", "capability_grant" then grant_row(row, event)
       when "community_grant" then community_grant_row(row, event)
-      when "permission" then moved_row(row, event)
+      when "permission" then permission_row(row, event)
       when "report" then report_row(row, event)
       when "member" then member_row(row, event)
       when *ON_CASE then on_case(row, event, row.entity_id)
@@ -171,7 +171,7 @@ module Fd
       on_case(row, event, report ? report.case_id : row.entity_id)
     end
 
-    def moved_row(row, event)
+    def permission_row(row, event)
       changed = row.after || {}
       Row.new(at: row.occurred_at, event: event,
         detail: [changed["permission"], changed["role"]&.tr("_", " ")].compact.join(" · ").presence)

@@ -84,7 +84,7 @@ module Fd
 
     def view
       raw = @params["view"].to_s
-      return nil if raw == NO_VIEW || chosen_facets.any?
+      return nil if raw == NO_VIEW || selected_facets.any?
 
       VIEWS.key?(raw) ? raw : DEFAULT_VIEW
     end
@@ -136,15 +136,15 @@ module Fd
       return {} if view == DEFAULT_VIEW
       return { "view" => view } if view
 
-      chosen_facets.presence || { "view" => NO_VIEW }
+      selected_facets.presence || { "view" => NO_VIEW }
     end
 
     def facet_params(overrides)
-      base = view ? VIEW_FACETS.fetch(view) : chosen_facets
-      chosen = base.merge(overrides.stringify_keys)
+      base = view ? VIEW_FACETS.fetch(view) : selected_facets
+      selected = base.merge(overrides.stringify_keys)
         .reject { |key, value| value.to_s == DEFAULTS[key] || value.blank? }
 
-      chosen.presence || { "view" => NO_VIEW }
+      selected.presence || { "view" => NO_VIEW }
     end
 
     def sorting?(key)
@@ -176,15 +176,15 @@ module Fd
     def title
       return view_label if view
 
-      rest = [age_phrase, assignee_phrase, category_phrase, subject_phrase,
-              actions_phrase, opened_phrase, resolved_phrase].compact
-      return status_lead if rest.empty?
+      phrases = [age_phrase, assignee_phrase, category_phrase, subject_phrase,
+                 actions_phrase, opened_phrase, resolved_phrase].compact
+      return status_lead if phrases.empty?
 
-      "#{status_lead}, #{rest.to_sentence}"
+      "#{status_lead}, #{phrases.to_sentence}"
     end
 
-    def summary(shown, total)
-      ["#{shown} of #{total}", SORT.fetch(self["sort"])].join(" · ")
+    def summary(visible_count, total)
+      ["#{visible_count} of #{total}", SORT.fetch(self["sort"])].join(" · ")
     end
 
     def empty_note
@@ -202,8 +202,8 @@ module Fd
     PRIMARY = %w[status age assignee sort].freeze
 
     def inline_facets
-      shown = facets.select(&:on)
-      shown + facets.reject(&:on).select { |facet| PRIMARY.include?(facet.key) }
+      active = facets.select(&:on)
+      active + facets.reject(&:on).select { |facet| PRIMARY.include?(facet.key) }
     end
 
     def more_facets
@@ -225,8 +225,8 @@ module Fd
     end
 
     def assignee_options
-      taken = CaseAssignee.distinct.order(:user_id).pluck(:user_id)
-      ASSIGNEE.merge(taken.index_with { |id| "@#{id}" })
+      assignee_ids = CaseAssignee.distinct.order(:user_id).pluck(:user_id)
+      ASSIGNEE.merge(assignee_ids.index_with { |id| "@#{id}" })
     end
 
     def category_options
@@ -238,8 +238,8 @@ module Fd
     DEFAULT_VIEW = "attention".freeze
     NO_VIEW = "none".freeze
 
-    def chosen_facets
-      @chosen_facets ||= FACET_KEYS.filter_map { |key|
+    def selected_facets
+      @selected_facets ||= FACET_KEYS.filter_map { |key|
         raw = @params[key].to_s
         [key, raw] if allowed?(key, raw) && raw != DEFAULTS[key]
       }.to_h
@@ -361,14 +361,14 @@ module Fd
     end
 
     def apply_sort(scope)
-      way = descending? ? "DESC" : "ASC"
+      direction = descending? ? "DESC" : "ASC"
       case self["sort"]
-      when "case" then scope.order(Arel.sql("fd.cases.id #{way}"))
+      when "case" then scope.order(Arel.sql("fd.cases.id #{direction}"))
       when "actions" then scope.order(Arel.sql(ACTION_COUNT_SQL)).order(:opened_at)
       when "resolved"
-        scope.order(Arel.sql("fd.cases.resolved_at #{way} NULLS LAST"))
-          .order(Arel.sql("fd.cases.opened_at #{way}"))
-      else scope.order(Arel.sql("fd.cases.opened_at #{way}"))
+        scope.order(Arel.sql("fd.cases.resolved_at #{direction} NULLS LAST"))
+          .order(Arel.sql("fd.cases.opened_at #{direction}"))
+      else scope.order(Arel.sql("fd.cases.opened_at #{direction}"))
       end
     end
 

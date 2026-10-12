@@ -1,13 +1,13 @@
-<%= render layout: "fd/modal", locals: { id: "settle-#{asked.id}",
-      title: asked.app.name, sub: asked.app.slug } do %>
-  <%= form_with url: settle_settings_request_path(asked), method: :post,
+<%= render layout: "fd/modal", locals: { id: "settle-#{access_request.id}",
+      title: access_request.app.name, sub: access_request.app.slug } do %>
+  <%= form_with url: settle_settings_request_path(access_request), method: :post,
         html: { autocomplete: "off" } do %>
     <div class="modal-body form-body">
-      <p class="sub2"><%= asked.app.blurb %></p>
-      <p class="rail-line"><%= asked.reason %></p>
+      <p class="sub2"><%= access_request.app.blurb %></p>
+      <p class="rail-line"><%= access_request.reason %></p>
       <p class="sub2">
-        <%= person_name(asked.app.owner_user_id) %> &middot;
-        requested <%= time_ago_in_words(asked.created_at) %> ago
+        <%= person_name(access_request.app.owner_user_id) %> &middot;
+        requested <%= time_ago_in_words(access_request.created_at) %> ago
       </p>
       <label class="field-label">
         Note
@@ -15,7 +15,7 @@
       </label>
     </div>
     <div class="modal-foot">
-      <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Cancel</button>
+      <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
       <%= submit_tag "Decline", name: "verdict", class: "btn btn-crit" %>
       <%= submit_tag "Approve", name: "verdict", class: "btn btn-primary" %>
     </div>

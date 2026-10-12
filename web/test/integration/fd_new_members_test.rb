@@ -35,8 +35,8 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     assert_equal "kid@school.example", row.email
     assert_equal "school.example", row.domain
 
-    blind = Fd::NewMemberQuery.new({}, actor: nil)
-    assert_nil blind.rows.find { |one| one.user_id == "UE1" }.email
+    anonymous_query = Fd::NewMemberQuery.new({}, actor: nil)
+    assert_nil anonymous_query.rows.find { |one| one.user_id == "UE1" }.email
   end
 
   test "a domain nobody else uses is called out, a shared one is not" do
@@ -81,9 +81,9 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
   test "a domain filter nobody may read is refused rather than applied" do
     joined!("UF1", at: 1.hour.ago, email: "kid@school.example")
 
-    blind = Fd::NewMemberQuery.new({ "domain" => "school.example" }, actor: nil)
-    assert_equal "any", blind["domain"]
-    assert_includes blind.rows.map(&:user_id), "UF1"
+    anonymous_query = Fd::NewMemberQuery.new({ "domain" => "school.example" }, actor: nil)
+    assert_equal "any", anonymous_query["domain"]
+    assert_includes anonymous_query.rows.map(&:user_id), "UF1"
   end
 
   test "the page opens and lists who joined" do
@@ -107,21 +107,21 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
   end
 
   test "a tab and a date range hold at the same time" do
-    asked = query({ "view" => "guarded", "when" => "day" })
+    member_query = query({ "view" => "guarded", "when" => "day" })
 
-    assert_equal "guarded", asked.view, "picking a window must not drop the tab"
-    assert_equal "day", asked["when"]
-    assert_equal "guarded", asked.window_params("month")["view"]
-    assert_equal "day", asked.view_params("gone")["when"]
+    assert_equal "guarded", member_query.view, "picking a window must not drop the tab"
+    assert_equal "day", member_query["when"]
+    assert_equal "guarded", member_query.window_params("month")["view"]
+    assert_equal "day", member_query.view_params("gone")["when"]
   end
 
   test "a search holds across a tab and a window" do
-    asked = query({ "view" => "guarded", "when" => "day", "q" => "zev" })
+    member_query = query({ "view" => "guarded", "when" => "day", "q" => "zev" })
 
-    assert_equal "zev", asked.term
-    assert_equal "zev", asked.window_params("month")["q"]
-    assert_equal "zev", asked.view_params("gone")["q"]
-    assert_equal "guarded", asked.view
+    assert_equal "zev", member_query.term
+    assert_equal "zev", member_query.window_params("month")["q"]
+    assert_equal "zev", member_query.view_params("gone")["q"]
+    assert_equal "guarded", member_query.view
   end
 
   test "a search finds them by handle, and by email only if identity is readable" do
@@ -129,8 +129,8 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
 
     assert_includes query({ "q" => "us1" }).rows.map(&:user_id), "US1"
     assert_includes query({ "q" => "findme" }).rows.map(&:user_id), "US1"
-    blind = Fd::NewMemberQuery.new({ "q" => "findme" }, actor: nil)
-    assert_not_includes blind.rows.map(&:user_id), "US1"
+    anonymous_query = Fd::NewMemberQuery.new({ "q" => "findme" }, actor: nil)
+    assert_not_includes anonymous_query.rows.map(&:user_id), "US1"
   end
 
   test "picking several and confirming the count deactivates each one" do

@@ -139,10 +139,10 @@ module Engine
     def self.in_bounds(bounds, name, value)
       raise RefusedError, "#{name} has to be a number" unless value.match?(/\A\d+\z/)
 
-      asked = value.to_i
+      number = value.to_i
       low = bounds.fetch("min")
       high = bounds.fetch("max")
-      return value if asked.between?(low, high)
+      return value if number.between?(low, high)
 
       raise RefusedError, "#{name} has to be between #{low} and #{high}"
     end

@@ -66,7 +66,7 @@
           <tbody>
             <% @react_channels.each do |channel_id| %>
               <tr>
-                <td><%= channel_cell(channel_id, @named[channel_id]) %></td>
+                <td><%= channel_cell(channel_id, @channels_by_id[channel_id]) %></td>
                 <td class="col-btn">
                   <% if may_grant? %>
                     <%= button_to "Take out", admin_settings_react_channel_path(channel_id),
@@ -103,7 +103,7 @@
         <table class="data-table">
           <thead><tr><th>Channel</th></tr></thead>
           <tbody>
-            <tr><td><%= channel_cell(@firehouse, @named[@firehouse]) %></td></tr>
+            <tr><td><%= channel_cell(@firehouse, @channels_by_id[@firehouse]) %></td></tr>
           </tbody>
         </table>
       </div>

@@ -67,25 +67,25 @@ def child_rows(rng, as_of, parent_ids, history=RUN_HISTORY):
     for index, day, status, started in runs(rng, as_of, history):
         parent_id = parent_ids[index]
         cursor = started
-        reached = 4 if status == "running" else total
-        for step, (source, seconds, rows) in enumerate(STAGE_SOURCES[:reached], start=1):
-            spent = timedelta(seconds=int(seconds * rng.uniform(0.7, 1.4)))
+        stage_count = 4 if status == "running" else total
+        for step, (source, seconds, rows) in enumerate(STAGE_SOURCES[:stage_count], start=1):
+            duration = timedelta(seconds=int(seconds * rng.uniform(0.7, 1.4)))
             child_status = "ok"
             if status == "failed" and step == total:
                 child_status = "failed"
             elif status == "partial" and source == "member_history":
                 child_status = "failed"
-            elif status == "running" and step == reached:
+            elif status == "running" and step == stage_count:
                 child_status = "running"
-            counted = int(rows * rng.uniform(0.9, 1.1)) if rows else None
+            row_count = int(rows * rng.uniform(0.9, 1.1)) if rows else None
             yield (
                 source,
                 cursor,
-                None if child_status == "running" else cursor + spent,
+                None if child_status == "running" else cursor + duration,
                 child_status,
-                counted,
-                rng.randrange(3) if counted else None,
-                counted,
+                row_count,
+                rng.randrange(3) if row_count else None,
+                row_count,
                 parent_id,
                 step,
                 total,
@@ -93,7 +93,7 @@ def child_rows(rng, as_of, parent_ids, history=RUN_HISTORY):
                 day,
                 SYNC_WORKER,
             )
-            cursor += spent
+            cursor += duration
 
 
 def step_output_rows(rng, parent_ids, hostile=False):
@@ -128,8 +128,8 @@ def coverage_rows(rng, as_of):
                    midnight(day), None, midnight(day) + timedelta(hours=1))
             continue
         state = "short" if offset in (3, 17) else "complete"
-        landed = expected - rng.randrange(20_000, 40_000) if state == "short" else expected
-        yield ("member_days", day.isoformat(), day, day, state, expected, landed,
+        inserted = expected - rng.randrange(20_000, 40_000) if state == "short" else expected
+        yield ("member_days", day.isoformat(), day, day, state, expected, inserted,
                2 if state == "short" else 1, midnight(day), midnight(day, 3, 40), None)
         yield ("channel_days", day.isoformat(), day, day, "complete", 40_000, 40_000, 1,
                midnight(day), midnight(day, 3, 10), None)
@@ -137,9 +137,9 @@ def coverage_rows(rng, as_of):
     cursor = first
     while cursor <= as_of.replace(day=1):
         last = date(cursor.year + cursor.month // 12, cursor.month % 12 + 1, 1) - timedelta(days=1)
-        whole = last < as_of
+        month_complete = last < as_of
         yield ("channel_month", cursor.strftime("%Y-%m"), cursor, min(last, as_of),
-               "complete" if whole else "short", 13_308, 13_306 if whole else 9_800, 1,
+               "complete" if month_complete else "short", 13_308, 13_306 if month_complete else 9_800, 1,
                midnight(cursor), midnight(cursor, 4), None)
         cursor = last + timedelta(days=1)
     for offset in range(3):
@@ -153,8 +153,8 @@ def coverage_rows(rng, as_of):
 def dead_letter_rows(rng, as_of, count=40, hostile=False):
     for _ in range(count):
         source, base = DEAD_LETTER_REASONS[rng.randrange(len(DEAD_LETTER_REASONS))]
-        seen = as_of - timedelta(days=rng.randrange(RUN_HISTORY), seconds=rng.randrange(86400))
+        created_at = as_of - timedelta(days=rng.randrange(RUN_HISTORY), seconds=rng.randrange(86400))
         payload = {"user_id": f"USEED{rng.randrange(200_000):07d}", "keys": ["date", "user_id"]}
-        yield (source, json.dumps(payload), adversarial.reason(rng, base, hostile), seen)
+        yield (source, json.dumps(payload), adversarial.reason(rng, base, hostile), created_at)
 
 

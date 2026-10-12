@@ -26,12 +26,12 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   ENGINE_PATHS = %w[/engine].freeze
 
   setup do
-    @boss = hold_role!("USWEEPBOSS", "community_manager")
+    @manager = hold_role!("USWEEPBOSS", "community_manager")
     @channels = Analytics::DimChannel.where(archived: false).limit(4).pluck(:channel_id)
-    @mine, @theirs = @channels
+    @granted_channel, @other_channel = @channels
   end
 
-  def become(name)
+  def sign_in_persona(name)
     one = PERSONAS.fetch(name)
     id = "USWEEP#{name.upcase[0, 4]}"
     Account.find_or_create_by!(user_id: id)
@@ -40,12 +40,12 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
       Authz::Grant.grant!(id, kind: "capability", name: key, by: "sweep")
     end
     if one[:channels]
-      Channels::Audience::Grant.create!(user_id: id, channel_id: @mine,
-        granted_by: @boss.user_id, granted_at: Time.current)
+      Channels::Audience::Grant.create!(user_id: id, channel_id: @granted_channel,
+        granted_by: @manager.user_id, granted_at: Time.current)
     end
     if one[:appointed]
       Prometheus::Appointment.insert_all!([
-        { user_id: id, channel_id: @mine, role: "manager", seen_at: Time.current }
+        { user_id: id, channel_id: @granted_channel, role: "manager", seen_at: Time.current }
       ])
     end
     Current.forget_roles
@@ -53,7 +53,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
     id
   end
 
-  def reached?(path)
+  def responds_ok?(path)
     get path
     response.status == 200
   end
@@ -61,14 +61,14 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   # 1. nothing at all without a session
   test "a stranger reaches no page that is not the door" do
     open_to_all = ["/login", "/auth/failure"]
-    got = (FD_PATHS + ADMIN_PATHS + ENGINE_PATHS + ["/", "/account", "/channels",
+    reachable_paths = (FD_PATHS + ADMIN_PATHS + ENGINE_PATHS + ["/", "/account", "/channels",
                                                     "/journey/joining",
                                                     "/messages/C0SWEEP/1.000001"]).reject do |path|
       get path
       response.redirect? || response.status == 404
     end
 
-    assert_empty got, "a signed out visitor reached: #{got.join(', ')}"
+    assert_empty reachable_paths, "a signed out visitor reached: #{reachable_paths.join(', ')}"
     open_to_all.each do |path|
       get path
       refute_equal 500, response.status, "#{path} broke for a stranger"
@@ -77,29 +77,29 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
 
   # 2. the fire engine is case.read only
   test "only case.read reaches any fire engine page" do
-    leaked = []
+    violations = []
     PERSONAS.each_key do |name|
-      id = become(name)
-      may = Authz.holds?(Account.find(id), "case.read")
+      id = sign_in_persona(name)
+      allowed = Authz.holds?(Account.find(id), "case.read")
       FD_PATHS.each do |path|
-        next if reached?(path) == may
+        next if responds_ok?(path) == allowed
 
-        leaked << "#{name} #{'' if may}#{path} (case.read=#{may}, got #{response.status})"
+        violations << "#{name} #{'' if allowed}#{path} (case.read=#{allowed}, got #{response.status})"
       end
     end
-    assert_empty leaked, leaked.join("\n")
+    assert_empty violations, violations.join("\n")
   end
 
   test "the audit is behind case.read, like the rest of the fire engine" do
-    leaked = []
+    violations = []
     PERSONAS.each_key do |name|
-      id = become(name)
-      may = Authz.holds?(Account.find(id), "case.read")
-      next if reached?(AUDIT_PATH) == may
+      id = sign_in_persona(name)
+      allowed = Authz.holds?(Account.find(id), "case.read")
+      next if responds_ok?(AUDIT_PATH) == allowed
 
-      leaked << "#{name} on #{AUDIT_PATH}: case.read=#{may}, got #{response.status}"
+      violations << "#{name} on #{AUDIT_PATH}: case.read=#{allowed}, got #{response.status}"
     end
-    assert_empty leaked, leaked.join("\n")
+    assert_empty violations, violations.join("\n")
   end
 
   test "the engine's own record inside the audit is access.read, on its own" do
@@ -107,114 +107,114 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
       actor_kind: "human", entity_type: "case", entity_id: 9_001, verb: "resolved",
       after: { "resolution" => "warned" }, source_app: "fire_engine")
 
-    leaked = []
+    violations = []
     PERSONAS.each_key do |name|
-      id = become(name)
-      may = Authz.holds?(Account.find(id), "access.read")
-      next unless reached?("#{AUDIT_PATH}?view=everything")
+      id = sign_in_persona(name)
+      allowed = Authz.holds?(Account.find(id), "access.read")
+      next unless responds_ok?("#{AUDIT_PATH}?view=everything")
 
-      saw = response.body.include?("audit-verb") && response.body.include?("resolved")
-      leaked << "#{name}: access.read=#{may} but saw the engine record" if saw && !may
+      record_visible = response.body.include?("audit-verb") && response.body.include?("resolved")
+      violations << "#{name}: access.read=#{allowed} but saw the engine record" if record_visible && !allowed
 
       get "/fd/audit/event?source=fire_engine&id=#{entry.id}"
-      opened = response.status == 200
-      leaked << "#{name}: access.read=#{may} but opened the engine panel" if opened && !may
+      panel_visible = response.status == 200
+      violations << "#{name}: access.read=#{allowed} but opened the engine panel" if panel_visible && !allowed
     end
-    assert_empty leaked, leaked.join("\n")
+    assert_empty violations, violations.join("\n")
   end
 
   # 3. the admin section is access.grant only
   test "only access.grant reaches any admin page" do
-    leaked = []
+    violations = []
     PERSONAS.each_key do |name|
-      id = become(name)
-      may = Authz.holds?(Account.find(id), "access.grant")
+      id = sign_in_persona(name)
+      allowed = Authz.holds?(Account.find(id), "access.grant")
       ADMIN_PATHS.each do |path|
-        next if reached?(path) == may
+        next if responds_ok?(path) == allowed
 
-        leaked << "#{name} reached #{path} holding access.grant=#{may}"
+        violations << "#{name} reached #{path} holding access.grant=#{allowed}"
       end
     end
-    assert_empty leaked, leaked.join("\n")
+    assert_empty violations, violations.join("\n")
   end
 
   # 4. the engine is engine.manage only
   test "only engine.manage reaches the engine" do
-    leaked = []
+    violations = []
     PERSONAS.each_key do |name|
-      id = become(name)
-      may = Authz.holds?(Account.find(id), "engine.manage")
+      id = sign_in_persona(name)
+      allowed = Authz.holds?(Account.find(id), "engine.manage")
       ENGINE_PATHS.each do |path|
-        next if reached?(path) == may
+        next if responds_ok?(path) == allowed
 
-        leaked << "#{name} on #{path} with engine.manage=#{may}, got #{response.status}"
+        violations << "#{name} on #{path} with engine.manage=#{allowed}, got #{response.status}"
       end
     end
-    assert_empty leaked, leaked.join("\n")
+    assert_empty violations, violations.join("\n")
   end
 
   # 5. a channel nobody named you on stays shut
   test "a channel page opens only to somebody who may see that channel" do
-    leaked = []
+    violations = []
     PERSONAS.each_key do |name|
-      id = become(name)
+      id = sign_in_persona(name)
       staff = Account.find(id)
-      [@mine, @theirs].each do |channel_id|
-        may = Channels::Audience.may_see?(staff, channel_id)
-        next if reached?("/channels/#{channel_id}") == may
+      [@granted_channel, @other_channel].each do |channel_id|
+        allowed = Channels::Audience.may_see?(staff, channel_id)
+        next if responds_ok?("/channels/#{channel_id}") == allowed
 
-        leaked << "#{name} on #{channel_id}: may_see=#{may}, got #{response.status}"
+        violations << "#{name} on #{channel_id}: may_see=#{allowed}, got #{response.status}"
       end
     end
-    assert_empty leaked, leaked.join("\n")
+    assert_empty violations, violations.join("\n")
   end
 
   # 6. the promethean sees their own channel and not the next one along
   test "one promethean cannot read another promethean's channel" do
-    become("promethean")
+    sign_in_persona("promethean")
 
-    assert reached?("/channels/#{@mine}"), "their own channel was shut"
-    refute reached?("/channels/#{@theirs}"), "reached a channel nobody named them on"
+    assert responds_ok?("/channels/#{@granted_channel}"), "their own channel was shut"
+    refute responds_ok?("/channels/#{@other_channel}"), "reached a channel nobody named them on"
   end
 
   # 7. names are behind member.read
   test "a member name never appears to somebody without member.read" do
-    named = Fd::Member.first
-    skip "no member fixture" if named.nil?
+    named_member = Fd::Member.first
+    skip "no member fixture" if named_member.nil?
 
-    leaked = []
+    violations = []
     PERSONAS.each_key do |name|
-      id = become(name)
+      id = sign_in_persona(name)
       next if Authz.holds?(Account.find(id), "member.read")
 
       %w[/ /channels /journey/joining /account].each do |path|
         get path
-        next unless response.status == 200 && named.display_name.present?
-        next unless response.body.include?(named.display_name)
+        next unless response.status == 200 && named_member.display_name.present?
+        next unless response.body.include?(named_member.display_name)
 
-        leaked << "#{name} saw #{named.display_name} on #{path}"
+        violations << "#{name} saw #{named_member.display_name} on #{path}"
       end
     end
-    assert_empty leaked, leaked.join("\n")
+    assert_empty violations, violations.join("\n")
   end
 
   # 8. the json endpoints are the quiet way in
   test "the search endpoints refuse the same people the pages do" do
-    leaked = []
+    violations = []
     PERSONAS.each_key do |name|
-      id = become(name)
+      id = sign_in_persona(name)
       staff = Account.find(id)
       [["/admin/people/search?q=see", "access.grant"],
        ["/admin/channels/search?q=see", "access.grant"],
        ["/fd/members/search?q=see", "case.read"]].each do |path, key|
-        may = Authz.holds?(staff, key)
+        allowed = Authz.holds?(staff, key)
         get path
-        next if (response.status == 200) == may
+        next if (response.status == 200) == allowed
 
-        leaked << "#{name} on #{path}: #{key}=#{may}, got #{response.status}"
+        violations << "#{name} on #{path}: #{key}=#{allowed}, got #{response.status}"
       end
     end
-    assert_empty leaked, leaked.join("\n")
+    assert_empty violations, violations.join("\n")
   end
 
   # 9. a refused write must not write
@@ -228,23 +228,23 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
       [:patch, "/engine/tune", { retention_days: "1" }]
     ]
 
-    leaked = []
+    violations = []
     PERSONAS.each_key do |name|
       next if name == "manager"
 
-      become(name)
-      before = census
+      sign_in_persona(name)
+      before = row_counts
       writes.each do |verb, path, params|
         send(verb, path, params: params)
         refute_equal 200, response.status, "#{name} got a 200 from #{verb} #{path}"
       end
-      after = census
-      leaked << "#{name} changed #{(before.to_a - after.to_a).inspect}" if before != after
+      after = row_counts
+      violations << "#{name} changed #{(before.to_a - after.to_a).inspect}" if before != after
     end
-    assert_empty leaked, leaked.join("\n")
+    assert_empty violations, violations.join("\n")
   end
 
-  def census
+  def row_counts
     { grants: Authz::Grant.live.count,
       overrides: Authz::Override.count,
       flags: Fd::Flag.where(is_on: true).count,
@@ -254,12 +254,12 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
 
   # 10. taking your own access away is somebody else's job
   test "a manager cannot strip their own access" do
-    id = become("manager")
-    assert_includes Authz.roles_held(id), "community_manager", "the persona was not set up"
+    id = sign_in_persona("manager")
+    assert_includes Authz.effective_roles(id), "community_manager", "the persona was not set up"
 
     delete "/admin/grants/#{id}"
 
-    assert_includes Authz.roles_held(id), "community_manager"
+    assert_includes Authz.effective_roles(id), "community_manager"
   end
 
   # 11. every mutating route, refused for everyone who should not hold it
@@ -298,9 +298,9 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   end
 
   test "every mutating route turns away everyone who does not hold its capability" do
-    leaked = []
+    violations = []
     PERSONAS.each_key do |name|
-      id = become(name)
+      id = sign_in_persona(name)
       staff = Account.find(id)
       WRITES.each do |verb, path, key, params|
         next if Authz.holds?(staff, key)
@@ -308,17 +308,17 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
         send(verb, path, params: params)
         next unless response.status == 200
 
-        leaked << "#{name} got 200 from #{verb.upcase} #{path} without #{key}"
+        violations << "#{name} got 200 from #{verb.upcase} #{path} without #{key}"
       end
     end
-    assert_empty leaked, leaked.join("\n")
+    assert_empty violations, violations.join("\n")
   end
 
   # 12. the channel index must list only what you may see
   test "the channel list never names a channel you may not see" do
-    leaked = []
+    violations = []
     PERSONAS.each_key do |name|
-      id = become(name)
+      id = sign_in_persona(name)
       staff = Account.find(id)
       get "/channels"
       next unless response.status == 200
@@ -327,31 +327,31 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
         next if Channels::Audience.may_see?(staff, channel_id)
         next unless response.body.include?(channel_id)
 
-        leaked << "#{name} saw #{channel_id} listed"
+        violations << "#{name} saw #{channel_id} listed"
       end
     end
-    assert_empty leaked, leaked.join("\n")
+    assert_empty violations, violations.join("\n")
   end
 
   # 13. opting a channel into replies is not a way to reach it
   test "opting into replies refuses a channel you may not see" do
-    become("promethean")
+    sign_in_persona("promethean")
 
-    post "/channels/#{@theirs}/replies"
+    post "/channels/#{@other_channel}/replies"
     refute_equal 200, response.status
 
-    assert_equal 0, ChannelBackfill.where(channel_id: @theirs).count,
+    assert_equal 0, ChannelBackfill.where(channel_id: @other_channel).count,
       "queued a backfill on a channel they cannot see"
   end
 
   # 14. a signed out visitor cannot write anything at all
   test "a stranger writes nothing" do
-    before = census
+    before = row_counts
     WRITES.each do |verb, path, _key, params|
       send(verb, path, params: params)
       refute_equal 200, response.status, "a stranger got 200 from #{verb.upcase} #{path}"
     end
-    assert_equal before, census, "a stranger changed something"
+    assert_equal before, row_counts, "a stranger changed something"
   end
 
   # 15. the dev door must never exist outside development
@@ -364,12 +364,12 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
 
   # 16. a locked capability cannot be delegated, not even by a manager
   test "nobody can hand out a locked capability" do
-    become("manager")
+    sign_in_persona("manager")
 
     post "/admin/grants", params: { user_id: "UVICTIM01", scopes: ["access.grant"],
                                     scopes_settled: "1" }
 
-    refute_includes Authz.held("UVICTIM01").keys, "access.grant",
+    refute_includes Authz.effective_capabilities("UVICTIM01").keys, "access.grant",
       "a manager handed out the locked grant capability"
     assert_raises(Authz::Grant::NotAllowedError) do
       Authz::Grant.grant!("UVICTIM01", kind: "capability", name: "access.grant", by: "sweep")
@@ -378,7 +378,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
 
   # 17. taking a capability away really takes it away
   test "a denied capability is refused even though the role carries it" do
-    id = become("firefighter")
+    id = sign_in_persona("firefighter")
     assert Authz.holds?(Account.find(id), "slack.link"), "the role should carry it"
 
     Authz::Grant.grant!(id, kind: "capability", name: "slack.link", effect: "deny", by: "sweep")
@@ -392,7 +392,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
 
   # 18. identity.read is FD only, it cannot be moved off a firefighter one person at a time
   test "identity.read cannot be individually denied, only the role file can lock it" do
-    id = become("firefighter")
+    id = sign_in_persona("firefighter")
     assert Authz.holds?(Account.find(id), "identity.read"), "the role should carry it"
 
     assert_raises(Authz::Grant::NotAllowedError) do
@@ -404,9 +404,9 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
 
   # 19. asking for json is not a way round the gate
   test "the json format is gated exactly like the html" do
-    leaked = []
+    violations = []
     PERSONAS.each_key do |name|
-      id = become(name)
+      id = sign_in_persona(name)
       staff = Account.find(id)
       [["/fd/cases", "case.read"], ["/admin/people", "access.grant"],
        ["/engine", "engine.manage"]].each do |path, key|
@@ -415,16 +415,16 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
         get "#{path}.json"
         next unless response.status == 200
 
-        leaked << "#{name} got #{path}.json without #{key}"
+        violations << "#{name} got #{path}.json without #{key}"
       end
     end
-    assert_empty leaked, leaked.join("\n")
+    assert_empty violations, violations.join("\n")
   end
 
   # 20. logging out really ends it
   test "a session does not outlive logout" do
-    become("manager")
-    assert reached?("/admin/people")
+    sign_in_persona("manager")
+    assert responds_ok?("/admin/people")
 
     delete "/logout"
     get "/admin/people"

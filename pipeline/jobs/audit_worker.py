@@ -25,12 +25,12 @@ from lib.db import (
     instance_lock,
     clear_stale_sessions,
 )
-from lib.heartbeat import heartbeat_loop, hold
+from lib.heartbeat import heartbeat_loop, pause_stale_lane
 from lib.paths import ENV_FILE
 from lib.proxy_client import ProxyError
 
 WORKER = "audit_worker"
-DEFAULT_TAIL_SECONDS = 60
+DEFAULT_TAIL_SECONDS = 5
 DEFAULT_BACKFILL_SECONDS = 120
 DEFAULT_ACCESS_SECONDS = 60
 DEFAULT_ACCESS_BACKFILL_SECONDS = 60
@@ -41,8 +41,8 @@ DEFAULT_AGENT_SECONDS = 3600
 JOIN_TIMEOUT = 10
 BUSY_POLL_SECONDS = 2
 REFUSED_BACKOFF_SECONDS = 900
-SETTLE_SECONDS = 2
-WAKES = {"clusters": "fd_member_link"}
+WAKE_DEBOUNCE_SECONDS = 2
+LANE_WAKE_CHANNELS = {"clusters": "fd_member_link"}
 
 REFUSALS = ("invalid_auth", "auditlogs:read", "not_allowed_token_type", "audit 403", "audit 401")
 
@@ -90,41 +90,41 @@ def note(state):
     return ", ".join(f"{name} {state[name]}" for name, *_ in LANES)
 
 
-def rest(stopping, wake, seconds):
+def wait_for_next_pass(stopping, wake, seconds):
     if wake is None:
         return stopping.wait(seconds)
     deadline = time.monotonic() + seconds
     while not stopping.is_set():
         if wake.wait(min(1.0, max(0.0, deadline - time.monotonic()))):
             wake.clear()
-            return stopping.wait(SETTLE_SECONDS)
+            return stopping.wait(WAKE_DEBOUNCE_SECONDS)
         if time.monotonic() >= deadline:
             return False
     return True
 
 
-def wakes_for(lanes, stopping):
-    events = {name: threading.Event() for name, *_ in lanes if name in WAKES}
+def lane_wake_events(lanes, stopping):
+    events = {name: threading.Event() for name, *_ in lanes if name in LANE_WAKE_CHANNELS}
     if events:
-        def ring(channel, _payload):
+        def on_notify(channel, _payload):
             for name, event in events.items():
-                if WAKES[name] == channel:
+                if LANE_WAKE_CHANNELS[name] == channel:
                     event.set()
 
-        loops.watching(f"{WORKER}-notify", tuple(sorted({WAKES[name] for name in events})), ring, stopping)
+        loops.watching(f"{WORKER}-notify", tuple(sorted({LANE_WAKE_CHANNELS[name] for name in events})), on_notify, stopping)
     return events
 
 
 def lane(name, work, state, stopping, poll, drains=True, wake=None):
     def loop():
         while not stopping.is_set():
-            if hold(WORKER, name, state, stopping):
+            if pause_stale_lane(WORKER, name, state, stopping):
                 continue
-            moved = 0
+            processed = 0
             try:
                 with connect() as conn, cancel_scope(stopping.is_set):
-                    moved = work(conn)
-                state[name] = f"idle after {moved}" if moved else "idle"
+                    processed = work(conn)
+                state[name] = f"idle after {processed}" if processed else "idle"
             except SyncCancelled:
                 state[name] = "stopped mid-pass"
                 return
@@ -140,7 +140,7 @@ def lane(name, work, state, stopping, poll, drains=True, wake=None):
             except Exception as failure:  # noqa: BLE001
                 state[name] = f"failed, {type(failure).__name__}"
                 print(f"{WORKER}: the {name} lane failed, trying again after the poll: {failure}")
-            if rest(stopping, wake, BUSY_POLL_SECONDS if moved and drains else poll):
+            if wait_for_next_pass(stopping, wake, BUSY_POLL_SECONDS if processed and drains else poll):
                 return
         state[name] = "stopped"
 
@@ -155,12 +155,12 @@ def main():
     try:
         with instance_lock(WORKER):
             return serve()
-    except AlreadyRunningError as clash:
-        print(f"{WORKER}: {clash}")
+    except AlreadyRunningError as error:
+        print(f"{WORKER}: {error}")
         return 1
 
 
-def wanted_lanes():
+def enabled_lanes():
     enabled = []
     for spec in LANES:
         name = spec[0]
@@ -179,13 +179,13 @@ def serve():
     with connect() as conn:
         try:
             refuse_if_seeded(conn)
-        except SeededDeployment as refusal:
-            print(f"{WORKER}: {refusal}")
-            raise SystemExit(1) from refusal
+        except SeededDeployment as error:
+            print(f"{WORKER}: {error}")
+            raise SystemExit(1) from error
         for orphan, source in clear_stale_sessions(conn):
             print(f"{WORKER}: swept run {orphan} ({source}), left running by an earlier boot")
 
-    lanes = wanted_lanes()
+    lanes = enabled_lanes()
     enabled_names = {name for name, *_ in lanes}
     stopping = threading.Event()
     state = {name: "starting" if name in enabled_names else "off" for name, *_ in LANES}
@@ -198,8 +198,8 @@ def serve():
 
     print(f"{WORKER}: {len(lanes)} lane(s) running independently")
     with heartbeat_loop(WORKER, lambda: note(state)):
-        wakes = wakes_for(lanes, stopping)
-        running = [lane(name, work, state, stopping, seconds(var, fallback), drains, wakes.get(name))
+        wake_events = lane_wake_events(lanes, stopping)
+        running = [lane(name, work, state, stopping, seconds(var, fallback), drains, wake_events.get(name))
                    for name, work, var, fallback, drains in lanes]
         stopping.wait()
         for thread in running:

@@ -16,11 +16,11 @@ LOGGED_IN_SQL = _forward("last_login_at")
 
 
 def latest(pairs):
-    held = {}
+    latest_by_user = {}
     for user_id, at in pairs:
-        if user_id and at is not None and (user_id not in held or at > held[user_id]):
-            held[user_id] = at
-    return sorted(held.items())
+        if user_id and at is not None and (user_id not in latest_by_user or at > latest_by_user[user_id]):
+            latest_by_user[user_id] = at
+    return sorted(latest_by_user.items())
 
 
 def _write(cur, sql, pairs):

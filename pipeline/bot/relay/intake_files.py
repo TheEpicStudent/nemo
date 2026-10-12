@@ -15,25 +15,25 @@ def download(url, token, limit):
 
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as answer:
-            kind = answer.headers.get("Content-Type")
-            declared = answer.headers.get("Content-Length")
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            kind = response.headers.get("Content-Type")
+            declared = response.headers.get("Content-Length")
             if declared and int(declared) > limit:
                 return None, "too_large", f"{declared} bytes is over the {limit} byte limit"
-            body = answer.read(limit + 1)
+            body = response.read(limit + 1)
             if len(body) > limit:
                 return None, "too_large", f"over the {limit} byte limit"
-            state, error = blobs.verdict(answer.status, kind, len(body), limit)
+            state, error = blobs.verdict(response.status, kind, len(body), limit)
             return (body if state == "stored" else None), state, error
-    except urllib.error.HTTPError as refusal:
-        state, error = blobs.verdict(refusal.code, None, 0, limit)
+    except urllib.error.HTTPError as http_error:
+        state, error = blobs.verdict(http_error.code, None, 0, limit)
         return None, state, error
-    except (urllib.error.URLError, TimeoutError, OSError) as trouble:
-        return None, "failed", f"could not reach slack: {trouble}"
+    except (urllib.error.URLError, TimeoutError, OSError) as network_error:
+        return None, "failed", f"could not reach slack: {network_error}"
 
 
 def drain(token, limit=20):
-    kept = 0
+    stored_count = 0
     with session() as conn:
         rows = blobs.waiting(conn, limit)
 
@@ -48,8 +48,8 @@ def drain(token, limit=20):
         with session() as conn:
             if state == "stored":
                 blobs.store_blob(conn, file_id, body, mimetype)
-                kept += 1
+                stored_count += 1
             else:
                 blobs.mark_failed(conn, file_id, state, error)
         log.info("relay: %s is %s", slack_id, state)
-    return kept
+    return stored_count

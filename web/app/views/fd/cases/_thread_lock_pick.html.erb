@@ -5,14 +5,14 @@
     <div class="optlist">
       <% locks.each do |guard| %>
         <% attached = guard.on_case?(family) %>
-        <% held = attached || logged.include?(guard.id) %>
+        <% already_linked = attached || logged.include?(guard.id) %>
         <label class="opt">
-          <%= radio_button_tag :thread_guard_id, guard.id, false, id: nil, disabled: held %>
+          <%= radio_button_tag :thread_guard_id, guard.id, false, id: nil, disabled: already_linked %>
           <span class="opt-dot" aria-hidden="true"></span>
           <span class="opt-body">
             <span class="opt-label"><%= thread_guard_line(guard) %></span>
             <span class="opt-note">
-              <%= held ? already_here_note(attached) : thread_lock_note(guard, kase.id) %>
+              <%= already_linked ? already_attached_note(attached) : thread_lock_note(guard, kase.id) %>
             </span>
           </span>
         </label>

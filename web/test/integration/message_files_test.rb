@@ -4,7 +4,7 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
   PNG = "\x89PNG\r\n\x1a\n".b.freeze
   FILE_ID = "F1SHOT".freeze
 
-  SAID = {
+  MESSAGE = {
     "text" => "look at this",
     "files" => [{ "id" => FILE_ID, "name" => "shot.png", "mimetype" => "image/png",
                   "url_private" => "https://files.slack.com/files-pri/T1-F1/shot.png" },
@@ -25,7 +25,7 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
     Channels::Activity::Setting.where(channel_id: @post&.channel_id).delete_all
   end
 
-  def shown!
+  def enable_activity!
     Channels::Activity::Setting.create!(channel_id: @post.channel_id, set_by: "test",
       set_at: Time.current)
   end
@@ -34,32 +34,32 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
     message_file_path(@post.channel_id, @post.ts, file_id)
   end
 
-  def answering(file: nil, message: SAID)
-    was_call = Slack::ProxyClient.method(:call)
-    was_file = Slack::ProxyClient.method(:file)
-    asked = []
+  def stub_slack(file: nil, message: MESSAGE)
+    original_call = Slack::ProxyClient.method(:call)
+    original_file = Slack::ProxyClient.method(:file)
+    file_calls = []
     Slack::ProxyClient.define_singleton_method(:call) do |_method, params = {}, **|
       { "ok" => true, "messages" => [message.merge("ts" => params["latest"])] }
     end
     Slack::ProxyClient.define_singleton_method(:file) do |method, params = {}, **|
-      asked << [method, params]
+      file_calls << [method, params]
       raise Slack::ProxyClient::UnavailableError, "proxy returned 503" if file.nil?
 
       file
     end
-    yield asked
+    yield file_calls
   ensure
-    Slack::ProxyClient.define_singleton_method(:call, was_call)
-    Slack::ProxyClient.define_singleton_method(:file, was_file)
+    Slack::ProxyClient.define_singleton_method(:call, original_call)
+    Slack::ProxyClient.define_singleton_method(:file, original_file)
   end
 
   def a_png = Slack::ProxyClient::Body.new(bytes: PNG, kind: "image/png")
 
   test "the author gets the bytes, inline, from the proxy" do
-    shown!
+    enable_activity!
     sign_in_as(@me)
 
-    answering(file: a_png) do |asked|
+    stub_slack(file: a_png) do |file_calls|
       get path_for
 
       assert_response :success
@@ -68,18 +68,18 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
       assert_match(/inline/, response.headers["Content-Disposition"])
       assert_match(/private/, response.headers["Cache-Control"])
       assert_equal [["files.read",
-                     { "url" => "https://files.slack.com/files-pri/T1-F1/shot.png" }]], asked
+                     { "url" => "https://files.slack.com/files-pri/T1-F1/shot.png" }]], file_calls
     end
   end
 
   test "a type slack claims is html is never served as html" do
-    shown!
+    enable_activity!
     sign_in_as(@me)
-    message = SAID.merge("files" => [{ "id" => FILE_ID, "name" => "x.html",
+    message = MESSAGE.merge("files" => [{ "id" => FILE_ID, "name" => "x.html",
                                     "mimetype" => "text/html",
                                     "url_private" => "https://files.slack.com/x.html" }])
 
-    answering(file: Slack::ProxyClient::Body.new(bytes: "<script>alert(1)</script>",
+    stub_slack(file: Slack::ProxyClient::Body.new(bytes: "<script>alert(1)</script>",
                                                  kind: "text/html"), message: message) do
       get path_for
 
@@ -91,13 +91,13 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
   end
 
   test "an svg is never rendered inline, whatever slack says it is" do
-    shown!
+    enable_activity!
     sign_in_as(@me)
-    message = SAID.merge("files" => [{ "id" => FILE_ID, "name" => "x.svg",
+    message = MESSAGE.merge("files" => [{ "id" => FILE_ID, "name" => "x.svg",
                                     "mimetype" => "image/svg+xml",
                                     "url_private" => "https://files.slack.com/x.svg" }])
 
-    answering(file: Slack::ProxyClient::Body.new(bytes: "<svg/>", kind: "image/svg+xml"),
+    stub_slack(file: Slack::ProxyClient::Body.new(bytes: "<svg/>", kind: "image/svg+xml"),
               message: message) do
       get path_for
 
@@ -107,10 +107,10 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
   end
 
   test "anything that is not an image comes down as an attachment" do
-    shown!
+    enable_activity!
     sign_in_as(@me)
 
-    answering(file: Slack::ProxyClient::Body.new(bytes: "pdf", kind: "application/pdf")) do
+    stub_slack(file: Slack::ProxyClient::Body.new(bytes: "pdf", kind: "application/pdf")) do
       get path_for("F2DOC")
 
       assert_match(/attachment/, response.headers["Content-Disposition"])
@@ -118,44 +118,44 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
   end
 
   test "a file that is not on that post is not served" do
-    shown!
+    enable_activity!
     sign_in_as(@me)
 
-    answering(file: a_png) do |asked|
+    stub_slack(file: a_png) do |file_calls|
       get path_for("F9ELSEWHERE")
 
       assert_response :not_found
-      assert_empty asked, "slack must not be asked for a file the post does not carry"
+      assert_empty file_calls, "slack must not be asked for a file the post does not carry"
     end
   end
 
   test "somebody else is refused" do
-    shown!
+    enable_activity!
     sign_in_as(Account.find_or_create_by!(user_id: "UMSGOTHER"))
 
-    answering(file: a_png) do |asked|
+    stub_slack(file: a_png) do |file_calls|
       get path_for
 
       assert_response :forbidden
-      assert_empty asked
+      assert_empty file_calls
     end
   end
 
   test "a channel that does not show activity serves nothing" do
     sign_in_as(@me)
 
-    answering(file: a_png) do |asked|
+    stub_slack(file: a_png) do |file_calls|
       get path_for
 
       assert_response :not_found
-      assert_empty asked
+      assert_empty file_calls
     end
   end
 
   test "a stranger is sent to the door" do
-    shown!
+    enable_activity!
 
-    answering(file: a_png) do
+    stub_slack(file: a_png) do
       get path_for
 
       assert_response :redirect
@@ -163,10 +163,10 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
   end
 
   test "a proxy that will not answer is a bad gateway, not a crash" do
-    shown!
+    enable_activity!
     sign_in_as(@me)
 
-    answering(file: nil) do
+    stub_slack(file: nil) do
       get path_for
 
       assert_response :bad_gateway

@@ -1,7 +1,7 @@
 module WarehouseBuild
   SOURCE = "dbt".freeze
   CHECKED_FOR = 1.minute
-  KEPT_FOR = 2.days
+  CACHE_TTL = 2.days
 
   module_function
 
@@ -12,6 +12,6 @@ module WarehouseBuild
   end
 
   def cached(key, &block)
-    Rails.cache.fetch(["warehouse_build", finished_at, key], expires_in: KEPT_FOR, &block)
+    Rails.cache.fetch(["warehouse_build", finished_at, key], expires_in: CACHE_TTL, &block)
   end
 end

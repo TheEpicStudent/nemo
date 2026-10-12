@@ -6,8 +6,8 @@ module HomeHelper
   def date_range_label(from, to)
     return "" if from.nil? || to.nil?
 
-    left = from.strftime(from.year == to.year ? "%b %-d" : "%b %-d, %Y")
-    "#{left} - #{to.strftime('%b %-d, %Y')}"
+    start_label = from.strftime(from.year == to.year ? "%b %-d" : "%b %-d, %Y")
+    "#{start_label} - #{to.strftime('%b %-d, %Y')}"
   end
 
   def window_note(from, to)
@@ -38,41 +38,41 @@ module HomeHelper
   def activity_series(rows, granularity)
     if granularity == "monthly"
       {
-        labels: rows.map { |r| r.month.strftime("%b %Y") },
+        labels: rows.map { |row| row.month.strftime("%b %Y") },
         days: false,
         span: "#{rows.size} months",
-        partial: rows.each_with_index.filter_map { |r, i| i unless r.is_complete },
+        partial: rows.each_with_index.filter_map { |row, i| i unless row.is_complete },
         active: rows.map(&:active_users_28d),
         posted: rows.map(&:writers_count_28d),
         posted_label: "posted",
-        silent: rows.map { |r| r.active_users_28d.to_i - r.writers_count_28d.to_i },
+        silent: rows.map { |row| row.active_users_28d.to_i - row.writers_count_28d.to_i },
         silent_label: "active, did not post",
-        posted_share: rows.map { |r| share_pct(r.writers_count_28d, r.active_users_28d) },
+        posted_share: rows.map { |row| share_pct(row.writers_count_28d, row.active_users_28d) },
         messages: rows.map(&:channel_messages),
         public: rows.map(&:public_channel_messages),
         public_label: "public channels",
-        private: rows.map { |r| r.channel_messages.to_i - r.public_channel_messages.to_i },
+        private: rows.map { |row| row.channel_messages.to_i - row.public_channel_messages.to_i },
         private_label: "private channels",
-        public_share: rows.map { |r| share_pct(r.public_channel_messages, r.channel_messages) }
+        public_share: rows.map { |row| share_pct(row.public_channel_messages, row.channel_messages) }
       }
     else
       {
-        labels: rows.map { |r| r.ds.iso8601 },
+        labels: rows.map { |row| row.ds.iso8601 },
         days: true,
         span: "#{rows.size} days",
         partial: [],
         active: rows.map(&:active_users_1d),
         posted: rows.map(&:writers_count_1d),
         posted_label: "posted",
-        silent: rows.map { |r| r.active_users_1d.to_i - r.writers_count_1d.to_i },
+        silent: rows.map { |row| row.active_users_1d.to_i - row.writers_count_1d.to_i },
         silent_label: "active, did not post",
-        posted_share: rows.map { |r| share_pct(r.writers_count_1d, r.active_users_1d) },
+        posted_share: rows.map { |row| share_pct(row.writers_count_1d, row.active_users_1d) },
         messages: rows.map(&:channel_messages_1d),
         public: rows.map(&:chats_channels_count_1d),
         public_label: "public channels",
-        private: rows.map { |r| r.channel_messages_1d.to_i - r.chats_channels_count_1d.to_i },
+        private: rows.map { |row| row.channel_messages_1d.to_i - row.chats_channels_count_1d.to_i },
         private_label: "private channels",
-        public_share: rows.map { |r| share_pct(r.chats_channels_count_1d, r.channel_messages_1d) }
+        public_share: rows.map { |row| share_pct(row.chats_channels_count_1d, row.channel_messages_1d) }
       }
     end
   end
@@ -90,20 +90,20 @@ module HomeHelper
     delta_tag(pct)
   end
 
-  DELTA_WAYS = {
+  DELTA_DIRECTIONS = {
     "up" => ["m18 15-6-6-6 6", "up"],
     "down" => ["m6 9 6 6 6-6", "down"],
     "flat" => ["M5 12h14", "no change"]
   }.freeze
 
   def delta_tag(pct)
-    way = pct.positive? ? "up" : pct.negative? ? "down" : "flat"
-    path, said = DELTA_WAYS.fetch(way)
-    tag.span(class: "delta delta-#{way}") do
+    direction = pct.positive? ? "up" : pct.negative? ? "down" : "flat"
+    path, direction_label = DELTA_DIRECTIONS.fetch(direction)
+    tag.span(class: "delta delta-#{direction}") do
       safe_join([
         tag.svg(viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2,
           "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true") { tag.path(d: path) },
-        tag.span(said, class: "visually-hidden"),
+        tag.span(direction_label, class: "visually-hidden"),
         number_to_percentage(pct.abs, precision: 1)
       ])
     end
@@ -206,15 +206,15 @@ module HomeHelper
 
   def heat_cell(row, stage, peak)
     value = row.public_send(stage[:key])
-    shade = "lg-cell lg-h#{heat_step(value, peak)}"
+    cell_class = "lg-cell lg-h#{heat_step(value, peak)}"
 
     if stage[:prev] == :invited
       return tag.span(number_to_percentage(value.to_f * 100, precision: 1),
-        class: shade)
+        class: cell_class)
     end
 
     step = row.step_of(stage)
-    tag.span(class: "#{shade} lg-two") do
+    tag.span(class: "#{cell_class} lg-two") do
       concat tag.b(step ? number_to_percentage(step * 100, precision: 1) : "n/a")
       concat tag.span("#{number_to_percentage(value.to_f * 100, precision: 1)} of created")
     end
@@ -236,10 +236,10 @@ module HomeHelper
   def band_split(value, bands, label)
     return nil if value.nil?
 
-    at = bands.index { |b| (b.band_top || Float::INFINITY) >= value.to_i }
-    return nil if at.nil? || at >= bands.size - 1
+    position = bands.index { |band| (band.band_top || Float::INFINITY) >= value.to_i }
+    return nil if position.nil? || position >= bands.size - 1
 
-    { after: at, label: "#{label} #{number_with_delimiter(value)}" }
+    { after: position, label: "#{label} #{number_with_delimiter(value)}" }
   end
 
   def wilson_bounds(hits, sample)

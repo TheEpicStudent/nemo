@@ -12,14 +12,14 @@
             spark: { name: "day-30 retention", days: false,
                      labels: @retention.map { |r| r.cohort_month.strftime("%b %Y") },
                      data: @retention.map { |r| rate.call(r.retained_day_30_rate) } },
-            say: "#{last_30.cohort_month.strftime("%b %Y")} cohort" %>
+            caption: "#{last_30.cohort_month.strftime("%b %Y")} cohort" %>
     <% end %>
     <% if last_90 %>
       <%= render "shared/stat", k: "Day-90 retention", v: retention_cell(last_90.retained_day_90_rate),
             spark: { name: "day-90 retention", days: false,
                      labels: @retention.map { |r| r.cohort_month.strftime("%b %Y") },
                      data: @retention.map { |r| rate.call(r.retained_day_90_rate) } },
-            say: "#{last_90.cohort_month.strftime("%b %Y")} cohort" %>
+            caption: "#{last_90.cohort_month.strftime("%b %Y")} cohort" %>
     <% end %>
     <% if last_recurrence %>
       <%= render "shared/stat", k: "Posted 3+ times",
@@ -28,7 +28,7 @@
             spark: { name: "posted 3+ times", days: false,
                      labels: @recurrence.map { |r| r.cohort_month.strftime("%b %Y") },
                      data: @recurrence.map { |r| share_pct(r.posted_three_times, r.searched) } },
-            say: "#{last_recurrence.cohort_month.strftime("%b %Y")} cohort" %>
+            caption: "#{last_recurrence.cohort_month.strftime("%b %Y")} cohort" %>
     <% end %>
   </div>
 <% end %>

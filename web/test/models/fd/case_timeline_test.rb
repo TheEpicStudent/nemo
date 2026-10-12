@@ -142,8 +142,8 @@ class Fd::CaseTimelineTest < ActiveSupport::TestCase
     assert_equal "we spoke to them", resolved.body
     assert_no_match(/not told/, resolved.detail)
 
-    silent = build(kase(resolved_at: OPENED + 1.day, resolution: "no_action")).last
-    assert_match(/the member was not told/, silent.detail)
+    no_action_entry = build(kase(resolved_at: OPENED + 1.day, resolution: "no_action")).last
+    assert_match(/the member was not told/, no_action_entry.detail)
   end
 
   test "a case with nothing attached still records that it was opened" do

@@ -5,14 +5,14 @@ export default class extends Controller {
   static targets = ["field", "go"]
 
   connect() {
-    this.fit()
+    this.toggleSubmit()
   }
 
-  fit() {
+  toggleSubmit() {
     if (!this.hasGoTarget) return
 
-    const typed = this.hasFieldTarget ? this.fieldTarget.value.trim() : ""
-    const wanted = this.wordValue.trim()
-    this.goTarget.disabled = typed.toLowerCase() !== wanted.toLowerCase()
+    const inputWord = this.hasFieldTarget ? this.fieldTarget.value.trim() : ""
+    const expectedWord = this.wordValue.trim()
+    this.goTarget.disabled = inputWord.toLowerCase() !== expectedWord.toLowerCase()
   }
 }

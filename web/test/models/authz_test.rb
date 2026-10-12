@@ -26,11 +26,11 @@ class AuthzTest < ActiveSupport::TestCase
   test "record scopes and flags match the projected table" do
     rows("SELECT key, record_scope, logged, every_account, locked FROM app.capability").each do |row|
       key = row["key"]
-      wanted = Authz.record_scope(key)&.to_s
-      if wanted.nil?
+      expected_scope = Authz.record_scope(key)&.to_s
+      if expected_scope.nil?
         assert_nil row["record_scope"], "#{key} scope"
       else
-        assert_equal wanted, row["record_scope"], "#{key} scope"
+        assert_equal expected_scope, row["record_scope"], "#{key} scope"
       end
       assert_equal Authz.logged?(key), row["logged"], "#{key} logged"
       assert_equal Authz.every_account?(key), row["every_account"], "#{key} every_account"
@@ -49,12 +49,12 @@ class AuthzTest < ActiveSupport::TestCase
   end
 
   test "nobody holds anything without a grant, apart from every-account keys" do
-    nobody = Account.new(user_id: "UNOBODY9")
+    account_without_grants = Account.new(user_id: "UNOBODY9")
 
-    assert Authz.may?(nobody, "channel.read")
-    assert_not Authz.may?(nobody, "slack.link")
-    assert_not Authz.may?(nobody, "case.read")
-    assert_not Authz.may?(nobody, "access.grant")
+    assert Authz.may?(account_without_grants, "channel.read")
+    assert_not Authz.may?(account_without_grants, "slack.link")
+    assert_not Authz.may?(account_without_grants, "case.read")
+    assert_not Authz.may?(account_without_grants, "access.grant")
   end
 
   test "a nil account holds nothing at all" do

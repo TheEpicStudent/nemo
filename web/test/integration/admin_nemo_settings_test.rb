@@ -8,7 +8,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
 
   def setting(key) = Fd::AppSetting.value(key)
 
-  def sweep(**over)
+  def save_sweep_settings(**over)
     post admin_settings_sweep_path, params: { soon_hours: "12", tells: "1" }.merge(over)
   end
 
@@ -41,7 +41,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
   end
 
   test "the sweep horizon is saved" do
-    sweep
+    save_sweep_settings
 
     assert_equal 12, Fd::AppSetting.sweep_soon_hours
     assert Fd::AppSetting.sweep_tells_member?
@@ -53,14 +53,14 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
   end
 
   test "an horizon outside the range is refused" do
-    sweep(soon_hours: "0")
+    save_sweep_settings(soon_hours: "0")
 
     assert_empty setting(Fd::AppSetting::SWEEP_SOON_HOURS)
     assert_match(/from 1 to/, flash[:alert])
   end
 
   test "telling the member is turned off on its own" do
-    sweep(tells: "")
+    save_sweep_settings(tells: "")
 
     assert_equal 12, Fd::AppSetting.sweep_soon_hours
     assert_not Fd::AppSetting.sweep_tells_member?

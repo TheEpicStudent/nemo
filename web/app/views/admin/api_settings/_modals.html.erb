@@ -21,14 +21,14 @@
       </div>
       <div class="modal-foot">
         <span class="modal-note">Takes hold on the next call, and is written to the audit log.</span>
-        <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Cancel</button>
+        <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
         <%= submit_tag "Set it", class: "btn btn-primary" %>
       </div>
     <% end %>
   <% end %>
 <% end %>
 
-<% @tokens.reject(&:spent?).each do |token| %>
+<% @tokens.reject(&:inactive?).each do |token| %>
   <%= render layout: "fd/modal", locals: { id: "rate-#{token.id}",
         title: "Rate for #{token.name}", sub: "owned by #{names[token.owner_user_id]}" } do %>
     <%= form_with url: admin_api_token_rate_path(token), method: :patch,
@@ -42,7 +42,7 @@
         <div class="facts-grid">
           <div class="cell">
             <span class="figure-key">asks, 30 days</span>
-            <span class="figure-value"><%= number_with_delimiter(@asks[token.id].to_i) %></span>
+            <span class="figure-value"><%= number_with_delimiter(@request_counts[token.id].to_i) %></span>
           </div>
           <div class="cell">
             <span class="figure-key">in force now</span>
@@ -53,7 +53,7 @@
       <div class="modal-foot">
         <%= button_to "Revoke it", admin_api_token_path(token), method: :delete,
               class: "btn btn-danger", form: { class: "contents" } %>
-        <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Cancel</button>
+        <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
         <%= submit_tag "Set it", class: "btn btn-primary" %>
       </div>
     <% end %>

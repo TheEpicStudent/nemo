@@ -13,7 +13,7 @@
             datasets: [{ label: spark[:name], data: spark[:data] }]
           }.to_json %>"></span>
   <% end %>
-  <% if local_assigns[:say].present? %>
-    <span class="metric-note"><%= say %></span>
+  <% if local_assigns[:caption].present? %>
+    <span class="metric-note"><%= caption %></span>
   <% end %>
 </div>

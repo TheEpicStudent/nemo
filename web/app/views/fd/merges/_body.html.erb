@@ -3,7 +3,7 @@
         data: { turbo_frame: "_top", merge_picker_target: "form" } do %>
     <%= hidden_field_tag "case_ids[]", kase.id, id: nil %>
     <%= hidden_field_tag :duplicate_of, kase.id, id: nil,
-          data: { merge_picker_target: "keeper" } %>
+          data: { merge_picker_target: "primaryCase" } %>
 
     <div class="merge-results">
       <% if groups.empty? %>
@@ -14,12 +14,12 @@
         </div>
       <% end %>
 
-      <% groups.each do |label, found| %>
+      <% groups.each do |label, group_cases| %>
         <section class="merge-section">
           <h3 class="merge-group"><%= label == Fd::Case::AROUND ? "Nearby cases" : label %></h3>
           <%= tag.div class: "merge-list",
                 id: ("merge-around" if label == Fd::Case::AROUND) do %>
-            <% found.each do |other| %>
+            <% group_cases.each do |other| %>
               <%= render "fd/merges/candidate", other: other, violations: violations,
                     priors_by_user: priors_by_user, reachable: reachable %>
             <% end %>
@@ -38,7 +38,7 @@
 
     <div class="merge-act">
       <span class="merge-selected" data-merge-picker-target="count">Select at least one case</span>
-      <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Cancel</button>
+      <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
       <%= submit_tag "Merge cases", class: "btn btn-primary is-off", disabled: true,
             data: { merge_picker_target: "submit" } %>
     </div>

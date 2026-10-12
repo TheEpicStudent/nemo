@@ -26,42 +26,42 @@ module Slack
     end
 
     def blocks
-      parts = segments.filter_map { |one| segment(one) }
+      parts = segments.filter_map { |raw_segment| segment(raw_segment) }
       parts.any? ? [{ "type" => "rich_text", "elements" => parts }] : []
     end
 
     private
 
-    def segment(one)
-      case one[:kind]
+    def segment(raw_segment)
+      case raw_segment[:kind]
       when :pre
         { "type" => "rich_text_preformatted",
-          "elements" => [{ "type" => "text", "text" => unescape(one[:text]) }] }
+          "elements" => [{ "type" => "text", "text" => unescape(raw_segment[:text]) }] }
       when :quote
-        { "type" => "rich_text_quote", "elements" => inline(one[:text]) }
+        { "type" => "rich_text_quote", "elements" => inline(raw_segment[:text]) }
       else
-        { "type" => "rich_text_section", "elements" => inline(one[:text]) }
+        { "type" => "rich_text_section", "elements" => inline(raw_segment[:text]) }
       end
     end
 
     def segments
-      found = []
+      result = []
       at = 0
       @text.scan(FENCE) do
-        held = Regexp.last_match
-        found.concat(plain_segments(@text[at...held.begin(0)]))
-        found << { kind: :pre, text: held[1].sub(/\n\z/, "") }
-        at = held.end(0)
+        match = Regexp.last_match
+        result.concat(plain_segments(@text[at...match.begin(0)]))
+        result << { kind: :pre, text: match[1].sub(/\n\z/, "") }
+        at = match.end(0)
       end
-      found.concat(plain_segments(@text[at..].to_s))
-      found
+      result.concat(plain_segments(@text[at..].to_s))
+      result
     end
 
     def plain_segments(text)
       return [] if text.to_s.strip.empty?
 
       text.split("\n", -1)
-        .chunk_while { |one, next_one| quoted?(one) == quoted?(next_one) }
+        .chunk_while { |line, next_line| quoted?(line) == quoted?(next_line) }
         .filter_map { |run| run_segment(run) }
     end
 
@@ -80,45 +80,45 @@ module Slack
     def inline(text, style = {})
       out = []
       at = 0
-      while (found = TOKEN.match(text, at))
-        before = text[at...found.begin(0)]
+      while (match = TOKEN.match(text, at))
+        before = text[at...match.begin(0)]
         out << text_part(before, style) unless before.empty?
-        out.concat(parts_for(found, style))
-        at = found.end(0)
+        out.concat(parts_for(match, style))
+        at = match.end(0)
       end
-      rest = text[at..].to_s
-      out << text_part(rest, style) unless rest.empty?
+      remainder = text[at..].to_s
+      out << text_part(remainder, style) unless remainder.empty?
       out
     end
 
-    def parts_for(found, style)
-      return [text_part(found[:code_in], style.merge("code" => true))] if found[:code]
-      return [{ "type" => "user", "user_id" => found[:user_id] }] if found[:user]
-      return [{ "type" => "channel", "channel_id" => found[:channel_id] }] if found[:channel]
-      return [link_part(found[:url], found[:label])] if found[:link]
-      return [link_part(found[:bare], nil)] if found[:bare]
-      return [{ "type" => "emoji", "name" => found[:emoji_name] }] if found[:emoji]
-      return inline(found[:bold_in], style.merge("bold" => true)) if found[:bold]
-      return inline(found[:italic_in], style.merge("italic" => true)) if found[:italic]
+    def parts_for(match, style)
+      return [text_part(match[:code_in], style.merge("code" => true))] if match[:code]
+      return [{ "type" => "user", "user_id" => match[:user_id] }] if match[:user]
+      return [{ "type" => "channel", "channel_id" => match[:channel_id] }] if match[:channel]
+      return [link_part(match[:url], match[:label])] if match[:link]
+      return [link_part(match[:bare], nil)] if match[:bare]
+      return [{ "type" => "emoji", "name" => match[:emoji_name] }] if match[:emoji]
+      return inline(match[:bold_in], style.merge("bold" => true)) if match[:bold]
+      return inline(match[:italic_in], style.merge("italic" => true)) if match[:italic]
 
-      inline(found[:strike_in], style.merge("strike" => true))
+      inline(match[:strike_in], style.merge("strike" => true))
     end
 
     def text_part(text, style)
-      made = { "type" => "text", "text" => unescape(text) }
-      made["style"] = style if style.any?
-      made
+      element = { "type" => "text", "text" => unescape(text) }
+      element["style"] = style if style.any?
+      element
     end
 
     def link_part(url, label)
-      made = { "type" => "link", "url" => unescape(url.to_s) }
-      shown = unescape(label.to_s)
-      made["text"] = shown if shown.present? && shown != made["url"]
-      made
+      element = { "type" => "link", "url" => unescape(url.to_s) }
+      display_text = unescape(label.to_s)
+      element["text"] = display_text if display_text.present? && display_text != element["url"]
+      element
     end
 
     def unescape(text)
-      text.to_s.gsub(ENTITY) { |one| ENTITIES[one] }
+      text.to_s.gsub(ENTITY) { |entity| ENTITIES[entity] }
     end
   end
 end

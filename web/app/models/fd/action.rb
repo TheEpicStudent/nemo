@@ -52,7 +52,7 @@ module Fd
 
     def from_thread_lock? = self.class.from_thread_lock?(type_key)
 
-    def aimed_at_member? = target_user_id.present?
+    def targets_member? = target_user_id.present?
 
     def expires?
       expires_at.present?

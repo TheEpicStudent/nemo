@@ -5,11 +5,11 @@ class CaseChatPresenceChannel < ApplicationCable::Channel
     return reject unless kase && account && Fd::Access.allow?(account, "case.read", kase)
 
     @case_id = kase.id
-    Fd::ChatPresence.arrive(@case_id, user_id)
+    Fd::ChatPresence.join(@case_id, user_id)
   end
 
   def beat
-    Fd::ChatPresence.beat(@case_id, user_id) if @case_id
+    Fd::ChatPresence.heartbeat(@case_id, user_id) if @case_id
   end
 
   def unsubscribed

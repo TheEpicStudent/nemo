@@ -38,20 +38,20 @@ export default class extends Controller {
 
     this.tip.innerHTML = `<div class="t">${esc(tip_data.title)}</div>${rows}${note}`
     this.tip.classList.add("on")
-    this.place(mark)
+    this.position(mark)
   }
 
-  place(mark) {
+  position(mark) {
     const host = this.element.getBoundingClientRect()
     const at = mark.getBoundingClientRect()
-    const wide = this.tip.offsetWidth || 190
-    const high = this.tip.offsetHeight || 60
+    const tipWidth = this.tip.offsetWidth || 190
+    const tipHeight = this.tip.offsetHeight || 60
 
     let left = at.left - host.left + at.width + 12
-    if (left + wide > host.width) left = at.left - host.left - wide - 12
-    this.tip.style.left = `${clamp(left, 0, Math.max(0, host.width - wide))}px`
-    this.tip.style.top = `${clamp(at.top - host.top + at.height / 2 - high / 2, 0,
-      Math.max(0, host.height - high))}px`
+    if (left + tipWidth > host.width) left = at.left - host.left - tipWidth - 12
+    this.tip.style.left = `${clamp(left, 0, Math.max(0, host.width - tipWidth))}px`
+    this.tip.style.top = `${clamp(at.top - host.top + at.height / 2 - tipHeight / 2, 0,
+      Math.max(0, host.height - tipHeight))}px`
   }
 
   clear() {

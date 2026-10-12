@@ -1,4 +1,4 @@
-<div class="field-label" data-action-standing-target="aimed">
+<div class="field-label" data-action-standing-target="targetFields">
   <%= render "shared/combobox", name: "target_user_id", single: true,
         url: fd_member_search_path(case_id: kase.id),
         label: "search for who this is about", preset: preset_faces(target) %>
@@ -14,11 +14,11 @@
     Action
     <%= select_tag :type_key, options_for_select(action_options),
           class: "select action-type", id: nil,
-          data: { action: "change->action-standing#shape" } %>
+          data: { action: "change->action-standing#toggleKindFields" } %>
   </label>
   <label class="field-label">
     How was this solved? (optional)
-    <%= text_area_tag :resolution_note, field_was(:resolution_note), rows: 2, class: "textarea",
+    <%= text_area_tag :resolution_note, submitted_value(:resolution_note), rows: 2, class: "textarea",
           id: nil %>
   </label>
   <%= render "thread_lock_pick", locks: thread_locks, kase: kase, logged: locks_logged %>
@@ -39,7 +39,7 @@
   <div data-action-standing-target="why">
     <label class="field-label">
       What did they do?
-      <%= text_area_tag :reason, field_was(:reason), rows: 3, class: "textarea", id: nil %>
+      <%= text_area_tag :reason, submitted_value(:reason), rows: 3, class: "textarea", id: nil %>
     </label>
     <%= field_wrong(:reason) %>
   </div>

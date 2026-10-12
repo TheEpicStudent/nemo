@@ -69,7 +69,7 @@ class ChannelBackfill < ApplicationRecord
     (threads_fetched.to_f / threads_expected).clamp(0.0, 1.0)
   end
 
-  def place_in_line
+  def queue_position
     return nil unless state == "queued"
 
     self.class.in_line.where("priority < :p OR (priority = :p AND requested_at < :t)",

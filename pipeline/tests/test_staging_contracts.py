@@ -15,22 +15,22 @@ def shape(model):
 
 
 def test_the_archive_derived_models_are_contracted():
-    found = models()
+    model_specs = models()
     for name in CONTRACTED:
-        enforced = found[name].get("config", {}).get("contract", {}).get("enforced")
+        enforced = model_specs[name].get("config", {}).get("contract", {}).get("enforced")
         assert enforced is True, f"{name} has no enforced contract"
 
 
 def test_every_contracted_column_declares_a_type():
-    found = models()
+    model_specs = models()
     for name in CONTRACTED:
-        missing = [col for col, kind in shape(found[name]) if kind is None]
+        missing = [col for col, kind in shape(model_specs[name]) if kind is None]
         assert missing == [], f"{name} leaves {missing} untyped"
 
 
 def test_member_message_matches_the_model_it_selects_star_from():
-    found = models()
-    assert shape(found["fct_member_message"]) == shape(found["fct_message"])
+    model_specs = models()
+    assert shape(model_specs["fct_member_message"]) == shape(model_specs["fct_message"])
 
 
 def test_first_post_declares_exactly_what_its_sql_selects():
@@ -190,10 +190,10 @@ def test_lifetime_messages_comes_from_the_archive():
 
 
 def test_every_repointed_mart_bumped_its_version():
-    want = {"mart_participation_concentration": "v5", "mart_activity_distribution": "v18",
-            "mart_onboarding_recurrence_funnel": "v17", "mart_monthly_cohorts": "v4",
-            "mart_newcomer_channels": "v5"}
-    for name, version in want.items():
+    expected_versions = {"mart_participation_concentration": "v5", "mart_activity_distribution": "v18",
+                         "mart_onboarding_recurrence_funnel": "v17", "mart_monthly_cohorts": "v4",
+                         "mart_newcomer_channels": "v5"}
+    for name, version in expected_versions.items():
         sql = (WAREHOUSE_DIR / "models" / "marts" / f"{name}.sql").read_text()
         assert f"'{version}' as metric_version" in sql, f"{name} is not at {version}"
 
@@ -215,9 +215,9 @@ def test_no_mart_reads_the_search_based_reply_or_poster_sources():
 
 
 def test_the_cutover_marts_bumped_their_versions():
-    want = {"mart_top_posters": "v4", "mart_fast_reply_vs_retention": "v11",
-            "mart_channel_onboarding_scorecard": "v9", "mart_response_rate": "v3"}
-    for name, version in want.items():
+    expected_versions = {"mart_top_posters": "v4", "mart_fast_reply_vs_retention": "v11",
+                         "mart_channel_onboarding_scorecard": "v9", "mart_response_rate": "v3"}
+    for name, version in expected_versions.items():
         sql = (WAREHOUSE_DIR / "models" / "marts" / f"{name}.sql").read_text()
         assert f"'{version}' as metric_version" in sql, f"{name} is not at {version}"
 
@@ -291,7 +291,7 @@ def test_nothing_writes_a_deletion_the_spine_would_have_to_sweep():
 def test_the_deletion_wrapper_is_still_refused_a_body():
     from lib import archive
 
-    assert archive.body_of({"type": "message", "subtype": archive.GONE}) is None, (
+    assert archive.body_of({"type": "message", "subtype": archive.DELETED_SUBTYPE}) is None, (
         "body_of must keep returning None for a deletion envelope, or it falls through and "
         "the wrapper is recorded as if it were a message"
     )
@@ -349,7 +349,7 @@ def test_the_band_ladder_is_declared_once_in_the_mart():
     assert "band_top" in sql, "the mart has to publish the edge Rails used to hold"
     helper = (WAREHOUSE_DIR.parent / "web" / "app" / "helpers" / "home_helper.rb").read_text()
     assert "BAND_TOP" not in helper, "Rails declared dbt's ladder a third time"
-    assert "b.band_top" in helper
+    assert ".band_top" in helper
 
 
 def test_the_two_day_thirty_windows_no_longer_share_a_name():

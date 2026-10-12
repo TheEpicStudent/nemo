@@ -5,31 +5,31 @@ from lib import build
 from lib.db import connect, record_heartbeat
 
 BEAT_SECONDS = 60
-HELD = "held, old build"
-HELD_POLL_SECONDS = 60
-newest = {"build": None}
+STALE_BUILD_STATE = "held, old build"
+STALE_BUILD_RECHECK_SECONDS = 60
+build_state = {"newest": None}
 
 
 def record(worker, note):
     try:
         with connect() as conn:
             record_heartbeat(conn, worker, note)
-            newest["build"] = build.keep(conn, worker)
+            build_state["newest"] = build.record_build(conn, worker)
     except Exception as exc:
         print(f"{worker}: heartbeat failed, {type(exc).__name__}: {exc}")
 
 
-def behind():
-    return newest["build"] not in (None, build.fingerprint())
+def on_stale_build():
+    return build_state["newest"] not in (None, build.fingerprint())
 
 
-def hold(worker, name, state, stopping):
-    if not behind():
+def pause_stale_lane(worker, name, state, stopping):
+    if not on_stale_build():
         return False
-    if state.get(name) != HELD:
-        print(f"{worker}: the {name} lane is held, build {build.fingerprint()} is behind {newest['build']}")
-    state[name] = HELD
-    stopping.wait(HELD_POLL_SECONDS)
+    if state.get(name) != STALE_BUILD_STATE:
+        print(f"{worker}: the {name} lane is held, build {build.fingerprint()} is behind {build_state['newest']}")
+    state[name] = STALE_BUILD_STATE
+    stopping.wait(STALE_BUILD_RECHECK_SECONDS)
     return True
 
 
@@ -37,15 +37,15 @@ def hold(worker, name, state, stopping):
 def heartbeat_loop(worker, note, every=BEAT_SECONDS):
     stop = threading.Event()
 
-    def beat():
+    def record_beat():
         record(worker, note() if callable(note) else note)
 
-    def tick():
+    def beat_loop():
         while not stop.wait(every):
-            beat()
+            record_beat()
 
-    beat()
-    thread = threading.Thread(target=tick, daemon=True)
+    record_beat()
+    thread = threading.Thread(target=beat_loop, daemon=True)
     thread.start()
     try:
         yield

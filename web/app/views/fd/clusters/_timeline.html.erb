@@ -13,12 +13,12 @@
         <% end %>
       </div>
     </div>
-    <% cluster.members.each do |one| %>
+    <% cluster.members.each do |member| %>
       <div class="srow">
-        <div class="stat-key"><b><%= person_label(one.user_id) %></b></div>
-        <div class="cells cluster-cells" role="group" aria-label="<%= person_label(one.user_id) %>, sessions by day">
+        <div class="stat-key"><b><%= person_label(member.user_id) %></b></div>
+        <div class="cells cluster-cells" role="group" aria-label="<%= person_label(member.user_id) %>, sessions by day">
           <% days.each do |day| %>
-            <%= cluster_cell(cluster, one.user_id, day) %>
+            <%= cluster_cell(cluster, member.user_id, day) %>
           <% end %>
         </div>
       </div>

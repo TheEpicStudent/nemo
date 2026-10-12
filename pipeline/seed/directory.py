@@ -49,14 +49,14 @@ def rng_for(seed, stream="directory"):
 
 
 def profiles_for(rng, members, as_of):
-    shapes = {}
+    profiles = {}
     for member in members:
-        given = rng.choice(GIVEN_NAMES)
+        first_name = rng.choice(GIVEN_NAMES)
         family = rng.choice(FAMILY_NAMES)
-        handle = f"{given}.{family[0]}" if rng.random() < 0.6 else f"{given}{rng.randrange(2, 99)}"
+        handle = f"{first_name}.{family[0]}" if rng.random() < 0.6 else f"{first_name}{rng.randrange(2, 99)}"
         tz, offset = rng.choice(TIMEZONES)
-        shapes[member.user_id] = {
-            "given": given,
+        profiles[member.user_id] = {
+            "given": first_name,
             "family": family,
             "handle": handle,
             "display": "" if rng.random() < NO_DISPLAY_NAME_SHARE else handle,
@@ -67,7 +67,7 @@ def profiles_for(rng, members, as_of):
             "hash": f"{rng.randrange(16**12):012x}",
             "updated_at": as_of - timedelta(days=rng.randrange(1, 400)),
         }
-    return shapes
+    return profiles
 
 
 def member_rows(profiles, members):

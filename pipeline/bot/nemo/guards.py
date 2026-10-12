@@ -27,7 +27,7 @@ ON CONFLICT DO NOTHING
 RETURNING id
 """
 
-HELD = """
+ACTIVE_ON_THREAD = """
 SELECT id, kind, channel_id, thread_ts, state, opened_by, warned_ts, expires_at
 FROM fd.thread_guards
 WHERE channel_id = %s AND thread_ts = %s AND state IN ('warned', 'running')
@@ -42,7 +42,7 @@ LIVE = """
 SELECT channel_id, thread_ts FROM fd.thread_guards WHERE state IN ('warned', 'running')
 """
 
-KEEP_NOTE = """
+SET_NOTE = """
 UPDATE fd.thread_guards SET note_rich = %s, note_text = %s, updated_at = now()
 WHERE id = %s
 """
@@ -99,7 +99,7 @@ WHERE kind = 'lock' AND state IN ('warned', 'running') AND expires_at <= now()
 ORDER BY expires_at LIMIT 20
 """
 
-KEPT = """
+INSERT_MESSAGE = """
 INSERT INTO fd.thread_guard_messages (guard_id, message_ts, user_id, channel_id)
 VALUES (%s, %s, %s, %s)
 ON CONFLICT (guard_id, message_ts) DO NOTHING
@@ -159,7 +159,7 @@ SELECT count(*) FROM fd.thread_guard_strikes
 WHERE guard_id = %s AND reset_at IS NOT NULL AND reset_outcome IN ('reset', 'would')
 """
 
-STANDING = """
+PRIVILEGED_MEMBER = """
 SELECT coalesce(bool_or(m.is_bot OR m.is_admin OR m.is_owner), false)
 FROM fd.member m WHERE m.user_id = %s
 """
@@ -188,8 +188,8 @@ def watching(channel_id, thread_ts):
         return (channel_id, thread_ts) in _watched
 
 
-def held(conn, channel_id, thread_ts):
-    return conn.execute(HELD, (channel_id, thread_ts)).fetchone()
+def active_guard(conn, channel_id, thread_ts):
+    return conn.execute(ACTIVE_ON_THREAD, (channel_id, thread_ts)).fetchone()
 
 
 def by_id(conn, guard_id):
@@ -201,8 +201,8 @@ def case_of(conn, channel_id, thread_ts):
     return row[0] if row else None
 
 
-def keep_note(conn, guard_id, messages, text):
-    conn.execute(KEEP_NOTE, (json.dumps(messages), text, guard_id))
+def set_note(conn, guard_id, messages, text):
+    conn.execute(SET_NOTE, (json.dumps(messages), text, guard_id))
 
 
 def note_for(conn, guard_id):
@@ -244,13 +244,13 @@ def warn(client, conn, guard_id, channel_id, thread_ts, kind):
 def exempt(conn, user_id, opened_by):
     if not user_id or user_id == opened_by:
         return True
-    if conn.execute(STANDING, (user_id,)).fetchone()[0]:
+    if conn.execute(PRIVILEGED_MEMBER, (user_id,)).fetchone()[0]:
         return True
     return bool(conn.execute(FD, (user_id,)).fetchone()[0])
 
 
-def kept(conn, guard_id, channel_id, user_id, message_ts):
-    conn.execute(KEPT, (guard_id, message_ts, user_id, channel_id))
+def record_message(conn, guard_id, channel_id, user_id, message_ts):
+    conn.execute(INSERT_MESSAGE, (guard_id, message_ts, user_id, channel_id))
 
 
 def removed(conn, guard_id, message_ts):
@@ -287,20 +287,20 @@ def reset_done(conn, guard_id, user_id, outcome, channel_id, thread_ts, messages
 
 
 def transcript(client, channel_id, thread_ts):
-    seen, cursor = [], None
+    messages, cursor = [], None
     while True:
-        answer = client.conversations_replies(
+        response = client.conversations_replies(
             channel=channel_id, ts=thread_ts, limit=PAGE, cursor=cursor
         )
-        for one in answer.get("messages") or []:
+        for one in response.get("messages") or []:
             if one.get("ts"):
-                seen.append(one)
-        cursor = (answer.get("response_metadata") or {}).get("next_cursor")
+                messages.append(one)
+        cursor = (response.get("response_metadata") or {}).get("next_cursor")
         if not cursor:
-            return seen
+            return messages
 
 
-KEEP_TRANSCRIPT = """
+INSERT_TRANSCRIPT = """
 INSERT INTO fd.thread_transcripts (guard_id, channel_id, thread_ts, body)
 VALUES (%s, %s, %s, %s)
 RETURNING id
@@ -334,9 +334,9 @@ def transcript_body(messages, named):
     return "\n".join(lines) + "\n"
 
 
-def keep_transcript(conn, guard_id, channel_id, thread_ts, messages, named=None):
+def store_transcript(conn, guard_id, channel_id, thread_ts, messages, named=None):
     body = transcript_body(messages, named or {})
-    conn.execute(KEEP_TRANSCRIPT, (guard_id, channel_id, thread_ts, body))
+    conn.execute(INSERT_TRANSCRIPT, (guard_id, channel_id, thread_ts, body))
     return body
 
 

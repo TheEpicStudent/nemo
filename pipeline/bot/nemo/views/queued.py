@@ -8,8 +8,8 @@ def body(case):
 
 
 def build_blocks(case):
-    said = body(case)
-    return [said] if said else report.header_blocks(case)
+    body_block = body(case)
+    return [body_block] if body_block else report.header_blocks(case)
 
 
 def needs_header(case):

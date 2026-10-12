@@ -3,15 +3,15 @@ module Fd
     permit "link.verdict"
 
     MEMBER_ID = /\A[UW][A-Z0-9]{2,}\z/
-    SAID = { recorded: "verdict recorded", changed: "verdict changed", unchanged: "verdict unchanged" }.freeze
+    NOTICES = { recorded: "verdict recorded", changed: "verdict changed", unchanged: "verdict unchanged" }.freeze
 
     def create
-      problem = objection
-      return redirect_to(back, alert: problem) if problem
+      error = validation_error
+      return redirect_to(back, alert: error) if error
 
       outcome = nil
       writing { outcome = record }
-      redirect_to back, notice: SAID.fetch(outcome)
+      redirect_to back, notice: NOTICES.fetch(outcome)
     end
 
     private
@@ -22,7 +22,7 @@ module Fd
 
     def note = params[:note].to_s.strip.presence
 
-    def objection
+    def validation_error
       a, b = pair
       return "pick two accounts" unless a.match?(MEMBER_ID) && b.match?(MEMBER_ID) && a != b
       return "pick a verdict" unless LinkVerdict::VERDICTS.key?(verdict)
@@ -32,21 +32,21 @@ module Fd
 
     def record
       a, b = pair
-      held = LinkVerdict.lock.find_by(a_user_id: a, b_user_id: b)
-      kept_note = note || held&.note
-      return :unchanged if held && held.verdict == verdict && held.note == kept_note
+      existing = LinkVerdict.lock.find_by(a_user_id: a, b_user_id: b)
+      effective_note = note || existing&.note
+      return :unchanged if existing && existing.verdict == verdict && existing.note == effective_note
 
-      before = held&.said
-      row = held || LinkVerdict.new(a_user_id: a, b_user_id: b)
-      row.update!(verdict: verdict, decided_by: current_account.user_id, decided_at: Time.current, note: kept_note)
-      audit(row, row.verb, before: before, after: row.said.merge("a_user_id" => a, "b_user_id" => b),
+      before = existing&.audit_attributes
+      row = existing || LinkVerdict.new(a_user_id: a, b_user_id: b)
+      row.update!(verdict: verdict, decided_by: current_account.user_id, decided_at: Time.current, note: effective_note)
+      audit(row, row.verb, before: before, after: row.audit_attributes.merge("a_user_id" => a, "b_user_id" => b),
         subject_user_id: b)
-      held ? :changed : :recorded
+      existing ? :changed : :recorded
     end
 
     def back
-      asked = params[:back].to_s
-      asked.start_with?("/fd/") ? asked : fd_links_path
+      requested_path = params[:back].to_s
+      requested_path.start_with?("/fd/") ? requested_path : fd_links_path
     end
   end
 end

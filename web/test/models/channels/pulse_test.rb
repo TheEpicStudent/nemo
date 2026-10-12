@@ -1,14 +1,14 @@
 require "test_helper"
 
 class Channels::PulseTest < ActiveSupport::TestCase
-  def day(ds, **rest)
+  def day(ds, **overrides)
     Analytics::MartChannelDay.new({ ds: Date.parse(ds), messages: 0, member_messages: 0,
                                     bot_messages: 0, authors: 0, questions: 0,
                                     questions_with_replies: 0, thread_replies: 0,
                                     thread_roots: 0, replies_on_roots: 0, reactions: 0,
                                     unreacted: 0, text_length_total: 0, with_link: 0,
                                     with_file: 0, emoji_only: 0, substantive: 0,
-                                    with_mention: 0 }.merge(rest))
+                                    with_mention: 0 }.merge(overrides))
   end
 
   def build(rows, from: "2026-09-01", to: "2026-09-03")

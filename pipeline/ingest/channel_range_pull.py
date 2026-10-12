@@ -138,12 +138,12 @@ def run(conn, days=WINDOW_DAYS, end=None, source=SOURCE, span=False):
         rows = []
         walked = {"cursor": resume_at}
 
-        def flush(cursor, seen):
+        def flush(cursor, record_count):
             with conn.cursor() as cur:
                 cur.executemany(RANGE_SQL, rows)
             rows.clear()
             walked["cursor"] = cursor
-            save_walk(conn, source, window_key, cursor, already + seen)
+            save_walk(conn, source, window_key, cursor, already + record_count)
             counts.total_expected = client.last_num_found
             counts.progress()
 
@@ -175,14 +175,14 @@ def run(conn, days=WINDOW_DAYS, end=None, source=SOURCE, span=False):
         with conn.cursor() as cur:
             cur.executemany(RANGE_SQL, rows)
             cur.execute(WINDOW_COUNTS_SQL, (source,))
-            landed, held = window_totals(cur.fetchall(), (start, stop))
-            replacing = should_prune(verdict) and supersedes(landed, held)
+            window_rows, existing_rows = window_totals(cur.fetchall(), (start, stop))
+            replacing = should_prune(verdict) and supersedes(window_rows, existing_rows)
             if replacing:
                 cur.execute(PRUNE_SQL, (source, start, stop))
                 pruned = cur.rowcount
         if should_prune(verdict) and not replacing:
             print(
-                f"{label} {window_key}: walked {landed} rows against {held} already held, "
+                f"{label} {window_key}: walked {window_rows} rows against {existing_rows} already held, "
                 "refusing to prune the fuller window"
             )
         if replacing:

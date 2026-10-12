@@ -24,7 +24,7 @@
     <%= turbo_stream_from Fd::MemberGuardBroadcast.stream(@user_id) %>
     <section class="card member-hero">
       <div class="member-hero-head">
-        <%= face(@user_id, css: "avatar member-hero-face") %>
+        <%= avatar(@user_id, css: "avatar member-hero-face") %>
         <div class="member-hero-who">
           <h1 class="member-hero-name"><%= member_title %></h1>
           <% if member_name.present? && member_name.delete_prefix("@") != member_handle.delete_prefix("@") %>
@@ -61,7 +61,7 @@
                 fd_cases_path(subject_user_id: @user_id, open: "1"), class: "btn btn-primary" %>
         </div>
       </div>
-      <dl class="fact-grid member-facts <%= "has-links" if @links_held %>">
+      <dl class="fact-grid member-facts <%= "has-links" if @member_links %>">
         <div class="fact">
           <dt>Slack ID</dt>
           <dd class="mono fact-one"><%= @user_id %></dd>
@@ -90,20 +90,20 @@
             <%= @standing.actions.zero? ? "None" : @standing.actions %>
           </dd>
         </div>
-        <% if @links_held %>
+        <% if @member_links %>
           <div class="fact">
             <dt>Links</dt>
-            <dd class="fact-one <%= "is-none" if @links_held.count.zero? %>">
-              <% if @links_held.count.zero? %>
+            <dd class="fact-one <%= "is-none" if @member_links.count.zero? %>">
+              <% if @member_links.count.zero? %>
                 None
               <% else %>
                 <button type="button" class="fact-go" data-modal-open="member-links" aria-haspopup="dialog">
-                  <%= @links_held.count %>
+                  <%= @member_links.count %>
                 </button>
-                <% if @links_held.certain.positive? %>
-                  <span class="sub"><%= @links_held.certain %> certain</span>
-                <% elsif @links_held.strong.positive? %>
-                  <span class="sub"><%= @links_held.strong %> strong</span>
+                <% if @member_links.certain.positive? %>
+                  <span class="sub"><%= @member_links.certain %> certain</span>
+                <% elsif @member_links.strong.positive? %>
+                  <span class="sub"><%= @member_links.strong %> strong</span>
                 <% end %>
               <% end %>
             </dd>
@@ -183,8 +183,8 @@
                     <% if entry.body.present? %>
                       <p class="member-event-body"><%= mentioned(entry.body) %></p>
                     <% else %>
-                      <% under = [entry.state, entry.detail].reject(&:blank?).join(" · ") %>
-                      <% if under.present? %><p class="member-event-body"><%= named_text(under) %></p><% end %>
+                      <% event_detail = [entry.state, entry.detail].reject(&:blank?).join(" · ") %>
+                      <% if event_detail.present? %><p class="member-event-body"><%= named_text(event_detail) %></p><% end %>
                     <% end %>
                     <span class="member-event-by">
                       <%= entry.who ? member_face(entry.who) : "n/a" %>
@@ -249,18 +249,18 @@
 
 <% if may_note %>
   <%= render layout: "fd/modal", locals: { id: "member-note", title: "Write a note",
-        sub: names[@user_id], open: field_was(:body).present? } do %>
+        sub: names[@user_id], open: submitted_value(:body).present? } do %>
     <%= form_with url: fd_member_notes_path(@user_id), method: :post, html: { autocomplete: "off" } do %>
       <div class="modal-body">
         <label class="field-label">
           The note
-          <%= render "fd/mention_field", name: :body, value: field_was(:body), rows: 4,
+          <%= render "fd/mention_field", name: :body, value: submitted_value(:body), rows: 4,
                 placeholder: "type @ to name somebody" %>
         </label>
         <%= field_wrong(:body) %>
       </div>
       <div class="modal-foot">
-        <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Cancel</button>
+        <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
         <%= submit_tag "Save the note", class: "btn btn-primary" %>
       </div>
     <% end %>

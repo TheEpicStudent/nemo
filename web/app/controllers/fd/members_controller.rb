@@ -35,7 +35,7 @@ module Fd
       @member_grant = @pane_grants[@user_id] || Authz::Grant.live.roles.find_by(user_id: @user_id)
       return unless current_account.may?("member.links")
 
-      @links_held = MemberLink.held_by(@user_id)
+      @member_links = MemberLink.link_counts_for(@user_id)
       @cluster = MemberLink.cluster_for(@user_id)
     end
 
@@ -56,17 +56,17 @@ module Fd
     end
 
     def search
-      ids = MemberFinder.new(params[:q], actor: current_account).pick(limit: Member::LIMIT,
+      ids = MemberFinder.new(params[:q], actor: current_account).suggest(limit: Member::LIMIT,
         case_id: params[:case_id].presence&.to_i, bots: params[:bots].present?)
 
-      faces = Names.for(ids)
-      found = ids.map do |id|
-        member = faces.member(id)
-        { id: id, name: faces[id], handle: member&.handle.presence,
-          initial: faces.initial(id), deleted: member&.is_deleted || false }
+      names = Names.for(ids)
+      members = ids.map do |id|
+        member = names.member(id)
+        { id: id, name: names[id], handle: member&.handle.presence,
+          initial: names.initial(id), deleted: member&.is_deleted || false }
       end
 
-      render json: { members: found }
+      render json: { members: members }
     end
 
     private
@@ -91,8 +91,8 @@ module Fd
     end
 
     def load_member_pane
-      carried = params.to_unsafe_h.slice(*MemberQuery::KEYS, "q")
-      @pane_query = MemberQuery.new(carried, actor: current_account)
+      query_params = params.to_unsafe_h.slice(*MemberQuery::KEYS, "q")
+      @pane_query = MemberQuery.new(query_params, actor: current_account)
       @pane_params = @pane_query.to_params
       @pane_rows = @pane_query.rows
       user_ids = @pane_rows.map(&:user_id)

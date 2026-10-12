@@ -8,7 +8,7 @@
     <div class="modal-body">
       <label class="field-label">
         Why
-        <%= text_area_tag :reason, field_was(:reason), rows: 3, class: "textarea", id: nil %>
+        <%= text_area_tag :reason, submitted_value(:reason), rows: 3, class: "textarea", id: nil %>
       </label>
       <%= field_wrong(:reason) %>
 
@@ -20,11 +20,11 @@
       <label class="field-label">
         Type <b class="mono"><%= handle %></b> to confirm
         <%= text_field_tag :confirm, nil, class: "input", id: nil, autocomplete: "off",
-              data: { confirm_word_target: "field", action: "input->confirm-word#fit" } %>
+              data: { confirm_word_target: "field", action: "input->confirm-word#toggleSubmit" } %>
       </label>
     </div>
     <div class="modal-foot">
-      <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Cancel</button>
+      <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
       <%= submit_tag "Deactivate", class: "btn btn-danger",
             data: { confirm_word_target: "go" }, disabled: true %>
     </div>

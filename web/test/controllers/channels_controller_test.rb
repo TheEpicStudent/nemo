@@ -33,14 +33,14 @@ class ChannelsControllerTest < ActionDispatch::IntegrationTest
   test "every tab renders its own cards and nothing from the others" do
     analyst
     channel = busiest_channel
-    wanted = {
+    card_titles = {
       "activity" => "Top posters",
       "newcomers" => "First posts",
       "messages" => "Texture",
       "neighbours" => "Neighbours"
     }
 
-    wanted.each do |view, title|
+    card_titles.each do |view, title|
       get channel_path(channel.channel_id, view: view)
 
       assert_response :success

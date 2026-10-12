@@ -37,14 +37,14 @@ export default class extends Controller {
 
   // a click that lands on the dialog itself is a click on the backdrop
   onBackdrop(event) {
-    if (event.target === this.boxTarget) this.shut()
+    if (event.target === this.boxTarget) this.close()
   }
 
-  shut() {
+  close() {
     if (this.boxTarget.open) this.boxTarget.close()
     this.shotTarget.removeAttribute("src")
-    const back = this.opener
+    const returnTarget = this.opener
     this.opener = null
-    if (back && back.isConnected) back.focus()
+    if (returnTarget && returnTarget.isConnected) returnTarget.focus()
   }
 }

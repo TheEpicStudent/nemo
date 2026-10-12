@@ -1,16 +1,16 @@
 require "test_helper"
 
 class Fd::SearchTest < ActiveSupport::TestCase
-  def look(term, **options)
+  def build_search(term, **options)
     Fd::Search.new(term, **options)
   end
 
   def kinds(term)
-    look(term).groups.map(&:key)
+    build_search(term).groups.map(&:key)
   end
 
   def rows(term, kind, limit: Fd::Search::LIMIT)
-    look(term, limit: limit).groups.find { |group| group.key == kind }&.rows.to_a
+    build_search(term, limit: limit).groups.find { |group| group.key == kind }&.rows.to_a
   end
 
   def ranked(term)
@@ -18,9 +18,9 @@ class Fd::SearchTest < ActiveSupport::TestCase
   end
 
   test "a term nobody typed asks the database nothing" do
-    assert_not_predicate look(""), :asked?
-    assert_not_predicate look(" a "), :asked?
-    assert_empty look("").groups
+    assert_not_predicate build_search(""), :searching?
+    assert_not_predicate build_search(" a "), :searching?
+    assert_empty build_search("").groups
   end
 
   test "a group with nothing in it is left out" do
@@ -33,8 +33,8 @@ class Fd::SearchTest < ActiveSupport::TestCase
   test "a case is found by its number, however it is typed" do
     kase = make_case(opened_at: 2.days.ago)
 
-    [kase.id.to_s, "case #{kase.id}", "##{kase.id}"].each do |typed|
-      assert_equal [kase.id], rows(typed, "case").map { |row| row.record.id }, typed
+    [kase.id.to_s, "case #{kase.id}", "##{kase.id}"].each do |input|
+      assert_equal [kase.id], rows(input, "case").map { |row| row.record.id }, input
     end
   end
 
@@ -50,19 +50,19 @@ class Fd::SearchTest < ActiveSupport::TestCase
     member = Fd::Member.live.first
     kase = make_case(subject: member.user_id, opened_at: 2.days.ago)
 
-    found = look(member.handle.presence || member.display_name)
-    assert_includes found.groups.map(&:key), "case"
-    assert_includes found.groups.find { |group| group.key == "case" }.rows.map { |row| row.record.id },
+    result = build_search(member.handle.presence || member.display_name)
+    assert_includes result.groups.map(&:key), "case"
+    assert_includes result.groups.find { |group| group.key == "case" }.rows.map { |row| row.record.id },
       kase.id
   end
 
   test "a note is found by what it says, and a deleted one is not" do
     kase = make_case(opened_at: 2.days.ago)
-    kept = Fd::Note.create!(case_id: kase.id, body: "asked them to drop it", author: "UFF1")
+    note = Fd::Note.create!(case_id: kase.id, body: "asked them to drop it", author: "UFF1")
     Fd::Note.create!(case_id: kase.id, body: "drop it, again", author: "UFF1",
       deleted_at: Time.current, deleted_by: "UFF1")
 
-    assert_equal [kept.id], rows("drop it", "note").map { |row| row.record.id }
+    assert_equal [note.id], rows("drop it", "note").map { |row| row.record.id }
   end
 
   test "a report is found by what the reporter wrote" do
@@ -77,10 +77,10 @@ class Fd::SearchTest < ActiveSupport::TestCase
     kase = make_case(opened_at: 2.days.ago)
     5.times { |n| Fd::Note.create!(case_id: kase.id, body: "raid number #{n}", author: "UFF1") }
 
-    found = look("raid", limit: 3).groups.sole
-    assert_equal 3, found.rows.size
-    assert_equal 5, found.total
-    assert_equal 5, look("raid").total
+    group = build_search("raid", limit: 3).groups.sole
+    assert_equal 3, group.rows.size
+    assert_equal 5, group.total
+    assert_equal 5, build_search("raid").total
   end
 
   test "a text row carries the words around the match, not the whole body" do
@@ -108,27 +108,27 @@ class Fd::SearchTest < ActiveSupport::TestCase
     open = make_case(opened_at: 4.days.ago)
     open.update!(member_note: "the raid is still going")
 
-    found = rows("raid", "case").map { |row| row.record.id }
-    assert_equal [open.id, old.id], found & [open.id, old.id]
+    ids = rows("raid", "case").map { |row| row.record.id }
+    assert_equal [open.id, old.id], ids & [open.id, old.id]
   end
 
   test "the case whose number was typed comes first" do
-    asked = make_case(opened_at: 5.days.ago)
-    asked.update!(member_note: "the raid started here")
+    target_case = make_case(opened_at: 5.days.ago)
+    target_case.update!(member_note: "the raid started here")
     make_case(opened_at: 1.hour.ago).update!(member_note: "another raid, newer")
 
-    assert_equal asked.id, rows(asked.id.to_s, "case").first.record.id
+    assert_equal target_case.id, rows(target_case.id.to_s, "case").first.record.id
   end
 
   test "somebody with a conduct history outranks a quiet namesake" do
     before = ranked("na")
-    quiet, noisy = before.last(2)
-    skip "the corpus has no two quiet members sharing a name" if quiet.nil? || quiet == noisy
+    clean_member, flagged_member = before.last(2)
+    skip "the corpus has no two quiet members sharing a name" if clean_member.nil? || clean_member == flagged_member
 
-    make_case(subject: noisy, opened_at: 2.days.ago)
+    make_case(subject: flagged_member, opened_at: 2.days.ago)
 
     after = ranked("na")
-    assert after.index(noisy) < after.index(quiet),
+    assert after.index(flagged_member) < after.index(clean_member),
       "a member with a case must climb above a quiet namesake"
   end
 
@@ -162,10 +162,10 @@ class Fd::SearchTest < ActiveSupport::TestCase
 
   test "a bare scope counts what it showed, not the whole table" do
     make_case(opened_at: 2.days.ago)
-    found = look("#").groups.sole
+    group = build_search("#").groups.sole
 
-    assert_equal found.rows.size, found.total
-    assert_nil found.rows.first.snippet
+    assert_equal group.rows.size, group.total
+    assert_nil group.rows.first.snippet
   end
 
   test "a scope passed on its own does the same as a prefix" do
@@ -174,7 +174,7 @@ class Fd::SearchTest < ActiveSupport::TestCase
     Fd::Note.create!(case_id: kase.id, body: "a note about the raid", author: "UFF1")
 
     assert_equal ["case", "note"], kinds("raid")
-    assert_equal ["note"], look("raid", scope: "note").groups.map(&:key)
+    assert_equal ["note"], build_search("raid", scope: "note").groups.map(&:key)
   end
 
   test "a scoped search shows expand of the one kind it kept" do
@@ -182,13 +182,13 @@ class Fd::SearchTest < ActiveSupport::TestCase
     6.times { |n| Fd::Note.create!(case_id: kase.id, body: "raid #{n}", author: "UFF1") }
 
     assert_equal 3, rows("raid", "note").size
-    assert_equal 6, look("raid", scope: "note").groups.sole.rows.size
+    assert_equal 6, build_search("raid", scope: "note").groups.sole.rows.size
   end
 
   test "a scope nobody offered is ignored" do
     Fd::Note.create!(subject_user_id: "USUB", body: "a raid, six accounts", author: "UFF1")
 
-    assert_equal ["note"], look("raid", scope: "vibes").groups.map(&:key)
+    assert_equal ["note"], build_search("raid", scope: "vibes").groups.map(&:key)
   end
 
   test "a pasted Slack link finds the case holding that thread" do
@@ -203,8 +203,8 @@ class Fd::SearchTest < ActiveSupport::TestCase
   test "a link to a thread nobody kept finds nothing" do
     link = "https://hackclub.slack.com/archives/C0NOTHING/p1754487721123456"
 
-    assert_predicate look(link), :asked?
-    assert_empty look(link).groups
+    assert_predicate build_search(link), :searching?
+    assert_empty build_search(link).groups
   end
 
   test "the groups keep one order, whatever matched" do

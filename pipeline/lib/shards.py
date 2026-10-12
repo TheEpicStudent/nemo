@@ -13,7 +13,7 @@ USER_TOKEN_PREFIX = "xoxp-"
 
 def discover(env=None):
     env = env if env is not None else os.environ
-    found = []
+    tokens = []
     for name, value in env.items():
         if not name.startswith(PREFIX):
             continue
@@ -22,8 +22,8 @@ def discover(env=None):
             continue
         token = (value or "").strip()
         if token:
-            found.append((int(index), token))
-    return sorted(found, key=lambda pair: pair[0])
+            tokens.append((int(index), token))
+    return sorted(tokens, key=lambda pair: pair[0])
 
 
 def names(env=None):
@@ -32,32 +32,32 @@ def names(env=None):
 
 def problems(env=None):
     pool = discover(env)
-    seen, trouble = {}, []
+    first_index_by_token, issues = {}, []
     for index, token in pool:
         if not token.startswith(USER_TOKEN_PREFIX):
-            trouble.append(
+            issues.append(
                 f"{PREFIX}{index} is not a user token, so it cannot read a public channel "
                 "it has not joined"
             )
-        first = seen.setdefault(token, index)
-        if first != index:
-            trouble.append(f"{PREFIX}{index} repeats {PREFIX}{first}, which shares one budget")
-    return trouble
+        first_index = first_index_by_token.setdefault(token, index)
+        if first_index != index:
+            issues.append(f"{PREFIX}{index} repeats {PREFIX}{first_index}, which shares one budget")
+    return issues
 
 
 def describe(env=None):
     pool = discover(env)
     if not pool:
         return f"ingest pool: no {PREFIX}n set, thread replies stay on the proxy"
-    listed = ", ".join(str(index) for index, _ in pool)
-    held = pinned_rate(env)
-    pace = (f"pinned at {held:.0f}/min each" if held is not None
+    indexes = ", ".join(str(index) for index, _ in pool)
+    pinned = pinned_rate(env)
+    pace = (f"pinned at {pinned:.0f}/min each" if pinned is not None
             else f"finding its own pace from {START_PER_MINUTE:.0f}/min each")
-    line = (f"ingest pool: {len(pool)} token(s), {PREFIX}[{listed}], {pace}, "
+    line = (f"ingest pool: {len(pool)} token(s), {PREFIX}[{indexes}], {pace}, "
             f"{expected_per_minute(env):.0f}/min across the pool")
-    trouble = problems(env)
-    if trouble:
-        line += "".join(f"\ningest pool: {note}" for note in trouble)
+    issues = problems(env)
+    if issues:
+        line += "".join(f"\ningest pool: {note}" for note in issues)
     return line
 
 
@@ -95,8 +95,8 @@ _learned_lock = threading.Lock()
 
 def pinned_rate(env=None):
     env = env if env is not None else os.environ
-    asked = (env.get("INGEST_SHARD_PER_MINUTE") or "").strip()
-    return float(asked) if asked else None
+    configured = (env.get("INGEST_SHARD_PER_MINUTE") or "").strip()
+    return float(configured) if configured else None
 
 
 def learned_rate(index):
@@ -110,13 +110,13 @@ def remember_rate(index, per_minute):
 
 
 def expected_per_minute(env=None):
-    found = discover(env)
-    if not found:
+    pool = discover(env)
+    if not pool:
         return None
     pinned = pinned_rate(env)
     if pinned is not None:
-        return pinned * len(found)
-    return sum(learned_rate(index) for index, _ in found)
+        return pinned * len(pool)
+    return sum(learned_rate(index) for index, _ in pool)
 
 
 class Bucket:
@@ -144,15 +144,15 @@ class Shard:
     def __init__(self, index, token, per_minute=None, clock=time.monotonic):
         self.index = index
         self.token = token
-        held = pinned_rate() if per_minute is None else float(per_minute)
-        self.pinned = held is not None
-        self.per_minute = held if self.pinned else learned_rate(index)
+        configured_rate = pinned_rate() if per_minute is None else float(per_minute)
+        self.pinned = configured_rate is not None
+        self.per_minute = configured_rate if self.pinned else learned_rate(index)
         self.clock = clock
         self.buckets = {}
         self.parked_until = {}
         self._client = None
         self.lock = threading.Lock()
-        self.taken = 0
+        self.acquired_count = 0
         self.throttles = 0
         self.changed_at = clock()
         self.ceiling = None
@@ -182,8 +182,8 @@ class Shard:
     def parked_for(self, method=None):
         if method is not None:
             return max(0.0, self.parked_until.get(method, 0.0) - self.clock())
-        held = [until - self.clock() for until in self.parked_until.values()]
-        return max([0.0, *held])
+        remaining = [until - self.clock() for until in self.parked_until.values()]
+        return max([0.0, *remaining])
 
     def bucket(self, method):
         with self.lock:
@@ -192,13 +192,13 @@ class Shard:
             return self.buckets[method]
 
     def take(self, method):
-        held = self.parked_for(method)
-        if held > 0:
-            return False, held
+        parked_seconds = self.parked_for(method)
+        if parked_seconds > 0:
+            return False, parked_seconds
         ok, wait = self.bucket(method).take()
         with self.lock:
             if ok:
-                self.taken += 1
+                self.acquired_count += 1
             else:
                 self.starved = True
         return ok, wait
@@ -233,10 +233,10 @@ class Shard:
         with self.lock:
             now = self.clock()
             self.throttles += 1
-            racing = self.parked_until.get(method, 0.0) > now
-            settling = self.throttled_at is not None and now - self.throttled_at < BACKOFF_AFTER
+            already_parked = self.parked_until.get(method, 0.0) > now
+            recently_throttled = self.throttled_at is not None and now - self.throttled_at < BACKOFF_AFTER
             self.parked_until[method] = now + seconds
-            if not self.pinned and not racing and not settling:
+            if not self.pinned and not already_parked and not recently_throttled:
                 self.ceiling = self.per_minute
                 self.throttled_at = now
                 self._retune(self.per_minute * BACKOFF)
@@ -279,7 +279,7 @@ class Pool:
 
     def rates(self):
         return [
-            (shard.name(), shard.taken, shard.throttles, round(shard.parked_for(), 1))
+            (shard.name(), shard.acquired_count, shard.throttles, round(shard.parked_for(), 1))
             for shard in self.shards
         ]
 
@@ -287,8 +287,8 @@ class Pool:
         if not self.shards:
             return "no pool"
         parts = []
-        for shard, taken, throttles, parked in self.rates():
-            piece = f"{shard.replace(PREFIX, 's')} {taken}"
+        for shard, acquired_count, throttles, parked in self.rates():
+            piece = f"{shard.replace(PREFIX, 's')} {acquired_count}"
             if throttles:
                 piece += f"/{throttles}t"
             if parked:

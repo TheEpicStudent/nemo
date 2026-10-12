@@ -68,13 +68,13 @@ def test_the_singleton_lock_is_session_scoped_and_namespaced():
     assert "pg_try_advisory_lock" in source
     assert "pg_advisory_xact_lock" not in source
     assert "pg_advisory_unlock" in source
-    assert "holder.close()" in source
+    assert "lock_conn.close()" in source
 
 
 def test_a_second_instance_is_refused_rather_than_left_to_double_the_budget():
     from lib import db
 
-    class Taken:
+    class LockTakenConn:
         def execute(self, *_args):
             return self
 
@@ -87,12 +87,12 @@ def test_a_second_instance_is_refused_rather_than_left_to_double_the_budget():
         def close(self):
             self.closed = True
 
-    holder = Taken()
-    with mock.patch.object(db, "connect", lambda *a, **k: holder):
+    conn = LockTakenConn()
+    with mock.patch.object(db, "connect", lambda *a, **k: conn):
         with pytest.raises(db.AlreadyRunningError, match="double every in-process rate budget"):
             with db.instance_lock("archive_worker"):
                 raise AssertionError("the body must not run")
-    assert getattr(holder, "closed", False)
+    assert getattr(conn, "closed", False)
 
 
 def test_the_sole_holder_runs_the_body_and_unlocks_after():

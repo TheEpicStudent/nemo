@@ -11,8 +11,8 @@ class Fd::MentionsTest < ActiveSupport::TestCase
   end
 
   test "something already in slack form is left alone, not doubled" do
-    already = "spoke to <@U08K3F2QX> in DM"
-    assert_equal already, Fd::Mentions.normalise(already)
+    normalised = "spoke to <@U08K3F2QX> in DM"
+    assert_equal normalised, Fd::Mentions.normalise(normalised)
   end
 
   test "several mentions in one note all convert" do

@@ -4,7 +4,7 @@ from bot.core import richtext
 from lib.paths import CATEGORIES_FILE
 
 MENU = "case_more"
-MORE_PICK = "case_more_pick"
+MORE_ACTION = "case_more_pick"
 
 CLAIM = "case_claim"
 LOG_ACTION = "case_log_action"
@@ -61,24 +61,24 @@ def menu(case):
         "type": "overflow",
         "action_id": MENU,
         "options": [
-            option(pick["text"]["text"], f"{pick['value']}:{case['case_id']}")
-            for pick in choices(case)
+            option(choice["text"]["text"], f"{choice['value']}:{case['case_id']}")
+            for choice in choices(case)
         ],
     }
 
 
-def more_picks(open_, category_key, live):
-    picks = [("People", PEOPLE)]
+def more_options(open_, category_key, live):
+    options = [("People", PEOPLE)]
     if open_ and not category_key:
-        picks.append(("Set the violation", CATEGORY))
+        options.append(("Set the violation", CATEGORY))
     if live:
-        picks.append(("Reverse an action", REVERSE))
+        options.append(("Reverse an action", REVERSE))
     if open_:
-        picks.append(("Merge", MERGE))
-    return picks
+        options.append(("Merge", MERGE))
+    return options
 
 
-def more_view(case_id, picks, problem=None):
+def more_view(case_id, options, problem=None):
     blocks = []
     if problem:
         blocks.append({
@@ -91,11 +91,11 @@ def more_view(case_id, picks, problem=None):
         "elements": [
             {
                 "type": "button",
-                "action_id": f"{MORE_PICK}_{verb}",
+                "action_id": f"{MORE_ACTION}_{verb}",
                 "text": {"type": "plain_text", "text": label},
                 "value": f"{verb}:{case_id}",
             }
-            for label, verb in picks
+            for label, verb in options
         ],
     })
     return {
@@ -135,7 +135,7 @@ def reopen_view(case_id):
     }
 
 
-def asked(value):
+def parse_menu_value(value):
     verb, _, case_id = (value or "").rpartition(":")
     return verb, int(case_id) if case_id.isdigit() else None
 
@@ -192,9 +192,9 @@ def note_view(case_id):
     }
 
 
-def what_picked(view_state):
-    chosen = view_state.get("values", {}).get(WHAT, {}).get(WHAT, {}).get("selected_option")
-    return (chosen or {}).get("value")
+def selected_category(view_state):
+    selected = view_state.get("values", {}).get(WHAT, {}).get(WHAT, {}).get("selected_option")
+    return (selected or {}).get("value")
 
 
 def submitted_values(view_state):
@@ -225,6 +225,6 @@ def ban_prompt(case_id, target=None):
     }]
 
 
-def ban_asked(value):
+def parse_ban_value(value):
     case_id, _, target = (value or "").partition(":")
     return (int(case_id) if case_id.isdigit() else None), (target or None)

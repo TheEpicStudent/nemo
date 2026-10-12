@@ -120,13 +120,13 @@ class FdReversalsTest < ActionDispatch::IntegrationTest
 
   test "an action on another case cannot be reversed through this one" do
     other = make_case(subject: "UELSE", opened_at: 1.day.ago)
-    theirs = Fd::Action.create!(case_id: other.id, type_key: "warning", target_user_id: "UELSE",
+    other_action = Fd::Action.create!(case_id: other.id, type_key: "warning", target_user_id: "UELSE",
       decided_by: "UFF1", performed_by: "UFF1", performed_at: 1.hour.ago, source_app: "fire_engine")
 
     sign_in_as(@me)
-    reverse(action_id: theirs.id)
+    reverse(action_id: other_action.id)
 
-    assert_nil theirs.reload.reversed_at, "the case in the url must own the action"
+    assert_nil other_action.reload.reversed_at, "the case in the url must own the action"
     assert_match(/not on this case/, flash[:alert])
   end
 

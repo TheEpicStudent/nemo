@@ -3,10 +3,10 @@ module Fd
     PRIVATE_VISIBILITY = "private".freeze
 
     def self.for(channel_ids)
-      wanted = Array(channel_ids).flatten.compact.uniq
-      return none if wanted.empty?
+      ids = Array(channel_ids).flatten.compact.uniq
+      return none if ids.empty?
 
-      rows = Analytics::DimChannel.where(channel_id: wanted)
+      rows = Analytics::DimChannel.where(channel_id: ids)
         .pluck(:channel_id, :name, :visibility)
       names = rows.to_h { |channel_id, name, _| [channel_id, name] }.compact_blank
       private_unnamed = rows.filter_map { |channel_id, name, visibility|

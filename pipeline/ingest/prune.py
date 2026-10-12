@@ -58,7 +58,7 @@ def stamp_of(key):
 
 
 def windows(conn):
-    asked = []
+    retention_windows = []
     for key in sources.KEYS:
         floor = sources.prune_floor(key)
         if not floor:
@@ -70,8 +70,8 @@ def windows(conn):
             column = AGED_BY.get(table)
             if column:
                 stamp = stamp_of(key) if table in SHARED else None
-                asked.append((key, table, column, days, stamp))
-    return asked
+                retention_windows.append((key, table, column, days, stamp))
+    return retention_windows
 
 
 def sweep(conn, key, table, column, days, stamp=None, dry_run=False):
@@ -79,42 +79,42 @@ def sweep(conn, key, table, column, days, stamp=None, dry_run=False):
     params = (days, stamp) if stamp else (days,)
     with conn.cursor() as cur:
         cur.execute(COUNT_SQL.format(table=table, column=column, scope=scope), params)
-        doomed = cur.fetchone()[0]
-        if dry_run or not doomed:
-            return doomed
+        expired = cur.fetchone()[0]
+        if dry_run or not expired:
+            return expired
         cur.execute(DELETE_SQL.format(table=table, column=column, scope=scope), params)
     conn.commit()
-    return doomed
+    return expired
 
 
 def sweep_finished(conn, table, where, days=FINISHED_DAYS, dry_run=False):
     verb = "SELECT count(*) FROM" if dry_run else "DELETE FROM"
     with conn.cursor() as cur:
         cur.execute(f"{verb} {table} WHERE {where}", {"days": days})
-        gone = cur.fetchone()[0] if dry_run else cur.rowcount
+        row_count = cur.fetchone()[0] if dry_run else cur.rowcount
     if not dry_run:
         conn.commit()
-    return gone
+    return row_count
 
 
 def run(conn, dry_run=False):
-    asked = windows(conn)
-    word = "would drop" if dry_run else "dropped"
+    retention_windows = windows(conn)
+    action = "would drop" if dry_run else "dropped"
     with ingest_run(conn, SOURCE) as counts:
         dropped = 0
-        for key, table, column, days, stamp in asked:
-            gone = sweep(conn, key, table, column, days, stamp, dry_run)
-            dropped += gone
+        for key, table, column, days, stamp in retention_windows:
+            row_count = sweep(conn, key, table, column, days, stamp, dry_run)
+            dropped += row_count
             scope = f" where source = {stamp}" if stamp else ""
-            print(f"{SOURCE}: {table} keeps {days} days by {column}{scope}, {word} {gone} rows ({key})")
-        if not asked:
+            print(f"{SOURCE}: {table} keeps {days} days by {column}{scope}, {action} {row_count} rows ({key})")
+        if not retention_windows:
             print(f"{SOURCE}: no retention window is set, so no ingested rows are deleted")
         for table, where in FINISHED:
-            gone = sweep_finished(conn, table, where, dry_run=dry_run)
-            dropped += gone
-            print(f"{SOURCE}: {table} keeps {FINISHED_DAYS} days of finished rows, {word} {gone} rows")
+            row_count = sweep_finished(conn, table, where, dry_run=dry_run)
+            dropped += row_count
+            print(f"{SOURCE}: {table} keeps {FINISHED_DAYS} days of finished rows, {action} {row_count} rows")
         counts.rows_in = dropped
-    print(f"{SOURCE}: {dropped} rows past their window across {len(asked) + len(FINISHED)} table(s)")
+    print(f"{SOURCE}: {dropped} rows past their window across {len(retention_windows) + len(FINISHED)} table(s)")
     return dropped
 
 

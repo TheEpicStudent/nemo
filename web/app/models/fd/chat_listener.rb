@@ -3,16 +3,17 @@ module Fd
     CHAT_CHANNELS = %w[fd_chat_changed fd_conversation_changed].freeze
     GUARD_CHANNEL = "fd_member_guard".freeze
     LINK_CHANNEL = "fd_member_link".freeze
-    CHANNELS = (CHAT_CHANNELS + [GUARD_CHANNEL, LINK_CHANNEL]).freeze
+    AUDIT_CHANNEL = Fd::AuditLiveBroadcast::CHANNEL
+    CHANNELS = (CHAT_CHANNELS + [GUARD_CHANNEL, LINK_CHANNEL, AUDIT_CHANNEL]).freeze
     RETRY_AFTER = 5
     WAIT = 30
     OFF = %w[0 false no off].freeze
 
-    def self.wanted?
+    def self.enabled?
       return false if Rails.env.test?
 
-      asked = ENV["NEMO_STREAM"].presence
-      return OFF.exclude?(asked.downcase) if asked
+      configured = ENV["NEMO_STREAM"].presence
+      return OFF.exclude?(configured.downcase) if configured
 
       serving?
     end
@@ -49,8 +50,8 @@ module Fd
     def run
       loop do
         listen
-      rescue StandardError => trouble
-        Rails.logger.warn("chat listener: #{trouble.class}: #{trouble.message}")
+      rescue StandardError => error
+        Rails.logger.warn("chat listener: #{error.class}: #{error.message}")
         sleep RETRY_AFTER
       end
     end
@@ -69,10 +70,11 @@ module Fd
     def on_notify(channel, payload)
       return guard_changed(payload) if channel == GUARD_CHANNEL
       return link_changed(payload) if channel == LINK_CHANNEL
+      return audit_event(payload) if channel == AUDIT_CHANNEL
 
       chat_changed(payload)
-    rescue StandardError => trouble
-      Rails.logger.warn("chat listener: #{channel} #{payload}: #{trouble.message}")
+    rescue StandardError => error
+      Rails.logger.warn("chat listener: #{channel} #{payload}: #{error.message}")
     end
 
     def chat_changed(payload)
@@ -87,6 +89,10 @@ module Fd
 
     def link_changed(payload)
       Rails.application.executor.wrap { Fd::MemberLinkBroadcast.of(payload) }
+    end
+
+    def audit_event(payload)
+      Rails.application.executor.wrap { Fd::AuditLiveBroadcast.relay(payload) }
     end
 
     def guard_changed(payload)

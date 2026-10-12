@@ -4,17 +4,17 @@ module Fd
 
     def create
       kase = Case.find(params[:case_id])
-      taken = false
+      claimed = false
 
       writing do
         locked = Case.lock.find(kase.id)
         next if locked.resolved? || locked.assigned_to?(current_account.user_id)
 
-        taken = true
+        claimed = true
         audit(locked.assign!(current_account.user_id), "claimed", entity_id: locked.id)
       end
 
-      if taken
+      if claimed
         redirect_to fd_case_path(kase), notice: claim_notice(kase.reload)
       else
         redirect_to fd_case_path(kase), alert: claim_refusal(kase.reload)
@@ -23,15 +23,15 @@ module Fd
 
     def destroy
       kase = Case.find(params[:case_id])
-      mine = kase.assignees.find_by(user_id: current_account.user_id)
+      assignment = kase.assignees.find_by(user_id: current_account.user_id)
 
-      return redirect_to(fd_case_path(kase), alert: release_refusal(kase)) if mine.nil?
+      return redirect_to(fd_case_path(kase), alert: release_refusal(kase)) if assignment.nil?
 
       writing do
-        audit(mine, "unclaimed", entity_id: kase.id,
-          before: { "user_id" => mine.user_id, "assigned_by" => mine.assigned_by },
+        audit(assignment, "unclaimed", entity_id: kase.id,
+          before: { "user_id" => assignment.user_id, "assigned_by" => assignment.assigned_by },
           after: nil)
-        mine.destroy!
+        assignment.destroy!
       end
 
       redirect_to fd_case_path(kase), notice: release_notice(kase.reload)

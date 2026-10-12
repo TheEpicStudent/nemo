@@ -9,7 +9,7 @@ class Authz
   AREAS = TABLE.fetch("areas").freeze
   SCOPES = TABLE.fetch("record_scopes").map(&:to_sym).freeze
 
-  HELD = "SELECT capability, via FROM app.effective_capability WHERE user_id = ?".freeze
+  EFFECTIVE_CAPABILITY_SQL = "SELECT capability, via FROM app.effective_capability WHERE user_id = ?".freeze
 
   class << self
     def keys = CAPABILITIES.keys
@@ -38,62 +38,62 @@ class Authz
 
     def role_label(role) = ROLES.fetch(role.to_s).fetch("label")
 
-    def grantable_roles = ROLES.select { |_, one| one.fetch("grantable", true) }.keys
+    def grantable_roles = ROLES.select { |_, definition| definition.fetch("grantable", true) }.keys
 
     def superadmin?(role) = ROLES.fetch(role.to_s, {})["everything"] == true
 
     def baseline(role)
-      one = ROLES.fetch(role.to_s, {})
-      return keys if one["everything"]
+      definition = ROLES.fetch(role.to_s, {})
+      return keys if definition["everything"]
 
-      one["capabilities"] || []
+      definition["capabilities"] || []
     end
 
     def by_area
       keys.group_by { |key| area(key) }
     end
 
-    ROLES_HELD = "SELECT role FROM app.effective_role WHERE user_id = ? ORDER BY role".freeze
+    EFFECTIVE_ROLE_SQL = "SELECT role FROM app.effective_role WHERE user_id = ? ORDER BY role".freeze
 
-    WHO_HOLDS = "SELECT DISTINCT user_id FROM app.effective_capability " \
-                "WHERE capability = ? ORDER BY user_id".freeze
+    CAPABILITY_HOLDERS_SQL = "SELECT DISTINCT user_id FROM app.effective_capability " \
+                             "WHERE capability = ? ORDER BY user_id".freeze
 
-    def held(user_id)
+    def effective_capabilities(user_id)
       return {} if user_id.blank?
 
       cache = Current.effective_capabilities ||= {}
-      cache[user_id] ||= load_held(user_id)
+      cache[user_id] ||= load_effective_capabilities(user_id)
     end
 
-    def roles_held(user_id)
+    def effective_roles(user_id)
       return [] if user_id.blank?
 
-      cache = Current.held_roles ||= {}
+      cache = Current.effective_roles ||= {}
       cache[user_id] ||= ApplicationRecord.connection
-        .select_values(ApplicationRecord.sanitize_sql([ROLES_HELD, user_id]))
+        .select_values(ApplicationRecord.sanitize_sql([EFFECTIVE_ROLE_SQL, user_id]))
     end
 
     def role?(account, role)
       return false if account.nil?
 
-      roles_held(account.user_id).include?(role.to_s)
+      effective_roles(account.user_id).include?(role.to_s)
     end
 
     def everything?(account)
       return false if account.nil?
 
-      roles_held(account.user_id).any? { |role| superadmin?(role) }
+      effective_roles(account.user_id).any? { |role| superadmin?(role) }
     end
 
     def anything?(account)
       return false if account.nil?
 
-      roles_held(account.user_id).any? || held(account.user_id).any?
+      effective_roles(account.user_id).any? || effective_capabilities(account.user_id).any?
     end
 
     def holders_of(key)
       ApplicationRecord.connection.select_values(
-        ApplicationRecord.sanitize_sql([WHO_HOLDS, key.to_s])
+        ApplicationRecord.sanitize_sql([CAPABILITY_HOLDERS_SQL, key.to_s])
       )
     end
 
@@ -101,13 +101,13 @@ class Authz
       return false if account.nil?
       return true if every_account?(key)
 
-      held(account.user_id).key?(key.to_s)
+      effective_capabilities(account.user_id).key?(key.to_s)
     end
 
     def via(account, key)
       return nil if account.nil?
 
-      held(account.user_id)[key.to_s]
+      effective_capabilities(account.user_id)[key.to_s]
     end
 
     def may?(account, key, record = nil)
@@ -129,7 +129,7 @@ class Authz
 
     def why_not(account, key, record = nil)
       return nil if may?(account, key, record)
-      return "you hold no access" if account.nil? || held(account.user_id).empty?
+      return "you hold no access" if account.nil? || effective_capabilities(account.user_id).empty?
       return refusal(key) unless holds?(account, key)
 
       "that is not yours"
@@ -137,17 +137,17 @@ class Authz
 
     def refusal(key)
       label = label(key).downcase
-      ordinary, supers = role_names.partition { |role| !superadmin?(role) }
-      carried = ordinary.select { |role| baseline(role).include?(key) }
-      carried = supers.select { |role| baseline(role).include?(key) } if carried.empty?
-      return "#{label} is not yours to use" if carried.empty?
+      standard_roles, superadmin_roles = role_names.partition { |role| !superadmin?(role) }
+      granting_roles = standard_roles.select { |role| baseline(role).include?(key) }
+      granting_roles = superadmin_roles.select { |role| baseline(role).include?(key) } if granting_roles.empty?
+      return "#{label} is not yours to use" if granting_roles.empty?
 
-      "#{label} is #{carried.map { |role| role_label(role) }.to_sentence} only"
+      "#{label} is #{granting_roles.map { |role| role_label(role) }.to_sentence} only"
     end
 
-    def load_held(user_id)
+    def load_effective_capabilities(user_id)
       rows = ApplicationRecord.connection.select_all(
-        ApplicationRecord.sanitize_sql([HELD, user_id])
+        ApplicationRecord.sanitize_sql([EFFECTIVE_CAPABILITY_SQL, user_id])
       )
       rows.to_h { |row| [row["capability"], row["via"]] }
     end

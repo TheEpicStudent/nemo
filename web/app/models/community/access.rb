@@ -33,11 +33,11 @@ module Community
       return nil if allow?(staff, key, record)
       return "you hold no access yet" if staff.nil?
 
-      held = capability_for(key)
-      return "you hold no access yet" if !Authz.every_account?(held) && Authz.held(staff.user_id).empty?
-      return Authz.refusal(held) unless Authz.holds?(staff, held)
+      capability = capability_for(key)
+      return "you hold no access yet" if !Authz.every_account?(capability) && Authz.effective_capabilities(staff.user_id).empty?
+      return Authz.refusal(capability) unless Authz.holds?(staff, capability)
 
-      SCOPE_REFUSALS.fetch(Authz.record_scope(held), "that channel is not yours")
+      SCOPE_REFUSALS.fetch(Authz.record_scope(capability), "that channel is not yours")
     end
 
     def self.within_scope?(staff, key, record)

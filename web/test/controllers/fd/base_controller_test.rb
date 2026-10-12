@@ -21,22 +21,22 @@ class Fd::BaseControllerTest < ActiveSupport::TestCase
 
   test "a controller that writes without declaring a permission refuses to run" do
     names = Fd::BaseController._process_action_callbacks.map(&:filter)
-    assert_includes names, :require_a_declaration
+    assert_includes names, :require_permission_declaration
     assert_includes names, :require_account
 
     bare = Class.new(Fd::BaseController)
     assert_empty bare.declared
-    assert_raises(RuntimeError) { bare.new.send(:require_a_declaration) }
+    assert_raises(RuntimeError) { bare.new.send(:require_permission_declaration) }
   end
 
   test "the gate runs after sign in, so it never leaks to a stranger" do
     names = Fd::BaseController._process_action_callbacks.map(&:filter)
-    assert names.index(:require_account) < names.index(:require_a_declaration)
+    assert names.index(:require_account) < names.index(:require_permission_declaration)
   end
 
   test "forgery protection runs before the gate" do
     names = before_callbacks(Fd::CasesController)
-    assert names.index(:verify_authenticity_token) < names.index(:require_a_declaration)
+    assert names.index(:verify_authenticity_token) < names.index(:require_permission_declaration)
   end
 
   test "every conduct controller that writes declares what it needs" do

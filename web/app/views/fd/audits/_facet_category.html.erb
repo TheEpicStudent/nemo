@@ -1,0 +1,11 @@
+<% selected = @query.search.of("category") %>
+<% category_counts = audit_category_counts(counts) %>
+<%= link_to "Any", fd_audit_path(@query.set_params("category")), class: "btn",
+      aria: { current: ("true" if selected.empty?) } %>
+<div class="menu-sep"></div>
+<% audit_ordered(Fd::AuditCatalogue::CATEGORIES.keys, category_counts).each do |key| %>
+  <%= link_to fd_audit_path(@query.set_params("category", key)), class: "btn",
+        aria: { current: ("true" if selected.include?(key)) } do %>
+    <span><%= Fd::AuditCatalogue.category_label(key) %></span><%= audit_count(category_counts&.fetch(key, 0)) %>
+  <% end %>
+<% end %>

@@ -1,28 +1,28 @@
-<% now = Engine::Setting.value(source, name) %>
-<% was = Engine::Setting.default(source, name) %>
-<% tuned = now.to_s != was.to_s %>
-<% if defined?(show_was) && show_was && tuned %>
-  <span class="was">was <%= was %></span>
+<% current_value = Engine::Setting.value(source, name) %>
+<% default_value = Engine::Setting.default(source, name) %>
+<% overridden = current_value.to_s != default_value.to_s %>
+<% if defined?(show_default) && show_default && overridden %>
+  <span class="was">was <%= default_value %></span>
 <% end %>
-<% if may_tune %>
+<% if may_edit_setting %>
   <%= form_with url: engine_tune_path, method: :patch, class: "contents" do |f| %>
     <%= f.hidden_field :source, value: source, id: nil %>
     <%= f.hidden_field :name, value: name, id: nil %>
     <% if name == Engine::Setting::CADENCE %>
-      <%= f.select :value, Engine::Source::CADENCES, { selected: now },
-            class: "dial #{"tuned" if tuned}", id: nil,
+      <%= f.select :value, Engine::Source::CADENCES, { selected: current_value },
+            class: "dial #{"tuned" if overridden}", id: nil,
             aria: { label: "#{source} #{name}" }, onchange: "this.form.requestSubmit()" %>
     <% elsif (choices = Engine::Setting.choices(name)) && source == Engine::Setting::ENGINE %>
-      <%= f.select :value, choices, { selected: now },
-            class: "dial #{"tuned" if tuned}", id: nil,
+      <%= f.select :value, choices, { selected: current_value },
+            class: "dial #{"tuned" if overridden}", id: nil,
             aria: { label: "#{source} #{name}" }, onchange: "this.form.requestSubmit()" %>
     <% elsif name == Engine::Setting::ENABLED %>
-      <%= f.select :value, %w[true false], { selected: now },
-            class: "dial #{"tuned" if tuned}", id: nil,
+      <%= f.select :value, %w[true false], { selected: current_value },
+            class: "dial #{"tuned" if overridden}", id: nil,
             aria: { label: "#{source} #{name}" }, onchange: "this.form.requestSubmit()" %>
     <% else %>
-      <%= f.text_field :value, value: now, inputmode: "numeric", size: 6,
-            class: "dial #{"tuned" if tuned}", id: nil,
+      <%= f.text_field :value, value: current_value, inputmode: "numeric", size: 6,
+            class: "dial #{"tuned" if overridden}", id: nil,
             aria: { label: "#{source} #{name}" }, onchange: "this.form.requestSubmit()" %>
     <% end %>
   <% end %>
@@ -32,5 +32,5 @@
           aria: { label: "reset #{source} #{name} to the file" } %>
   <% end %>
 <% else %>
-  <span class="dial <%= "tuned" if tuned %>"><%= now %></span>
+  <span class="dial <%= "tuned" if overridden %>"><%= current_value %></span>
 <% end %>

@@ -3,20 +3,20 @@ import datetime as dt
 from bot.nemo import memberguards
 from bot.nemo.views import action
 
-ROOM = "C1"
-WHO = "U1"
+CHANNEL_ID = "C1"
+USER_ID = "U1"
 MOD = "UMOD"
-OPENED = dt.datetime(2026, 3, 3, 12, tzinfo=dt.UTC)
-ENDS = dt.datetime(2026, 3, 10, 12, tzinfo=dt.UTC)
+OPENED_AT = dt.datetime(2026, 3, 3, 12, tzinfo=dt.UTC)
+EXPIRES_AT = dt.datetime(2026, 3, 10, 12, tzinfo=dt.UTC)
 
 
 class Conn:
     def __init__(self, rows=()):
         self.rows = list(rows)
-        self.asked = []
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.asked.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def fetchone(self):
@@ -25,10 +25,10 @@ class Conn:
 
 def guard(**over):
     row = {
-        "id": 7, "kind": "shush", "subject_id": WHO, "channel_id": None,
+        "id": 7, "kind": "shush", "subject_id": USER_ID, "channel_id": None,
         "state": "live", "enforcement_status": "held", "enforced_by": "nemo", "case_id": None,
-        "opened_by": MOD, "opened_at": OPENED, "reason": "being awful",
-        "expires_at": ENDS,
+        "opened_by": MOD, "opened_at": OPENED_AT, "reason": "being awful",
+        "expires_at": EXPIRES_AT,
     }
     row.update(over)
     return row
@@ -44,28 +44,28 @@ def words(built):
         if one.get("type") == "section":
             parts.append(one["text"]["text"])
         if one.get("type") == "context":
-            parts += [bit.get("text", "") for bit in one["elements"]]
+            parts += [item.get("text", "") for item in one["elements"]]
     return "\n".join(parts)
 
 
-def standing(found, case_id=412, enforceable=True):
-    return {"enforceable": enforceable, "found": found, "case_id": case_id,
-            "reads": memberguards.reads(found, case_id)}
+def standing(guard_row, case_id=412, enforceable=True):
+    return {"enforceable": enforceable, "guard": guard_row, "case_id": case_id,
+            "reads": memberguards.reads(guard_row, case_id)}
 
 
 def test_a_modal_with_nothing_standing_grows_no_warning():
-    built = action.build_blocks(412, {"type_key": "shush", "target_user_id": WHO},
+    built = action.build_blocks(412, {"type_key": "shush", "target_user_id": USER_ID},
                           standing(None))
-    assert action.STANDING not in ids(built)
+    assert action.GUARD_STATUS not in ids(built)
 
 
 def test_a_record_only_kind_never_grows_a_warning():
-    built = action.build_blocks(412, {"type_key": "warning", "target_user_id": WHO}, None)
-    assert action.STANDING not in ids(built)
+    built = action.build_blocks(412, {"type_key": "warning", "target_user_id": USER_ID}, None)
+    assert action.GUARD_STATUS not in ids(built)
 
 
 def submission(**over):
-    row = {"type_key": "warning", "target_user_id": WHO,
+    row = {"type_key": "warning", "target_user_id": USER_ID,
            "reason": "kept at it after being asked to stop"}
     row.update(over)
     return row
@@ -74,7 +74,7 @@ def submission(**over):
 def test_echo_blocks_names_the_action_and_who_it_is_against():
     built = action.echo_blocks(submission(), MOD)
     assert built[0] == {"type": "header", "text": {"type": "plain_text", "text": "Warning"}}
-    assert built[1]["elements"][0]["text"] == f"Against <@{WHO}> · logged by <@{MOD}>"
+    assert built[1]["elements"][0]["text"] == f"Against <@{USER_ID}> · logged by <@{MOD}>"
     assert built[2] == {"type": "divider"}
 
 
@@ -121,26 +121,26 @@ def test_echo_blocks_adds_a_resolution_note_only_when_given():
         for block in without for element in block.get("elements", [])
     )
 
-    found = action.echo_blocks(submission(resolution_note="walked them through the rules in a DM"), MOD)
-    footer = found[-1]["elements"][0]["text"]
+    blocks = action.echo_blocks(submission(resolution_note="walked them through the rules in a DM"), MOD)
+    footer = blocks[-1]["elements"][0]["text"]
     assert footer == "*How it was solved:* walked them through the rules in a DM"
 
 
 def test_the_modal_always_offers_a_resolution_note():
-    built = action.build_blocks(412, {"type_key": "shush", "target_user_id": WHO}, None)
+    built = action.build_blocks(412, {"type_key": "shush", "target_user_id": USER_ID}, None)
     assert action.RESOLUTION_NOTE in ids(built)
 
 
 def test_the_resolution_note_is_optional():
-    built = action.build_blocks(412, {"type_key": "shush", "target_user_id": WHO}, None)
+    built = action.build_blocks(412, {"type_key": "shush", "target_user_id": USER_ID}, None)
     field = next(one for one in built if one.get("block_id") == action.RESOLUTION_NOTE)
     assert field["optional"] is True
 
 
 def test_the_resolution_note_sits_right_under_the_action_kind():
-    built = action.build_blocks(412, {"type_key": "shush", "target_user_id": WHO}, None)
-    shown = [one.get("block_id") for one in built]
-    assert shown.index(action.KIND) + 1 == shown.index(action.RESOLUTION_NOTE)
+    built = action.build_blocks(412, {"type_key": "shush", "target_user_id": USER_ID}, None)
+    block_ids = [one.get("block_id") for one in built]
+    assert block_ids.index(action.KIND) + 1 == block_ids.index(action.RESOLUTION_NOTE)
 
 
 def test_submitted_values_reads_and_strips_the_resolution_note():
@@ -152,9 +152,9 @@ def test_submitted_values_reads_and_strips_the_resolution_note():
 
 def test_an_orphaned_guard_says_it_sits_on_no_case():
     built = action.build_blocks(412, {"type_key": "shush"}, standing(guard()))
-    assert action.STANDING in ids(built)
+    assert action.GUARD_STATUS in ids(built)
     text = words(built)
-    assert f"<@{WHO}> is already shush on no case" in text
+    assert f"<@{USER_ID}> is already shush on no case" in text
     assert f"opened by <@{MOD}>" in text
     assert "since 3 Mar" in text
     assert "until 10 Mar" in text
@@ -171,9 +171,9 @@ def test_a_guard_on_this_case_says_so():
 
 
 def test_a_channel_guard_names_its_channel():
-    found = guard(kind="channel_ban", channel_id=ROOM)
-    built = action.build_blocks(412, {"type_key": "channel_ban"}, standing(found))
-    assert f"channel ban in <#{ROOM}>" in words(built)
+    guard_row = guard(kind="channel_ban", channel_id=CHANNEL_ID)
+    built = action.build_blocks(412, {"type_key": "channel_ban"}, standing(guard_row))
+    assert f"channel ban in <#{CHANNEL_ID}>" in words(built)
 
 
 def test_a_guard_with_no_end_date_says_that_instead():
@@ -193,67 +193,67 @@ def test_a_guard_nemo_has_dropped_admits_it():
 
 
 def test_a_guard_done_by_hand_is_not_blamed_on_nemo():
-    found = guard(enforced_by="by_hand", enforcement_status="held")
-    text = words(action.build_blocks(412, {"type_key": "shush"}, standing(found)))
+    guard_row = guard(enforced_by="by_hand", enforcement_status="held")
+    text = words(action.build_blocks(412, {"type_key": "shush"}, standing(guard_row)))
     assert "done by hand" in text
     assert "nemo" not in text
 
 
 def test_the_warning_sits_above_the_date_it_is_about():
     built = action.build_blocks(412, {"type_key": "shush"}, standing(guard()))
-    shown = ids(built)
-    assert shown.index(action.STANDING) < shown.index(action.UNTIL)
+    block_ids = ids(built)
+    assert block_ids.index(action.GUARD_STATUS) < block_ids.index(action.UNTIL)
 
 
 def test_who_what_and_where_all_reshape_the_modal():
     built = action.build_blocks(412, {"type_key": "channel_ban"}, None)
-    asks = {one.get("block_id"): one for one in built}
-    assert asks[action.TARGET]["dispatch_action"]
-    assert asks[action.KIND]["dispatch_action"]
-    assert asks[action.WHERE]["dispatch_action"]
+    blocks_by_id = {one.get("block_id"): one for one in built}
+    assert blocks_by_id[action.TARGET]["dispatch_action"]
+    assert blocks_by_id[action.KIND]["dispatch_action"]
+    assert blocks_by_id[action.WHERE]["dispatch_action"]
 
 
 def test_a_submit_that_never_saw_the_warning_is_sent_back():
-    values = {"type_key": "shush", "target_user_id": WHO, "expires_on": "2026-03-10"}
-    shown = {action.TARGET, action.KIND, action.UNTIL, action.REASON}
-    assert action.requires_refresh(values, shown, standing(guard()))
-    assert action.requires_refresh(values, shown | {action.SETTLE}, standing(guard()))
+    values = {"type_key": "shush", "target_user_id": USER_ID, "expires_on": "2026-03-10"}
+    visible_blocks = {action.TARGET, action.KIND, action.UNTIL, action.REASON}
+    assert action.requires_refresh(values, visible_blocks, standing(guard()))
+    assert action.requires_refresh(values, visible_blocks | {action.SETTLE}, standing(guard()))
     assert not action.requires_refresh(
-        values, shown | {action.STANDING, action.SETTLE}, standing(guard())
+        values, visible_blocks | {action.GUARD_STATUS, action.SETTLE}, standing(guard())
     )
 
 
 def test_an_enforceable_kind_with_nothing_standing_is_not_asked():
-    values = {"type_key": "shush", "target_user_id": WHO, "expires_on": "2026-03-10"}
-    shown = {action.TARGET, action.KIND, action.UNTIL, action.REASON}
-    assert not action.requires_refresh(values, shown, standing(None))
+    values = {"type_key": "shush", "target_user_id": USER_ID, "expires_on": "2026-03-10"}
+    visible_blocks = {action.TARGET, action.KIND, action.UNTIL, action.REASON}
+    assert not action.requires_refresh(values, visible_blocks, standing(None))
 
 
 def test_a_record_only_kind_goes_straight_through():
-    values = {"type_key": "warning", "target_user_id": WHO}
-    shown = {action.TARGET, action.KIND, action.REASON}
-    assert not action.requires_refresh(values, shown, standing(None, enforceable=False))
-    assert not action.requires_refresh(values, shown)
+    values = {"type_key": "warning", "target_user_id": USER_ID}
+    visible_blocks = {action.TARGET, action.KIND, action.REASON}
+    assert not action.requires_refresh(values, visible_blocks, standing(None, enforceable=False))
+    assert not action.requires_refresh(values, visible_blocks)
 
 
 def test_settle_leaves_a_record_only_kind_alone():
     conn = Conn()
-    found = memberguards.settle(conn, "warning", WHO, 412)
-    assert found == {"enforceable": False, "found": None,
-                     "reads": memberguards.UNGUARDED, "case_id": 412}
-    assert conn.asked == []
+    result = memberguards.settle(conn, "warning", USER_ID, 412)
+    assert result == {"enforceable": False, "guard": None,
+                      "reads": memberguards.UNGUARDED, "case_id": 412}
+    assert conn.executed == []
 
 
 def test_settle_waits_until_somebody_is_named():
     conn = Conn()
-    found = memberguards.settle(conn, "shush", None, 412)
-    assert found["enforceable"]
-    assert found["found"] is None
-    assert conn.asked == []
+    result = memberguards.settle(conn, "shush", None, 412)
+    assert result["enforceable"]
+    assert result["guard"] is None
+    assert conn.executed == []
 
 
 def test_settle_reads_what_it_finds_against_the_case_in_hand():
     row = tuple(guard(case_id=318)[field] for field in memberguards.FIELDS)
-    found = memberguards.settle(Conn([row]), "shush", WHO, 412)
-    assert found["reads"] == memberguards.ELSEWHERE
-    assert found["found"]["case_id"] == 318
+    result = memberguards.settle(Conn([row]), "shush", USER_ID, 412)
+    assert result["reads"] == memberguards.ELSEWHERE
+    assert result["guard"]["case_id"] == 318

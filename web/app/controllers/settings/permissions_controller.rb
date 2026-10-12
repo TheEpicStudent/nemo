@@ -1,7 +1,7 @@
 module Settings
   class PermissionsController < BaseController
     def show
-      @apps = Api::App.answering.to_a
+      @apps = Api::App.approved.to_a
       @consents = Api::Consent.states_for(member_id)
       @names = Fd::Names.for(@apps.map(&:owner_user_id).uniq)
     end

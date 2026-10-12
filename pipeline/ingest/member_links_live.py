@@ -5,13 +5,13 @@ from lib.db import ingest_run
 
 SOURCE = "member_links_live"
 BATCH = 300
-FRESH_BATCH = 50
-FRESH_DAYS = 7
+RECENT_JOIN_BATCH = 50
+RECENT_JOIN_DAYS = 7
 CAP = 101
 
 TOUCHED_SQL = "SELECT user_id, touched_at FROM fd.member_touch ORDER BY touched_at LIMIT %s"
 
-FRESH_SQL = """
+RECENT_JOINS_SQL = """
 SELECT t.user_id, t.touched_at
 FROM fd.member_touch t
 JOIN fd.member_joins j ON j.user_id = t.user_id
@@ -231,7 +231,7 @@ LIVE = {
     "crowded": "crowded",
 }
 
-MEASURED = {**links.FULL, "shared_ip": "fd.shared_ip"}
+MEASURE_SOURCES = {**links.FULL, "shared_ip": "fd.shared_ip"}
 
 SCOPE = (TOUCHED, TOUCHED_VALUE, TOUCHED_SESSION, RESCORED, SCOPE_VALUE, SCOPE_SESSION, SCOPE_PREFIX,
          SCOPE_AGENT, DEVICE_HOLDER, SCOPE_LOGIN, SCOPE_USER, *SCOPE_TABLES, CROWDED)
@@ -246,57 +246,57 @@ def scope(conn, touched):
     return conn.execute("SELECT count(*) FROM rescored").fetchone()[0]
 
 
-def reads(names, table):
+def reads_table(names, table):
     return any(f"FROM {table}" in (links.source_of(name) or "") for name in names)
 
 
-def measured(conn, held, wholes):
-    missing = links.wanting(held, wholes)
+def ensure_wholes(conn, catalogue, wholes):
+    missing = links.missing_wholes(catalogue, wholes)
     if not missing:
         return wholes
-    if reads(missing, "sighting"):
-        conn.execute(links.SIGHTING.format(**MEASURED))
-    if reads(missing, "mailbox"):
-        links.load_mailboxes(conn, held, MEASURED)
-    found = links.measure(conn, held, MEASURED, missing)
-    links.keep_wholes(conn, found)
+    if reads_table(missing, "sighting"):
+        conn.execute(links.SIGHTING.format(**MEASURE_SOURCES))
+    if reads_table(missing, "mailbox"):
+        links.load_mailboxes(conn, catalogue, MEASURE_SOURCES)
+    measured_wholes = links.measure(conn, catalogue, MEASURE_SOURCES, missing)
+    links.save_wholes(conn, measured_wholes)
     conn.commit()
-    print(f"{SOURCE}: measured {', '.join(sorted(found))} without a full rebuild")
-    return {**wholes, **found}
+    print(f"{SOURCE}: measured {', '.join(sorted(measured_wholes))} without a full rebuild")
+    return {**wholes, **measured_wholes}
 
 
-def rescore(conn, held, wholes, touched):
-    widened = scope(conn, touched)
-    links.prepare(conn, held, LIVE)
-    found = links.gather(conn, held, wholes, LIVE)
+def rescore(conn, catalogue, wholes, touched):
+    rescored_count = scope(conn, touched)
+    links.prepare(conn, catalogue, LIVE)
+    signal_counts = links.gather(conn, catalogue, wholes, LIVE)
     conn.execute(ONLY_RESCORED)
     conn.execute("ANALYZE link_part")
-    kept, changed, gone, _countered, _labelled = links.settle(conn, held, LIVE, SWEEP)
-    return widened, kept, changed, gone, found
+    retained, changed, removed, _countered, _labelled = links.settle(conn, catalogue, LIVE, SWEEP)
+    return rescored_count, retained, changed, removed, signal_counts
 
 
 def score(conn, user_ids):
-    held = links.catalogue()
-    wholes = links.held_wholes(conn)
-    if links.wanting(held, wholes):
+    catalogue = links.catalogue()
+    wholes = links.load_wholes(conn)
+    if links.missing_wholes(catalogue, wholes):
         return None
     queued = conn.execute(QUEUED_SQL, (list(user_ids),)).fetchall()
-    _widened, _kept, changed, _gone, _found = rescore(conn, held, wholes, list(user_ids))
+    _rescored_count, _retained, changed, _removed, _signal_counts = rescore(conn, catalogue, wholes, list(user_ids))
     if queued:
         conn.execute(DONE_SQL, ([user_id for user_id, _ in queued], [at for _, at in queued]))
     conn.commit()
     return changed
 
 
-def waiting(conn, batch):
-    fresh = conn.execute(FRESH_SQL, (FRESH_DAYS, FRESH_BATCH)).fetchall()
-    return fresh or conn.execute(TOUCHED_SQL, (batch,)).fetchall()
+def next_batch(conn, batch):
+    recent = conn.execute(RECENT_JOINS_SQL, (RECENT_JOIN_DAYS, RECENT_JOIN_BATCH)).fetchall()
+    return recent or conn.execute(TOUCHED_SQL, (batch,)).fetchall()
 
 
 def run(conn, batch=BATCH):
-    held = links.catalogue()
-    wholes = measured(conn, held, links.held_wholes(conn))
-    queued = waiting(conn, batch)
+    catalogue = links.catalogue()
+    wholes = ensure_wholes(conn, catalogue, links.load_wholes(conn))
+    queued = next_batch(conn, batch)
     conn.commit()
     if not queued:
         return 0
@@ -304,11 +304,11 @@ def run(conn, batch=BATCH):
     started = time.monotonic()
     touched = [user_id for user_id, _ in queued]
     with ingest_run(conn, SOURCE) as counts:
-        widened, kept, changed, gone, _found = rescore(conn, held, wholes, touched)
+        rescored_count, retained, changed, removed, _signal_counts = rescore(conn, catalogue, wholes, touched)
         conn.execute(DONE_SQL, (touched, [at for _, at in queued]))
         conn.commit()
         counts.rows_in = changed
 
-    print(f"{SOURCE}: {len(touched)} touched, {widened} rescored, {kept} link(s) kept, "
-          f"{changed} written, {gone} dropped in {time.monotonic() - started:.2f}s")
+    print(f"{SOURCE}: {len(touched)} touched, {rescored_count} rescored, {retained} link(s) kept, "
+          f"{changed} written, {removed} dropped in {time.monotonic() - started:.2f}s")
     return len(touched)

@@ -94,9 +94,9 @@ def sweep_lifted(client):
 
 def sweep_dropped(client):
     with session() as conn:
-        again = memberguards.dropped_awhile(conn)
+        dropped_guards = memberguards.dropped_awhile(conn)
 
-    for guard in again:
+    for guard in dropped_guards:
         enforcement = enforcement_for(guard)
         if enforcement is None:
             continue
@@ -105,7 +105,7 @@ def sweep_dropped(client):
                 enforcement.take_up(client, conn, guard)
             except Exception as failure:
                 log.warning("nemo: could not take %s back up: %s", guard["id"], failure)
-    return len(again)
+    return len(dropped_guards)
 
 
 def line_about(guard):

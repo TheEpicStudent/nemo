@@ -25,25 +25,25 @@
       <defs>
         <clipPath id="cluster-face"><circle r="<%= node %>"></circle></clipPath>
       </defs>
-      <% cluster.members.each do |one| %>
-        <% at = points[one.user_id] %>
-        <a href="<%= fd_member_path(one.user_id) %>" data-turbo-frame="person-drawer"
-           class="node <%= one.deactivated ? "node-gone" : "node-active" %> <%= "node-oldest" if one.user_id == cluster.cluster_id %>"
-           data-step="<%= at[:step] %>" data-user="<%= one.user_id %>"
-           data-name="<%= person_label(one.user_id) %>" data-x="<%= at[:lx].round(1) %>" data-y="<%= at[:ly].round(1) %>"
+      <% cluster.members.each do |member| %>
+        <% at = points[member.user_id] %>
+        <a href="<%= fd_member_path(member.user_id) %>" data-turbo-frame="person-drawer"
+           class="node <%= member.deactivated ? "node-gone" : "node-active" %> <%= "node-oldest" if member.user_id == cluster.cluster_id %>"
+           data-step="<%= at[:step] %>" data-user="<%= member.user_id %>"
+           data-name="<%= person_label(member.user_id) %>" data-x="<%= at[:lx].round(1) %>" data-y="<%= at[:ly].round(1) %>"
            data-action="mouseenter->cluster-map#focus mouseleave->cluster-map#blur focusin->cluster-map#focus focusout->cluster-map#blur">
-          <title><%= person_label(one.user_id) %>, <%= one.joined_at ? "joined #{on_day(one.joined_at)}" : "join date n/a" %></title>
+          <title><%= person_label(member.user_id) %>, <%= member.joined_at ? "joined #{on_day(member.joined_at)}" : "join date n/a" %></title>
           <g transform="translate(<%= at[:x].round(1) %> <%= at[:y].round(1) %>)">
             <circle class="face-bg" r="<%= node %>"></circle>
-            <text class="face-initial" text-anchor="middle" dominant-baseline="central"><%= names.initial(one.user_id) %></text>
-            <image href="<%= cachet_face_url(one.user_id) %>" x="-<%= node %>" y="-<%= node %>"
+            <text class="face-initial" text-anchor="middle" dominant-baseline="central"><%= names.initial(member.user_id) %></text>
+            <image href="<%= cachet_face_url(member.user_id) %>" x="-<%= node %>" y="-<%= node %>"
                    width="<%= node * 2 %>" height="<%= node * 2 %>" decoding="async"
                    clip-path="url(#cluster-face)" preserveAspectRatio="xMidYMid slice"></image>
             <circle class="face-ring" r="<%= node %>"></circle>
           </g>
           <% unless layout.packed %>
             <text class="node-name" text-anchor="<%= at[:anchor] %>" dominant-baseline="middle"
-                  transform="translate(<%= at[:lx].round(1) %> <%= at[:ly].round(1) %>)<%= " rotate(#{at[:turn].round(1)})" if at[:turn].nonzero? %>"><%= person_label(one.user_id).to_s.truncate(18) %></text>
+                  transform="translate(<%= at[:lx].round(1) %> <%= at[:ly].round(1) %>)<%= " rotate(#{at[:turn].round(1)})" if at[:turn].nonzero? %>"><%= person_label(member.user_id).to_s.truncate(18) %></text>
           <% end %>
         </a>
       <% end %>

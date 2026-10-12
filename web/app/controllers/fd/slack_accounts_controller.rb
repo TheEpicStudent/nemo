@@ -1,66 +1,66 @@
 module Fd
   class SlackAccountsController < BaseController
-    skip_before_action :needs_the_engine
+    skip_before_action :require_engine
     skip_before_action :require_fd
     permit "slack.link"
 
     STATE = :slack_link_state
 
     def create
-      return stop("linking is not set up on this server") unless Slack::Oauth.configured?
+      return redirect_with_alert("linking is not set up on this server") unless Slack::Oauth.configured?
 
       state = SecureRandom.urlsafe_base64(24)
       session[STATE] = state
-      redirect_to Slack::Oauth.walk_to(redirect_uri: back_url, state: state),
+      redirect_to Slack::Oauth.authorize_url(redirect_uri: back_url, state: state),
         allow_other_host: true
     end
 
     def callback
-      expected = session.delete(STATE)
-      problem = objection(expected)
-      return stop(problem) if problem
+      expected_state = session.delete(STATE)
+      error = callback_error(expected_state)
+      return redirect_with_alert(error) if error
 
-      granted = Slack::Oauth.exchange(code: params[:code], redirect_uri: back_url)
-      problem = keep(granted)
-      problem ? stop(problem) : done("Your Slack account is linked")
+      oauth_response = Slack::Oauth.exchange(code: params[:code], redirect_uri: back_url)
+      error = store_token(oauth_response)
+      error ? redirect_with_alert(error) : redirect_with_notice("Your Slack account is linked")
     rescue Slack::Oauth::RefusedError, Slack::Oauth::UnavailableError, Slack::Oauth::NotConfiguredError => failure
-      stop("slack did not hand over a token: #{failure.message}")
+      redirect_with_alert("slack did not hand over a token: #{failure.message}")
     end
 
     def destroy
-      held = StaffSlack.held_by(current_account.user_id)
-      return stop("your slack account is not linked") if held.nil?
+      staff_slack = StaffSlack.active_for(current_account.user_id)
+      return redirect_with_alert("your slack account is not linked") if staff_slack.nil?
 
-      Slack::Oauth.give_back(held.user_token)
+      Slack::Oauth.revoke_token(staff_slack.user_token)
       writing do
-        held.return_token!(current_account.user_id)
-        audit(held, "unlinked", entity_id: 0, before: { "scopes" => held.scopes })
+        staff_slack.return_token!(current_account.user_id)
+        audit(staff_slack, "unlinked", entity_id: 0, before: { "scopes" => staff_slack.scopes })
       end
 
-      done("Your Slack account is unlinked; messages now send through nemo")
+      redirect_with_notice("Your Slack account is unlinked; messages now send through nemo")
     end
 
     private
 
-    def objection(expected)
+    def callback_error(expected_state)
       return "linking was cancelled" if params[:error].present?
       return "that link attempt did not match this browser, try again" if
-        expected.blank? || !ActiveSupport::SecurityUtils.secure_compare(
-          params[:state].to_s, expected
+        expected_state.blank? || !ActiveSupport::SecurityUtils.secure_compare(
+          params[:state].to_s, expected_state
         )
       return "slack did not send a code back" if params[:code].blank?
 
       nil
     end
 
-    def keep(granted)
-      authed = granted["authed_user"] || {}
-      problem = validation_error(authed, granted.dig("team", "id"))
-      return problem if problem
+    def store_token(oauth_response)
+      authed = oauth_response["authed_user"] || {}
+      error = validation_error(authed, oauth_response.dig("team", "id"))
+      return error if error
 
       writing do
-        row = StaffSlack.keep!(current_account.user_id, token: authed["access_token"],
-          team_id: granted.dig("team", "id").to_s, scopes: authed["scope"].to_s)
+        row = StaffSlack.store!(current_account.user_id, token: authed["access_token"],
+          team_id: oauth_response.dig("team", "id").to_s, scopes: authed["scope"].to_s)
         audit(row, "linked", entity_id: 0,
           after: { "scopes" => row.scopes, "team_id" => row.team_id })
       end
@@ -85,11 +85,11 @@ module Fd
       fd_slack_account_callback_url
     end
 
-    def stop(problem)
-      redirect_to account_path, alert: problem
+    def redirect_with_alert(message)
+      redirect_to account_path, alert: message
     end
 
-    def done(message)
+    def redirect_with_notice(message)
       redirect_to account_path, notice: message
     end
   end

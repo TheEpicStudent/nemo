@@ -211,14 +211,14 @@ class FdResolutionsTest < ActionDispatch::IntegrationTest
   end
 
   test "a report already closed is left as it was" do
-    was = 3.days.ago.change(usec: 0)
+    original_closed_at = 3.days.ago.change(usec: 0)
     report = Fd::CaseReport.create!(case_id: @kase.id, is_anonymous: true,
-      source_app: "relay", received_at: 5.days.ago, closed_at: was, closed_by: "UFF9")
+      source_app: "relay", received_at: 5.days.ago, closed_at: original_closed_at, closed_by: "UFF9")
     sign_in_as(@me)
     close(member_note: "done")
 
     assert_equal "UFF9", report.reload.closed_by
-    assert_equal was.to_i, report.closed_at.to_i
+    assert_equal original_closed_at.to_i, report.closed_at.to_i
   end
 
   test "reopening puts the case back in the queue and says who did it" do

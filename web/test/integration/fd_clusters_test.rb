@@ -5,23 +5,23 @@ class FdClustersTest < ActionDispatch::IntegrationTest
 
   ROOT = "UCROOT".freeze
   ALT = "UCALT".freeze
-  GONE = "UCGONE".freeze
+  DELETED = "UCGONE".freeze
 
   setup do
     @me = hold_role!("UME", "community_manager")
     sign_in_as(@me)
-    [ROOT, ALT, GONE].each_with_index do |user_id, at|
+    [ROOT, ALT, DELETED].each_with_index do |user_id, at|
       member!(user_id)
-      cluster!(user_id, ROOT, active: user_id != GONE)
+      cluster!(user_id, ROOT, active: user_id != DELETED)
       joined!(user_id, (3 - at).days.ago)
     end
-    as_pipeline("UPDATE fd.member SET is_deleted = true WHERE user_id = ?", GONE)
+    as_pipeline("UPDATE fd.member SET is_deleted = true WHERE user_id = ?", DELETED)
     link!(ROOT, ALT, 9.5)
-    link!(ALT, GONE, 6.0)
-    sighting!(ROOT, "81.2.69.144", 2.days.ago)
-    sighting!(ALT, "81.2.69.144", 2.days.ago)
-    sighting!(GONE, "10.9.9.9", 1.day.ago)
-    snapshot!(GONE)
+    link!(ALT, DELETED, 6.0)
+    login_event!(ROOT, "81.2.69.144", 2.days.ago)
+    login_event!(ALT, "81.2.69.144", 2.days.ago)
+    login_event!(DELETED, "10.9.9.9", 1.day.ago)
+    snapshot!(DELETED)
   end
 
   test "a cluster page draws every account and the links between them" do
@@ -73,7 +73,7 @@ class FdClustersTest < ActionDispatch::IntegrationTest
   test "every account on the map shows its face and opens the member" do
     get fd_cluster_path(ROOT)
 
-    [ROOT, ALT, GONE].each do |user_id|
+    [ROOT, ALT, DELETED].each do |user_id|
       assert_select ".cluster-map a.node[href='#{fd_member_path(user_id)}'][data-turbo-frame='person-drawer']" do
         assert_select "image[href$='/#{user_id}/r']"
         assert_select "text.node-name"
@@ -101,10 +101,10 @@ class FdClustersTest < ActionDispatch::IntegrationTest
   end
 
   test "reading a cluster is logged for every account in it" do
-    assert_difference -> { AccessLog.where(field_class: "links", subject_user_id: [ROOT, ALT, GONE]).count }, 3 do
+    assert_difference -> { AccessLog.where(field_class: "links", subject_user_id: [ROOT, ALT, DELETED]).count }, 3 do
       get fd_cluster_path(ROOT)
     end
-    assert_equal 3, AccessLog.where(field_class: "login", subject_user_id: [ROOT, ALT, GONE]).count
+    assert_equal 3, AccessLog.where(field_class: "login", subject_user_id: [ROOT, ALT, DELETED]).count
   end
 
   test "without identity.read the addresses and snapshots stay hidden" do
@@ -122,7 +122,7 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     get fd_cluster_path(ROOT)
 
     href = css_select("a.btn-primary").find { |one| one.text.include?("Open a case") }["href"]
-    [ROOT, ALT, GONE].each { |user_id| assert_includes CGI.unescape(href), "subject_user_ids[]=#{user_id}" }
+    [ROOT, ALT, DELETED].each { |user_id| assert_includes CGI.unescape(href), "subject_user_ids[]=#{user_id}" }
   end
 
   test "deactivating from a cluster opens a guard per active account and comes back here" do
@@ -169,7 +169,7 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     seeded!("fd.member_link", "a_user_id", a)
   end
 
-  def sighting!(user_id, ip, at)
+  def login_event!(user_id, ip, at)
     as_pipeline(<<~SQL.squish, user_id, at, ip, at, at)
       INSERT INTO fd.login_event (user_id, source, hour, ip, first_at, last_at)
       VALUES (?, 'audit_logs', date_trunc('hour', ?::timestamptz, 'UTC'), ?::inet, ?, ?)

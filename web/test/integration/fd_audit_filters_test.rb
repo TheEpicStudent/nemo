@@ -45,11 +45,11 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
   end
 
   test "picking a filter replaces the one of its kind and keeps the rest" do
-    held = query("category:people did:user_login @UFILTER", view: "slack")
+    audit_query = query("category:people did:user_login @UFILTER", view: "slack")
 
-    params = held.set_params("category", "channels")
+    params = audit_query.set_params("category", "channels")
     assert_equal "action:user_login about:UFILTER category:channels", params["q"]
-    assert_equal({ "q" => "action:user_login about:UFILTER" }, held.set_params("category"))
+    assert_equal({ "q" => "action:user_login about:UFILTER" }, audit_query.set_params("category"))
   end
 
   test "the filter row lists each category and narrows the actions to the one picked" do
@@ -68,11 +68,11 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
     assert_select ".audit-filters .daterange a[href*='last%3A24h']", "Last 24 hours"
     assert_select ".audit-filters .daterange a[href*='last%3A7d']", "Last 7 days"
     assert_select ".audit-filters .daterange form[action='#{fd_audit_path}']"
-    assert_select ".audit-filters a[href*='is%3Ahuman']", "A person"
+    assert_select ".audit-filters a[href*='is%3Ahuman']", text: /Human/
 
     get fd_audit_path(q: "last:7d")
     assert_select ".audit-filters .daterange-presets summary", text: /Last 7 days/
-    assert_select ".audit-chips .chip-on", text: /last 7 days/
+    assert_select ".audit-token", text: /last:\s*7d/
   end
 
   test "a range picked on the calendar becomes after and before, the end day included" do
@@ -92,8 +92,8 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
 
     assert_equal %w[user_login], query("", view: "slack").rows.map(&:verb)
 
-    shown = query("show:high_volume", view: "slack").rows.map(&:verb)
-    assert_equal %w[canvas_opened file_downloaded list_cell_updated user_login], shown.sort
+    verbs = query("show:high_volume", view: "slack").rows.map(&:verb)
+    assert_equal %w[canvas_opened file_downloaded list_cell_updated user_login], verbs.sort
   end
 
   test "a category narrows the high-volume actions too" do
@@ -112,6 +112,6 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
 
     get fd_audit_path(q: "show:high_volume")
     assert_select ".audit-filters summary", text: /High-volume\s*Shown/
-    assert_select ".audit-chips .chip", text: /high-volume actions/
+    assert_select ".audit-token", text: /show:\s*high_volume/
   end
 end

@@ -2,15 +2,15 @@
 
 <div class="metrics">
   <%= render "shared/stat", k: "Opted in", v: number_with_delimiter(@opted_in),
-        say: pluralize(Api::Scope::KEYS.size, "scope") %>
+        caption: pluralize(Api::Scope::KEYS.size, "scope") %>
   <%= render "shared/stat", k: "Apps", v: @apps,
-        say: "#{@answering} answering" %>
-  <%= render "shared/stat", k: "Live keys", v: @tokens.count { |one| !one.spent? },
-        say: "across #{pluralize(@tokens.map(&:app_id).uniq.size, 'app')}" %>
+        caption: "#{@approved_count} answering" %>
+  <%= render "shared/stat", k: "Live keys", v: @tokens.count { |token| !token.inactive? },
+        caption: "across #{pluralize(@tokens.map(&:app_id).uniq.size, 'app')}" %>
   <%= render "shared/stat", k: "Checks, 30 days", v: number_with_delimiter(@checks),
-        say: pluralize(@channels, "channel") %>
-  <%= render "shared/stat", k: "Withheld", v: number_with_delimiter(@withheld),
-        say: withheld_share(@withheld, @checks) %>
+        caption: pluralize(@channels, "channel") %>
+  <%= render "shared/stat", k: "Withheld", v: number_with_delimiter(@withheld_count),
+        caption: withheld_percentage(@withheld_count, @checks) %>
 </div>
 
 <div class="stack">
@@ -54,8 +54,8 @@
       <h2 class="card-title">Tokens</h2>
       <div class="card-tools">
         <span class="card-sub">
-          <%= @tokens.count { |one| !one.spent? } %> live &middot;
-          <%= @tokens.count(&:spent?) %> spent
+          <%= @tokens.count { |token| !token.inactive? } %> live &middot;
+          <%= @tokens.count(&:inactive?) %> spent
         </span>
       </div>
     </div>
@@ -80,7 +80,7 @@
               <tr>
                 <td>
                   <span class="row-name">
-                    <%= face(token.owner_user_id) %>
+                    <%= avatar(token.owner_user_id) %>
                     <span class="two-line">
                       <b><%= token.app.name %></b>
                       <span><%= person_name(token.owner_user_id) %></span>
@@ -88,12 +88,12 @@
                   </span>
                 </td>
                 <td class="<%= "sub" if token.revoked? %>"><%= token.name %></td>
-                <td><code class="tag"><%= token.shown %></code></td>
+                <td><code class="tag"><%= token.display_prefix %></code></td>
                 <td class="col-num <%= "rate-own" if token.rate_limit %>">
                   <%= token.revoked? ? "n/a" : token.rate %>
                 </td>
-                <td class="col-num"><%= token.spent? ? "n/a" : token.dies_in %></td>
-                <td class="col-num"><%= number_with_delimiter(@asks[token.id].to_i) %></td>
+                <td class="col-num"><%= token.inactive? ? "n/a" : token.expires_in_label %></td>
+                <td class="col-num"><%= number_with_delimiter(@request_counts[token.id].to_i) %></td>
                 <td class="col-date">
                   <%= token.last_used_at ? "#{time_ago_in_words(token.last_used_at)} ago" : "Never" %>
                 </td>

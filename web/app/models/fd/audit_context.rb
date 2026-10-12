@@ -25,17 +25,17 @@ module Fd
     attr_reader :row
 
     def device
-      return nil unless found
+      return nil unless context_row
 
-      held = Device.new(app: found["app"], os: found["os"], ua: found["ua"])
-      held.ua || held.app ? held : nil
+      result = Device.new(app: context_row["app"], os: context_row["os"], ua: context_row["ua"])
+      result.ua || result.app ? result : nil
     end
 
     def place
-      return nil unless found && @query.identity?
+      return nil unless context_row && @query.identity?
 
-      held = Place.new(country: found["country"], network: found["network"], kind: found["kind"])
-      held.country || held.network ? held : nil
+      result = Place.new(country: context_row["country"], network: context_row["network"], kind: context_row["kind"])
+      result.country || result.network ? result : nil
     end
 
     def actor_email = payload.dig("actor", "user", "email")
@@ -44,8 +44,8 @@ module Fd
       kind = payload.dig("entity", "type")
       return nil if kind.blank?
 
-      held = payload.dig("entity", kind)
-      held.is_a?(Hash) ? (held["name"].presence || held["title"].presence) : nil
+      entity = payload.dig("entity", kind)
+      entity.is_a?(Hash) ? (entity["name"].presence || entity["title"].presence) : nil
     end
 
     def category
@@ -54,18 +54,18 @@ module Fd
     end
 
     def related_params
-      around = @query.pivots(row).find { |one| one.kind == "around" }
+      around = @query.pivots(row).find { |pivot| pivot.kind == "around" }
       around&.params
     end
 
     def related
       @related ||= begin
         params = related_params
-        params ? AuditQuery.new(params, actor: @query.actor).rows.reject { |one| one.id == row.id } : []
+        params ? AuditQuery.new(params, actor: @query.actor).rows.reject { |related_row| related_row.id == row.id } : []
       end
     end
 
-    def shown_related = related.first(RELATED)
+    def visible_related = related.first(RELATED)
 
     def more_related? = related.size > RELATED
 
@@ -75,10 +75,10 @@ module Fd
       row.slack? && row.after.is_a?(Hash) ? row.after : {}
     end
 
-    def found
-      return @found if defined?(@found)
+    def context_row
+      return @context_row if defined?(@context_row)
 
-      @found = row.slack? && row.id.to_s.match?(UUID) ? lookup : nil
+      @context_row = row.slack? && row.id.to_s.match?(UUID) ? lookup : nil
     end
 
     def lookup

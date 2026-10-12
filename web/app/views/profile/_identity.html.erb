@@ -1,6 +1,6 @@
 <div class="metrics profile-band">
   <div class="profile-who">
-    <%= face(profile.user_id, css: "avatar avatar-band") %>
+    <%= avatar(profile.user_id, css: "avatar avatar-band") %>
     <span class="two-line">
       <b><%= person_name(profile.user_id) %></b>
       <span>
@@ -31,7 +31,7 @@
     <span class="metric-key">Days here</span>
     <span class="metric-value"><%= format_number(profile.slack[:days_active]) %></span>
     <span class="metric-note">
-      <%= format_number(profile.held[:days_posted]) %> posted
+      <%= format_number(profile.archived[:days_posted]) %> posted
       <span class="triad-sep">&middot;</span>
       <%= number_with_delimiter(profile.days_reacted) %> reacted
     </span>
@@ -53,6 +53,6 @@
   <div class="metric">
     <span class="metric-key">Reactions given</span>
     <span class="metric-value"><%= format_number(profile.slack[:reactions_given]) %></span>
-    <span class="metric-note"><%= format_number(profile.held[:reactions_received]) %> received</span>
+    <span class="metric-note"><%= format_number(profile.archived[:reactions_received]) %> received</span>
   </div>
 </div>

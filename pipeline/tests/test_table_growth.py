@@ -25,14 +25,14 @@ def test_a_shrinking_or_unmeasured_table_is_not_flagged():
 
 
 def test_each_flagged_table_is_its_own_incident_and_the_summary_never_is():
-    marked = [(500 * MB, 100 * MB, True, "slack.audit_event"), (1 * MB, 1 * MB, False, "fd.member")]
+    growth_rows = [(500 * MB, 100 * MB, True, "slack.audit_event"), (1 * MB, 1 * MB, False, "fd.member")]
 
-    found = table_growth.results(marked)
+    results = table_growth.results(growth_rows)
 
-    assert found[0] == ("slack.audit_event grows under twice its 30-day median", "error", "fail",
-                        "grew 500 MB in a day", "under 200 MB")
-    assert found[-1][1:4] == ("info", "warn", "1 of 2 table(s) flagged")
-    assert len(found) == 2
+    assert results[0] == ("slack.audit_event grows under twice its 30-day median", "error", "fail",
+                          "grew 500 MB in a day", "under 200 MB")
+    assert results[-1][1:4] == ("info", "warn", "1 of 2 table(s) flagged")
+    assert len(results) == 2
 
 
 def test_a_quiet_night_records_one_passing_summary():

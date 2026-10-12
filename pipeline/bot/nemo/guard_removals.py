@@ -26,10 +26,10 @@ def drain(client, settled=None):
                     limited = True
                     log.info("nemo: deletes are rate limited, leaving the rest for the next pass")
                     break
-                if not privileged.gone(failure):
-                    still = channelguards.removal_failed(conn, event_id, str(failure)[:500],
+                if not privileged.already_deleted(failure):
+                    remove_pending = channelguards.removal_failed(conn, event_id, str(failure)[:500],
                                                          GIVE_UP_AFTER)
-                    if not still:
+                    if not remove_pending:
                         finished += 1
                         log.warning("nemo: gave up deleting %s in %s after %s attempts: %s",
                                     message_ts, channel_id, GIVE_UP_AFTER, failure)

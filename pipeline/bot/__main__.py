@@ -32,10 +32,10 @@ def parse_args(argv):
 
 
 def needed(apps):
-    wanted = list(DATABASE)
+    required_vars = list(DATABASE)
     for name in apps:
-        wanted += NEEDS[name]
-    return [name for name in wanted if not os.environ.get(name)]
+        required_vars += NEEDS[name]
+    return [name for name in required_vars if not os.environ.get(name)]
 
 
 def worker(apps):
@@ -51,7 +51,7 @@ def wire_relay(built, sides):
     from bot.relay.messages import MessageRelay
 
     relay = MessageRelay()
-    app = relay_app.build(relay.taken)
+    app = relay_app.build(relay.hand_off)
     relay.client = app.client
     built[RELAY] = (app, relay_app.app_token())
     sides[RELAY] = relay
@@ -105,11 +105,11 @@ def main(argv=None):
 
     apps = parse_args(sys.argv[1:] if argv is None else argv).apps or list(APPS)
 
-    gone = needed(apps)
-    if gone:
+    missing = needed(apps)
+    if missing:
         print(
-            f"bot: {', '.join(apps)} needs {len(gone)} variable(s) that are not set: "
-            f"{', '.join(gone)}",
+            f"bot: {', '.join(apps)} needs {len(missing)} variable(s) that are not set: "
+            f"{', '.join(missing)}",
             file=sys.stderr,
         )
         print("Run `nemo doctor bot` for full diagnostics.", file=sys.stderr)

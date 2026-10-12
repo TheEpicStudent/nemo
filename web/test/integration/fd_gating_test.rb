@@ -7,7 +7,7 @@ class FdGatingTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
   end
 
-  def become(role)
+  def grant_role(role)
     hold_role!("UFF1", role)
   end
 

@@ -2,7 +2,7 @@ module Fd
   class IntakeMessage < ApplicationRecord
     self.table_name = "fd.intake_messages"
 
-    SHOWN = 50
+    TAIL_LIMIT = 50
 
     belongs_to :conversation, class_name: "Fd::IntakeConversation",
       foreign_key: :conversation_id, inverse_of: nil
@@ -19,7 +19,7 @@ module Fd
       where(conversation_id: conversation_ids).said_by_somebody.count
     end
 
-    def self.tail(conversation_ids, limit: SHOWN)
+    def self.tail(conversation_ids, limit: TAIL_LIMIT)
       return [] if conversation_ids.blank?
 
       where(conversation_id: conversation_ids).said_by_somebody

@@ -18,30 +18,30 @@ module Api
       live.where(owner_user_id: user_id).order(:name)
     end
 
-    def self.answering
+    def self.approved
       live.where(id: Approval.live.select(:app_id)).order(:name)
     end
 
     def self.register!(owner_user_id, name:, blurb:)
       text = name.to_s.strip
-      covers = blurb.to_s.strip
+      blurb_text = blurb.to_s.strip
       raise UnnamedError if text.empty?
-      raise TooThinError if covers.length < SHORTEST_BLURB
+      raise TooThinError if blurb_text.length < SHORTEST_BLURB
 
       create!(owner_user_id: owner_user_id, name: text.first(MAX_NAME),
-        blurb: covers.first(MAX_BLURB), slug: slug_for(text))
+        blurb: blurb_text.first(MAX_BLURB), slug: slug_for(text))
     end
 
     def self.slug_for(name)
       base = name.downcase.gsub(/[^a-z0-9]+/, "-").delete_prefix("-").delete_suffix("-")
       base = "app" if base.empty?
-      taken = where("slug LIKE ?", "#{base}%").pluck(:slug)
-      return base unless taken.include?(base)
+      existing_slugs = where("slug LIKE ?", "#{base}%").pluck(:slug)
+      return base unless existing_slugs.include?(base)
 
-      (2..).each { |n| return "#{base}-#{n}" unless taken.include?("#{base}-#{n}") }
+      (2..).each { |n| return "#{base}-#{n}" unless existing_slugs.include?("#{base}-#{n}") }
     end
 
-    def answering? = Approval.held?(id)
+    def approved? = Approval.active?(id)
 
     def retired? = retired_at.present?
 

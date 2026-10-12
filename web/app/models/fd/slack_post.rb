@@ -1,6 +1,6 @@
 module Fd
   class SlackPost
-    def self.room
+    def self.log_channel_id
       ENV["INTERNAL_LOG_CHANNEL_ID"].presence
     end
 
@@ -10,37 +10,37 @@ module Fd
     end
 
     def self.claimable?(case_id, author_user_id)
-      return false if room.nil?
-      return false if StaffSlack.held_by(author_user_id).nil?
+      return false if log_channel_id.nil?
+      return false if StaffSlack.active_for(author_user_id).nil?
 
       thread_for(case_id).present?
     end
 
-    def self.carry(chat)
-      grant = StaffSlack.held_by(chat.author_user_id)
+    def self.post_to_thread(chat)
+      grant = StaffSlack.active_for(chat.author_user_id)
       thread_ts = thread_for(chat.case_id)
-      return abandon(chat, "there is nothing to send it with") if grant.nil? || thread_ts.nil?
+      return mark_unsent(chat, "there is nothing to send it with") if grant.nil? || thread_ts.nil?
 
-      answer = tell(grant, thread_ts, chat.body)
-      return abandon(chat, answer[:error], grant) unless answer[:ts]
+      result = post_message(grant, thread_ts, chat.body)
+      return mark_unsent(chat, result[:error], grant) unless result[:ts]
 
-      chat.update!(mirrored_ts: answer[:ts], mirrored_at: Time.current, mirrored_as: "user")
+      chat.update!(mirrored_ts: result[:ts], mirrored_at: Time.current, mirrored_as: "user")
       grant.used!
       true
     end
 
-    def self.tell(grant, thread_ts, body)
-      answer = Slack::Chat.post_message(token: grant.user_token, channel: room,
+    def self.post_message(grant, thread_ts, body)
+      response = Slack::Chat.post_message(token: grant.user_token, channel: log_channel_id,
         thread_ts: thread_ts, text: escape_markup(body))
-      return { ts: answer["ts"] } if answer["ok"]
+      return { ts: response["ts"] } if response["ok"]
 
-      { error: answer["error"].to_s.presence || "slack refused it" }
-    rescue Slack::Chat::UnavailableError => failure
-      { error: failure.message }
+      { error: response["error"].to_s.presence || "slack refused it" }
+    rescue Slack::Chat::UnavailableError => error
+      { error: error.message }
     end
 
-    def self.abandon(chat, why, grant = nil)
-      grant&.record_error!(why)
+    def self.mark_unsent(chat, error_message, grant = nil)
+      grant&.record_error!(error_message)
       chat.update!(mirrored_as: nil)
       false
     end

@@ -35,12 +35,12 @@ class Fd::MemberIdentityTest < ActiveSupport::TestCase
   end
 
   test "somebody whose role does not carry identity.read is handed nothing" do
-    them = Account.create!(user_id: "UFF1")
+    firefighter = Account.create!(user_id: "UFF1")
     hold_role!("UFF1", "firefighter")
     move_capability!("firefighter", "identity.read", false, by: "UME")
     before = AccessLog.count
 
-    row = Fd::MemberIdentity.look_up(Fd::Member.order(:user_id).first.user_id, actor: them)
+    row = Fd::MemberIdentity.look_up(Fd::Member.order(:user_id).first.user_id, actor: firefighter)
 
     assert row.refused?
     assert_nil row.email

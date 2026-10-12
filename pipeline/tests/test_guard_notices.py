@@ -2,15 +2,15 @@ import pytest
 
 from bot.nemo import channel, guard_notices
 
-ROOM = "C1"
+CHANNEL_ID = "C1"
 LOG = "CLOG"
 BOT = "U9"
-PARENT = "1700000000.000100"
+THREAD_TS = "1700000000.000100"
 
 
 def event(event_id, verb="deleted", subject=BOT, label="spammer", text="buy now", detail=None,
           message_ts="1700000000.000200"):
-    return (event_id, ROOM, subject, verb, label, text, message_ts, f"https://link/{event_id}",
+    return (event_id, CHANNEL_ID, subject, verb, label, text, message_ts, f"https://link/{event_id}",
             "A1", detail)
 
 
@@ -26,10 +26,10 @@ class Conn:
         self.thread = thread
         self.totals = totals
         self.attempts = attempts
-        self.ran = []
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         self.last = (sql, args)
         return self
 
@@ -55,11 +55,11 @@ class Conn:
             return [(one, self.attempts) for one in args[0]]
         return []
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.executed if mark in sql]
 
 
-class _held:
+class _conn_context:
     def __init__(self, conn):
         self.conn = conn
 
@@ -81,7 +81,7 @@ class Slack:
         if self.fail_post_at is not None and len(self.posted) == self.fail_post_at:
             raise RuntimeError("slack is down")
         self.posted.append(kwargs)
-        return {"ok": True, "ts": PARENT}
+        return {"ok": True, "ts": THREAD_TS}
 
     def chat_update(self, **kwargs):
         if self.fail_update:
@@ -95,82 +95,82 @@ def log_channel(monkeypatch):
     monkeypatch.setattr(channel, "internal_log_channel", lambda conn=None: LOG)
 
 
-def drained(monkeypatch, conn, client):
-    monkeypatch.setattr(guard_notices, "session", lambda: _held(conn))
+def run_drain(monkeypatch, conn, client):
+    monkeypatch.setattr(guard_notices, "session", lambda: _conn_context(conn))
     return guard_notices.drain(client)
 
 
 def test_a_burst_opens_one_parent_with_every_message_under_it(monkeypatch):
-    burst = [event(n) for n in range(1, 11)]
-    conn, client = Conn(groups=[(7, BOT)], claims=[burst]), Slack()
+    events = [event(n) for n in range(1, 11)]
+    conn, client = Conn(groups=[(7, BOT)], claims=[events]), Slack()
 
-    drained(monkeypatch, conn, client)
+    run_drain(monkeypatch, conn, client)
 
     parent, *replies = client.posted
     assert "thread_ts" not in parent
     assert parent["channel"] == LOG
     assert "Deleted 10 messages." in parent["text"]
     assert len(replies) == 10
-    assert {one["thread_ts"] for one in replies} == {PARENT}
-    assert conn.did("INSERT INTO fd.channel_guard_notice_threads") == [(7, BOT, PARENT, 0, 0)]
-    assert conn.did("UPDATE fd.channel_guard_notice_threads") == [(10, 0, 11)]
-    assert conn.did("SET noticed_at = now()") == [(list(range(1, 11)),)]
+    assert {one["thread_ts"] for one in replies} == {THREAD_TS}
+    assert conn.args_for("INSERT INTO fd.channel_guard_notice_threads") == [(7, BOT, THREAD_TS, 0, 0)]
+    assert conn.args_for("UPDATE fd.channel_guard_notice_threads") == [(10, 0, 11)]
+    assert conn.args_for("SET noticed_at = now()") == [(list(range(1, 11)),)]
     assert client.updated == []
 
 
 def test_events_for_an_open_thread_reply_and_update_the_parent(monkeypatch):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1), event(2)]],
-                thread=(11, PARENT), totals=(5, 1))
+                thread=(11, THREAD_TS), totals=(5, 1))
     client = Slack()
 
-    drained(monkeypatch, conn, client)
+    run_drain(monkeypatch, conn, client)
 
     assert len(client.posted) == 2
-    assert {one["thread_ts"] for one in client.posted} == {PARENT}
-    assert not conn.did("INSERT INTO fd.channel_guard_notice_threads")
+    assert {one["thread_ts"] for one in client.posted} == {THREAD_TS}
+    assert not conn.args_for("INSERT INTO fd.channel_guard_notice_threads")
     (update,) = client.updated
-    assert update["ts"] == PARENT
+    assert update["ts"] == THREAD_TS
     assert "Deleted 5 messages." in update["text"]
     assert "Removed from the channel 1 time." in update["text"]
 
 
 def test_the_thread_lookup_uses_the_idle_timeout_and_max_age(monkeypatch):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1)]])
-    drained(monkeypatch, conn, Slack())
+    run_drain(monkeypatch, conn, Slack())
 
-    (args,) = conn.did("FROM fd.channel_guard_notice_threads")
+    (args,) = conn.args_for("FROM fd.channel_guard_notice_threads")
     assert args == (7, BOT, guard_notices.IDLE_TIMEOUT, guard_notices.MAX_AGE)
 
 
 def test_the_claim_skips_notices_that_were_given_up(monkeypatch):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1)]])
-    drained(monkeypatch, conn, Slack())
+    run_drain(monkeypatch, conn, Slack())
 
-    (args,) = conn.did("FOR UPDATE SKIP LOCKED")
+    (args,) = conn.args_for("FOR UPDATE SKIP LOCKED")
     assert args == (7, BOT, guard_notices.GIVE_UP_AFTER, guard_notices.EVENTS_PER_CLAIM)
-    (group_args,) = conn.did("GROUP BY guard_id, subject_id")
+    (group_args,) = conn.args_for("GROUP BY guard_id, subject_id")
     assert group_args == (guard_notices.GIVE_UP_AFTER, guard_notices.GROUPS_PER_DRAIN)
 
 
 def test_no_thread_is_opened_when_the_parent_cannot_be_posted(monkeypatch):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1), event(2)]])
 
-    drained(monkeypatch, conn, Slack(fail_post_at=0))
+    run_drain(monkeypatch, conn, Slack(fail_post_at=0))
 
-    assert not conn.did("INSERT INTO fd.channel_guard_notice_threads")
-    assert not conn.did("SET noticed_at = now()")
-    assert conn.did("notice_attempts = notice_attempts + 1") == [([1, 2],)]
+    assert not conn.args_for("INSERT INTO fd.channel_guard_notice_threads")
+    assert not conn.args_for("SET noticed_at = now()")
+    assert conn.args_for("notice_attempts = notice_attempts + 1") == [([1, 2],)]
 
 
 def test_a_reply_that_fails_leaves_the_rest_for_the_next_drain(monkeypatch):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1), event(2), event(3)]])
     client = Slack(fail_post_at=3)
 
-    drained(monkeypatch, conn, client)
+    run_drain(monkeypatch, conn, client)
 
-    assert conn.did("UPDATE fd.channel_guard_notice_threads") == [(2, 0, 11)]
-    assert conn.did("SET noticed_at = now()") == [([1, 2],)]
-    assert conn.did("notice_attempts = notice_attempts + 1") == [([3],)]
+    assert conn.args_for("UPDATE fd.channel_guard_notice_threads") == [(2, 0, 11)]
+    assert conn.args_for("SET noticed_at = now()") == [([1, 2],)]
+    assert conn.args_for("notice_attempts = notice_attempts + 1") == [([3],)]
     (update,) = client.updated
     assert "Deleted 2 messages." in update["text"]
 
@@ -179,18 +179,18 @@ def test_a_notice_is_given_up_after_its_last_attempt(monkeypatch, caplog):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1)]], attempts=guard_notices.GIVE_UP_AFTER)
     caplog.set_level("WARNING", logger="bot.nemo")
 
-    drained(monkeypatch, conn, Slack(fail_post_at=0))
+    run_drain(monkeypatch, conn, Slack(fail_post_at=0))
 
     assert any("gave up on the notice for guard event 1" in one.getMessage()
                for one in caplog.records)
 
 
 def test_a_failed_update_still_marks_the_events_noticed(monkeypatch):
-    conn = Conn(groups=[(7, BOT)], claims=[[event(1)]], thread=(11, PARENT), totals=(4, 0))
+    conn = Conn(groups=[(7, BOT)], claims=[[event(1)]], thread=(11, THREAD_TS), totals=(4, 0))
 
-    drained(monkeypatch, conn, Slack(fail_update=True))
+    run_drain(monkeypatch, conn, Slack(fail_update=True))
 
-    assert conn.did("SET noticed_at = now()") == [([1],)]
+    assert conn.args_for("SET noticed_at = now()") == [([1],)]
 
 
 def test_a_full_claim_is_followed_by_another(monkeypatch):
@@ -198,24 +198,24 @@ def test_a_full_claim_is_followed_by_another(monkeypatch):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1), event(2)], [event(3)]])
     client = Slack()
 
-    drained(monkeypatch, conn, client)
+    run_drain(monkeypatch, conn, client)
 
-    assert conn.did("SET noticed_at = now()") == [([1, 2],), ([3],)]
+    assert conn.args_for("SET noticed_at = now()") == [([1, 2],), ([3],)]
 
 
 def test_one_failing_group_does_not_stop_the_others(monkeypatch):
     conn = Conn(groups=[(7, "U1"), (7, "U2")], claims=[[event(1, subject="U1")]])
     calls = []
-    real = guard_notices.drain_group
+    original_drain_group = guard_notices.drain_group
 
-    def flaky(client, guard_id, subject_id):
+    def failing_drain_group(client, guard_id, subject_id):
         calls.append(subject_id)
         if subject_id == "U1":
             raise RuntimeError("boom")
-        return real(client, guard_id, subject_id)
+        return original_drain_group(client, guard_id, subject_id)
 
-    monkeypatch.setattr(guard_notices, "drain_group", flaky)
-    drained(monkeypatch, conn, Slack())
+    monkeypatch.setattr(guard_notices, "drain_group", failing_drain_group)
+    run_drain(monkeypatch, conn, Slack())
 
     assert calls == ["U1", "U2"]
 
@@ -224,30 +224,30 @@ def test_drain_asks_for_another_pass_when_the_group_limit_is_hit(monkeypatch):
     monkeypatch.setattr(guard_notices, "GROUPS_PER_DRAIN", 1)
     conn = Conn(groups=[(7, BOT)], claims=[[event(1)]])
 
-    assert drained(monkeypatch, conn, Slack()) is True
+    assert run_drain(monkeypatch, conn, Slack()) is True
 
 
 def test_details_read_like_the_old_notices():
     deleted = as_dict(event(1))
     kicked = {**deleted, "verb": "kicked", "message_ts": None}
-    stuck = {**deleted, "verb": "let_past", "detail": "away", "message_ts": None}
+    away_event = {**deleted, "verb": "let_past", "detail": "away", "message_ts": None}
 
     assert guard_notices.detail_of(deleted).startswith(
-        f"Deleted a message from <@{BOT}>, which is not on the allow list for <#{ROOM}>.\n> buy now")
+        f"Deleted a message from <@{BOT}>, which is not on the allow list for <#{CHANNEL_ID}>.\n> buy now")
     assert "<https://link/1|message link>" in guard_notices.detail_of(deleted)
     assert guard_notices.detail_of(kicked).startswith(
-        f"Put <@{BOT}> out of <#{ROOM}>, which is not on its allow list.")
-    assert guard_notices.detail_of(stuck).startswith(
-        f":warning: <@{BOT}> joined <#{ROOM}> off the allow list, and we could not put them "
+        f"Put <@{BOT}> out of <#{CHANNEL_ID}>, which is not on its allow list.")
+    assert guard_notices.detail_of(away_event).startswith(
+        f":warning: <@{BOT}> joined <#{CHANNEL_ID}> off the allow list, and we could not put them "
         "out (away).")
 
 
 def test_a_delete_that_was_given_up_says_so():
-    kept = as_dict(event(1, verb="let_past", detail="cant_delete_message"))
+    let_past_event = as_dict(event(1, verb="let_past", detail="cant_delete_message"))
 
-    text = guard_notices.detail_of(kept)
+    text = guard_notices.detail_of(let_past_event)
     assert text.startswith(
-        f":warning: Could not delete a message from <@{BOT}> in <#{ROOM}> (cant_delete_message).")
+        f":warning: Could not delete a message from <@{BOT}> in <#{CHANNEL_ID}> (cant_delete_message).")
     assert "> buy now" in text
     assert "<https://link/1|message link>" in text
 
@@ -266,10 +266,10 @@ def test_a_bot_with_no_user_is_named_by_its_label():
 
 
 def test_summary_pluralises():
-    assert guard_notices.summary("*x*", ROOM, 1, 0) == (
-        f"*x* is not on the allow list for <#{ROOM}>. Deleted 1 message."
+    assert guard_notices.summary("*x*", CHANNEL_ID, 1, 0) == (
+        f"*x* is not on the allow list for <#{CHANNEL_ID}>. Deleted 1 message."
     )
-    assert guard_notices.summary("*x*", ROOM, 2, 2) == (
-        f"*x* is not on the allow list for <#{ROOM}>. Deleted 2 messages. "
+    assert guard_notices.summary("*x*", CHANNEL_ID, 2, 2) == (
+        f"*x* is not on the allow list for <#{CHANNEL_ID}>. Deleted 2 messages. "
         "Removed from the channel 2 times."
     )

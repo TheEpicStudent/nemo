@@ -30,8 +30,8 @@ class Fd::MemberTimelineTest < ActiveSupport::TestCase
   end
 
   test "a case they were only logged in is told apart from one about them" do
-    theirs = make_case(subject: "USOMEBODY", opened_at: 3.days.ago, category_key: "bullying")
-    theirs.participants.create!(user_id: SUBJECT, role: "reporter")
+    reporter_case = make_case(subject: "USOMEBODY", opened_at: 3.days.ago, category_key: "bullying")
+    reporter_case.participants.create!(user_id: SUBJECT, role: "reporter")
 
     entry = entries.sole
     assert_equal "cases", entry.kind
@@ -92,13 +92,13 @@ class Fd::MemberTimelineTest < ActiveSupport::TestCase
     guard.update!(state: "lifted", lifted_at: 2.days.ago, lifted_by: "UFF2",
       lift_reason: "they sorted it out")
 
-    lifted, held = entries(only: "actions")
-    assert_equal "Shush lifted", lifted.title
-    assert_in_delta 2.days.ago.to_i, lifted.at.to_i, 5
-    assert_equal "reversal", lifted.word
-    assert_match(/they sorted it out/, lifted.detail)
-    assert_match(/by @UFF2/, lifted.detail)
-    assert_equal "reversed", held.state, "the hold itself reads as undone"
+    lift_entry, hold_entry = entries(only: "actions")
+    assert_equal "Shush lifted", lift_entry.title
+    assert_in_delta 2.days.ago.to_i, lift_entry.at.to_i, 5
+    assert_equal "reversal", lift_entry.word
+    assert_match(/they sorted it out/, lift_entry.detail)
+    assert_match(/by @UFF2/, lift_entry.detail)
+    assert_equal "reversed", hold_entry.state, "the hold itself reads as undone"
   end
 
   test "a guard pulled onto a case is left to its action entry" do

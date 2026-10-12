@@ -29,7 +29,7 @@ RETURNING id, is_primary
 """
 
 
-KEEP = """
+INSERT_MESSAGE = """
 INSERT INTO fd.thread_messages
     (channel_id, thread_ts, message_ts, parent_ts, is_root,
      author_user_id, body, permalink, posted_at, source_app)
@@ -55,34 +55,34 @@ def shared(conn, conversation_id):
     ]
 
 
-def keep(conn, found):
-    if not found.get("author"):
+def store_message(conn, share):
+    if not share.get("author"):
         return None
 
-    at_root = found["source_ts"] == found["thread_ts"]
+    at_root = share["source_ts"] == share["thread_ts"]
     row = conn.execute(
-        KEEP,
+        INSERT_MESSAGE,
         {
-            "channel_id": found["channel_id"],
-            "thread_ts": found["thread_ts"],
-            "message_ts": found["source_ts"],
-            "parent_ts": None if at_root else found["thread_ts"],
+            "channel_id": share["channel_id"],
+            "thread_ts": share["thread_ts"],
+            "message_ts": share["source_ts"],
+            "parent_ts": None if at_root else share["thread_ts"],
             "is_root": at_root,
-            "author": found["author"],
-            "body": found["body"],
-            "permalink": found["permalink"],
+            "author": share["author"],
+            "body": share["body"],
+            "permalink": share["permalink"],
         },
     ).fetchone()
     return row[0] if row else None
 
 
-def attach(conn, case_id, found, added_by):
+def attach(conn, case_id, share, added_by):
     row = conn.execute(
         ATTACH,
         {
             "case_id": case_id,
-            "channel_id": found["channel_id"],
-            "thread_ts": found["thread_ts"],
+            "channel_id": share["channel_id"],
+            "thread_ts": share["thread_ts"],
             "added_by": added_by,
         },
     ).fetchone()
@@ -98,8 +98,8 @@ def attach(conn, case_id, found, added_by):
         added_by,
         after={
             "case_id": case_id,
-            "channel_id": found["channel_id"],
-            "thread_ts": found["thread_ts"],
+            "channel_id": share["channel_id"],
+            "thread_ts": share["thread_ts"],
             "kind": "evidence",
             "is_primary": primary,
             "came_with_the_report": True,
@@ -111,10 +111,10 @@ def attach(conn, case_id, found, added_by):
 def promote(conn, case_id, conversation_id, added_by):
     threads, messages = 0, 0
 
-    for found in shared(conn, conversation_id):
-        if attach(conn, case_id, found, added_by) is not None:
+    for share in shared(conn, conversation_id):
+        if attach(conn, case_id, share, added_by) is not None:
             threads += 1
-        if keep(conn, found) is not None:
+        if store_message(conn, share) is not None:
             messages += 1
 
     return {"threads": threads, "messages": messages}

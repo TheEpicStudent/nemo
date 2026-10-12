@@ -1,13 +1,13 @@
 module Admin
   class ChannelsController < BaseController
-    SEARCH_SHOWN = 100
+    SEARCH_LIMIT = 100
 
     BANDS = [
       ["public", "Everyone signed in"],
       ["granted", "Named people only"]
     ].freeze
 
-    PICK_SHOWN = 40
+    PICKER_LIMIT = 40
 
     def search
       term = params[:q].to_s.strip.delete_prefix("#")
@@ -19,7 +19,7 @@ module Admin
       end
 
       render json: {
-        channels: biggest_first(scope).limit(PICK_SHOWN)
+        channels: biggest_first(scope).limit(PICKER_LIMIT)
           .pluck(:channel_id, :name).map { |id, name| { id: id, name: name } },
         total: scope.count
       }
@@ -36,60 +36,60 @@ module Admin
       @q = params[:q].to_s.strip
       @settings = Channels::Audience::Setting.all.index_by(&:channel_id)
       @grants = Channels::Audience::Grant.live.to_a.group_by(&:channel_id)
-      @activity = Channels::Activity.shown_ids.to_set
+      @activity = Channels::Activity.visible_ids.to_set
       @total = Analytics::DimChannel.where(archived: false).count
       @bands = band(listed)
       @open = @bands.reject { |kind, _label, _rows| kind == "granted" }
         .sum { |_kind, _label, rows| rows.size }
-      named = @grants.values.flatten
-      @names = Fd::Names.for(named.map(&:user_id) + named.map(&:granted_by))
+      grant_rows = @grants.values.flatten
+      @names = Fd::Names.for(grant_rows.map(&:user_id) + grant_rows.map(&:granted_by))
     end
 
     def update
-      return refuse unless may_community?("analytics.channel.share")
+      return redirect_forbidden unless may_community?("analytics.channel.share")
 
-      wanted = params[:audience].to_s
-      unless Channels::Audience::KINDS.include?(wanted)
-        return redirect_to(admin_channels_path, alert: "#{wanted} is not an audience")
+      requested_audience = params[:audience].to_s
+      unless Channels::Audience::KINDS.include?(requested_audience)
+        return redirect_to(admin_channels_path, alert: "#{requested_audience} is not an audience")
       end
 
       row = Channels::Audience::Setting.find_or_initialize_by(channel_id: params[:channel_id])
-      was = row.audience
-      row.update!(audience: wanted, set_by: current_account.user_id, set_at: Time.current)
-      Fd::Audit.record(row, wanted == "granted" ? "revoked" : "granted",
+      previous_audience = row.audience
+      row.update!(audience: requested_audience, set_by: current_account.user_id, set_at: Time.current)
+      Fd::Audit.record(row, requested_audience == "granted" ? "revoked" : "granted",
         actor: current_account.user_id, request_id: request.request_id,
         entity_id: row.channel_id,
-        before: { "channel_id" => row.channel_id, "audience" => was },
-        after: { "channel_id" => row.channel_id, "audience" => wanted })
+        before: { "channel_id" => row.channel_id, "audience" => previous_audience },
+        after: { "channel_id" => row.channel_id, "audience" => requested_audience })
       redirect_to admin_channels_path(q: params[:q].presence),
-        notice: "##{params[:channel_id]} is #{wanted}"
+        notice: "##{params[:channel_id]} is #{requested_audience}"
     end
 
-    SHOWN = %w[on off].freeze
+    ACTIVITY_STATES = %w[on off].freeze
 
     def activity
-      return refuse("analytics.message.show") unless may_community?("analytics.message.show")
+      return redirect_forbidden("analytics.message.show") unless may_community?("analytics.message.show")
 
-      wanted = params[:shown].to_s
-      unless SHOWN.include?(wanted)
-        return redirect_to(admin_channels_path, alert: "#{wanted} is not on or off")
+      requested_state = params[:shown].to_s
+      unless ACTIVITY_STATES.include?(requested_state)
+        return redirect_to(admin_channels_path, alert: "#{requested_state} is not on or off")
       end
 
       channel_id = params[:channel_id]
       row = Channels::Activity::Setting.find_or_initialize_by(channel_id: channel_id)
-      was = row.persisted?
-      if wanted == "on"
+      previously_on = row.persisted?
+      if requested_state == "on"
         row.update!(set_by: current_account.user_id, set_at: Time.current)
-      elsif was
+      elsif previously_on
         row.destroy!
       end
-      Fd::Audit.record(row, wanted == "on" ? "turned_on" : "turned_off",
+      Fd::Audit.record(row, requested_state == "on" ? "turned_on" : "turned_off",
         actor: current_account.user_id, request_id: request.request_id,
         entity_id: channel_id,
-        before: { "channel_id" => channel_id, "shown" => was },
-        after: { "channel_id" => channel_id, "shown" => wanted == "on" })
+        before: { "channel_id" => channel_id, "shown" => previously_on },
+        after: { "channel_id" => channel_id, "shown" => requested_state == "on" })
       redirect_to admin_channels_path(q: params[:q].presence),
-        notice: "##{channel_id} #{wanted == 'on' ? 'now shows' : 'no longer shows'} how posts did"
+        notice: "##{channel_id} #{requested_state == 'on' ? 'now shows' : 'no longer shows'} how posts did"
     end
 
     private
@@ -98,7 +98,7 @@ module Admin
       ActiveRecord::Base.sanitize_sql_like(@q)
     end
 
-    def refuse(key = "analytics.channel.share")
+    def redirect_forbidden(key = "analytics.channel.share")
       redirect_to admin_channels_path, alert: Community::Access.why_not(current_account, key)
     end
 
@@ -106,7 +106,7 @@ module Admin
       scope = Analytics::DimChannel.where(archived: false)
       if @q.present?
         return scope.where("dim_channel.name ILIKE ?", "%#{like_q}%")
-          .order(:name).limit(SEARCH_SHOWN)
+          .order(:name).limit(SEARCH_LIMIT)
       end
 
 
@@ -125,7 +125,7 @@ module Admin
     end
 
     def audience(channel_id)
-      Channels::Audience.settled(@settings[channel_id]&.audience ||
+      Channels::Audience.normalize(@settings[channel_id]&.audience ||
         Channels::Audience::DEFAULT)
     end
     helper_method :audience

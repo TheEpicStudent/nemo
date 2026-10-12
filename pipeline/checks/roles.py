@@ -43,13 +43,13 @@ def separated(conn):
 
 
 def deployment_mode_declared(conn):
-    found = roles_present(conn)
-    if len(found) == len(EXPECTED_ROLES):
+    present = roles_present(conn)
+    if len(present) == len(EXPECTED_ROLES):
         return ("the deployment mode is declared", "pass",
-                f"{SEPARATED_MODE}: {', '.join(found)}", "a known mode")
-    missing = sorted(set(EXPECTED_ROLES) - set(found))
+                f"{SEPARATED_MODE}: {', '.join(present)}", "a known mode")
+    missing = sorted(set(EXPECTED_ROLES) - set(present))
     return ("the deployment mode is declared", "pass",
-            f"{SHARED_MODE}: {len(found)} of 3 service roles exist, missing "
+            f"{SHARED_MODE}: {len(present)} of 3 service roles exist, missing "
             f"{', '.join(missing)}, so every service shares one login and the boundary "
             "is the application's own capability checks",
             "a known mode")

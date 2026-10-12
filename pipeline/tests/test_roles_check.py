@@ -22,8 +22,8 @@ def named(results):
 
 
 def test_three_roles_read_as_the_separated_mode():
-    got = named(check(conn) for check in roles.CHECKS for conn in [Cluster(roles.EXPECTED_ROLES)])
-    status, observed = got["the deployment mode is declared"]
+    results = named(check(conn) for check in roles.CHECKS for conn in [Cluster(roles.EXPECTED_ROLES)])
+    status, observed = results["the deployment mode is declared"]
     assert status == "pass"
     assert roles.SEPARATED_MODE in observed
 

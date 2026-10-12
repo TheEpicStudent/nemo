@@ -1,12 +1,12 @@
 module Engine
   class Archive
     WORKER = "archive_worker".freeze
-    ERRORS_SHOWN = 10
+    ERRORS_LIMIT = 10
     ERROR_WIDTH = 90
-    WORST_SHOWN = 12
+    WORST_LIMIT = 12
     WORST_FLOOR = 250
-    WAITING_SHOWN = 12
-    DAYS_SHOWN = 90
+    WAITING_LIMIT = 12
+    COVERAGE_DAYS = 90
     QUEUES = %w[channel_tail channel_replies].freeze
 
     TOTALS_SQL = <<~SQL.freeze
@@ -39,14 +39,14 @@ module Engine
         define_method(name) { row[name].to_i }
       end
 
-      def oldest_held = row["oldest_held"]&.to_time
-      def newest_held = row["newest_held"]&.to_time
+      def oldest_archived = row["oldest_held"]&.to_time
+      def newest_archived = row["newest_held"]&.to_time
       def last_walked_at = row["last_walked_at"]&.to_time
 
-      def held_days
-        return nil if oldest_held.nil? || newest_held.nil?
+      def archived_days
+        return nil if oldest_archived.nil? || newest_archived.nil?
 
-        (newest_held.to_date - oldest_held.to_date).to_i + 1
+        (newest_archived.to_date - oldest_archived.to_date).to_i + 1
       end
 
       def threads_waiting = [threads_known - threads_fetched, 0].max
@@ -67,7 +67,7 @@ module Engine
         done.to_f / total * 100
       end
 
-      def shown_share
+      def visible_share
         return nil if share.nil?
         return [share, 99.9].min if outstanding.positive?
 
@@ -86,29 +86,29 @@ module Engine
 
     WATERMARK_SQL = "SELECT max(observed_through) FROM analytics.fct_message_hour".freeze
 
-    LANDED_SINCE_SQL = <<~SQL.freeze
+    MESSAGES_SINCE_SQL = <<~SQL.freeze
       SELECT count(*)                         AS messages,
              count(*) FILTER (WHERE is_reply) AS replies
       FROM   analytics.fct_archive_landing
       WHERE  deleted_at IS NULL AND first_seen_at > :since
     SQL
 
-    Live = Struct.new(:messages_held, :parents_held, :replies_held, :landed_since,
+    Live = Struct.new(:messages_archived, :parents_archived, :replies_archived, :messages_since,
       keyword_init: true)
 
     def self.live(totals)
       return nil unless Analytics::FctArchiveLanding.table_exists?
 
-      through = ApplicationRecord.connection.select_value(WATERMARK_SQL)
-      return nil if through.nil?
+      watermark = ApplicationRecord.connection.select_value(WATERMARK_SQL)
+      return nil if watermark.nil?
 
       row = ApplicationRecord.connection.select_one(
-        ApplicationRecord.sanitize_sql([LANDED_SINCE_SQL, since: through])
+        ApplicationRecord.sanitize_sql([MESSAGES_SINCE_SQL, since: watermark])
       )
-      landed = row["messages"].to_i
+      messages_since = row["messages"].to_i
       replies = totals.replies_held + row["replies"].to_i
-      Live.new(messages_held: totals.messages_held + landed, replies_held: replies,
-        parents_held: totals.messages_held + landed - replies, landed_since: landed)
+      Live.new(messages_archived: totals.messages_held + messages_since, replies_archived: replies,
+        parents_archived: totals.messages_held + messages_since - replies, messages_since: messages_since)
     end
 
     def self.stages(totals)
@@ -130,7 +130,7 @@ module Engine
         .where("slack_member_messages >= ?", WORST_FLOOR)
         .where("member_share is not null")
         .order(member_share: :asc, slack_member_messages: :desc)
-        .limit(WORST_SHOWN)
+        .limit(WORST_LIMIT)
     end
 
     def self.ranks_by_member?
@@ -142,14 +142,14 @@ module Engine
         .reachable
         .where("not history_complete")
         .order(Arel.sql("walked, threads_known - threads_fetched desc, messages_held desc"))
-        .limit(WAITING_SHOWN)
+        .limit(WAITING_LIMIT)
     end
 
     def self.errors
       Analytics::FctChannelWalk.failed
         .group(Arel.sql("left(last_error, #{ERROR_WIDTH})"))
         .order(Arel.sql("count(*) desc"))
-        .limit(ERRORS_SHOWN)
+        .limit(ERRORS_LIMIT)
         .pluck(Arel.sql("left(last_error, #{ERROR_WIDTH})"), Arel.sql("count(*)"),
           Arel.sql("max(last_walked_at)"))
     end
@@ -159,7 +159,7 @@ module Engine
     end
 
     def self.days
-      Analytics::MartArchiveDayCoverage.newest_first.limit(DAYS_SHOWN).to_a.reverse
+      Analytics::MartArchiveDayCoverage.newest_first.limit(COVERAGE_DAYS).to_a.reverse
     end
 
     def self.queues

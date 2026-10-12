@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from lib.db import connect
 from lib.paths import ENV_FILE
 
-FRESH_HOURS = 6
+MAX_WRITE_AGE_HOURS = 6
 SUBJECT = "archive"
 
 RECORD_SQL = """
@@ -23,10 +23,10 @@ WARN_ONLY = frozenset({
 def hours_since_last_write(conn):
     row = conn.execute("SELECT max(updated_at), now() - max(updated_at) FROM archive.message").fetchone()
     if row is None or row[0] is None:
-        return ("last write", "fail", "the archive holds nothing", f"under {FRESH_HOURS}h")
+        return ("last write", "fail", "the archive holds nothing", f"under {MAX_WRITE_AGE_HOURS}h")
     hours = row[1].total_seconds() / 3600
-    return ("last write", "pass" if hours < FRESH_HOURS else "fail",
-            f"{hours:.1f}h ago", f"under {FRESH_HOURS}h")
+    return ("last write", "pass" if hours < MAX_WRITE_AGE_HOURS else "fail",
+            f"{hours:.1f}h ago", f"under {MAX_WRITE_AGE_HOURS}h")
 
 
 def unconfirmed_rows(conn):
@@ -56,14 +56,14 @@ def unavailable_channels(conn):
 
 
 def pending_threads(conn):
-    owed, known = conn.execute(
+    unfetched, total = conn.execute(
         "SELECT count(*) FILTER (WHERE fetched_at IS NULL), count(*) FROM raw.thread"
     ).fetchone()
-    return ("threads still to fetch", "pass" if owed == 0 else "warn",
-            f"{owed} of {known} thread(s)", "0")
+    return ("threads still to fetch", "pass" if unfetched == 0 else "warn",
+            f"{unfetched} of {total} thread(s)", "0")
 
 
-def share_of_slacks_day_held(conn):
+def share_of_slack_day_archived(conn):
     row = conn.execute("""
         WITH day AS (
             SELECT max(window_start) AS ds
@@ -96,7 +96,7 @@ CHECKS = (
     pending_channels,
     unavailable_channels,
     pending_threads,
-    share_of_slacks_day_held,
+    share_of_slack_day_archived,
 )
 
 

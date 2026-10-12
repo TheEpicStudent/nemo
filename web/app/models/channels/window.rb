@@ -30,13 +30,13 @@ module Channels
       @pulled_start = pulled_start
       @pulled_end = pulled_end
       @edge = edge
-      @custom = settle_custom(start_on, end_on)
+      @custom = resolve_custom_range(start_on, end_on)
       if @custom
         @days = (@end_date - @start_date).to_i + 1
         return
       end
 
-      @days = settle(days)
+      @days = resolve_days(days)
       @end_date = pulled? ? @pulled_end : @edge
       @start_date = pulled? ? @pulled_start : (@edge && @edge - (@days - 1))
     end
@@ -96,21 +96,21 @@ module Channels
       pulled? ? {} : { "messages" => ROLLED_SQL }
     end
 
-    def asked
+    def requested_days
       @days unless pulled? || @custom
     end
 
-    def asked_start
+    def requested_start
       @start_date if @custom
     end
 
-    def asked_end
+    def requested_end
       @end_date if @custom
     end
 
     private
 
-    def settle_custom(start_on, end_on)
+    def resolve_custom_range(start_on, end_on)
       return false if start_on.nil? && end_on.nil?
 
       low, high = floor, ceiling
@@ -121,9 +121,9 @@ module Channels
       true
     end
 
-    def settle(asked)
-      wanted = asked.to_i
-      return wanted if choices.include?(wanted)
+    def resolve_days(requested)
+      requested_days = requested.to_i
+      return requested_days if choices.include?(requested_days)
 
       pulled_days || PRESETS.min
     end

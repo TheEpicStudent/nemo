@@ -1,0 +1,50 @@
+<% if @groups.any? %>
+  <%= render "groups" %>
+<% elsif @rows.any? %>
+  <div class="card card-flush">
+    <div class="scroll">
+      <table class="data-table audit-table">
+        <colgroup>
+          <col style="width: 78px">
+          <col style="width: 18%">
+          <col>
+          <col style="width: 18%">
+          <col style="width: 140px">
+          <col style="width: 76px">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Actor</th>
+            <th>Event</th>
+            <th>Target</th>
+            <th>Source IP</th>
+            <th class="audit-tail-head"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <%= render partial: "row", collection: @rows, as: :row %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="pagebar">
+    <% if @query.back_params %>
+      <%= link_to "Back", fd_audit_path(@query.back_params), class: "btn" %>
+    <% else %>
+      <span class="btn is-off">Back</span>
+    <% end %>
+    <span class="pager-at"><%= @query.summary %></span>
+    <% if @query.next_params %>
+      <%= link_to "Next", fd_audit_path(@query.next_params), class: "btn" %>
+    <% else %>
+      <span class="btn is-off">Next</span>
+    <% end %>
+    <%= render "jump" %>
+  </div>
+<% else %>
+  <div class="empty">
+    <p class="empty-title"><%= @query.groups_slow? ? "Too slow to group, narrow the range" : @query.empty_note %></p>
+  </div>
+<% end %>

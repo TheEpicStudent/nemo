@@ -61,7 +61,7 @@ def test_clusters_build_on_strong_links_only():
 
 
 def test_an_unchanged_cluster_row_is_not_written_again():
-    assert "IS DISTINCT FROM" in clusters.LAND
+    assert "IS DISTINCT FROM" in clusters.UPSERT_SQL
     assert clusters.SWEEP.startswith("DELETE FROM fd.member_cluster WHERE NOT (user_id = ANY")
 
 
@@ -91,5 +91,5 @@ def test_a_cluster_still_holding_two_accounts_fd_called_different_people_is_flag
 
 
 def test_a_conflict_change_is_written_like_any_other_change():
-    assert "conflict = EXCLUDED.conflict" in clusters.LAND
-    assert "EXCLUDED.conflict)" in clusters.LAND
+    assert "conflict = EXCLUDED.conflict" in clusters.UPSERT_SQL
+    assert "EXCLUDED.conflict)" in clusters.UPSERT_SQL

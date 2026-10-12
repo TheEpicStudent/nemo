@@ -6,7 +6,7 @@ module Slack
     BLOCK_TYPES = %w[header context section].freeze
 
     def self.echo?(blocks)
-      Array(blocks).any? { |one| BLOCK_TYPES.include?(one["type"]) }
+      Array(blocks).any? { |block| BLOCK_TYPES.include?(block["type"]) }
     end
 
     def self.render(blocks, **rendering)
@@ -20,16 +20,16 @@ module Slack
     end
 
     def render(blocks)
-      tag.div(safe_join(Array(blocks).filter_map { |one| piece(one) }), class: "echo-card")
+      tag.div(safe_join(Array(blocks).filter_map { |block| render_block(block) }), class: "echo-card")
     end
 
     private
 
-    def piece(one)
-      case one["type"]
-      when "header" then head(one.dig("text", "text"))
-      when "context" then meta(one["elements"])
-      when "section" then mrkdwn(one.dig("text", "text"))
+    def render_block(block)
+      case block["type"]
+      when "header" then head(block.dig("text", "text"))
+      when "context" then meta(block["elements"])
+      when "section" then mrkdwn(block.dig("text", "text"))
       end
     end
 
@@ -40,7 +40,7 @@ module Slack
     end
 
     def meta(elements)
-      text = Array(elements).filter_map { |one| one["text"] if one["type"] == "mrkdwn" }.join(" ")
+      text = Array(elements).filter_map { |element| element["text"] if element["type"] == "mrkdwn" }.join(" ")
       return nil if text.blank?
 
       tag.div(mrkdwn(text), class: "echo-meta")

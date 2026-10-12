@@ -2,7 +2,7 @@ require "test_helper"
 
 class AdminScreensTest < ActionDispatch::IntegrationTest
   setup do
-    @boss = hold_role!("UADBOSS", "community_manager")
+    @manager = hold_role!("UADBOSS", "community_manager")
   end
 
   test "every signed in person reaches their own account" do
@@ -14,7 +14,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
   end
 
   test "the admin screens each render for a manager" do
-    sign_in_as(@boss)
+    sign_in_as(@manager)
 
     [admin_people_path, admin_roles_path, admin_flags_path, admin_channels_path].each do |path|
       get path
@@ -23,7 +23,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
   end
 
   test "the roles matrix is one table over every capability and role" do
-    sign_in_as(@boss)
+    sign_in_as(@manager)
 
     get admin_roles_path
 
@@ -40,7 +40,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
 
   test "a manager sets a channel audience" do
     channel = Analytics::DimChannel.where(archived: false).first
-    sign_in_as(@boss)
+    sign_in_as(@manager)
 
     patch admin_channel_path(channel.channel_id), params: { audience: "public" }
 
@@ -75,7 +75,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
   end
 
   test "an unknown audience is refused" do
-    sign_in_as(@boss)
+    sign_in_as(@manager)
     channel = Analytics::DimChannel.where(archived: false).first
 
     patch admin_channel_path(channel.channel_id), params: { audience: "world" }
@@ -86,14 +86,14 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
 
   test "a manager shows how posts did in a channel, then stops" do
     channel = Analytics::DimChannel.where(archived: false).first
-    sign_in_as(@boss)
+    sign_in_as(@manager)
 
     patch activity_admin_channel_path(channel.channel_id), params: { shown: "on" }
 
     assert_redirected_to admin_channels_path
-    assert Channels::Activity.shown?(channel.channel_id)
+    assert Channels::Activity.visible?(channel.channel_id)
     assert Fd::AuditEntry.where(entity_type: "message_activity", entity_ref: channel.channel_id,
-      verb: "turned_on", actor_user_id: @boss.user_id).exists?
+      verb: "turned_on", actor_user_id: @manager.user_id).exists?
 
     get admin_channels_path
     assert_response :success
@@ -101,7 +101,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
 
     patch activity_admin_channel_path(channel.channel_id), params: { shown: "off" }
 
-    refute Channels::Activity.shown?(channel.channel_id)
+    refute Channels::Activity.visible?(channel.channel_id)
     assert Fd::AuditEntry.where(entity_type: "message_activity", entity_ref: channel.channel_id,
       verb: "turned_off").exists?
   ensure
@@ -115,16 +115,16 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
 
     patch activity_admin_channel_path(channel.channel_id), params: { shown: "on" }
 
-    refute Channels::Activity.shown?(channel.channel_id)
+    refute Channels::Activity.visible?(channel.channel_id)
   end
 
   test "showing how posts did is on or off, nothing else" do
-    sign_in_as(@boss)
+    sign_in_as(@manager)
     channel = Analytics::DimChannel.where(archived: false).first
 
     patch activity_admin_channel_path(channel.channel_id), params: { shown: "maybe" }
 
     assert_match(/not on or off/, flash[:alert])
-    refute Channels::Activity.shown?(channel.channel_id)
+    refute Channels::Activity.visible?(channel.channel_id)
   end
 end

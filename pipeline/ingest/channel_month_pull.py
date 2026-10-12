@@ -57,7 +57,7 @@ def interval_of(month):
     return f"{month.year:04d}-{month.month:02d}"
 
 
-def ask(client, interval, query=None, direction="asc"):
+def fetch_page(client, interval, query=None, direction="asc"):
     params = {
         "date_interval": interval,
         "privacy": "public",
@@ -71,31 +71,31 @@ def ask(client, interval, query=None, direction="asc"):
     return data.get("channel_analytics") or [], data.get("num_found") or 0
 
 
-def merge_records(records, found, on_fresh=None):
-    fresh = [record for record in records if record["channel_id"] not in found]
+def merge_records(records, by_channel, on_new=None):
+    new_records = [record for record in records if record["channel_id"] not in by_channel]
     for record in records:
-        found[record["channel_id"]] = record
-    if on_fresh and fresh:
-        on_fresh(fresh)
-    return len(fresh)
+        by_channel[record["channel_id"]] = record
+    if on_new and new_records:
+        on_new(new_records)
+    return len(new_records)
 
 
-def sweep(client, interval, shards, found, on_fresh=None, depth=0):
+def sweep(client, interval, shards, by_channel, on_new=None, depth=0):
     truncated = []
     for shard in shards:
-        records, num_found = ask(client, interval, shard)
-        merge_records(records, found, on_fresh)
+        records, num_found = fetch_page(client, interval, shard)
+        merge_records(records, by_channel, on_new)
         if num_found > len(records):
             truncated.append(shard)
     if not truncated or depth >= SPLIT_DEPTH:
         return truncated
-    deeper = [shard + letter for shard in truncated for letter in ALPHABET_SUFFIX]
-    return sweep(client, interval, deeper, found, on_fresh, depth + 1)
+    child_shards = [shard + letter for shard in truncated for letter in ALPHABET_SUFFIX]
+    return sweep(client, interval, child_shards, by_channel, on_new, depth + 1)
 
 
-def tail_sweep(client, interval, found, on_fresh=None):
-    records, _ = ask(client, interval, direction="desc")
-    return merge_records(records, found, on_fresh)
+def tail_sweep(client, interval, by_channel, on_new=None):
+    records, _ = fetch_page(client, interval, direction="desc")
+    return merge_records(records, by_channel, on_new)
 
 
 def run_month(conn, month, alphabet=None):
@@ -103,14 +103,14 @@ def run_month(conn, month, alphabet=None):
     start, stop = month_window(client, month)
     interval = interval_of(month)
     shards = alphabet or shard_alphabet(conn)
-    found = {}
+    by_channel = {}
 
     with ingest_run(conn, SOURCE, slice_key=interval) as counts:
         fence = coverage.claim_slice(conn, KEY, interval, start, stop, counts.run_id)
         if fence is None:
             print(f"channel month {interval}: another worker holds this month, skipping")
             return 0, 0, 0
-        _, expected = ask(client, interval)
+        _, expected = fetch_page(client, interval)
         counts.total_expected = expected
 
         def insert_rows(records):
@@ -124,27 +124,27 @@ def run_month(conn, month, alphabet=None):
             with conn.cursor() as cur:
                 cur.executemany(RANGE_SQL, rows)
             conn.commit()
-            counts.rows_in = len(found)
+            counts.rows_in = len(by_channel)
             counts.progress()
 
-        short = sweep(client, interval, shards, found, insert_rows)
-        tail = tail_sweep(client, interval, found, insert_rows)
-        missed = max(0, expected - len(found))
-        reached = len(found) >= int(expected * SHORT_AT)
+        short = sweep(client, interval, shards, by_channel, insert_rows)
+        tail = tail_sweep(client, interval, by_channel, insert_rows)
+        missed = max(0, expected - len(by_channel))
+        reached = len(by_channel) >= int(expected * SHORT_AT)
         complete = reached and not short
         if not complete:
             counts.status = "partial"
         coverage.settle(conn, KEY, interval, fence, "complete" if complete else "short",
-                        expected, len(found), note=f"{missed} missed" if missed else None)
+                        expected, len(by_channel), note=f"{missed} missed" if missed else None)
 
         print(
-            f"channel month {interval}: {len(found)} of {expected} channels over "
+            f"channel month {interval}: {len(by_channel)} of {expected} channels over "
             f"{len(shards)} shard(s) plus a tail page that added {tail}, "
             f"{missed} missed, {counts.rows_rejected} rejected"
             + (f", still truncated: {short}" if short else "")
         )
 
-    return len(found), expected, missed
+    return len(by_channel), expected, missed
 
 
 def complete_edge(edge):
@@ -180,17 +180,17 @@ def run(conn, months=None, recent=None):
     if months is None:
         months = trailing(client, recent) if recent else months_between(client)
 
-    landed = 0
+    total_channels = 0
     short = []
     for month in months:
-        got, expected, missed = run_month(conn, month, alphabet)
-        landed += got
+        channel_count, expected, missed = run_month(conn, month, alphabet)
+        total_channels += channel_count
         if missed:
             short.append(f"{interval_of(month)} short by {missed} of {expected}")
 
     if short:
         print(f"{SOURCE}: " + "; ".join(short))
-    return landed
+    return total_channels
 
 
 def main():

@@ -75,9 +75,9 @@ def settle_aside(source_key, slice_key, fence, state, expected=None, landed=None
     return True
 
 
-def supersede(conn, source_key, keep_slice_key):
+def supersede(conn, source_key, current_slice_key):
     with conn.cursor() as cur:
-        cur.execute(SUPERSEDE_SQL, (source_key, keep_slice_key))
+        cur.execute(SUPERSEDE_SQL, (source_key, current_slice_key))
         return cur.rowcount
 
 

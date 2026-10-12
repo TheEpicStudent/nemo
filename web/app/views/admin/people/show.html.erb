@@ -8,7 +8,7 @@
 
 <div class="metrics profile-band">
   <div class="profile-who">
-    <%= face(@user_id, css: "avatar avatar-band") %>
+    <%= avatar(@user_id, css: "avatar avatar-band") %>
     <span class="two-line">
       <b><%= person_name(@user_id) %></b>
       <span class="mono"><%= @user_id %> &middot; <%= acted_label(@last_acted) %></span>
@@ -20,7 +20,7 @@
     <span class="metric-value is-text <%= "is-none" if @roles.empty? %>">
       <%= @roles.any? ? @roles.map { |r| Authz.role_label(r) }.to_sentence : "No role" %>
     </span>
-    <span class="metric-note"><%= @held_since ? "Since #{@held_since.strftime("%b %Y")}" : "Never held one" %></span>
+    <span class="metric-note"><%= @access_since ? "Since #{@access_since.strftime("%b %Y")}" : "Never held one" %></span>
   </div>
 
   <div class="metric">
@@ -134,5 +134,5 @@
 
 <% if may_grant? %>
   <%= render "admin/people/give_modal", person: @user_id, role: @roles.first,
-        held_scopes: @added_scopes %>
+        granted_scopes: @added_scopes %>
 <% end %>

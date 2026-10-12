@@ -87,29 +87,29 @@ def measure(conn):
 
 
 def results(marked):
-    loud = sorted((one for one in marked if one[2]), key=lambda one: -one[0])
-    found = [(f"{table} grows under twice its {WINDOW_DAYS}-day median", "error", "fail",
-              f"grew {megabytes(grew)} in a day", f"under {megabytes(limit(median))}")
-             for grew, median, _flag, table in loud]
-    found.append((f"no table grows past twice its {WINDOW_DAYS}-day median", "info",
-                  "warn" if loud else "pass", f"{len(loud)} of {len(marked)} table(s) flagged", "0 flagged"))
-    return found
+    flagged_rows = sorted((one for one in marked if one[2]), key=lambda one: -one[0])
+    rows = [(f"{table} grows under twice its {WINDOW_DAYS}-day median", "error", "fail",
+             f"grew {megabytes(grew)} in a day", f"under {megabytes(limit(median))}")
+            for grew, median, _flag, table in flagged_rows]
+    rows.append((f"no table grows past twice its {WINDOW_DAYS}-day median", "info",
+                 "warn" if flagged_rows else "pass", f"{len(flagged_rows)} of {len(marked)} table(s) flagged", "0 flagged"))
+    return rows
 
 
 def record(conn, run_id=None):
-    found = results(measure(conn))
+    rows = results(measure(conn))
     with conn.cursor() as cur:
-        for assertion, severity, status, observed, expected in found:
+        for assertion, severity, status, observed, expected in rows:
             cur.execute(RECORD_SQL, (run_id, assertion, severity, status, observed, expected))
     conn.commit()
-    return found
+    return rows
 
 
 def main():
     load_dotenv(ENV_FILE)
     with connect() as conn:
-        found = record(conn)
-    for assertion, _severity, status, observed, expected in found:
+        rows = record(conn)
+    for assertion, _severity, status, observed, expected in rows:
         print(f"{assertion:60} {status:4}  {observed}  (want {expected})")
     return 0
 

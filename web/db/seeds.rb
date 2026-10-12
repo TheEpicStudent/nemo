@@ -5,8 +5,8 @@ if ids.empty?
 else
   ids.each do |user_id|
     Account.find_or_create_by!(user_id: user_id)
-    held = Authz::Grant.live.for_person(user_id).roles.pluck(:name)
-    if held.include?(Fd::Access::MANAGER_ROLE)
+    role_names = Authz::Grant.live.for_person(user_id).roles.pluck(:name)
+    if role_names.include?(Fd::Access::MANAGER_ROLE)
       puts "confirmed #{Fd::Access::MANAGER_ROLE}: #{user_id}"
       next
     end

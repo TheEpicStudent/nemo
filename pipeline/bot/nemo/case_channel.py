@@ -31,7 +31,7 @@ class CaseChannel:
             return channel.refresh_card(self.client, conn, case_id)
 
     def caught_up(self, case_id):
-        drawn = None
+        card = None
         for name, work in (
             ("case card", channel.refresh_card),
             ("wake", channel.post_reopen_notice),
@@ -45,11 +45,11 @@ class CaseChannel:
                 with session() as conn:
                     done = work(self.client, conn, case_id)
                 if name == "case card":
-                    drawn = done
+                    card = done
             except Exception:
                 log.exception("nemo: case %s could not have its %s seen to", case_id, name)
         self.announce_fire_engine()
-        return drawn
+        return card
 
     def mirror(self, case_id):
         with session() as conn:
@@ -94,7 +94,7 @@ class CaseChannel:
             )
 
         with session() as conn:
-            kept = self.keep_outgoing(conn, files)
+            stored_files = self.store_outgoing_files(conn, files)
             queued_id = outbox.queue(
                 conn,
                 conversation_id,
@@ -102,9 +102,9 @@ class CaseChannel:
                 text,
                 sent_by,
                 mode="signed" if signed else "body",
-                files=kept,
-                asked_in=at[0] if at else None,
-                asked_at=at[1] if at else None,
+                files=stored_files,
+                requested_in=at[0] if at else None,
+                requested_at=at[1] if at else None,
             )
             outbox.claim_echo(conn, queued_id)
             outbox.echoed(conn, queued_id, None, "user")
@@ -125,8 +125,8 @@ class CaseChannel:
         )
         return queued_id
 
-    def keep_outgoing(self, conn, files):
-        kept = []
+    def store_outgoing_files(self, conn, files):
+        stored_files = []
         for item in files or []:
             url = item.get("url_private_download") or item.get("url_private")
             name = item.get("name") or item.get("id") or "file"
@@ -136,14 +136,14 @@ class CaseChannel:
             if body is None:
                 log.warning("nemo: %s could not be kept, it is not going out", name)
                 continue
-            kept.append({
+            stored_files.append({
                 "name": name,
                 "mimetype": item.get("mimetype"),
-                "original_w": parse.whole(item.get("original_w")),
-                "original_h": parse.whole(item.get("original_h")),
+                "original_w": parse.to_int(item.get("original_w")),
+                "original_h": parse.to_int(item.get("original_h")),
                 "sha256": blobs.insert_blob(conn, body, item.get("mimetype")),
             })
-        return kept
+        return stored_files
 
     def echo_queued(self, case_id=None):
         with session() as conn:
@@ -169,7 +169,7 @@ class CaseChannel:
 
         if done:
             log.info("nemo: echoed %s queued message(s) into the internal_log", done)
-        self.post_held_resolutions()
+        self.post_pending_resolutions()
         return done
 
     def announce_fire_engine(self):
@@ -180,11 +180,11 @@ class CaseChannel:
             log.exception("nemo: fire engine changes could not be told to their threads")
             return 0
 
-    def post_held_resolutions(self):
+    def post_pending_resolutions(self):
         with session() as conn:
-            held = case_actions.held_resolution_echoes(conn)
+            case_ids = case_actions.pending_resolution_echoes(conn)
 
-        for case_id in held:
+        for case_id in case_ids:
             with session() as conn:
                 due = case_actions.resolution_echo_due(conn, case_id)
                 if due is None:

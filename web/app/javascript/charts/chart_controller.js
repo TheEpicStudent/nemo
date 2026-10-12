@@ -7,7 +7,7 @@ import {
 
 let seq = 0
 
-const INK = [1, 2, 3, 4, 5, 0]
+const SERIES_COLORS = [1, 2, 3, 4, 5, 0]
 
 const PAD = { l: 44, r: 8, t: 20, b: 34 }
 
@@ -15,18 +15,18 @@ const BAR_CAP = 72
 const BAR_R = 6
 const PILL_H = 22
 const SEG_GAP = 2
-const AX_SAY_X = 26
-const AX_SAY_Y = 22
+const X_TITLE_SPACE = 26
+const Y_TITLE_SPACE = 22
 
-const RULER = typeof document === "undefined"
+const MEASURE_CTX = typeof document === "undefined"
   ? null
   : document.createElement("canvas").getContext("2d")
 
-function axWide(text) {
-  if (!RULER) return String(text).length * 6
+function axisTextWidth(text) {
+  if (!MEASURE_CTX) return String(text).length * 6
 
-  RULER.font = '12px Geist, ui-sans-serif, system-ui, sans-serif'
-  return RULER.measureText(String(text)).width
+  MEASURE_CTX.font = '12px Geist, ui-sans-serif, system-ui, sans-serif'
+  return MEASURE_CTX.measureText(String(text)).width
 }
 
 const BIN = /^([<>])?(\d+)(?:-(\d+))?(\+)?$/
@@ -39,8 +39,8 @@ function binLabels(rows) {
 
   const ranged = parts.map(([, side, a, b, plus]) =>
     `${side || ""}${kilo(Number(a))}${b ? `-${kilo(Number(b))}` : ""}${plus ? "+" : ""}`)
-  const floors = parts.map(([, side, a, , plus]) => `${side || ""}${kilo(Number(a))}${plus ? "+" : ""}`)
-  return [ranged, floors]
+  const lowerBounds = parts.map(([, side, a, , plus]) => `${side || ""}${kilo(Number(a))}${plus ? "+" : ""}`)
+  return [ranged, lowerBounds]
 }
 
 const F = (n) => (n == null ? "n/a" : Number(n).toLocaleString("en-US"))
@@ -59,7 +59,7 @@ function logTicks(lo, hi) {
   return decades.length >= 3 ? decades : [...decades, ...steps].sort((a, b) => a - b)
 }
 
-const axl = (v) =>
+const axisLabel = (v) =>
   Math.abs(v) >= 1000 ? `${+(v / 1000).toFixed(v % 1000 ? 1 : 0)}k` : `${Math.round(v)}`
 
 const esc = (s) =>
@@ -67,7 +67,7 @@ const esc = (s) =>
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
 
-const withoutViewport = ({ window: _window, pin: _pin, ...rest }) => JSON.stringify(rest)
+const withoutViewport = ({ window: _window, pin: _pin, ...view }) => JSON.stringify(view)
 const sameExceptViewport = (value, previous) => withoutViewport(value) === withoutViewport(previous)
 const WEEKEND = [0, 6]
 const MIN_SELECTION_ROWS = 2
@@ -121,10 +121,10 @@ export default class extends Controller {
 
   connect() {
     this.gid = `cg${++seq}`
-    this.shown = this.kindValue || "bars"
+    this.defaultKind = this.kindValue || "bars"
     this.at = null
     this.wide = 0
-    this.watcher = new ResizeObserver(() => this.measure())
+    this.observer = new ResizeObserver(() => this.measure())
     this.build()
     this.ready = true
     if (this.hasViewValue) this.dispatch("ready")
@@ -132,7 +132,7 @@ export default class extends Controller {
 
   disconnect() {
     this.ready = false
-    this.watcher?.disconnect()
+    this.observer?.disconnect()
   }
 
   viewValueChanged(value, previous) {
@@ -201,7 +201,7 @@ export default class extends Controller {
       hasPrevious: !!before,
       series: this.series.filter((s) => !s.ghost).map((s) => {
         const points = pointsOf(s, first, final)
-        const entry = { label: s.n, colorClass: this.paint(s), color: s.own || null, shape: this.shapeOf(s) }
+        const entry = { label: s.n, colorClass: this.seriesClass(s), color: s.own || null, shape: this.shapeOf(s) }
         if (!points.length) return { ...entry, empty: true }
 
         const { sum, mean } = summarize(points)
@@ -238,7 +238,7 @@ export default class extends Controller {
     const columns = [
       label,
       ...series.map((s) => ({
-        key: s.k, label: s.n, numeric: true, colorClass: this.paint(s), color: s.own || null, shape: this.shapeOf(s)
+        key: s.k, label: s.n, numeric: true, colorClass: this.seriesClass(s), color: s.own || null, shape: this.shapeOf(s)
       })),
       ...(stacked ? [{ key: "total", label: "total", numeric: true }] : [])
     ]
@@ -315,7 +315,7 @@ export default class extends Controller {
     return {
       kind: "line",
       lines: visible.map((s) => ({
-        colorClass: this.paint(s), color: s.own || null,
+        colorClass: this.seriesClass(s), color: s.own || null,
         values: rows.map((r) => (r[s.k] == null ? null : Number(r[s.k])))
       }))
     }
@@ -415,10 +415,10 @@ export default class extends Controller {
 
   get rows() {
     const { labels = [], datasets = [] } = this.dataValue
-    const blanked = new Map((this.hasVoidsValue ? this.voidsValue : [])
+    const voidNotes = new Map((this.hasVoidsValue ? this.voidsValue : [])
       .map((v) => [Number(v.at), v.note || ""]))
     const notes = this.hasNotesValue ? this.notesValue : []
-    const given = labels.map((label, i) => {
+    const baseRows = labels.map((label, i) => {
       const key = Array.isArray(label) ? label[0] : label
       const row = { label: key, key }
       datasets.forEach((set, s) => {
@@ -426,21 +426,21 @@ export default class extends Controller {
         if (set.counts) row[`c${s}`] = set.counts[i]
       })
       if (notes[i]) row.tip = notes[i]
-      if (blanked.has(i)) {
+      if (voidNotes.has(i)) {
         row.gap = true
-        row.why = blanked.get(i)
+        row.why = voidNotes.get(i)
       }
       return row
     })
-    if (!this.daysValue || !given.length) return given
+    if (!this.daysValue || !baseRows.length) return baseRows
 
-    const dated = given.filter((row) => ISO.test(row.key))
-    if (dated.length < 2) return given
+    const dated = baseRows.filter((row) => ISO.test(row.key))
+    if (dated.length < 2) return baseRows
 
-    const held = new Map(dated.map((row) => [row.key, row]))
+    const rowsByKey = new Map(dated.map((row) => [row.key, row]))
     const keys = dated.map((row) => row.key).sort()
     return daySpan(keys[0], keys[keys.length - 1]).map((day) => {
-      const row = held.get(day)
+      const row = rowsByKey.get(day)
       if (row) return { ...row, label: dayName(day) }
 
       const gap = { label: dayName(day), key: day, gap: true }
@@ -451,7 +451,7 @@ export default class extends Controller {
 
   get allSeries() {
     return (this.dataValue.datasets || []).map((set, i) => ({
-      k: `s${i}`, c: `c${i}`, n: set.label, ink: INK[i % INK.length], own: set.color,
+      k: `s${i}`, c: `c${i}`, n: set.label, seriesColor: SERIES_COLORS[i % SERIES_COLORS.length], own: set.color,
       ghost: !!set.ghost, over: !!set.over
     }))
   }
@@ -469,7 +469,7 @@ export default class extends Controller {
     const all = this.allSeries
     const order = this.stacked && !this.line ? all.slice().reverse() : all
     return order.map((s) => ({
-      key: s.k, label: s.n, colorClass: this.paint(s), color: s.own || null, shape: this.shapeOf(s)
+      key: s.k, label: s.n, colorClass: this.seriesClass(s), color: s.own || null, shape: this.shapeOf(s)
     }))
   }
 
@@ -501,7 +501,7 @@ export default class extends Controller {
       note: row.tip || null,
       total: total == null ? null : this.format(total),
       values: series.map((s) => ({
-        label: s.n, colorClass: this.paint(s), color: s.own || null, shape: this.shapeOf(s),
+        label: s.n, colorClass: this.seriesClass(s), color: s.own || null, shape: this.shapeOf(s),
         value: row.gap ? "n/a" : this.format(row[s.k]),
         change: this.changeFrom(previous, row, s),
         share: total && solid.includes(s) && row[s.k] != null ? `${((row[s.k] / total) * 100).toFixed(1)}%` : null
@@ -546,7 +546,7 @@ export default class extends Controller {
   }
 
   get line() {
-    return (this.viewValue.kind || this.shown) === "line"
+    return (this.viewValue.kind || this.defaultKind) === "line"
   }
 
   get stacked() {
@@ -610,7 +610,7 @@ export default class extends Controller {
       return
     }
 
-    this.fresh = animate
+    this.firstDraw = animate
     this.element.classList.toggle("chart-spark", this.sparkValue)
     const brush = this.brushValue
       ? " pointerdown->chart#press pointermove->chart#drag pointerup->chart#release pointercancel->chart#release"
@@ -621,8 +621,8 @@ export default class extends Controller {
       data-action="${hover}keydown->chart#key${brush}"
       ><div class="tip"></div><span class="chart-caption" aria-live="polite"></span></div>`
     this.wide = 0
-    this.watcher.disconnect()
-    this.watcher.observe(this.element.querySelector(".chart"))
+    this.observer.disconnect()
+    this.observer.observe(this.element.querySelector(".chart"))
     this.measure()
   }
 
@@ -639,7 +639,7 @@ export default class extends Controller {
 
   head(series) {
     const swatch = (s) =>
-      `<span><i class="${this.paint(s)}${s.ghost ? " ghost" : ""}"${
+      `<span><i class="${this.seriesClass(s)}${s.ghost ? " ghost" : ""}"${
         this.tint(s)}></i>${esc(s.n)}</span>`
     if (series.length < 2 || this.sparkValue || this.nokeyValue || this.viewValue.legend === false) return ""
 
@@ -647,8 +647,8 @@ export default class extends Controller {
     return `<div class="chart-legend">${order.map(swatch).join("")}</div>`
   }
 
-  paint(s) {
-    return `ser-${s.ink}`
+  seriesClass(s) {
+    return `ser-${s.seriesColor}`
   }
 
   tint(s) {
@@ -660,7 +660,7 @@ export default class extends Controller {
   }
 
   tick(v) {
-    if (!this.pctValue) return axl(v)
+    if (!this.pctValue) return axisLabel(v)
 
     return this.fineTicks ? `${Number(v).toFixed(1)}%` : `${Math.round(v)}%`
   }
@@ -668,10 +668,10 @@ export default class extends Controller {
   format(v) {
     if (v == null) return "n/a"
     if (this.pctValue) return `${Number(v).toFixed(1)}%`
-    return this.viewValue.format === "compact" ? axl(v) : F(v)
+    return this.viewValue.format === "compact" ? axisLabel(v) : F(v)
   }
 
-  get overs() {
+  get overlaySeries() {
     return this.line ? [] : this.series.filter((s) => s.over)
   }
 
@@ -680,9 +680,9 @@ export default class extends Controller {
 
     const text = {
       ...PAD,
-      r: PAD.r + (this.overs.length ? 34 : 0),
-      l: PAD.l + (this.xlabelValue || this.ylabelValue ? AX_SAY_Y : 0),
-      b: PAD.b + (this.xlabelValue ? AX_SAY_X : 0)
+      r: PAD.r + (this.overlaySeries.length ? 34 : 0),
+      l: PAD.l + (this.xlabelValue || this.ylabelValue ? Y_TITLE_SPACE : 0),
+      b: PAD.b + (this.xlabelValue ? X_TITLE_SPACE : 0)
     }
     return text
   }
@@ -712,11 +712,11 @@ export default class extends Controller {
 
     const [first, last] = this.visibleRange(rows.length)
     const visible = rows.slice(first, last + 1)
-    const seen = this.stack
+    const visibleValues = this.stack
       ? visible.map((r) => this.sum(r, series))
       : visible.flatMap((r) => series.map((s) => r[s.k])).filter((v) => v != null)
     let lo = 0
-    let hi = seen.length ? Math.max(...seen) : 0
+    let hi = visibleValues.length ? Math.max(...visibleValues) : 0
 
     const pinned = this.pctValue && !this.pctFit
     const log = this.logScale
@@ -724,11 +724,11 @@ export default class extends Controller {
       lo = 0
       hi = 100
     } else if (log) {
-      const positive = seen.map(Number).filter((v) => v > 0)
+      const positive = visibleValues.map(Number).filter((v) => v > 0)
       lo = positive.length ? Math.min(...positive) : 1
       hi = Math.max(hi, lo * 2)
-    } else if (line && seen.length) {
-      const least = Math.min(...seen)
+    } else if (line && visibleValues.length) {
+      const least = Math.min(...visibleValues)
       if (this.sparkValue) lo = least
       else if (!this.viewValue.zero && least > 0 && hi > 0 && (hi - least) / hi < 0.6) lo = least
     }
@@ -743,17 +743,17 @@ export default class extends Controller {
     return { x, y, lo: y.domain()[0], line, high, pad, pinned, log, first, last, windowed: !!window }
   }
 
-  shownLabels(rows, band) {
-    const widest = rows.reduce((mx, r) => Math.max(mx, axWide(r.label)), 0)
+  xLabelLayout(rows, band) {
+    const widest = rows.reduce((mx, r) => Math.max(mx, axisTextWidth(r.label)), 0)
     if (widest + 12 <= band) return { show: this.everyNth(rows.length, 1) }
 
     const sets = this.daysValue || this.line ? [] : (binLabels(rows) || [])
-    const fits = sets.find((names) => names.every((name) => axWide(name) + 12 <= band))
+    const fits = sets.find((names) => names.every((name) => axisTextWidth(name) + 12 <= band))
     if (fits) return { show: this.everyNth(rows.length, 1), names: fits }
 
     const names = sets[sets.length - 1]
-    const room = names ? Math.max(...names.map(axWide)) : widest
-    return { show: this.everyNth(rows.length, Math.max(1, Math.ceil((room + 16) / band))), names }
+    const maxLabelWidth = names ? Math.max(...names.map(axisTextWidth)) : widest
+    return { show: this.everyNth(rows.length, Math.max(1, Math.ceil((maxLabelWidth + 16) / band))), names }
   }
 
   everyNth(count, every) {
@@ -765,19 +765,19 @@ export default class extends Controller {
   draw(chart, wide) {
     const rows = this.rows
     const all = this.series
-    const overs = this.overs
-    const series = overs.length ? all.filter((s) => !s.over) : all
+    const overlaySeries = this.overlaySeries
+    const series = overlaySeries.length ? all.filter((s) => !s.over) : all
     const { x, y, lo, line, high, pad, pinned, log, first, last, windowed } = this.scales(rows, series, wide)
     const band = windowed ? x.step() : (wide - PAD.l - PAD.r) / rows.length
-    const labels = this.sparkValue ? { show: new Set() } : this.shownLabels(rows, band)
+    const labels = this.sparkValue ? { show: new Set() } : this.xLabelLayout(rows, band)
     const mid = (i) => x(i) + x.bandwidth() / 2
     const span = y.domain()[1] - y.domain()[0]
     this.fineTicks = !pinned && this.pctValue && span < 5
-    const whole = rows.every((r) => series.every((s) => r[s.k] == null || Number.isInteger(Number(r[s.k]))))
+    const allIntegers = rows.every((r) => series.every((s) => r[s.k] == null || Number.isInteger(Number(r[s.k]))))
     const tickCount = high < 160 ? 3 : 4
     const ticks = pinned ? [0, 50, 100]
       : log ? logTicks(y.domain()[0], y.domain()[1])
-        : y.ticks(tickCount).filter((v) => !whole || Number.isInteger(v))
+        : y.ticks(tickCount).filter((v) => !allIntegers || Number.isInteger(v))
     const right = wide - pad.r
     const floor = y(lo)
 
@@ -818,7 +818,7 @@ export default class extends Controller {
 
     const flagged = (this.hasPartialValue ? this.partialValue : []).map(Number)
       .filter((i) => i >= 0 && i < rows.length)
-    const lip = (x.step() - x.bandwidth()) / 2
+    const bandInset = (x.step() - x.bandwidth()) / 2
     const runs = [...new Set(flagged)].sort((a, b) => a - b).reduce((all, i) => {
       const last = all[all.length - 1]
       if (last && i === last[1] + 1) last[1] = i
@@ -826,8 +826,8 @@ export default class extends Controller {
       return all
     }, [])
     const marks = this.sparkValue || !this.showNotes ? "" : runs.map(([from, to]) => {
-      const left = Math.max(pad.l, x(from) - lip)
-      const width = Math.min(right, x(to) + x.bandwidth() + lip) - left
+      const left = Math.max(pad.l, x(from) - bandInset)
+      const width = Math.min(right, x(to) + x.bandwidth() + bandInset) - left
       return `<rect class="partial-area" x="${left.toFixed(1)}" y="${pad.t}" width="${
         width.toFixed(1)}" height="${(floor - pad.t).toFixed(1)}" fill="url(#${this.gid}-hatch)"/>`
     }).join("")
@@ -836,11 +836,11 @@ export default class extends Controller {
       if (!ISO.test(r.key)) return ""
       const day = new Date(`${r.key}T00:00:00Z`).getUTCDay()
       if (day !== 0 && day !== 6) return ""
-      return `<rect class="weekend" x="${(x(i) - lip).toFixed(1)}" y="${pad.t}" width="${
+      return `<rect class="weekend" x="${(x(i) - bandInset).toFixed(1)}" y="${pad.t}" width="${
         x.step().toFixed(1)}" height="${(floor - pad.t).toFixed(1)}"/>`
     }).join("")
 
-    let kept = -Infinity
+    let lastLabelEnd = -Infinity
     const names = rows.map((r, i) => {
       if (!labels.show.has(i)) return ""
 
@@ -848,14 +848,14 @@ export default class extends Controller {
       if (windowed && (at < pad.l - 1 || at > right + 1)) return ""
       const text = labels.names ? labels.names[i] : r.label
 
-      const wideness = axWide(text)
-      const anchor = at - wideness / 2 < 2
-        ? "start" : at + wideness / 2 > wide - 2 ? "end" : "middle"
+      const labelWidth = axisTextWidth(text)
+      const anchor = at - labelWidth / 2 < 2
+        ? "start" : at + labelWidth / 2 > wide - 2 ? "end" : "middle"
       const x = anchor === "start" ? 2 : anchor === "end" ? wide - 2 : at
-      const left = anchor === "start" ? x : anchor === "end" ? x - wideness : x - wideness / 2
-      if (left < kept + 12) return ""
+      const left = anchor === "start" ? x : anchor === "end" ? x - labelWidth : x - labelWidth / 2
+      if (left < lastLabelEnd + 12) return ""
 
-      kept = left + wideness
+      lastLabelEnd = left + labelWidth
       return `<text class="ax xtick" data-x="${at.toFixed(1)}" x="${x.toFixed(1)}" y="${
         high - pad.b + 22}" text-anchor="${anchor}">${esc(text)}</text>`
     }).join("")
@@ -863,26 +863,26 @@ export default class extends Controller {
     const body = line
       ? this.drawLine(rows, series, { x, y, mid, lo, floor, log })
       : this.drawBars(rows, series, { x, y, floor })
-    const brushed = this.brushValue || this.externalPointer
+    const brushArea = this.brushValue || this.externalPointer
       ? `<rect class="brush-area" x="0" y="${pad.t}" width="0" height="${
         (floor - pad.t).toFixed(1)}" opacity="0"/>`
       : ""
 
-    const seenOver = rows.slice(first, last + 1).flatMap((r) => overs.map((s) => r[s.k])).filter((v) => v != null)
-    const y2 = overs.length
-      ? scaleLinear().domain([0, Math.max(1, ...seenOver.map(Number))]).range([floor, pad.t]).nice(3)
+    const overlayValues = rows.slice(first, last + 1).flatMap((r) => overlaySeries.map((s) => r[s.k])).filter((v) => v != null)
+    const y2 = overlaySeries.length
+      ? scaleLinear().domain([0, Math.max(1, ...overlayValues.map(Number))]).range([floor, pad.t]).nice(3)
       : null
-    const over = overs.length ? this.drawOver(rows, overs, { mid, y2, floor }) : ""
+    const overlayMarkup = overlaySeries.length ? this.drawOverlay(rows, overlaySeries, { mid, y2, floor }) : ""
     const rightAxis = y2
       ? y2.ticks(3).filter((v) => Number.isInteger(v)).map((v) =>
         `<text class="ax ax-over" x="${(right + 8).toFixed(1)}" y="${(y2(v) + 3.5).toFixed(1)}">${
-          axl(v)}</text>`).join("")
+          axisLabel(v)}</text>`).join("")
       : ""
 
-    const wash = line && !log && series.length === 1 && (lo === 0 || this.sparkValue)
+    const areaGradient = line && !log && series.length === 1 && (lo === 0 || this.sparkValue)
       ? `<linearGradient id="${this.gid}" x1="0" y1="0" x2="0" y2="1">
-          <stop class="top ${this.paint(series[0])}"${this.tint(series[0])} offset="0"/>
-          <stop class="bot ${this.paint(series[0])}"${this.tint(series[0])} offset="1"/>
+          <stop class="top ${this.seriesClass(series[0])}"${this.tint(series[0])} offset="0"/>
+          <stop class="bot ${this.seriesClass(series[0])}"${this.tint(series[0])} offset="1"/>
           </linearGradient>`
       : ""
     const edge = `<linearGradient id="${this.gid}-edge" x1="0" y1="0" x2="1" y2="0">
@@ -893,9 +893,9 @@ export default class extends Controller {
       <mask id="${this.gid}-fade" maskUnits="userSpaceOnUse" x="0" y="0" width="${wide}" height="${high}">
         <rect x="${pad.l}" y="0" width="${(right - pad.l).toFixed(1)}" height="${high}"
           fill="url(#${this.gid}-edge)"/></mask>`
-    const overWash = overs.map((s, n) => `<linearGradient id="${this.gid}-o${n}" x1="0" y1="0" x2="0" y2="1">
-        <stop class="top ${this.paint(s)}"${this.tint(s)} offset="0"/>
-        <stop class="bot ${this.paint(s)}"${this.tint(s)} offset="1"/></linearGradient>`).join("")
+    const overlayGradients = overlaySeries.map((s, n) => `<linearGradient id="${this.gid}-o${n}" x1="0" y1="0" x2="0" y2="1">
+        <stop class="top ${this.seriesClass(s)}"${this.tint(s)} offset="0"/>
+        <stop class="bot ${this.seriesClass(s)}"${this.tint(s)} offset="1"/></linearGradient>`).join("")
     const hatch = `<pattern id="${this.gid}-hatch" width="6" height="6" patternUnits="userSpaceOnUse"
         patternTransform="rotate(45)"><line class="hatch" x1="0" y1="0" x2="0" y2="6"/></pattern>`
     const clipId = `${this.gid}-clip`
@@ -904,15 +904,15 @@ export default class extends Controller {
         (floor + 1).toFixed(1)}"/></clipPath>`
       : ""
     const clipped = (content) => (windowed ? `<g clip-path="url(#${clipId})">${content}</g>` : content)
-    const defs = wash + edge + overWash + hatch + clipPath
+    const defs = areaGradient + edge + overlayGradients + hatch + clipPath
 
     const cursor = (this.sparkValue && !line) ? "" :
       `<line class="cur" x1="0" y1="${pad.t}" x2="0" y2="${floor}" opacity="0"/>` +
       (line
-        ? series.map((s) => `<circle class="dot ${this.paint(s)}"${this.tint(s)} data-s="${s.k}" r="${
+        ? series.map((s) => `<circle class="dot ${this.seriesClass(s)}"${this.tint(s)} data-s="${s.k}" r="${
           this.sparkValue ? 3.2 : 4}" fill="currentColor" opacity="0"/>`).join("")
         : "")
-    const overDots = overs.map((s) => `<circle class="dot ${this.paint(s)}"${this.tint(s)} data-s="${
+    const overlayDots = overlaySeries.map((s) => `<circle class="dot ${this.seriesClass(s)}"${this.tint(s)} data-s="${
       s.k}" data-axis="2" r="4" fill="currentColor" opacity="0"/>`).join("")
     const pinIndex = this.viewValue.pin
     const pinMark = Number.isInteger(pinIndex) && pinIndex >= first && pinIndex <= last
@@ -929,7 +929,7 @@ export default class extends Controller {
       : `<line class="base" mask="url(#${this.gid}-fade)" x1="${pad.l}" y1="${floor}" x2="${
         right}" y2="${floor}"/>`
 
-    const says = this.sparkValue ? "" : [
+    const axisTitles = this.sparkValue ? "" : [
       this.xlabelValue
         ? `<text class="ax" x="${((pad.l + right) / 2).toFixed(1)}" y="${high - 9}"
           text-anchor="middle">${esc(this.xlabelValue)}</text>`
@@ -945,14 +945,14 @@ export default class extends Controller {
       `<svg width="${wide}" height="${high}" viewBox="0 0 ${wide} ${high}" role="img"
         aria-label="${esc(this.summary(rows, series))}"><defs>${defs}</defs>${clipped(weekends + marks + gaps)}${
         grid}` +
-      `${base}${rule}${brushed}${cursor}${clipped(body + over + splits)}${pinMark}${overDots}${names}${rightAxis}${says}${
+      `${base}${rule}${brushArea}${cursor}${clipped(body + overlayMarkup + splits)}${pinMark}${overlayDots}${names}${rightAxis}${axisTitles}${
         pill}</svg>`)
 
-    if (this.fresh) {
-      this.fresh = false
+    if (this.firstDraw) {
+      this.firstDraw = false
       chart.classList.add("is-entering")
-      clearTimeout(this.entered)
-      this.entered = setTimeout(() => chart.classList.remove("is-entering"), 1400)
+      clearTimeout(this.enterTimer)
+      this.enterTimer = setTimeout(() => chart.classList.remove("is-entering"), 1400)
     }
 
     this.geom = {
@@ -984,12 +984,12 @@ export default class extends Controller {
           wide = BAR_CAP
         }
         if (Number(v) === 0) {
-          return `<rect class="${this.paint(s)}"${this.mark(s)} fill="currentColor" opacity="0.45"
+          return `<rect class="${this.seriesClass(s)}"${this.mark(s)} fill="currentColor" opacity="0.45"
             x="${at.toFixed(1)}" y="${(floor - 2).toFixed(1)}"
             width="${wide.toFixed(1)}" height="2" rx="1"/>`
         }
         const tall = Math.max(floor - y(v), 2)
-        return `<path class="bar ${this.paint(s)}"${this.mark(s)} fill="currentColor" d="${
+        return `<path class="bar ${this.seriesClass(s)}"${this.mark(s)} fill="currentColor" d="${
           topBar(at, floor - tall, wide, tall, Math.min(BAR_R, wide / 2))}"/>`
       }).join("")
 
@@ -1021,56 +1021,56 @@ export default class extends Controller {
         if (!(tall > 0)) return ""
 
         const cap = s_i === series.length - 1 ? Math.min(BAR_R, wide / 2) : 0
-        return `<path class="bar ${this.paint(s)}"${this.mark(s)} fill="currentColor" d="${
+        return `<path class="bar ${this.seriesClass(s)}"${this.mark(s)} fill="currentColor" d="${
           topBar(at, top, wide, tall, cap)}"/>`
       }).reverse().join("")
 
       const cap = caps[i]
-      const say = cap == null || cap.v == null ? "" :
+      const capLabel = cap == null || cap.v == null ? "" :
         `<text class="cap" x="${(at + wide / 2).toFixed(1)}" y="${
           Math.max(ceiling, y(Number(cap.v)) - 7).toFixed(1)}" text-anchor="middle">${
           esc(cap.t)}</text>`
 
-      return `<g class="mark" data-i="${i}" style="--i:${i}">${bars}${say}</g>`
+      return `<g class="mark" data-i="${i}" style="--i:${i}">${bars}${capLabel}</g>`
     }).join("")
   }
 
   drawLine(rows, series, { mid, y, lo, floor, log }) {
-    const bend = curveMonotoneX
+    const curve = curveMonotoneX
     const plottable = (v) => v != null && (!log || Number(v) > 0)
     const pts = (s) => rows.map((r, i) => ({ i, v: plottable(r[s.k]) ? r[s.k] : null }))
     const path = lineOf().defined((d) => d.v != null).x((d) => mid(d.i)).y((d) => y(d.v))
-      .curve(bend)
+      .curve(curve)
     const under = areaOf().defined((d) => d.v != null).x((d) => mid(d.i)).y0(floor)
-      .y1((d) => y(d.v)).curve(bend)
+      .y1((d) => y(d.v)).curve(curve)
     const solid = series.filter((s) => !s.ghost)
-    const wash = !log && solid.length === 1 && (lo === 0 || this.sparkValue)
+    const showAreaFill = !log && solid.length === 1 && (lo === 0 || this.sparkValue)
 
     return series.map((s) => {
-      const seen = pts(s)
-      const fill = wash && !s.ghost
+      const points = pts(s)
+      const fill = showAreaFill && !s.ghost
         ? `<path class="wash" data-series="${s.k}" fill="url(#${this.gid})" mask="url(#${this.gid}-fade)" d="${
-          under(seen)}"/>` : ""
+          under(points)}"/>` : ""
       const dash = s.ghost ? ' stroke-dasharray="5 4"' : ' pathLength="1"'
-      return `${fill}${this.bridge(seen, s, mid, y)}<path class="${s.ghost ? "" : "stroke-line "}${
-        this.paint(s)}"${this.mark(s)} fill="none" stroke="currentColor"
+      return `${fill}${this.bridge(points, s, mid, y)}<path class="${s.ghost ? "" : "stroke-line "}${
+        this.seriesClass(s)}"${this.mark(s)} fill="none" stroke="currentColor"
         stroke-width="${s.ghost ? 1.5 : 2}"${dash} stroke-linejoin="round" stroke-linecap="round"
-        d="${path(seen)}"/>${this.alone(seen, s, mid, y)}`
+        d="${path(points)}"/>${this.isolatedDots(points, s, mid, y)}`
     }).join("")
   }
 
-  drawOver(rows, overs, { mid, y2, floor }) {
-    const bend = curveMonotoneX
-    return overs.map((s, n) => {
-      const seen = rows.map((r, i) => ({ i, v: r[s.k] }))
-      const path = lineOf().defined((d) => d.v != null).x((d) => mid(d.i)).y((d) => y2(d.v)).curve(bend)
+  drawOverlay(rows, overlaySeries, { mid, y2, floor }) {
+    const curve = curveMonotoneX
+    return overlaySeries.map((s, n) => {
+      const points = rows.map((r, i) => ({ i, v: r[s.k] }))
+      const path = lineOf().defined((d) => d.v != null).x((d) => mid(d.i)).y((d) => y2(d.v)).curve(curve)
       const under = areaOf().defined((d) => d.v != null).x((d) => mid(d.i)).y0(floor)
-        .y1((d) => y2(d.v)).curve(bend)
+        .y1((d) => y2(d.v)).curve(curve)
       return `<path class="wash wash-over" data-series="${s.k}" fill="url(#${this.gid}-o${n})" mask="url(#${this.gid}-fade)"
-          d="${under(seen)}"/>` +
-        `<path class="stroke-line ${this.paint(s)}"${this.mark(s)} pathLength="1" fill="none"
+          d="${under(points)}"/>` +
+        `<path class="stroke-line ${this.seriesClass(s)}"${this.mark(s)} pathLength="1" fill="none"
           stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"
-          d="${path(seen)}"/>`
+          d="${path(points)}"/>`
     }).join("")
   }
 
@@ -1080,24 +1080,24 @@ export default class extends Controller {
       `<circle cx="${x}" cy="${top - 4}" r="3"/></g>`
   }
 
-  bridge(seen, s, mid, y) {
-    const at = seen.filter((d) => d.v != null)
+  bridge(points, s, mid, y) {
+    const at = points.filter((d) => d.v != null)
     const spans = at.slice(1)
       .map((d, k) => [at[k], d])
       .filter(([a, b]) => b.i - a.i > 1)
       .map(([a, b]) => `M${mid(a.i)},${y(a.v)}L${mid(b.i)},${y(b.v)}`)
     if (!spans.length) return ""
 
-    return `<path class="${this.paint(s)}"${this.mark(s)} fill="none" stroke="currentColor"
+    return `<path class="${this.seriesClass(s)}"${this.mark(s)} fill="none" stroke="currentColor"
       stroke-width="${s.ghost ? 1.5 : 2}" stroke-dasharray="2 3" stroke-linecap="round"
       opacity="0.5" d="${spans.join("")}"/>`
   }
 
-  alone(seen, s, mid, y) {
-    return seen.filter((d, i) =>
-      d.v != null && seen[i - 1]?.v == null && seen[i + 1]?.v == null
+  isolatedDots(points, s, mid, y) {
+    return points.filter((d, i) =>
+      d.v != null && points[i - 1]?.v == null && points[i + 1]?.v == null
     ).map((d) =>
-      `<circle class="${this.paint(s)}"${this.mark(s)} fill="currentColor" stroke="none"
+      `<circle class="${this.seriesClass(s)}"${this.mark(s)} fill="currentColor" stroke="none"
         cx="${mid(d.i)}" cy="${y(d.v)}" r="${s.ghost ? 1.5 : 2}"/>`
     ).join("")
   }
@@ -1105,24 +1105,24 @@ export default class extends Controller {
   summary(rows, series) {
     const title = this.viewValue.title ||
       this.element.closest(".card")?.querySelector(".card-title")?.textContent?.trim()
-    const what = series.map((s) => s.n).join(" and ")
+    const seriesNames = series.map((s) => s.n).join(" and ")
     const shape = this.sparkValue ? "trend" : this.stack ? "stacked bar chart"
       : this.line ? "line chart" : "bar chart"
-    const seen = rows.flatMap((r) => series.map((s) => r[s.k])).filter((v) => v != null)
-    const holes = rows.filter((r) => r.gap).length
-    const range = seen.length
-      ? `, low ${this.format(Math.min(...seen))}, high ${this.format(Math.max(...seen))}`
+    const values = rows.flatMap((r) => series.map((s) => r[s.k])).filter((v) => v != null)
+    const gapCount = rows.filter((r) => r.gap).length
+    const range = values.length
+      ? `, low ${this.format(Math.min(...values))}, high ${this.format(Math.max(...values))}`
       : ""
     const latest = rows.length && series.length
       ? `, latest ${this.format(rows[rows.length - 1][series[0].k])}`
       : ""
     const unit = this.daysValue ? "day" : "point"
-    const missing = holes ? `, ${holes} ${unit}${holes > 1 ? "s" : ""} not measurable` : ""
-    return `${title || what} ${shape}, ${rows.length} points, ${rows[0].label} to ${
+    const missing = gapCount ? `, ${gapCount} ${unit}${gapCount > 1 ? "s" : ""} not measurable` : ""
+    return `${title || seriesNames} ${shape}, ${rows.length} points, ${rows[0].label} to ${
       rows[rows.length - 1].label}${range}${latest}${missing}`
   }
 
-  spot(event, loose = false) {
+  indexAtPointer(event, loose = false) {
     const g = this.geom
     if (!g) return null
 
@@ -1135,9 +1135,9 @@ export default class extends Controller {
   }
 
   track(event) {
-    if (this.held) return
+    if (this.brushDrag) return
 
-    const i = this.spot(event)
+    const i = this.indexAtPointer(event)
     if (i == null) return this.clear()
 
     this.show(i)
@@ -1146,34 +1146,34 @@ export default class extends Controller {
   press(event) {
     if (event.button !== 0) return
 
-    const i = this.spot(event)
+    const i = this.indexAtPointer(event)
     if (i == null) return
 
     event.preventDefault()
-    this.held = { from: i, to: i }
+    this.brushDrag = { from: i, to: i }
     event.currentTarget.setPointerCapture?.(event.pointerId)
     this.span()
   }
 
   drag(event) {
-    if (!this.held) return
+    if (!this.brushDrag) return
 
-    this.held.to = this.spot(event, true)
+    this.brushDrag.to = this.indexAtPointer(event, true)
     this.span()
   }
 
   release(event) {
-    const held = this.held
-    if (!held) return
+    const selection = this.brushDrag
+    if (!selection) return
 
-    this.held = null
+    this.brushDrag = null
     if (event.type === "pointercancel") return this.clear()
 
-    this.pick(Math.min(held.from, held.to), Math.max(held.from, held.to))
+    this.navigateToRange(Math.min(selection.from, selection.to), Math.max(selection.from, selection.to))
   }
 
   span() {
-    this.highlightRows(Math.min(this.held.from, this.held.to), Math.max(this.held.from, this.held.to))
+    this.highlightRows(Math.min(this.brushDrag.from, this.brushDrag.to), Math.max(this.brushDrag.from, this.brushDrag.to))
   }
 
   highlightRows(lo, hi) {
@@ -1185,20 +1185,20 @@ export default class extends Controller {
     chart.querySelectorAll(".mark").forEach((mark) =>
       mark.classList.toggle("fade", +mark.dataset.i < lo || +mark.dataset.i > hi))
 
-    const lip = (g.x.step() - g.x.bandwidth()) / 2
-    const left = Math.max(g.pad.l, g.x(lo) - lip)
-    const right = Math.min(g.wide - g.pad.r, g.x(hi) + g.x.bandwidth() + lip)
+    const bandInset = (g.x.step() - g.x.bandwidth()) / 2
+    const left = Math.max(g.pad.l, g.x(lo) - bandInset)
+    const right = Math.min(g.wide - g.pad.r, g.x(hi) + g.x.bandwidth() + bandInset)
     const area = chart.querySelector(".brush-area")
     area?.setAttribute("x", left.toFixed(1))
     area?.setAttribute("width", (right - left).toFixed(1))
     area?.setAttribute("opacity", "1")
 
-    const say = lo === hi ? g.rows[lo].label : `${g.rows[lo].label} to ${g.rows[hi].label}`
-    this.pill(chart, (left + right) / 2, say)
-    chart.querySelector(".chart-caption").textContent = say
+    const rangeLabel = lo === hi ? g.rows[lo].label : `${g.rows[lo].label} to ${g.rows[hi].label}`
+    this.pill(chart, (left + right) / 2, rangeLabel)
+    chart.querySelector(".chart-caption").textContent = rangeLabel
   }
 
-  pick(lo, hi) {
+  navigateToRange(lo, hi) {
     const g = this.geom
     if (!g || !this.hasBrushHrefValue) return
 
@@ -1226,7 +1226,7 @@ export default class extends Controller {
     else if (event.key === "Escape") return this.clear()
     else if (event.key === "Enter" && this.brushValue && this.at != null) {
       event.preventDefault()
-      return this.pick(this.at, this.at)
+      return this.navigateToRange(this.at, this.at)
     }
     else return
 
@@ -1245,16 +1245,16 @@ export default class extends Controller {
       ? `<div class="row"><i class="donut-hole-dot"></i>${
         esc(row.why || "not fetched")}<b>n/a</b></div>`
       : g.series.map((s) => row[s.k] == null ? "" :
-        `<div class="row"><i class="${this.paint(s)}"${this.tint(s)}></i>${esc(s.n)}<b><span>${
+        `<div class="row"><i class="${this.seriesClass(s)}"${this.tint(s)}></i>${esc(s.n)}<b><span>${
           this.format(row[s.k])}</span>${row[s.c] == null ? "" : `<u>${F(row[s.c])}</u>`}</b></div>`)
         .join("")
 
-    const whole = this.stack && !row.gap && !this.pctValue
+    const totalRow = this.stack && !row.gap && !this.pctValue
       ? `<div class="row row-sum"><i></i>total<b><span>${
         this.format(this.sum(row, g.bars))}</span></b></div>`
       : ""
 
-    const short = this.hasPartialValue && this.partialValue.map(Number).includes(i)
+    const partialRow = this.hasPartialValue && this.partialValue.map(Number).includes(i)
       ? `<div class="row row-note"><i class="donut-hole-dot"></i>${
         esc(this.partialNoteValue || "period not complete")}</div>`
       : ""
@@ -1268,7 +1268,7 @@ export default class extends Controller {
       : ""
 
     const tip = chart.querySelector(".tip")
-    tip.innerHTML = `<div class="t">${esc(row.label)}</div>${lines}${whole}${text}${short}${note}`
+    tip.innerHTML = `<div class="t">${esc(row.label)}</div>${lines}${totalRow}${text}${partialRow}${note}`
     tip.classList.add("on")
 
     const at = g.mid(i)
@@ -1314,19 +1314,19 @@ export default class extends Controller {
     if (!pill || !g) return
 
     const text = String(label)
-    const wide = axWide(text) + 20
+    const wide = axisTextWidth(text) + 20
     const left = clamp(at - wide / 2, g.pad.l - 4, g.wide - g.pad.r - wide + 4)
     const box = pill.querySelector("rect")
     box.setAttribute("x", left.toFixed(1))
     box.setAttribute("width", wide.toFixed(1))
-    const say = pill.querySelector("text")
-    say.setAttribute("x", (left + wide / 2).toFixed(1))
-    say.textContent = text
+    const pillText = pill.querySelector("text")
+    pillText.setAttribute("x", (left + wide / 2).toFixed(1))
+    pillText.textContent = text
     pill.setAttribute("opacity", "1")
 
     chart.querySelectorAll(".xtick").forEach((tick) => {
-      const near = Math.abs(Number(tick.dataset.x) - at) < wide / 2 + 18
-      if (near) tick.setAttribute("opacity", "0")
+      const overlapsPill = Math.abs(Number(tick.dataset.x) - at) < wide / 2 + 18
+      if (overlapsPill) tick.setAttribute("opacity", "0")
       else tick.removeAttribute("opacity")
     })
   }
@@ -1344,7 +1344,7 @@ export default class extends Controller {
     chart.querySelector(".x-pill")?.setAttribute("opacity", "0")
     chart.querySelector(".brush-area")?.setAttribute("opacity", "0")
     chart.querySelectorAll(".xtick").forEach((tick) => tick.removeAttribute("opacity"))
-    const say = chart.querySelector(".chart-caption")
-    if (say) say.textContent = ""
+    const caption = chart.querySelector(".chart-caption")
+    if (caption) caption.textContent = ""
   }
 }

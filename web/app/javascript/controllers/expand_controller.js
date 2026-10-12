@@ -5,14 +5,14 @@ export default class extends Controller {
 
   connect() {
     this.loading = false
-    this.watcher = new IntersectionObserver((entries) => {
+    this.observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) this.load()
     }, { root: this.element.closest(this.rootValue), rootMargin: "320px 0px" })
-    this.watcher.observe(this.element)
+    this.observer.observe(this.element)
   }
 
   disconnect() {
-    this.watcher?.disconnect()
+    this.observer?.disconnect()
   }
 
   async load() {
@@ -23,19 +23,19 @@ export default class extends Controller {
       const response = await fetch(this.urlValue, { headers: { Accept: "text/html" } })
       if (!response.ok) throw new Error(response.status)
 
-      const holder = document.createElement("div")
-      holder.innerHTML = await response.text()
-      const next = holder.querySelector("template[data-expand-next]")
+      const container = document.createElement("div")
+      container.innerHTML = await response.text()
+      const next = container.querySelector("template[data-expand-next]")
       next?.remove()
 
-      const into = document.getElementById(this.intoValue)
-      if (into) into.append(...holder.children)
+      const list = document.getElementById(this.intoValue)
+      if (list) list.append(...container.children)
 
       if (next) {
         this.urlValue = next.dataset.moreNext
         this.loading = false
-        this.watcher.unobserve(this.element)
-        this.watcher.observe(this.element)
+        this.observer.unobserve(this.element)
+        this.observer.observe(this.element)
       } else {
         this.element.remove()
       }

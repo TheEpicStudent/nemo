@@ -13,11 +13,11 @@
 <% if cited %>
   <span class="queue-cite">
     <span class="queue-cite-head">
-      <%= face(cited.author, css: "row-avatar queue-cite-face") %>
+      <%= avatar(cited.author, css: "row-avatar queue-cite-face") %>
       <span class="queue-cite-who trunc"><%= names[cited.author] %></span>
-      <% named = cited.channel.present? && channels.named?(cited.channel) %>
-      <span class="queue-cite-how"><%= cited.word %><%= " from" if named %></span>
-      <% if named %>
+      <% has_channel_name = cited.channel.present? && channels.named?(cited.channel) %>
+      <span class="queue-cite-how"><%= cited.kind_label %><%= " from" if has_channel_name %></span>
+      <% if has_channel_name %>
         <span class="queue-cite-in trunc"><%= channels[cited.channel] %></span>
       <% end %>
     </span>
@@ -31,7 +31,7 @@
   <span class="queue-violation trunc"><%= label || "no violation set" %></span>
   <% if kase.assigned? %>
     <span class="avatar-stack">
-      <%= safe_join(kase.assignee_user_ids.map { |id| face(id) }) %>
+      <%= safe_join(kase.assignee_user_ids.map { |id| avatar(id) }) %>
     </span>
   <% end %>
 </span>

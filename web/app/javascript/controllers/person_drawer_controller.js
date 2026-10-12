@@ -10,7 +10,7 @@ export default class extends Controller {
   }
 
   disconnect() {
-    clearTimeout(this.fallback)
+    clearTimeout(this.fallbackTimer)
     document.removeEventListener("keydown", this.onKey)
     document.removeEventListener("click", this.onClick)
   }
@@ -20,16 +20,16 @@ export default class extends Controller {
 
     this.element.classList.add("is-leaving")
 
-    const done = () => {
-      clearTimeout(this.fallback)
-      this.element.removeEventListener("animationend", done)
+    const cleanup = () => {
+      clearTimeout(this.fallbackTimer)
+      this.element.removeEventListener("animationend", cleanup)
       this.element.innerHTML = ""
       this.element.removeAttribute("src")
       this.element.classList.remove("is-leaving")
     }
 
-    this.element.addEventListener("animationend", done)
-    this.fallback = setTimeout(done, 400)
+    this.element.addEventListener("animationend", cleanup)
+    this.fallbackTimer = setTimeout(cleanup, 400)
   }
 
   onClick(event) {

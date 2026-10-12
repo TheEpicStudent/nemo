@@ -1,45 +1,45 @@
 module Fd
   class ChatPresence
     STALE_AFTER = 75.seconds
-    KEEP_FOR = 10.minutes
+    CACHE_TTL = 10.minutes
 
-    def self.arrive(case_id, user_id)
-      change(case_id) do |here|
-        seen = here.fetch(user_id, { "n" => 0 })
-        here[user_id] = { "n" => seen["n"] + 1, "at" => now }
+    def self.join(case_id, user_id)
+      change(case_id) do |entries|
+        entry = entries.fetch(user_id, { "n" => 0 })
+        entries[user_id] = { "n" => entry["n"] + 1, "at" => now }
       end
     end
 
-    def self.beat(case_id, user_id)
-      change(case_id) do |here|
-        seen = here.fetch(user_id, { "n" => 1 })
-        here[user_id] = { "n" => seen["n"], "at" => now }
+    def self.heartbeat(case_id, user_id)
+      change(case_id) do |entries|
+        entry = entries.fetch(user_id, { "n" => 1 })
+        entries[user_id] = { "n" => entry["n"], "at" => now }
       end
     end
 
     def self.leave(case_id, user_id)
-      change(case_id) do |here|
-        left = here.fetch(user_id, { "n" => 0 })["n"] - 1
-        left.positive? ? here[user_id] = { "n" => left, "at" => now } : here.delete(user_id)
+      change(case_id) do |entries|
+        remaining = entries.fetch(user_id, { "n" => 0 })["n"] - 1
+        remaining.positive? ? entries[user_id] = { "n" => remaining, "at" => now } : entries.delete(user_id)
       end
     end
 
-    def self.here(case_id)
-      fresh(Rails.cache.read(key(case_id)) || {}).keys
+    def self.present_user_ids(case_id)
+      active_entries(Rails.cache.read(key(case_id)) || {}).keys
     end
 
     def self.change(case_id)
-      before = here(case_id)
-      here = fresh(Rails.cache.read(key(case_id)) || {})
-      yield here
-      Rails.cache.write(key(case_id), here, expires_in: KEEP_FOR)
-      broadcast(case_id, here.keys) if here.keys.sort != before.sort
-      here.keys
+      before = present_user_ids(case_id)
+      entries = active_entries(Rails.cache.read(key(case_id)) || {})
+      yield entries
+      Rails.cache.write(key(case_id), entries, expires_in: CACHE_TTL)
+      broadcast(case_id, entries.keys) if entries.keys.sort != before.sort
+      entries.keys
     end
 
-    def self.fresh(entries)
+    def self.active_entries(entries)
       floor = now - STALE_AFTER.to_i
-      entries.select { |_, seen| seen.is_a?(Hash) && seen["at"].to_i >= floor }
+      entries.select { |_, entry| entry.is_a?(Hash) && entry["at"].to_i >= floor }
     end
 
     def self.now

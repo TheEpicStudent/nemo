@@ -9,12 +9,12 @@ CATCHING_UP = (
     "It is saved — there is no need to send it again."
 )
 
-DID_NOT_TAKE = (
+HANDOFF_FAILED = (
     ":warning: That did not go through, so the Fire Department has not got it. "
     "Please try again in a few minutes."
 )
 
-NEMO_STANDING = """
+NEMO_HEARTBEAT = """
 SELECT bool_or(beat_at > now() - %s::interval)
 FROM raw.worker_heartbeat
 WHERE worker LIKE 'bot%%' AND worker LIKE '%%nemo%%'
@@ -23,7 +23,7 @@ WHERE worker LIKE 'bot%%' AND worker LIKE '%%nemo%%'
 
 def nemo_is_behind(conn):
     try:
-        row = conn.execute(NEMO_STANDING, (NEMO_QUIET_AFTER,)).fetchone()
+        row = conn.execute(NEMO_HEARTBEAT, (NEMO_QUIET_AFTER,)).fetchone()
     except Exception:
         return False
     return row is None or not row[0]
@@ -57,7 +57,7 @@ def receipt(case_id, anonymous, behind=False):
     return text, blocks
 
 
-def not_taken():
-    return DID_NOT_TAKE, [
-        {"type": "section", "text": {"type": "mrkdwn", "text": DID_NOT_TAKE}}
+def handoff_failed():
+    return HANDOFF_FAILED, [
+        {"type": "section", "text": {"type": "mrkdwn", "text": HANDOFF_FAILED}}
     ]

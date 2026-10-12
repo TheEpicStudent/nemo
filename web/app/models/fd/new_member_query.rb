@@ -104,7 +104,7 @@ module Fd
       @term ||= @params[TERM_KEY].to_s.strip.delete_prefix("@")
     end
 
-    def asked? = term.length >= MIN_TERM
+    def searching? = term.length >= MIN_TERM
 
     def default?(key) = self[key] == DEFAULTS.fetch(key)
 
@@ -114,7 +114,7 @@ module Fd
 
     def view
       raw = @params["view"].to_s
-      return nil if raw == NO_VIEW || chosen_facets.any?
+      return nil if raw == NO_VIEW || selected_facets.any?
 
 
       VIEWS.key?(raw) ? raw : DEFAULT_VIEW
@@ -129,43 +129,43 @@ module Fd
       end
     end
 
-    def carried
-      held = {}
-      held[WINDOW_KEY] = self[WINDOW_KEY] unless default?(WINDOW_KEY)
-      held[TERM_KEY] = term if asked?
-      held
+    def persistent_params
+      params = {}
+      params[WINDOW_KEY] = self[WINDOW_KEY] unless default?(WINDOW_KEY)
+      params[TERM_KEY] = term if searching?
+      params
     end
 
     def to_params
-      carried.merge(placed)
+      persistent_params.merge(filter_params)
     end
 
     def view_params(key)
-      held = {}
-      held[WINDOW_KEY] = self[WINDOW_KEY] unless default?(WINDOW_KEY)
-      held[TERM_KEY] = term if asked?
-      key == DEFAULT_VIEW ? held : held.merge("view" => key)
+      params = {}
+      params[WINDOW_KEY] = self[WINDOW_KEY] unless default?(WINDOW_KEY)
+      params[TERM_KEY] = term if searching?
+      key == DEFAULT_VIEW ? params : params.merge("view" => key)
     end
 
     def window_params(key)
-      held = placed
-      held.delete(TERM_KEY)
-      held[TERM_KEY] = term if asked?
-      key == DEFAULTS.fetch(WINDOW_KEY) ? held : held.merge(WINDOW_KEY => key)
+      params = filter_params
+      params.delete(TERM_KEY)
+      params[TERM_KEY] = term if searching?
+      key == DEFAULTS.fetch(WINDOW_KEY) ? params : params.merge(WINDOW_KEY => key)
     end
 
     def term_params(term_value)
-      held = carried.merge(placed)
-      held.delete(TERM_KEY)
-      term_value.present? ? held.merge(TERM_KEY => term_value) : held
+      params = persistent_params.merge(filter_params)
+      params.delete(TERM_KEY)
+      term_value.present? ? params.merge(TERM_KEY => term_value) : params
     end
 
     def facet_params(overrides)
-      base = view ? VIEW_FACETS.fetch(view) : chosen_facets
-      chosen = base.merge(overrides.stringify_keys)
+      base = view ? VIEW_FACETS.fetch(view) : selected_facets
+      selected = base.merge(overrides.stringify_keys)
         .reject { |key, value| value.to_s == DEFAULTS[key] || value.blank? }
 
-      carried.merge(chosen.presence || { "view" => NO_VIEW })
+      persistent_params.merge(selected.presence || { "view" => NO_VIEW })
     end
 
     def page_params(page) = to_params.merge("page" => page)
@@ -193,8 +193,8 @@ module Fd
     PRIMARY = %w[when state sort].freeze
 
     def inline_facets
-      shown = facets.select(&:on)
-      shown + facets.reject(&:on).select { |facet| PRIMARY.include?(facet.key) }
+      active = facets.select(&:on)
+      active + facets.reject(&:on).select { |facet| PRIMARY.include?(facet.key) }
     end
 
     def more_facets
@@ -202,20 +202,20 @@ module Fd
     end
 
     def rows
-      @rows ||= ask(page_sql, limit: LIMIT, offset: (page - 1) * LIMIT)
+      @rows ||= select_rows(page_sql, limit: LIMIT, offset: (page - 1) * LIMIT)
         .map { |row| build(row) }
     end
 
-    def one(user_id)
+    def find_member(user_id)
       term_value = user_id.to_s.strip
       return nil if term_value.blank?
 
-      found = ask(body("*", "user_id = :who"), who: term_value).first
-      found && build(found)
+      row = select_rows(body("*", "user_id = :who"), who: term_value).first
+      row && build(row)
     end
 
     def total
-      @total ||= ask(count_sql).first["found"].to_i
+      @total ||= select_rows(count_sql).first["found"].to_i
     end
 
     def page
@@ -226,26 +226,26 @@ module Fd
       @pages ||= [(total / LIMIT.to_f).ceil, 1].max
     end
 
-    def first_shown = ((page - 1) * LIMIT) + 1
+    def first_visible = ((page - 1) * LIMIT) + 1
 
-    def last_shown = [first_shown + rows.size - 1, total].min
+    def last_visible = [first_visible + rows.size - 1, total].min
 
     def title
-      return "#{view_label} matching #{term}" if view && asked?
+      return "#{view_label} matching #{term}" if view && searching?
       return view_label if view
 
-      rest = [state_phrase, match_phrase, domain_phrase, term_phrase].compact
-      lead = "Joined #{WHEN.fetch(self[WINDOW_KEY])}"
-      rest.empty? ? lead : "#{lead}, #{rest.to_sentence}"
+      phrases = [state_phrase, match_phrase, domain_phrase, term_phrase].compact
+      prefix = "Joined #{WHEN.fetch(self[WINDOW_KEY])}"
+      phrases.empty? ? prefix : "#{prefix}, #{phrases.to_sentence}"
     end
 
     def summary
-      ["#{total.zero? ? 0 : first_shown}–#{last_shown} of #{total}",
+      ["#{total.zero? ? 0 : first_visible}–#{last_visible} of #{total}",
        SORT.fetch(self["sort"])].join(" · ")
     end
 
     def empty_note
-      return "Nobody who joined #{WHEN.fetch(self[WINDOW_KEY])} matches #{term}." if asked?
+      return "Nobody who joined #{WHEN.fetch(self[WINDOW_KEY])} matches #{term}." if searching?
 
       case view
       when "guarded" then "Nobody who joined lately is under a guard."
@@ -256,15 +256,15 @@ module Fd
 
     private
 
-    def placed
+    def filter_params
       return {} if view == DEFAULT_VIEW
       return { "view" => view } if view
 
-      chosen_facets.presence || { "view" => NO_VIEW }
+      selected_facets.presence || { "view" => NO_VIEW }
     end
 
-    def chosen_facets
-      @chosen_facets ||= FACET_KEYS.filter_map { |key|
+    def selected_facets
+      @selected_facets ||= FACET_KEYS.filter_map { |key|
         raw = @params[key].to_s
         [key, raw] if allowed?(key, raw) && raw != DEFAULTS[key]
       }.to_h
@@ -305,18 +305,18 @@ module Fd
         ON mi.user_id = j.user_id AND mi.purged_at IS NULL
     SQL
 
-    SEEN_COLUMNS =
+    SESSION_COLUMNS =
       ", seen.ua_app AS seen_app, place.country AS seen_country, " \
       "coalesce(cohort.people, 0) AS seen_people, " \
       "host(seen.ip) AS ip, place.region AS region, place.isp AS isp, " \
       "seen.ua_os AS seen_os, seen.ua AS raw_agent, seen.at AS seen_at".freeze
-    BLIND_SEEN =
+    BLIND_SESSION_COLUMNS =
       ", NULL::text AS seen_app, NULL::text AS seen_country, 0 AS seen_people, " \
       "NULL::text AS ip, NULL::text AS region, NULL::text AS isp, " \
       "NULL::text AS seen_os, NULL::text AS raw_agent, " \
       "NULL::timestamptz AS seen_at".freeze
 
-    SEEN_JOIN = <<~SQL.freeze
+    SESSION_JOIN = <<~SQL.freeze
       LEFT JOIN LATERAL (
         SELECT agent.app AS ua_app, agent.os AS ua_os, agent.ua, l.country, l.region, l.isp,
                l.ip, l.ip_prefix, l.last_at AS at
@@ -373,23 +373,23 @@ module Fd
                    WHERE g.subject_id = j.user_id AND g.kind = 'deactivation'
                      AND g.state IN ('live', 'lifting')
                  ) AS deactivated
-                 #{identity? ? SEEN_COLUMNS : BLIND_SEEN}
+                 #{identity? ? SESSION_COLUMNS : BLIND_SESSION_COLUMNS}
           FROM joined j
           JOIN fd.member m ON m.user_id = j.user_id AND NOT m.is_bot
           #{identity? ? IDENTITY_JOIN : ''}
           #{identity? ? 'LEFT JOIN domains d ON d.domain = lower(split_part(mi.email, \'@\', 2))' : ''}
-          #{identity? ? SEEN_JOIN : ''}
+          #{identity? ? SESSION_JOIN : ''}
         )
         SELECT #{columns} FROM picked WHERE #{where}
       SQL
     end
 
     def page_sql
-      "#{body('*', picked_clause)} ORDER BY #{order} LIMIT :limit OFFSET :offset"
+      "#{body('*', filter_clause)} ORDER BY #{order} LIMIT :limit OFFSET :offset"
     end
 
     def count_sql
-      body("count(*) AS found", picked_clause)
+      body("count(*) AS found", filter_clause)
     end
 
     WINDOWS = { "day" => 1, "week" => 7, "month" => 30 }.freeze
@@ -399,14 +399,14 @@ module Fd
       days ? "j.joined_at >= now() - make_interval(days => #{days})" : "true"
     end
 
-    def picked_clause
+    def filter_clause
       parts = ["true"]
       parts << "domain IS NOT NULL AND domain_people <= 1" if self["shape"] == "lone"
       parts << "in_force = 0 AND NOT deactivated" if self["state"] == "clean"
       parts << "in_force > 0" if self["state"] == "guarded"
       parts << "deactivated" if self["state"] == "gone"
       parts << "domain = :domain" unless default?("domain")
-      parts << term_clause if asked?
+      parts << term_clause if searching?
       parts.join(" AND ")
     end
 
@@ -423,15 +423,15 @@ module Fd
     end
 
     def order
-      way = descending? ? "DESC" : "ASC"
-      tie = descending? ? "ASC" : "DESC"
+      direction = descending? ? "DESC" : "ASC"
+      tiebreak_direction = descending? ? "ASC" : "DESC"
 
       case self["sort"]
-      when "domain" then "domain #{way} NULLS LAST, joined_at DESC"
+      when "domain" then "domain #{direction} NULLS LAST, joined_at DESC"
       when "name"
-        "lower(coalesce(nullif(display_name, ''), nullif(handle, ''), user_id)) #{way}, " \
-          "user_id #{tie}"
-      else "joined_at #{way}, user_id #{tie}"
+        "lower(coalesce(nullif(display_name, ''), nullif(handle, ''), user_id)) #{direction}, " \
+          "user_id #{tiebreak_direction}"
+      else "joined_at #{direction}, user_id #{tiebreak_direction}"
       end
     end
 
@@ -440,7 +440,7 @@ module Fd
         term: "%#{ApplicationRecord.sanitize_sql_like(term.downcase)}%" }
     end
 
-    def ask(sql, extra = {})
+    def select_rows(sql, extra = {})
       ApplicationRecord.connection.select_all(
         ApplicationRecord.sanitize_sql([sql, binds.merge(extra)])
       )
@@ -461,7 +461,7 @@ module Fd
       )
     end
 
-    def counted
+    def view_count_columns
       "count(*) AS newest, " \
         "count(*) FILTER (WHERE in_force > 0) AS guarded, " \
         "count(*) FILTER (WHERE deactivated) AS gone"
@@ -470,7 +470,7 @@ module Fd
     def view_counts
       @view_counts ||= begin
         row = ApplicationRecord.connection.select_one(
-          ApplicationRecord.sanitize_sql([body(counted, "true"), binds])
+          ApplicationRecord.sanitize_sql([body(view_count_columns, "true"), binds])
         )
         VIEWS.keys.index_with { |key| row[key].to_i }
       end
@@ -495,7 +495,7 @@ module Fd
     end
 
     def term_phrase
-      asked? ? "matching #{term}" : nil
+      searching? ? "matching #{term}" : nil
     end
   end
 end

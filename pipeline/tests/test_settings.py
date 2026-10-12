@@ -62,8 +62,8 @@ def test_reclaim_runs_on_the_file_default_when_nothing_is_set():
 
 
 def test_reclaim_honours_what_the_engine_asked_for():
-    asked = TunedConn([("engine", "reclaim_seconds", "1800")])
-    assert settings.reclaim_seconds(asked) == 1800
+    conn = TunedConn([("engine", "reclaim_seconds", "1800")])
+    assert settings.reclaim_seconds(conn) == 1800
 
     low = TunedConn([("engine", "reclaim_seconds", "30")])
     assert settings.reclaim_seconds(low) == settings.RECLAIM_FLOOR_SECONDS

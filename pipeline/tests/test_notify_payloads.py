@@ -25,25 +25,25 @@ class FakeConn:
         pass
 
 
-def what_was_heard(monkeypatch, notes):
+def dispatched_payloads(monkeypatch, notes):
     monkeypatch.setattr(loops, "connect", lambda: FakeConn(notes))
-    got = []
+    payloads = []
     loops.listen(
-        "nemo", ("fd_channel_guard",), lambda name, payload: got.append((name, payload)),
+        "nemo", ("fd_channel_guard",), lambda name, payload: payloads.append((name, payload)),
         threading.Event(),
     )
-    return got
+    return payloads
 
 
 def test_a_channel_id_payload_reaches_the_listener(monkeypatch):
-    got = what_was_heard(monkeypatch, [Note("fd_channel_guard", "C0BAHBV008Z")])
-    assert got == [("fd_channel_guard", "C0BAHBV008Z")]
+    payloads = dispatched_payloads(monkeypatch, [Note("fd_channel_guard", "C0BAHBV008Z")])
+    assert payloads == [("fd_channel_guard", "C0BAHBV008Z")]
 
 
 def test_a_numeric_payload_still_arrives_as_a_number(monkeypatch):
-    got = what_was_heard(monkeypatch, [Note("fd_case_changed", "41")])
-    assert got == [("fd_case_changed", 41)]
+    payloads = dispatched_payloads(monkeypatch, [Note("fd_case_changed", "41")])
+    assert payloads == [("fd_case_changed", 41)]
 
 
 def test_an_empty_payload_is_dropped(monkeypatch):
-    assert what_was_heard(monkeypatch, [Note("fd_channel_guard", "")]) == []
+    assert dispatched_payloads(monkeypatch, [Note("fd_channel_guard", "")]) == []

@@ -1,15 +1,15 @@
 <% actors = local_assigns.fetch(:actors, false) %>
 <% names = local_assigns[:names] %>
 <div class="auditlog">
-  <% audit_rows.group_by { |row| row.at.to_date }.each do |on, of_day| %>
-    <p class="auditlog-day"><%= on.strftime("%-d %B %Y") %></p>
-    <% of_day.each do |row| %>
+  <% audit_rows.group_by { |row| row.at.to_date }.each do |day, day_rows| %>
+    <p class="auditlog-day"><%= day.strftime("%-d %B %Y") %></p>
+    <% day_rows.each do |row| %>
       <div class="auditlog-row<%= " auditlog-row-wide" unless actors %>">
         <time class="auditlog-at" datetime="<%= row.at.iso8601 %>"><%= row.at.strftime("%H:%M") %></time>
         <% if actors %>
           <span class="auditlog-who">
             <% if row.actor %>
-              <%= face(row.actor) %>
+              <%= avatar(row.actor) %>
               <b><%= names ? names[row.actor] : row.actor %></b>
             <% else %>
               <b class="auditlog-none">the system</b>

@@ -43,21 +43,21 @@ export default class extends Controller {
     this.detach()
   }
 
-  get shown() {
+  get isOpen() {
     return this.popTarget.matches(":popover-open")
   }
 
   toggle() {
-    this.shown ? this.close() : this.open()
+    this.isOpen ? this.close() : this.open()
   }
 
   open() {
     this.view = this.selected() || this.max || new Date()
     this.render()
     this.popTarget.showPopover()
-    this.place()
+    this.position()
     this.triggerTarget.setAttribute("aria-expanded", "true")
-    this.onMove = () => this.place()
+    this.onMove = () => this.position()
     document.addEventListener("click", this.onDoc)
     document.addEventListener("keydown", this.onKey)
     window.addEventListener("resize", this.onMove)
@@ -65,12 +65,12 @@ export default class extends Controller {
   }
 
   close() {
-    if (this.shown) this.popTarget.hidePopover()
+    if (this.isOpen) this.popTarget.hidePopover()
     this.triggerTarget.setAttribute("aria-expanded", "false")
     this.detach()
   }
 
-  place() {
+  position() {
     const pop = this.popTarget
     const btn = this.triggerTarget.getBoundingClientRect()
     pop.style.left = "0px"
@@ -81,8 +81,8 @@ export default class extends Controller {
 
     let top = btn.bottom + gap
     if (top + box.height > window.innerHeight - edge) {
-      const over = btn.top - gap - box.height
-      top = over >= edge ? over : Math.max(edge, window.innerHeight - edge - box.height)
+      const aboveTop = btn.top - gap - box.height
+      top = aboveTop >= edge ? aboveTop : Math.max(edge, window.innerHeight - edge - box.height)
     }
     const left = Math.max(edge, Math.min(btn.left, window.innerWidth - edge - box.width))
 
@@ -110,7 +110,7 @@ export default class extends Controller {
     this.render()
   }
 
-  pick(event) {
+  selectDay(event) {
     const value = event.currentTarget.dataset.date
     this.inputTarget.value = value
     const date = parse(value)
@@ -131,21 +131,21 @@ export default class extends Controller {
     const month = this.view.getMonth()
     const first = new Date(year, month, 1)
     const days = new Date(year, month + 1, 0).getDate()
-    const lead = (first.getDay() + 6) % 7
-    const chosen = this.selected()
-    const chosenIso = chosen ? iso(chosen) : null
+    const leadingBlanks = (first.getDay() + 6) % 7
+    const selectedDate = this.selected()
+    const selectedIso = selectedDate ? iso(selectedDate) : null
 
     const prevEnd = new Date(year, month, 0)
     const nextStart = new Date(year, month + 1, 1)
 
     let cells = ""
-    for (let i = 0; i < lead; i += 1) cells += `<span class="datepicker-blank"></span>`
+    for (let i = 0; i < leadingBlanks; i += 1) cells += `<span class="datepicker-blank"></span>`
     for (let day = 1; day <= days; day += 1) {
       const date = new Date(year, month, day)
       const value = iso(date)
       const disabled = this.outOfBounds(date) ? "disabled" : ""
-      const selected = value === chosenIso ? ' aria-selected="true"' : ""
-      cells += `<button type="button" class="datepicker-day" data-date="${value}" ${disabled}${selected} data-action="datepicker#pick">${day}</button>`
+      const selected = value === selectedIso ? ' aria-selected="true"' : ""
+      cells += `<button type="button" class="datepicker-day" data-date="${value}" ${disabled}${selected} data-action="datepicker#selectDay">${day}</button>`
     }
 
     this.popTarget.innerHTML = `

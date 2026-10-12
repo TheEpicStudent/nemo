@@ -59,10 +59,10 @@ def worst_first():
 
 def read(conn, user_id, rows=ROWS):
     counts = conn.execute(COUNTS, {"who": user_id}).fetchone()
-    standing = conn.execute(
+    in_force_row = conn.execute(
         IN_FORCE, {"who": user_id, "worst_first": worst_first()}
     ).fetchone()
-    found = conn.execute(ENTRIES, {"who": user_id, "rows": rows}).fetchall()
+    entry_rows = conn.execute(ENTRIES, {"who": user_id, "rows": rows}).fetchall()
 
     return {
         "user_id": user_id,
@@ -74,17 +74,17 @@ def read(conn, user_id, rows=ROWS):
         },
         "in_force": (
             {
-                "kind": standing[0],
-                "expires_at": standing[1],
-                "channel_id": standing[2],
-                "case_id": standing[3],
-                "enforcement_status": standing[4],
-                "enforced_by": standing[5],
+                "kind": in_force_row[0],
+                "expires_at": in_force_row[1],
+                "channel_id": in_force_row[2],
+                "case_id": in_force_row[3],
+                "enforcement_status": in_force_row[4],
+                "enforced_by": in_force_row[5],
             }
-            if standing
+            if in_force_row
             else None
         ),
-        "total": found[0][0] if found else 0,
+        "total": entry_rows[0][0] if entry_rows else 0,
         "entries": [
             {
                 "at": row[1],
@@ -94,7 +94,7 @@ def read(conn, user_id, rows=ROWS):
                 "who_by": row[5],
                 "note": row[6],
             }
-            for row in found
+            for row in entry_rows
         ],
     }
 
@@ -114,28 +114,28 @@ def counted(counts):
     return "  ·  ".join(parts)
 
 
-ENFORCEMENT_STATUS_SAID = {
+ENFORCEMENT_STATUS_LABELS = {
     "pending": "nemo has not carried it yet",
     "failed": "nemo is not holding it",
 }
 
 
-def standing_line(found):
-    if found is None:
+def in_force_line(guard):
+    if guard is None:
         return "nothing standing"
 
-    text = action.label(found["kind"]).lower()
-    where = found.get("channel_id")
+    text = action.label(guard["kind"]).lower()
+    where = guard.get("channel_id")
     if where:
         text += f" in <#{where}>"
-    if found.get("expires_at"):
-        text += f" until {found['expires_at'].strftime('%-d %b')}"
+    if guard.get("expires_at"):
+        text += f" until {guard['expires_at'].strftime('%-d %b')}"
     else:
         text += ", no end date"
 
-    if found.get("enforced_by") == "by_hand":
+    if guard.get("enforced_by") == "by_hand":
         return f"{text}, done by hand"
-    caveat = ENFORCEMENT_STATUS_SAID.get(found.get("enforcement_status"))
+    caveat = ENFORCEMENT_STATUS_LABELS.get(guard.get("enforcement_status"))
     return f"{text}, {caveat}" if caveat else text
 
 

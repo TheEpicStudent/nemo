@@ -2,10 +2,10 @@ require "test_helper"
 
 class CommunityAccessTest < ActionDispatch::IntegrationTest
   setup do
-    @boss = hold_role!("UCABOSS", "community_manager")
+    @manager = hold_role!("UCABOSS", "community_manager")
   end
 
-  def holding_nothing
+  def account_without_grants
     Account.create!(user_id: "UCANONE")
   end
 
@@ -23,7 +23,7 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
   end
 
   test "somebody holding nothing lands on the front door, not a refusal" do
-    sign_in_as(holding_nothing)
+    sign_in_as(account_without_grants)
 
     get root_path
 
@@ -31,7 +31,7 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
   end
 
   test "somebody holding nothing is kept out of fire engine" do
-    sign_in_as(holding_nothing)
+    sign_in_as(account_without_grants)
 
     get fd_root_path
 
@@ -40,7 +40,7 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
   end
 
   test "a member reads the workspace without any fire department grant" do
-    sign_in_as(holding_nothing)
+    sign_in_as(account_without_grants)
 
     get root_path
 
@@ -48,7 +48,7 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
   end
 
   test "a member is kept out of the engine" do
-    sign_in_as(holding_nothing)
+    sign_in_as(account_without_grants)
 
     get engine_path
 
@@ -56,20 +56,20 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
   end
 
   test "a firefighter reads every channel, but holds no member names and no engine" do
-    hand = hold_role!("UCAFF", "firefighter")
+    firefighter = hold_role!("UCAFF", "firefighter")
 
-    assert Authz.holds?(hand, "channel.all"), "a firefighter reads every channel by default"
-    assert Community::Access.allow?(hand, "analytics.channel.read")
-    refute Authz.holds?(hand, "engine.manage"), "a firefighter runs no engine"
-    assert Community::Access.allow?(hand, "analytics.workspace.read"),
+    assert Authz.holds?(firefighter, "channel.all"), "a firefighter reads every channel by default"
+    assert Community::Access.allow?(firefighter, "analytics.channel.read")
+    refute Authz.holds?(firefighter, "engine.manage"), "a firefighter runs no engine"
+    assert Community::Access.allow?(firefighter, "analytics.workspace.read"),
       "every signed-in member reads the overview now"
-    assert_not Community::Access.allow?(hand, "analytics.member.read")
+    assert_not Community::Access.allow?(firefighter, "analytics.member.read")
   end
 
   test "a manager holds everything without one capability row" do
-    assert Community::Access.allow?(@boss, "ops.engine")
-    assert Authz.holds?(@boss, "channel.all")
-    assert_equal 0, Authz::Grant.live.for_person(@boss.user_id).capabilities.count,
+    assert Community::Access.allow?(@manager, "ops.engine")
+    assert Authz.holds?(@manager, "channel.all")
+    assert_equal 0, Authz::Grant.live.for_person(@manager.user_id).capabilities.count,
       "the manager is superadmin by role, not by a pile of capability grants"
   end
 
@@ -78,7 +78,7 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
     Authz::Grant.grant!(staff.user_id, kind: "capability", name: "channel.backfill", by: "test")
     Current.forget_roles
 
-    assert_equal %w[gardener], Authz.roles_held(staff.user_id)
+    assert_equal %w[gardener], Authz.effective_roles(staff.user_id)
     assert Community::Access.allow?(staff, "ops.channel.backfill"), "the extra scope stands alone"
     assert_not Community::Access.allow?(staff, "analytics.member.read"),
       "the scope did not drag anything else in"
@@ -88,26 +88,26 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
     Analytics::DimChannel.where(archived: false).order(:channel_id).limit(count).to_a
   end
 
-  def open_up(channel, audience)
+  def set_audience(channel, audience)
     Channels::Audience::Setting.create!(channel_id: channel.channel_id,
-      audience: audience, set_by: @boss.user_id)
+      audience: audience, set_by: @manager.user_id)
   end
 
   test "a member sees only the channels opened to everyone" do
-    shown, hidden, = some_channels
-    open_up(shown, "everyone")
-    open_up(hidden, "shared")
-    staff = holding_nothing
+    visible, hidden, = some_channels
+    set_audience(visible, "everyone")
+    set_audience(hidden, "shared")
+    staff = account_without_grants
 
     ids = Channels::Audience.for(staff).pluck(:channel_id)
 
-    assert_includes ids, shown.channel_id
+    assert_includes ids, visible.channel_id
     assert_not_includes ids, hidden.channel_id, "granted is named people only"
   end
 
   test "a promethean sees the channels Prometheus appointed them to, and nothing else" do
     public_one, appointed, other = some_channels
-    open_up(public_one, "everyone")
+    set_audience(public_one, "everyone")
     staff = Account.create!(user_id: "UCAPROM")
     Prometheus::Appointment.insert_all!([
       { user_id: staff.user_id, channel_id: appointed.channel_id, role: "manager",
@@ -117,7 +117,7 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
 
     ids = Channels::Audience.for(staff).pluck(:channel_id)
 
-    assert_equal %w[promethean], Authz.roles_held(staff.user_id), "the role comes with the appointment"
+    assert_equal %w[promethean], Authz.effective_roles(staff.user_id), "the role comes with the appointment"
     assert_includes ids, appointed.channel_id, "the channel they were appointed to"
     assert_includes ids, public_one.channel_id, "and anything public"
     assert_not_includes ids, other.channel_id
@@ -125,9 +125,9 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
 
   test "a channel grant is enough on its own, channel.read is everyone's by default" do
     _open, granted, = some_channels
-    staff = holding_nothing
+    staff = account_without_grants
     Channels::Audience::Grant.create!(user_id: staff.user_id, channel_id: granted.channel_id,
-      granted_by: @boss.user_id, granted_at: Time.current)
+      granted_by: @manager.user_id, granted_at: Time.current)
     Current.forget_roles
 
     ids = Channels::Audience.for(staff).pluck(:channel_id)
@@ -154,7 +154,7 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
   end
 
   test "a member is told member names are withheld, not shown them" do
-    sign_in_as(holding_nothing)
+    sign_in_as(account_without_grants)
 
     get active_journey_path
 
@@ -181,7 +181,7 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
 
   test "somebody who only reads a channel cannot queue a backfill on it" do
     channel = some_channels(1).first
-    open_up(channel, "everyone")
+    set_audience(channel, "everyone")
     sign_in_as(hold_role!("UCAREADER", "gardener"))
 
     assert_no_difference -> { ChannelBackfill.count } do
@@ -194,8 +194,8 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
   test "channel.backfill alone is stopped by the ceiling, and told what it would cost" do
     channel = priceable_channel
     skip "the seed priced no channel" if channel.nil?
-    open_up(channel, "everyone")
-    Engine::Setting.set!("engine", "backfill_ceiling", "0", by: @boss.user_id)
+    set_audience(channel, "everyone")
+    Engine::Setting.set!("engine", "backfill_ceiling", "0", by: @manager.user_id)
     sign_in_as(backfiller)
 
     assert_no_difference -> { ChannelBackfill.count } do
@@ -208,21 +208,21 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
   test "engine.manage cannot be delegated piecemeal, only a manager bypasses the ceiling" do
     channel = priceable_channel
     skip "the seed priced no channel" if channel.nil?
-    open_up(channel, "everyone")
-    Engine::Setting.set!("engine", "backfill_ceiling", "0", by: @boss.user_id)
+    set_audience(channel, "everyone")
+    Engine::Setting.set!("engine", "backfill_ceiling", "0", by: @manager.user_id)
 
     assert_raises(Authz::Grant::NotAllowedError) do
       Authz::Grant.grant!("UCASYNC", kind: "capability", name: "engine.manage", by: "test")
     end
 
-    sign_in_as(@boss)
+    sign_in_as(@manager)
     assert_difference -> { ChannelBackfill.count }, 1 do
       post opt_in_channel_path(channel.channel_id)
     end
   end
 
   test "a journey page names newcomer channels but only links the ones you may open" do
-    sign_in_as(holding_nothing)
+    sign_in_as(account_without_grants)
 
     get joining_journey_path
     assert_response :success
@@ -256,7 +256,7 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
     hold_role!("UCASWAP", "gardener")
     Current.forget_roles
 
-    assert_equal %w[gardener], Authz.roles_held(staff.user_id),
+    assert_equal %w[gardener], Authz.effective_roles(staff.user_id),
       "a second role replaces the first, it does not stack"
     assert_equal %w[channel.backfill],
       Authz::Grant.live.for_person(staff.user_id).capabilities.pluck(:name),
@@ -274,13 +274,13 @@ class CommunityAccessTest < ActionDispatch::IntegrationTest
   end
 
   test "the permission keys the views ask for are the ones the model maps" do
-    asked = Dir[Rails.root.join("app/views/**/*.erb"), Rails.root.join("app/**/*.rb")]
+    requested_keys = Dir[Rails.root.join("app/views/**/*.erb"), Rails.root.join("app/**/*.rb")]
       .flat_map { |path| File.read(path).scan(/may_community\?\(?\s*["']([\w.]+)["']/) }
       .flatten.uniq
 
-    refute_empty asked, "nothing asks for a community permission, so this checks nothing"
+    refute_empty requested_keys, "nothing asks for a community permission, so this checks nothing"
 
-    unmapped = asked.reject { |key|
+    unmapped = requested_keys.reject { |key|
       key == Community::Access::EVERY_ACCOUNT || Community::Access::CAPABILITY.key?(key)
     }
 

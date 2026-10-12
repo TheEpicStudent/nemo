@@ -5,21 +5,21 @@ from bot.nemo.views import linked, report
 
 LINK = "https://hackclub.slack.com/archives/C0BNYU3JK3Q/p1786970526885769"
 OTHER = "https://hackclub.slack.com/archives/C0LOUNGE00/p1786970600000100"
-ROOM = "C_FIRE"
+CHANNEL_ID = "C_FIRE"
 CARD = "100.000"
-HANDED_OFF = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+HANDED_OFF_AT = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
 
 
 def at(minutes):
-    return HANDED_OFF + timedelta(minutes=minutes)
+    return HANDED_OFF_AT + timedelta(minutes=minutes)
 
 
 def share(**over):
-    made = {"kind": "unfurl", "source_channel_id": "C0BNYU3JK3Q", "source_channel_name": None,
-            "source_ts": "1786970526.885769", "is_reachable": True,
-            "source_author_user_id": "UDRACULA", "source_body": "mwah", "permalink": LINK}
-    made.update(over)
-    return made
+    share_row = {"kind": "unfurl", "source_channel_id": "C0BNYU3JK3Q", "source_channel_name": None,
+                 "source_ts": "1786970526.885769", "is_reachable": True,
+                 "source_author_user_id": "UDRACULA", "source_body": "mwah", "permalink": LINK}
+    share_row.update(over)
+    return share_row
 
 
 def forward(**over):
@@ -107,8 +107,8 @@ def test_a_report_that_is_only_a_forward_still_has_a_quote():
 
 def test_each_link_is_unfurled_with_its_number_its_words_and_who_said_it():
     text = f"test <{LINK}> test <{LINK}>"
-    found = linked.items(linked.numbering(text, [share()], 1), [share()])
-    blocks = linked.reply_blocks(found)
+    items = linked.items(linked.numbering(text, [share()], 1), [share()])
+    blocks = linked.reply_blocks(items)
 
     assert [b["type"] for b in blocks] == ["rich_text", "context"] * 2
     head, words = blocks[0]["elements"]
@@ -121,8 +121,8 @@ def test_each_link_is_unfurled_with_its_number_its_words_and_who_said_it():
 
 def test_a_link_nemo_could_not_read_says_so():
     text = f"look <{LINK}>"
-    unread = share(kind="link", is_reachable=False, source_body=None, permalink=None)
-    blocks = linked.reply_blocks(linked.items(linked.numbering(text, [unread], 1), [unread]))
+    unreachable = share(kind="link", is_reachable=False, source_body=None, permalink=None)
+    blocks = linked.reply_blocks(linked.items(linked.numbering(text, [unreachable], 1), [unreachable]))
 
     assert len(blocks[0]["elements"]) == 1, "no empty quote"
     assert blocks[1]["elements"][0]["text"] == "Message not accessible"
@@ -139,15 +139,15 @@ def test_a_long_list_stops_short_of_slacks_block_limit():
 class Conn:
     def __init__(self, answers):
         self.answers = answers
-        self.ran = []
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def fetchall(self):
         for mark, rows in self.answers.items():
-            if mark in self.ran[-1][0]:
+            if mark in self.executed[-1][0]:
                 return rows
         return []
 
@@ -155,8 +155,8 @@ class Conn:
         rows = self.fetchall()
         return rows[0] if rows else None
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.executed if mark in sql]
 
 
 class Slack:
@@ -175,7 +175,7 @@ class Slack:
 
 def conversation(*rows, shares=()):
     return {
-        "c.handed_off_at": [(*row, HANDED_OFF) for row in rows],
+        "c.handed_off_at": [(*row, HANDED_OFF_AT) for row in rows],
         "s.message_id, s.kind": list(shares),
     }
 
@@ -189,13 +189,13 @@ def test_numbers_run_on_across_the_report_and_its_follow_ups():
         (5, f"and <{LINK}>", at(4), None, None),
     ))
 
-    found = channel.numbers(conn, 7)
+    numbers = channel.numbers(conn, 7)
 
-    assert sorted(found) == [1, 3, 5], "only what reaches the thread is counted"
-    assert [found[one]["start"] for one in (1, 3, 5)] == [1, 3, 4]
+    assert sorted(numbers) == [1, 3, 5], "only what reaches the thread is counted"
+    assert [numbers[one]["start"] for one in (1, 3, 5)] == [1, 3, 4]
 
 
-def unfurling(state, *rows):
+def unfurl_setup(state, *rows):
     answers = conversation(*rows)
     answers["unfurl_digest, unfurled_at"] = [state]
     answers["s.raw"] = [tuple(share().get(key) for key in (
@@ -205,42 +205,42 @@ def unfurling(state, *rows):
 
 
 def test_links_are_unfurled_once_in_the_thread_under_the_card():
-    conn, slack = unfurling((7, None, None, None), (1, f"<{LINK}>", at(-5), CARD, None)), Slack()
+    conn, slack = unfurl_setup((7, None, None, None), (1, f"<{LINK}>", at(-5), CARD, None)), Slack()
 
-    assert channel.unfurl(slack, conn, 1, ROOM, CARD) == "9.9"
+    assert channel.unfurl(slack, conn, 1, CHANNEL_ID, CARD) == "9.9"
 
     assert slack.posted[0]["thread_ts"] == CARD
     assert slack.posted[0]["text"] == "1 linked message"
-    assert conn.did("SET unfurl_ts")[0][0] == "9.9"
+    assert conn.args_for("SET unfurl_ts")[0][0] == "9.9"
 
 
 def test_a_reply_already_up_is_redrawn_when_its_words_change():
-    conn, slack = unfurling((7, "9.9", "stale", at(0)), (1, f"<{LINK}>", at(-5), CARD, None)), Slack()
+    conn, slack = unfurl_setup((7, "9.9", "stale", at(0)), (1, f"<{LINK}>", at(-5), CARD, None)), Slack()
 
-    assert channel.unfurl(slack, conn, 1, ROOM, CARD) == "9.9"
+    assert channel.unfurl(slack, conn, 1, CHANNEL_ID, CARD) == "9.9"
 
     assert slack.posted == []
     assert slack.updated[0]["ts"] == "9.9"
 
 
 def test_a_message_settled_before_unfurls_existed_is_left_alone():
-    conn, slack = unfurling((7, None, None, at(0)), (1, f"<{LINK}>", at(-5), CARD, None)), Slack()
+    conn, slack = unfurl_setup((7, None, None, at(0)), (1, f"<{LINK}>", at(-5), CARD, None)), Slack()
 
-    assert channel.unfurl(slack, conn, 1, ROOM, CARD) is None
+    assert channel.unfurl(slack, conn, 1, CHANNEL_ID, CARD) is None
     assert slack.posted == [] and slack.updated == []
 
 
 def test_a_message_with_no_links_is_settled_without_a_reply():
-    conn, slack = unfurling((7, None, None, None), (1, "no links", at(-5), CARD, None)), Slack()
+    conn, slack = unfurl_setup((7, None, None, None), (1, "no links", at(-5), CARD, None)), Slack()
     conn.answers["s.raw"] = []
 
-    assert channel.unfurl(slack, conn, 1, ROOM, CARD) is None
+    assert channel.unfurl(slack, conn, 1, CHANNEL_ID, CARD) is None
     assert slack.posted == []
-    assert conn.did("SET unfurl_ts") == [(None, None, 1)]
+    assert conn.args_for("SET unfurl_ts") == [(None, None, 1)]
 
 
 def test_a_follow_up_that_is_only_a_forward_still_goes_into_the_thread():
-    assert "kind = 'forward'" in channel.SOMETHING_TO_CARRY
+    assert "kind = 'forward'" in channel.HAS_UNMIRRORED_CONTENT
 
 
 def test_the_opening_message_is_never_mirrored_under_its_own_card():
@@ -249,14 +249,14 @@ def test_the_opening_message_is_never_mirrored_under_its_own_card():
 
 
 def test_a_case_can_be_opened_about_nobody():
-    assert command.asked("open a raid in the lounge") == ("open", None, "a raid in the lounge")
+    assert command.parse_command("open a raid in the lounge") == ("open", None, "a raid in the lounge")
     assert command.opened(5, None) == "*case 5* opened"
     assert command.opened(5, "UBOB") == "*case 5* opened about <@UBOB>"
 
 
 def test_the_other_verbs_still_need_somebody():
-    verb, wanted, _ = command.asked("lookup the lounge")
-    assert (verb, wanted) == ("lookup", None)
+    verb, case_id, _ = command.parse_command("lookup the lounge")
+    assert (verb, case_id) == ("lookup", None)
     assert verb in command.ABOUT_SOMEBODY
 
 
@@ -268,17 +268,17 @@ def test_a_follow_up_with_numbered_links_leaves_the_unfurling_to_nemo(monkeypatc
     monkeypatch.setattr(channel, "unfurl", lambda *args: None)
     slack = Slack()
 
-    channel.post_follow_up(slack, conn, 2, ROOM)
+    channel.post_follow_up(slack, conn, 2, CHANNEL_ID)
 
-    sent = slack.posted[0]
-    assert sent["text"] == f"also <{OTHER}> (1)"
-    assert sent["unfurl_links"] is False, "slack would draw the same message a second time"
+    message = slack.posted[0]
+    assert message["text"] == f"also <{OTHER}> (1)"
+    assert message["unfurl_links"] is False, "slack would draw the same message a second time"
 
 
 def test_a_forward_is_unfurled_with_its_words():
-    light = {"kind": "forward", "source_channel_id": "C0FWD0000", "source_ts": "1786970700.000200",
-             "permalink": LINK}
-    numbered = linked.numbering("", [light], 1)
+    forward_share = {"kind": "forward", "source_channel_id": "C0FWD0000", "source_ts": "1786970700.000200",
+                     "permalink": LINK}
+    numbered = linked.numbering("", [forward_share], 1)
     blocks = linked.reply_blocks(linked.items(numbered, [dict(forward(), permalink=LINK)]))
 
     head, words = blocks[0]["elements"]
@@ -293,10 +293,10 @@ def forwarded_with(*files):
 
 def test_a_forwarded_picture_sits_inside_its_forward():
     full = forwarded_with("F1")
-    found = linked.items(linked.numbering("", [full], 1), [full])
-    held = {"F1": {"id": "FUP1", "name": "image.png", "image": True}}
+    items = linked.items(linked.numbering("", [full], 1), [full])
+    uploads = {"F1": {"id": "FUP1", "name": "image.png", "image": True}}
 
-    blocks = linked.reply_blocks(found, held)
+    blocks = linked.reply_blocks(items, uploads)
 
     assert [b["type"] for b in blocks] == ["rich_text", "image", "context"]
     assert blocks[1] == {"type": "image", "slack_file": {"id": "FUP1"}, "alt_text": "image.png"}
@@ -304,26 +304,26 @@ def test_a_forwarded_picture_sits_inside_its_forward():
 
 def test_a_forwarded_document_is_named_inside_its_forward():
     full = forwarded_with("F2")
-    found = linked.items(linked.numbering("", [full], 1), [full])
+    items = linked.items(linked.numbering("", [full], 1), [full])
 
-    blocks = linked.reply_blocks(found, {"F2": {"id": None, "name": "notes.pdf", "image": False}})
+    blocks = linked.reply_blocks(items, {"F2": {"id": None, "name": "notes.pdf", "image": False}})
 
     assert blocks[1]["elements"][0]["text"] == ":paperclip: notes.pdf"
 
 
 def test_a_picture_not_downloaded_yet_leaves_no_gap():
     full = forwarded_with("F1")
-    found = linked.items(linked.numbering("", [full], 1), [full])
+    items = linked.items(linked.numbering("", [full], 1), [full])
 
-    assert [b["type"] for b in linked.reply_blocks(found, {})] == ["rich_text", "context"]
+    assert [b["type"] for b in linked.reply_blocks(items, {})] == ["rich_text", "context"]
 
 
 def test_pictures_count_toward_slacks_block_limit():
     full = forwarded_with("F1", "F2", "F3")
-    held = {one: {"id": f"U{one}", "name": "x.png", "image": True} for one in ("F1", "F2", "F3")}
-    found = linked.items(linked.numbering("", [full] * 12, 1), [full])
+    uploads = {one: {"id": f"U{one}", "name": "x.png", "image": True} for one in ("F1", "F2", "F3")}
+    items = linked.items(linked.numbering("", [full] * 12, 1), [full])
 
-    blocks = linked.reply_blocks(found, held)
+    blocks = linked.reply_blocks(items, uploads)
 
     assert len(blocks) <= 50
     assert blocks[-1]["elements"][0]["text"].endswith("more in Fire Engine")
@@ -341,10 +341,10 @@ def test_a_forwarded_picture_is_uploaded_once(monkeypatch):
     slack = Uploading()
     conn = Conn({"mf.forwarded AND f.fetch_state": [(5, "F1", "image.png", "image/png", "abc", None)]})
 
-    held = channel.forwarded_files(slack, conn, 80)
+    uploads = channel.forwarded_files(slack, conn, 80)
 
-    assert held == {"F1": {"id": "FUP1", "name": "image.png", "image": True}}
-    assert conn.did("SET mirrored_file_id") == [("FUP1", 80, 5)]
+    assert uploads == {"F1": {"id": "FUP1", "name": "image.png", "image": True}}
+    assert conn.args_for("SET mirrored_file_id") == [("FUP1", 80, 5)]
 
     conn = Conn({"mf.forwarded AND f.fetch_state": [(5, "F1", "image.png", "image/png", "abc", "FUP1")]})
     slack = Uploading()

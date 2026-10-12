@@ -3,7 +3,7 @@ module Fd
     Flag = CaseFlags::Flag
 
     WINDOW = 12.months
-    NOTE_SHOWN = 90
+    NOTE_EXCERPT_LENGTH = 90
 
     def self.for_member(record, names: Names.none)
       new(record, names).flags
@@ -24,9 +24,9 @@ module Fd
       recent = @record.subject_cases.select { |kase| kase.opened_at >= WINDOW.ago }
       return nil if recent.empty?
 
-      acted = recent.count { |kase| acted_on?(kase) }
-      Flag.new(tone: acted.positive? ? "crit" : "mid",
-        headline: "#{pluralised(recent.size)} in the last year, #{ended(acted)}.",
+      actioned_count = recent.count { |kase| actioned_in?(kase) }
+      Flag.new(tone: actioned_count.positive? ? "crit" : "mid",
+        headline: "#{pluralised(recent.size)} in the last year, #{action_outcome(actioned_count)}.",
         detail: standing_detail)
     end
 
@@ -34,11 +34,11 @@ module Fd
       count == 1 ? "One case" : "#{count} cases"
     end
 
-    def ended(acted)
-      return "none ended in action" if acted.zero?
-      return "one ended in action" if acted == 1
+    def action_outcome(actioned_count)
+      return "none ended in action" if actioned_count.zero?
+      return "one ended in action" if actioned_count == 1
 
-      "#{acted} ended in action"
+      "#{actioned_count} ended in action"
     end
 
     def standing_detail
@@ -60,7 +60,7 @@ module Fd
       "channel_ban" => "channel ban", "locked_thread" => "thread lock", "dm" => "DM"
     }.freeze
 
-    def acted_on?(kase)
+    def actioned_in?(kase)
       @record.actions.any? { |a| a.case_id == kase.id && !a.reversed? }
     end
 
@@ -69,7 +69,7 @@ module Fd
       return nil if note.nil?
 
       Flag.new(tone: "mid", headline: "A standing note is on them.",
-        detail: "\u201C#{note.body.to_s.truncate(NOTE_SHOWN)}\u201D " \
+        detail: "\u201C#{note.body.to_s.truncate(NOTE_EXCERPT_LENGTH)}\u201D " \
                 "#{@names[note.author]}, #{note.created_at.strftime('%-d %b')}.")
     end
   end

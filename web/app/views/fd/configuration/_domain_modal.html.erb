@@ -5,7 +5,7 @@
     <div class="modal-body">
       <label class="field-label">
         Domain
-        <%= text_field_tag :domain, field_was(:domain), class: "input", id: nil,
+        <%= text_field_tag :domain, submitted_value(:domain), class: "input", id: nil,
               placeholder: "throwaway.example" %>
       </label>
       <%= field_wrong(:domain) %>
@@ -31,7 +31,7 @@
         <%= text_field_tag :note, nil, class: "input", id: nil %>
       </label>
 
-      <% if field_was(:domain).present? %>
+      <% if submitted_value(:domain).present? %>
         <label class="opt">
           <%= check_box_tag :anyway, "1", false, id: nil, class: "tick" %>
           <span><span class="opt-label">Add it anyway</span></span>
@@ -39,7 +39,7 @@
       <% end %>
     </div>
     <div class="modal-foot">
-      <button type="button" class="btn btn-ghost" data-action="click->modal#shut">Cancel</button>
+      <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
       <%= submit_tag "Add it", class: "btn btn-primary" %>
     </div>
   <% end %>

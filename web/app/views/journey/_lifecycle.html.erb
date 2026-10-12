@@ -1,6 +1,6 @@
 <div class="card card-flush">
   <% if lifecycle.any? %>
-    <% tops = Journey::Lifecycle::STAGES.to_h { |s| [s[:key], lifecycle.filter_map { |r| r.public_send(s[:key])&.to_f }.max] } %>
+    <% stage_max = Journey::Lifecycle::STAGES.to_h { |s| [s[:key], lifecycle.filter_map { |r| r.public_send(s[:key])&.to_f }.max] } %>
     <div class="scroll">
       <div class="lifegrid" style="--stages: <%= Journey::Lifecycle::STAGES.size %>">
         <span class="lg-head lg-left">Cohort</span>
@@ -15,7 +15,7 @@
             <span><%= number_with_delimiter(row.invited) %> created</span>
           </span>
           <% Journey::Lifecycle::STAGES.each do |stage| %>
-            <%= lifecycle_cell(row, stage, tops[stage[:key]]) %>
+            <%= lifecycle_cell(row, stage, stage_max[stage[:key]]) %>
           <% end %>
           <span class="lg-plain">
             <%= row.median_days ? number_with_precision(row.median_days, precision: 1) : tag.span("n/a", class: "sub2") %>

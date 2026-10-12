@@ -54,7 +54,7 @@ WHERE action = 'anomaly'
   AND ip IS NOT NULL
 """
 
-LAND_SQL = """
+UPSERT_SQL = """
 INSERT INTO fd.ip_network (ip_prefix, asn, network, country, class, source, classified_at)
 VALUES (%s, %s, %s, %s, %s, %s, now())
 ON CONFLICT (ip_prefix) DO UPDATE SET
@@ -95,8 +95,8 @@ def catalogue():
     return yaml.safe_load(SIGNALS_FILE.read_text())
 
 
-def network_classes(held=None):
-    return (held or catalogue()).get("network_classes", {})
+def network_classes(signals=None):
+    return (signals or catalogue()).get("network_classes", {})
 
 
 def as_network(value):
@@ -104,24 +104,24 @@ def as_network(value):
 
 
 def prefix_of(address):
-    held = ipaddress.ip_address(str(address).split("/")[0])
-    return ipaddress.ip_network(f"{held}/{24 if held.version == 4 else 64}", strict=False)
+    ip = ipaddress.ip_address(str(address).split("/")[0])
+    return ipaddress.ip_network(f"{ip}/{24 if ip.version == 4 else 64}", strict=False)
 
 
 def read_ranges(text):
-    found = []
+    networks = []
     for line in text.splitlines():
         line = line.split("#", 1)[0].strip()
         if not line:
             continue
         try:
-            found.append(ipaddress.ip_network(line, strict=False))
+            networks.append(ipaddress.ip_network(line, strict=False))
         except ValueError:
             continue
-    return found
+    return networks
 
 
-def fetched(name, url, cache_dir=CACHE_DIR, max_age=REFRESH_SECONDS):
+def download_cached(name, url, cache_dir=CACHE_DIR, max_age=REFRESH_SECONDS):
     path = cache_dir / name
     if path.exists() and time.time() - path.stat().st_mtime < max_age:
         return path
@@ -149,61 +149,61 @@ def asn_number(value):
 
 def ipinfo_lookup(reader):
     def lookup(network):
-        found = reader.get(str(network.network_address)) or {}
-        return {"asn": asn_number(found.get("asn")), "network": found.get("as_name") or None,
-                "country": found.get("country_code") or None}
+        record = reader.get(str(network.network_address)) or {}
+        return {"asn": asn_number(record.get("asn")), "network": record.get("as_name") or None,
+                "country": record.get("country_code") or None}
     return lookup
 
 
 def curated_class(asn, network, classes):
-    named = (network or "").lower()
+    network_name = (network or "").lower()
     for name in CURATED_ORDER:
         entry = classes.get(name) or {}
         if asn is not None and asn in entry.get("asns", []):
             return name
-        if named and any(one.lower() in named for one in entry.get("names", [])):
+        if network_name and any(one.lower() in network_name for one in entry.get("names", [])):
             return name
     return None
 
 
 def classify(network, tor, lists, classes, lookup):
-    found = lookup(network)
-    asn, name, country = found.get("asn"), found.get("network"), found.get("country")
-    picked = curated_class(asn, name, classes)
+    info = lookup(network)
+    asn, name, country = info.get("asn"), info.get("network"), info.get("country")
+    curated = curated_class(asn, name, classes)
     if network in tor:
-        decided = ("tor", "anomaly")
-    elif picked == "vpn":
-        decided = ("vpn", "curated")
+        classification = ("tor", "anomaly")
+    elif curated == "vpn":
+        classification = ("vpn", "curated")
     elif lists["vpn"].overlaps(network):
-        decided = ("vpn", "lists_vpn")
-    elif picked == "hosting":
-        decided = ("hosting", "curated")
+        classification = ("vpn", "lists_vpn")
+    elif curated == "hosting":
+        classification = ("hosting", "curated")
     elif lists["hosting"].overlaps(network):
-        decided = ("hosting", "lists_vpn")
-    elif picked == "rotating":
-        decided = ("rotating", "curated")
+        classification = ("hosting", "lists_vpn")
+    elif curated == "rotating":
+        classification = ("rotating", "curated")
     else:
-        decided = ("stable", "ipinfo" if asn is not None else "default")
-    return (str(network), asn, name, country, *decided)
+        classification = ("stable", "ipinfo" if asn is not None else "default")
+    return (str(network), asn, name, country, *classification)
 
 
 def tor_prefixes(conn):
-    found = set()
+    prefixes = set()
     for (address,) in conn.execute(TOR_SQL).fetchall():
         try:
-            found.add(prefix_of(address))
+            prefixes.add(prefix_of(address))
         except ValueError:
             continue
-    return found
+    return prefixes
 
 
 def pending(conn):
-    held = [row[0] for row in conn.execute(PENDING_SQL, (BATCH,)).fetchall()]
-    if len(held) < BATCH:
-        held += [row[0] for row in conn.execute(
+    prefixes = [row[0] for row in conn.execute(PENDING_SQL, (BATCH,)).fetchall()]
+    if len(prefixes) < BATCH:
+        prefixes += [row[0] for row in conn.execute(
             STALE_SQL, {"stale": STALE_DAYS, "retry": DEFAULT_RETRY_DAYS,
-                        "batch": BATCH - len(held)}).fetchall()]
-    return [as_network(one) for one in held]
+                        "batch": BATCH - len(prefixes)}).fetchall()]
+    return [as_network(one) for one in prefixes]
 
 
 def run(conn):
@@ -217,23 +217,23 @@ def run(conn):
         networks = pending(conn)
         if not networks:
             return 0
-        lists = {name: Ranges(read_ranges(fetched(f"lists_vpn_{name}.txt", url).read_text()))
+        lists = {name: Ranges(read_ranges(download_cached(f"lists_vpn_{name}.txt", url).read_text()))
                  for name, url in LISTS_VPN.items()}
         tor = tor_prefixes(conn)
-        reader = maxminddb.open_database(str(fetched(IPINFO_FILE, IPINFO_LITE.format(token=token))))
+        reader = maxminddb.open_database(str(download_cached(IPINFO_FILE, IPINFO_LITE.format(token=token))))
         try:
             lookup = ipinfo_lookup(reader)
             rows = [classify(network, tor, lists, classes, lookup) for network in networks]
         finally:
             reader.close()
         with conn.cursor() as cur:
-            cur.executemany(LAND_SQL, rows)
+            cur.executemany(UPSERT_SQL, rows)
         conn.commit()
         counts.rows_in = len(rows)
 
-    tally = {}
+    class_counts = {}
     for row in rows:
-        tally[row[4]] = tally.get(row[4], 0) + 1
+        class_counts[row[4]] = class_counts.get(row[4], 0) + 1
     print(f"{SOURCE}: {len(rows)} prefix(es) classified ("
-          + ", ".join(f"{name} {tally[name]}" for name in CLASSES if name in tally) + ")")
+          + ", ".join(f"{name} {class_counts[name]}" for name in CLASSES if name in class_counts) + ")")
     return len(rows)

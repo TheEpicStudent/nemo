@@ -3,7 +3,7 @@ class PeopleSearch
   MIN_TERM = Fd::Member::MIN_TERM
   LIMIT = 8
 
-  Found = Struct.new(:id, :name, :handle, :initial, :deleted, :source, keyword_init: true)
+  Result = Struct.new(:id, :name, :handle, :initial, :deleted, :source, keyword_init: true)
 
   def self.call(term, limit: LIMIT)
     new(term.to_s.strip, limit).results
@@ -21,7 +21,7 @@ class PeopleSearch
     return [] if ids.empty?
 
     names = Fd::Names.for(ids)
-    ids.map { |id| shown(id, names) }
+    ids.map { |id| result_for(id, names) }
   end
 
   private
@@ -29,21 +29,21 @@ class PeopleSearch
   def by_id
     return [] unless @term.match?(MEMBER_ID)
 
-    wanted = @term.upcase
-    exact = Analytics::DimMember.where(user_id: wanted).pluck(:user_id)
+    normalized_id = @term.upcase
+    exact = Analytics::DimMember.where(user_id: normalized_id).pluck(:user_id)
     return exact if exact.any?
 
-    Analytics::DimMember.where("user_id LIKE ?", "#{wanted}%")
+    Analytics::DimMember.where("user_id LIKE ?", "#{normalized_id}%")
       .order(:user_id).limit(@limit).pluck(:user_id)
   end
 
   def by_name
-    Fd::MemberFinder.new(@term).pick(limit: @limit, everyone: true)
+    Fd::MemberFinder.new(@term).suggest(limit: @limit, everyone: true)
   end
 
-  def shown(id, names)
+  def result_for(id, names)
     member = names.member(id)
-    Found.new(id: id, name: names[id], handle: member&.handle,
+    Result.new(id: id, name: names[id], handle: member&.handle,
       initial: names.initial(id), deleted: member&.is_deleted || false,
       source: member ? "fd" : "workspace")
   end

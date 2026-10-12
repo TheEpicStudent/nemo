@@ -38,11 +38,11 @@ def test_a_member_touched_again_mid_pass_stays_queued():
 
 
 def test_the_lane_measures_missing_totals_instead_of_waiting_for_a_rebuild(monkeypatch, capsys):
-    ran = []
+    executed = []
 
     class Conn:
         def execute(self, sql, _args=None):
-            ran.append(sql)
+            executed.append(sql)
             return self
 
         def fetchall(self):
@@ -52,75 +52,75 @@ def test_the_lane_measures_missing_totals_instead_of_waiting_for_a_rebuild(monke
             return (40,)
 
         def commit(self):
-            ran.append("COMMIT")
+            executed.append("COMMIT")
 
-    monkeypatch.setattr(live.links, "load_mailboxes", lambda _conn, _held, _sources: ran.append("MAILBOXES"))
+    monkeypatch.setattr(live.links, "load_mailboxes", lambda _conn, _config, _sources: executed.append("MAILBOXES"))
 
     assert live.run(Conn()) == 0
     assert "without a full rebuild" in capsys.readouterr().out
-    assert any("CREATE TEMP TABLE sighting" in sql and "fd.shared_ip" in sql for sql in ran)
-    assert "MAILBOXES" in ran
-    assert ran.index(live.links.KEEP_WHOLE) < ran.index("COMMIT") < ran.index(live.TOUCHED_SQL)
+    assert any("CREATE TEMP TABLE sighting" in sql and "fd.shared_ip" in sql for sql in executed)
+    assert "MAILBOXES" in executed
+    assert executed.index(live.links.SAVE_WHOLES_SQL) < executed.index("COMMIT") < executed.index(live.TOUCHED_SQL)
 
 
 class Queue:
-    def __init__(self, fresh, rest):
-        self.fresh = fresh
-        self.rest = rest
-        self.ran = []
+    def __init__(self, recent, queued):
+        self.recent = recent
+        self.queued = queued
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def fetchall(self):
-        sql, _ = self.ran[-1]
-        return self.fresh if sql == live.FRESH_SQL else self.rest
+        sql, _ = self.executed[-1]
+        return self.recent if sql == live.RECENT_JOINS_SQL else self.queued
 
 
 def test_accounts_that_joined_this_week_are_rescored_first():
-    conn = Queue(fresh=[("U1", "t1")], rest=[("U9", "t0")])
+    conn = Queue(recent=[("U1", "t1")], queued=[("U9", "t0")])
 
-    assert live.waiting(conn, live.BATCH) == [("U1", "t1")]
-    assert conn.ran == [(live.FRESH_SQL, (live.FRESH_DAYS, live.FRESH_BATCH))]
+    assert live.next_batch(conn, live.BATCH) == [("U1", "t1")]
+    assert conn.executed == [(live.RECENT_JOINS_SQL, (live.RECENT_JOIN_DAYS, live.RECENT_JOIN_BATCH))]
 
 
 def test_the_rest_of_the_queue_follows_when_no_new_account_waits():
-    conn = Queue(fresh=[], rest=[("U9", "t0")])
+    conn = Queue(recent=[], queued=[("U9", "t0")])
 
-    assert live.waiting(conn, live.BATCH) == [("U9", "t0")]
-    assert conn.ran[-1] == (live.TOUCHED_SQL, (live.BATCH,))
+    assert live.next_batch(conn, live.BATCH) == [("U9", "t0")]
+    assert conn.executed[-1] == (live.TOUCHED_SQL, (live.BATCH,))
 
 
 def test_new_accounts_come_in_small_batches_by_join_age():
-    assert live.FRESH_BATCH < live.BATCH
-    assert live.FRESH_DAYS == 7
-    assert "j.joined_at > now() - make_interval(days => %s)" in live.FRESH_SQL
-    assert "ORDER BY t.touched_at" in live.FRESH_SQL
+    assert live.RECENT_JOIN_BATCH < live.BATCH
+    assert live.RECENT_JOIN_DAYS == 7
+    assert "j.joined_at > now() - make_interval(days => %s)" in live.RECENT_JOINS_SQL
+    assert "ORDER BY t.touched_at" in live.RECENT_JOINS_SQL
 
 
 def test_measuring_reads_whole_tables_and_the_stored_shared_networks():
-    assert live.MEASURED["login"] == "fd.login_event"
-    assert live.MEASURED["identity"] == "fd.member_identity"
-    assert live.MEASURED["shared_ip"] == "fd.shared_ip"
+    assert live.MEASURE_SOURCES["login"] == "fd.login_event"
+    assert live.MEASURE_SOURCES["identity"] == "fd.member_identity"
+    assert live.MEASURE_SOURCES["shared_ip"] == "fd.shared_ip"
 
 
 def test_only_the_missing_totals_are_measured():
     class Conn:
         def __init__(self):
-            self.ran = []
+            self.executed = []
 
         def execute(self, sql, _args=None):
-            self.ran.append(sql)
+            self.executed.append(sql)
             return self
 
         def fetchone(self):
             return (40,)
 
     conn = Conn()
-    found = links.measure(conn, links.catalogue(), live.MEASURED, ["device_agent"])
-    assert found == {"device_agent": 40}
-    assert len(conn.ran) == 1
+    counts = links.measure(conn, links.catalogue(), live.MEASURE_SOURCES, ["device_agent"])
+    assert counts == {"device_agent": 40}
+    assert len(conn.executed) == 1
 
 
 def test_trait_changes_joins_and_bans_queue_the_member():

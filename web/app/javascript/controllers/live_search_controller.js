@@ -1,20 +1,20 @@
 import { Controller } from "@hotwired/stimulus"
 
-let resume = null
+let pendingCaret = null
 
 export default class extends Controller {
   static values = { wait: { type: Number, default: 250 } }
 
   connect() {
-    const at = resume
-    resume = null
-    if (at == null) return
+    const caretPosition = pendingCaret
+    pendingCaret = null
+    if (caretPosition == null) return
 
     const field = this.field
     if (!field) return
 
     field.focus()
-    const caret = Math.min(at, field.value.length)
+    const caret = Math.min(caretPosition, field.value.length)
     field.setSelectionRange(caret, caret)
   }
 
@@ -27,7 +27,7 @@ export default class extends Controller {
     this.timer = setTimeout(() => {
       const field = this.field
       if (field && document.activeElement === field) {
-        resume = field.selectionStart ?? field.value.length
+        pendingCaret = field.selectionStart ?? field.value.length
       }
       this.element.requestSubmit()
     }, this.waitValue)

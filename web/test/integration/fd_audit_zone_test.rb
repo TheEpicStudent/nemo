@@ -27,7 +27,7 @@ class FdAuditZoneTest < ActionDispatch::IntegrationTest
     assert_includes Fd::BaseController._process_action_callbacks.map(&:filter), :in_viewer_zone
   end
 
-  def lives_in!(tz)
+  def set_member_tz!(tz)
     as_pipeline("UPDATE fd.member SET tz = ? WHERE user_id = 'UZONEME'", tz)
   end
 
@@ -36,7 +36,7 @@ class FdAuditZoneTest < ActionDispatch::IntegrationTest
   end
 
   test "rows read in the viewer's slack timezone" do
-    lives_in!("America/New_York")
+    set_member_tz!("America/New_York")
 
     get fd_audit_path
     assert_equal "30 Sep 22:30", when_cell.text.squish
@@ -44,7 +44,7 @@ class FdAuditZoneTest < ActionDispatch::IntegrationTest
   end
 
   test "the drawer gives the local time and utc" do
-    lives_in!("America/New_York")
+    set_member_tz!("America/New_York")
 
     get fd_audit_event_path(source: "slack", id: @id)
     assert_select ".fact", text: /When\s+30 Sep 2026 22:30:00 EDT/
@@ -52,7 +52,7 @@ class FdAuditZoneTest < ActionDispatch::IntegrationTest
   end
 
   test "dates in a search are the viewer's days" do
-    lives_in!("America/New_York")
+    set_member_tz!("America/New_York")
 
     get fd_audit_path(q: "after:2026-10-01")
     assert_select "td.audit-when", count: 0

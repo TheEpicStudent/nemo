@@ -11,7 +11,7 @@ WINDOW = "1 hour"
 UNTIL = "until {when}"
 ENDLESS = "with no end date"
 
-CARRIES = (None, "file_share", "thread_broadcast", "me_message")
+HANDLED_SUBTYPES = (None, "file_share", "thread_broadcast", "me_message")
 
 
 def ending(guard):
@@ -55,8 +55,8 @@ def reset(conn, guard, why):
     return how
 
 
-def ours(event):
-    if event.get("subtype") not in CARRIES or event.get("bot_id"):
+def message_target(event):
+    if event.get("subtype") not in HANDLED_SUBTYPES or event.get("bot_id"):
         return None, None, None
 
     channel_id = event.get("channel")

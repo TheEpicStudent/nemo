@@ -23,7 +23,7 @@ class Fd::MemberFinderTest < ActiveSupport::TestCase
     user_id
   end
 
-  def found(term, actor: @staff, limit: 20)
+  def find_members(term, actor: @staff, limit: 20)
     Fd::MemberFinder.new(term, actor: actor).find(limit: limit)
   end
 
@@ -32,43 +32,43 @@ class Fd::MemberFinderTest < ActiveSupport::TestCase
     named!("U0ZQ7Y4KD2", "Zorblax Quintrell Jr")
 
     ["U0ZQ7Y4KD1", "u0zq7y4kd1", "@U0ZQ7Y4KD1", "<@U0ZQ7Y4KD1>", "<@U0ZQ7Y4KD1|zorblax>",
-     "https://hackclub.slack.com/team/U0ZQ7Y4KD1"].each do |pasted|
-      assert_equal ["U0ZQ7Y4KD1"], found(pasted).ids, pasted
-      assert_equal 1, found(pasted).total, pasted
+     "https://hackclub.slack.com/team/U0ZQ7Y4KD1"].each do |input|
+      assert_equal ["U0ZQ7Y4KD1"], find_members(input).ids, input
+      assert_equal 1, find_members(input).total, input
     end
   end
 
   test "an id nobody holds finds nobody rather than guessing by name" do
     named!("U0ZQ7Y4KD1", "U0NOBODY99 fan club")
 
-    assert_empty found("U0NOBODY99").ids
+    assert_empty find_members("U0NOBODY99").ids
   end
 
   test "an id is found even when it only shows up in a case" do
     make_case(subject: "U0CASEONLY", opened_at: 2.days.ago)
 
-    assert_equal ["U0CASEONLY"], found("U0CASEONLY").ids
+    assert_equal ["U0CASEONLY"], find_members("U0CASEONLY").ids
   end
 
   test "the words can come in any order" do
     named!("U0ZQ7Y4KD1", "Zorblax Quintrell")
 
-    assert_includes found("quintrell zorblax").ids, "U0ZQ7Y4KD1"
-    assert_includes found("zorb quint").ids, "U0ZQ7Y4KD1"
+    assert_includes find_members("quintrell zorblax").ids, "U0ZQ7Y4KD1"
+    assert_includes find_members("zorb quint").ids, "U0ZQ7Y4KD1"
   end
 
   test "the exact name comes first" do
     named!("U0ZQ7Y4KD1", "Mirelle Okontawi")
     named!("U0ZQ7Y4KD2", "Mirelle Okonta")
 
-    assert_equal "U0ZQ7Y4KD2", found("mirelle okonta").ids.first
+    assert_equal "U0ZQ7Y4KD2", find_members("mirelle okonta").ids.first
   end
 
   test "a name that starts with the word ranks above one that only contains it" do
     named!("U0ZQ7Y4KD1", "Aquintrella Vorn")
     named!("U0ZQ7Y4KD2", "Zorblax Quintrella")
 
-    ids = found("quintrella").ids
+    ids = find_members("quintrella").ids
     assert_operator ids.index("U0ZQ7Y4KD2"), :<, ids.index("U0ZQ7Y4KD1")
   end
 
@@ -77,7 +77,7 @@ class Fd::MemberFinderTest < ActiveSupport::TestCase
     named!("U0ZQ7Y4KD2", "Quintrell Zorblax")
     make_case(subject: "U0ZQ7Y4KD2", opened_at: 2.days.ago)
 
-    assert_equal %w[U0ZQ7Y4KD1 U0ZQ7Y4KD2], found("zorblax q").ids
+    assert_equal %w[U0ZQ7Y4KD1 U0ZQ7Y4KD2], find_members("zorblax q").ids
   end
 
   test "the words in order must sit inside one name, not run from the display name into the handle" do
@@ -85,7 +85,7 @@ class Fd::MemberFinderTest < ActiveSupport::TestCase
     named!("U0ZQ7Y4KD2", "Zorblax Quintrell")
     make_case(subject: "U0ZQ7Y4KD1", opened_at: 2.days.ago)
 
-    assert_equal %w[U0ZQ7Y4KD2 U0ZQ7Y4KD1], found("zorblax q").ids
+    assert_equal %w[U0ZQ7Y4KD2 U0ZQ7Y4KD1], find_members("zorblax q").ids
   end
 
   test "words shorter than three letters are matched as typed, in that order" do
@@ -93,29 +93,29 @@ class Fd::MemberFinderTest < ActiveSupport::TestCase
     named!("U0ZQ7Y4KD2", "Bzork Alvin")
     named!("U0ZQ7Y4KD3", "Achal Bzorkani")
 
-    assert_equal %w[U0ZQ7Y4KD1 U0ZQ7Y4KD3], found("al bz").ids
-    assert_equal %w[U0ZQ7Y4KD1 U0ZQ7Y4KD3], picked("al bz")
+    assert_equal %w[U0ZQ7Y4KD1 U0ZQ7Y4KD3], find_members("al bz").ids
+    assert_equal %w[U0ZQ7Y4KD1 U0ZQ7Y4KD3], pick_members("al bz")
   end
 
   test "a typo still finds them" do
     named!("U0ZQ7Y4KD1", "Zorblax Quintrell")
 
-    assert_includes found("zorblax qiuntrell").ids, "U0ZQ7Y4KD1"
+    assert_includes find_members("zorblax qiuntrell").ids, "U0ZQ7Y4KD1"
   end
 
   test "bots are not found by name, but a pasted bot id still resolves" do
     named!("U0ZQ7Y4KB1", "Zorblax Quintrell Bot", bot: true)
 
-    assert_not_includes found("zorblax quintrell bot").ids, "U0ZQ7Y4KB1"
-    assert_equal ["U0ZQ7Y4KB1"], found("U0ZQ7Y4KB1").ids
+    assert_not_includes find_members("zorblax quintrell bot").ids, "U0ZQ7Y4KB1"
+    assert_equal ["U0ZQ7Y4KB1"], find_members("U0ZQ7Y4KB1").ids
   end
 
   test "a deleted account is found by name only when conduct work touched it" do
     named!("U0ZQ7Y4KX1", "Zorblax Gonewald", deleted: true)
-    assert_not_includes found("gonewald").ids, "U0ZQ7Y4KX1"
+    assert_not_includes find_members("gonewald").ids, "U0ZQ7Y4KX1"
 
     make_case(subject: "U0ZQ7Y4KX1", opened_at: 2.days.ago)
-    assert_includes found("gonewald").ids, "U0ZQ7Y4KX1"
+    assert_includes find_members("gonewald").ids, "U0ZQ7Y4KX1"
   end
 
   test "somebody with a conduct history outranks a namesake without one" do
@@ -123,7 +123,7 @@ class Fd::MemberFinderTest < ActiveSupport::TestCase
     named!("U0ZQ7Y4KD2", "Zorblax Twinning")
     make_case(subject: "U0ZQ7Y4KD2", opened_at: 2.days.ago)
 
-    assert_equal "U0ZQ7Y4KD2", found("zorblax twinning").ids.first
+    assert_equal "U0ZQ7Y4KD2", find_members("zorblax twinning").ids.first
   end
 
   test "a match in the name people see ranks above one only in a hidden real name" do
@@ -131,7 +131,7 @@ class Fd::MemberFinderTest < ActiveSupport::TestCase
     named!("U0ZQ7Y4KD2", "spacecat", real_name: "Quillon Brightwater")
     make_case(subject: "U0ZQ7Y4KD2", opened_at: 2.days.ago)
 
-    ids = found("quillon").ids
+    ids = find_members("quillon").ids
     assert_operator ids.index("U0ZQ7Y4KD1"), :<, ids.index("U0ZQ7Y4KD2")
   end
 
@@ -140,43 +140,43 @@ class Fd::MemberFinderTest < ActiveSupport::TestCase
     named!("U0ZQ7Y4KD2", "ghost of lynnzora", real_name: "lynnzo")
     make_case(subject: "U0ZQ7Y4KD2", opened_at: 2.days.ago)
 
-    assert_equal "U0ZQ7Y4KD1", found("lynnzo").ids.first
+    assert_equal "U0ZQ7Y4KD1", find_members("lynnzo").ids.first
   end
 
   test "real names and emails are only searched for staff who may read identities" do
     named!("U0ZQ7Y4KD1", "tamz", real_name: "Tamsin Okafor-Reyes", email: "tamsin.or@throwaway.example")
 
-    assert_includes found("okafor").ids, "U0ZQ7Y4KD1"
-    assert_not_includes found("okafor", actor: nil).ids, "U0ZQ7Y4KD1"
+    assert_includes find_members("okafor").ids, "U0ZQ7Y4KD1"
+    assert_not_includes find_members("okafor", actor: nil).ids, "U0ZQ7Y4KD1"
   end
 
   test "an exact email finds that one member" do
     named!("U0ZQ7Y4KD1", "tamz", email: "tamsin.or@throwaway.example")
     named!("U0ZQ7Y4KD2", "tamsin or", email: "tamsin.or2@throwaway.example")
 
-    assert_equal ["U0ZQ7Y4KD1"], found("Tamsin.OR@throwaway.example").ids
+    assert_equal ["U0ZQ7Y4KD1"], find_members("Tamsin.OR@throwaway.example").ids
   end
 
   test "the total counts every match while the ids stop at the limit" do
     3.times { |n| named!("U0ZQ7Y4KV#{n}", "Vexmorran #{n}") }
 
-    result = found("vexmorran", limit: 2)
+    result = find_members("vexmorran", limit: 2)
     assert_equal 2, result.ids.size
     assert_equal 3, result.total
   end
 
   test "punctuation and pattern characters are searched as text" do
-    assert_nothing_raised { found("50%_off:x it's") }
-    assert_nothing_raised { found(":limit :whole ?") }
+    assert_nothing_raised { find_members("50%_off:x it's") }
+    assert_nothing_raised { find_members(":limit :whole ?") }
   end
 
   test "an empty box asks nothing" do
-    assert_equal [[], 0], found("  ").to_a
-    assert_equal [[], 0], found("@").to_a
+    assert_equal [[], 0], find_members("  ").to_a
+    assert_equal [[], 0], find_members("@").to_a
   end
 
-  def picked(term, **opts)
-    Fd::MemberFinder.new(term, actor: @staff).pick(limit: Fd::Member::LIMIT, **opts)
+  def pick_members(term, **opts)
+    Fd::MemberFinder.new(term, actor: @staff).suggest(limit: Fd::Member::LIMIT, **opts)
   end
 
   test "the picker takes the words in any order and puts an exact name or handle first" do
@@ -184,18 +184,18 @@ class Fd::MemberFinderTest < ActiveSupport::TestCase
     named!("U0ZQ7Y4KD2", "Mirelle Okonta")
     named!("U0ZQ7Y4KD3", "spacecat", handle: "okontawi")
 
-    assert_equal "U0ZQ7Y4KD2", picked("mirelle okonta").first
-    assert_equal "U0ZQ7Y4KD3", picked("okontawi").first
-    assert_includes picked("okontawi mirelle"), "U0ZQ7Y4KD1"
+    assert_equal "U0ZQ7Y4KD2", pick_members("mirelle okonta").first
+    assert_equal "U0ZQ7Y4KD3", pick_members("okontawi").first
+    assert_includes pick_members("okontawi mirelle"), "U0ZQ7Y4KD1"
   end
 
   test "the picker needs three letters, but a pasted id resolves straight away" do
     named!("U0ZQ7Y4KD1", "Zo Quintrell")
 
-    assert_empty picked("zo")
-    assert_empty picked("@zo")
-    assert_equal ["U0ZQ7Y4KD1"], picked("<@U0ZQ7Y4KD1>")
-    assert_empty picked("U0NOBODY99")
+    assert_empty pick_members("zo")
+    assert_empty pick_members("@zo")
+    assert_equal ["U0ZQ7Y4KD1"], pick_members("<@U0ZQ7Y4KD1>")
+    assert_empty pick_members("U0NOBODY99")
   end
 
   test "the picker leaves out deleted accounts and bots, even ones conduct work touched" do
@@ -203,9 +203,9 @@ class Fd::MemberFinderTest < ActiveSupport::TestCase
     named!("U0ZQ7Y4KB1", "Zorblax Gonewald Bot", bot: true)
     make_case(subject: "U0ZQ7Y4KX1", opened_at: 2.days.ago)
 
-    assert_empty picked("gonewald")
-    assert_equal ["U0ZQ7Y4KB1"], picked("gonewald", bots: true)
-    assert_equal ["U0ZQ7Y4KX1"], picked("U0ZQ7Y4KX1")
+    assert_empty pick_members("gonewald")
+    assert_equal ["U0ZQ7Y4KB1"], pick_members("gonewald", bots: true)
+    assert_equal ["U0ZQ7Y4KX1"], pick_members("U0ZQ7Y4KX1")
   end
 
   test "the picker for everyone lists deleted accounts and bots after live members" do
@@ -213,8 +213,8 @@ class Fd::MemberFinderTest < ActiveSupport::TestCase
     named!("U0ZQ7Y4KX1", "Zorblax Quintrell", deleted: true)
     named!("U0ZQ7Y4KB1", "Zorblax Quintrell", bot: true)
 
-    assert_equal %w[U0ZQ7Y4KD1 U0ZQ7Y4KB1 U0ZQ7Y4KX1], picked("zorblax quintrell", everyone: true)
-    assert_equal %w[U0ZQ7Y4KD1], picked("zorblax quintrell")
+    assert_equal %w[U0ZQ7Y4KD1 U0ZQ7Y4KB1 U0ZQ7Y4KX1], pick_members("zorblax quintrell", everyone: true)
+    assert_equal %w[U0ZQ7Y4KD1], pick_members("zorblax quintrell")
   end
 
   test "on a case the people on it come first among equal matches, never above a closer one" do
@@ -224,12 +224,12 @@ class Fd::MemberFinderTest < ActiveSupport::TestCase
     kase = make_case(subject: "U0ZQ7Y4KD2", opened_at: 2.days.ago)
     kase.add_subject!("U0ZQ7Y4KD3")
 
-    assert_equal %w[U0ZQ7Y4KD2 U0ZQ7Y4KD1 U0ZQ7Y4KD3], picked("zorblax twinning", case_id: kase.id)
-    assert_equal %w[U0ZQ7Y4KD1 U0ZQ7Y4KD2 U0ZQ7Y4KD3], picked("zorblax twinning")
+    assert_equal %w[U0ZQ7Y4KD2 U0ZQ7Y4KD1 U0ZQ7Y4KD3], pick_members("zorblax twinning", case_id: kase.id)
+    assert_equal %w[U0ZQ7Y4KD1 U0ZQ7Y4KD2 U0ZQ7Y4KD3], pick_members("zorblax twinning")
   end
 
   test "on a case, being on it sorts under the match and over how much they talk" do
-    sql = Fd::MemberFinder.new("zorblax", actor: @staff).pick_sql(8, case_id: 7)
+    sql = Fd::MemberFinder.new("zorblax", actor: @staff).suggest_sql(8, case_id: 7)
     order = sql[sql.rindex("ORDER BY")..]
 
     assert_operator order.index("k.place"), :<, order.index("party.case_id = 7")

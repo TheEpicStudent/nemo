@@ -47,9 +47,9 @@ def test_parser_version_defaults_to_one():
 
 
 def test_the_nightly_runs_exactly_what_the_file_declares():
-    ran = {name for name, _ in nightly_sync.stages()}
-    assert ran <= set(sources.KEYS), "a stage must be a declared source"
-    assert set(sources.KEYS) - ran == set(sources.STANDALONE_SOURCES), (
+    stage_names = {name for name, _ in nightly_sync.stages()}
+    assert stage_names <= set(sources.KEYS), "a stage must be a declared source"
+    assert set(sources.KEYS) - stage_names == set(sources.STANDALONE_SOURCES), (
         "a declared source missing from the nightly must carry standalone: true in "
         "db/sources.yml, its own always-on worker rather than a nightly stage"
     )
@@ -86,11 +86,11 @@ def test_a_source_claiming_num_found_actually_enforces_a_floor():
     from lib import sources
     from lib.paths import PACKAGE_ROOT
 
-    claimed = {key for key in sources.KEYS if sources.SOURCES[key].get("guard") == "num_found"}
-    pulls = "\n".join(p.read_text() for p in (PACKAGE_ROOT / "ingest").glob("*.py"))
-    unfloored = set(re.findall(r"(\w+_SHORT_AT)\s*=\s*NO_FLOOR", pulls))
+    num_found_guarded = {key for key in sources.KEYS if sources.SOURCES[key].get("guard") == "num_found"}
+    ingest_source = "\n".join(p.read_text() for p in (PACKAGE_ROOT / "ingest").glob("*.py"))
+    unfloored = set(re.findall(r"(\w+_SHORT_AT)\s*=\s*NO_FLOOR", ingest_source))
     assert "MEMBER_SHORT_AT" in unfloored
-    assert "member_days" not in claimed
+    assert "member_days" not in num_found_guarded
 
 
 def test_member_days_says_it_has_no_usable_count():
@@ -123,7 +123,7 @@ def test_the_dbt_error_class_list_matches_the_declared_fault_vocabulary():
     )
 
 
-BUILDS_THE_WHOLE_WAREHOUSE = {"dbt"}
+FULL_BUILD_SOURCES = {"dbt"}
 
 
 def warehouse_models():
@@ -143,33 +143,33 @@ def warehouse_models():
     return models
 
 
-def reached_from(models, tables):
-    reached = {name for name, (read, _) in models.items() if read & tables}
-    growing = True
-    while growing:
-        growing = False
+def downstream_models(models, tables):
+    downstream = {name for name, (read, _) in models.items() if read & tables}
+    changed = True
+    while changed:
+        changed = False
         for name, (_, refs) in models.items():
-            if name not in reached and refs & reached:
-                reached.add(name)
-                growing = True
-    return reached
+            if name not in downstream and refs & downstream:
+                downstream.add(name)
+                changed = True
+    return downstream
 
 
 def test_every_feeds_entry_names_a_model_the_source_actually_reaches():
     models = warehouse_models()
     for key in sources.KEYS:
-        if key in BUILDS_THE_WHOLE_WAREHOUSE:
+        if key in FULL_BUILD_SOURCES:
             continue
         spec = sources.source(key)
         tables = {tuple(w.split(".", 1)) for w in spec["writes"] if "." in w}
-        reached = reached_from(models, tables)
-        for fed in spec["feeds"]:
-            assert fed in models, f"{key} says it feeds {fed}, which is not a warehouse model"
-            assert fed in reached, (
-                f"{key} says it feeds {fed}, but nothing downstream of {sorted(tables)} reads it"
+        downstream = downstream_models(models, tables)
+        for fed_model in spec["feeds"]:
+            assert fed_model in models, f"{key} says it feeds {fed_model}, which is not a warehouse model"
+            assert fed_model in downstream, (
+                f"{key} says it feeds {fed_model}, but nothing downstream of {sorted(tables)} reads it"
             )
 
 
 def test_the_warehouse_build_is_the_only_source_without_a_model_list():
-    for key in BUILDS_THE_WHOLE_WAREHOUSE:
+    for key in FULL_BUILD_SOURCES:
         assert sources.source(key)["writes"] == ["analytics"], key

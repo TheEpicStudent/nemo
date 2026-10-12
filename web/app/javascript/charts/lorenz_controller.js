@@ -12,7 +12,7 @@ const pct = (v, d = 1) => `${Number(v).toFixed(d)}%`
 
 const share = (v) => `${+Number(v).toFixed(1)}%`
 
-const withoutPin = ({ pin: _pin, ...rest }) => JSON.stringify(rest)
+const withoutPin = ({ pin: _pin, ...view }) => JSON.stringify(view)
 
 let seq = 0
 
@@ -77,8 +77,8 @@ export default class extends Controller {
 
   get high() {
     const chart = this.element.querySelector(".chart")
-    const room = chart ? Math.round(chart.clientHeight) : 0
-    if (room > 160) return room
+    const chartHeight = chart ? Math.round(chart.clientHeight) : 0
+    if (chartHeight > 160) return chartHeight
 
     return this.hasHeightValue && this.heightValue > 0 ? this.heightValue : 226
   }
@@ -105,7 +105,7 @@ export default class extends Controller {
     const x = scaleLinear().domain([0, 100]).range([PAD.l, wide - PAD.r])
     const y = scaleLinear().domain([0, 100]).range([high - PAD.b, PAD.t])
 
-    const seen = this.points
+    const curvePoints = this.points
     const path = lineOf().x((d) => x(d[0])).y((d) => y(d[1])).curve(curveLinear)
     const under = areaOf().x((d) => x(d[0])).y0(y(0)).y1((d) => y(d[1])).curve(curveLinear)
 
@@ -119,12 +119,12 @@ export default class extends Controller {
       `<text class="ax" x="${x(v).toFixed(1)}" y="${y(0) + 21}" text-anchor="middle">${
         v}%</text>`).join("")
 
-    const fair = `<line class="fair" x1="${x(0)}" y1="${y(0)}" x2="${x(100)}" y2="${y(100)}"/>`
+    const equalityLine = `<line class="fair" x1="${x(0)}" y1="${y(0)}" x2="${x(100)}" y2="${y(100)}"/>`
 
     const marks = (this.showNotes ? this.marks : []).map(([px, py]) =>
       `<circle class="pin" cx="${x(px).toFixed(1)}" cy="${y(py).toFixed(1)}" r="4"/>`).join("")
 
-    const pinned = this.pinned != null ? seen[this.pinned] : null
+    const pinned = this.pinned != null ? curvePoints[this.pinned] : null
     const pin = pinned
       ? `<g class="pin-mark" aria-hidden="true"><line x1="${x(pinned[0]).toFixed(1)}" x2="${
         x(pinned[0]).toFixed(1)}" y1="${PAD.t}" y2="${y(0)}"/><circle cx="${x(pinned[0]).toFixed(1)}" cy="${
@@ -136,14 +136,14 @@ export default class extends Controller {
       `<svg width="${wide}" height="${high}" viewBox="0 0 ${wide} ${high}" role="img"
         aria-label="${esc(this.summary())}"><defs><linearGradient id="${this.gid}" x1="0" y1="0"
           x2="0" y2="1"><stop class="top ser-1" offset="0"/><stop class="bot ser-1" offset="1"/>
-          </linearGradient></defs>${grid}${fair}` +
-      `<path class="wash-fill" fill="url(#${this.gid})" d="${under(seen)}"/>` +
-      `<path class="curve" d="${path(seen)}" fill="none"/>${marks}${pin}` +
+          </linearGradient></defs>${grid}${equalityLine}` +
+      `<path class="wash-fill" fill="url(#${this.gid})" d="${under(curvePoints)}"/>` +
+      `<path class="curve" d="${path(curvePoints)}" fill="none"/>${marks}${pin}` +
       `<line class="base" x1="${PAD.l}" y1="${y(0)}" x2="${wide - PAD.r}" y2="${y(0)}"/>` +
       `<line class="cur" x1="0" y1="${PAD.t}" x2="0" y2="${y(0)}" opacity="0"/>` +
       `<circle class="dot" r="4" opacity="0"/></svg>`)
 
-    this.geom = { x, y, wide, high, pts: seen }
+    this.geom = { x, y, wide, high, pts: curvePoints }
     if (this.at != null) this.show(this.at, { silent: true })
   }
 
@@ -158,7 +158,7 @@ export default class extends Controller {
     return bits.join(", ")
   }
 
-  spot(event) {
+  indexAtPointer(event) {
     const g = this.geom
     if (!g) return null
 
@@ -166,16 +166,16 @@ export default class extends Controller {
     const mx = event.clientX - box.left
     if (mx < PAD.l || mx > g.wide - PAD.r) return null
 
-    const want = g.x.invert(mx)
-    let best = 0
+    const targetX = g.x.invert(mx)
+    let nearestIndex = 0
     g.pts.forEach((p, i) => {
-      if (Math.abs(p[0] - want) < Math.abs(g.pts[best][0] - want)) best = i
+      if (Math.abs(p[0] - targetX) < Math.abs(g.pts[nearestIndex][0] - targetX)) nearestIndex = i
     })
-    return best
+    return nearestIndex
   }
 
   track(event) {
-    const i = this.spot(event)
+    const i = this.indexAtPointer(event)
     if (i == null) return this.clear()
 
     this.show(i)
@@ -257,8 +257,8 @@ export default class extends Controller {
     chart.querySelector(".tip")?.classList.remove("on")
     chart.querySelector(".cur")?.setAttribute("opacity", "0")
     chart.querySelector(".dot")?.setAttribute("opacity", "0")
-    const say = chart.querySelector(".chart-caption")
-    if (say) say.textContent = ""
+    const caption = chart.querySelector(".chart-caption")
+    if (caption) caption.textContent = ""
   }
 
   pointKey(index) {
@@ -270,7 +270,7 @@ export default class extends Controller {
     return this.points.findIndex((point) => String(point[0]) === key)
   }
 
-  holdingAt(posters) {
+  cumulativeShareAt(posters) {
     const point = this.points.find((p) => p[0] === posters)
     return point ? point[1] : null
   }
@@ -311,10 +311,10 @@ export default class extends Controller {
 
   rangeStats() {
     const top = (posters) => {
-      const held = this.holdingAt(100 - posters)
-      return held == null ? null : { label: `top ${posters}% hold`, value: pct(100 - held) }
+      const cumulativeShare = this.cumulativeShareAt(100 - posters)
+      return cumulativeShare == null ? null : { label: `top ${posters}% hold`, value: pct(100 - cumulativeShare) }
     }
-    const half = this.holdingAt(50)
+    const half = this.cumulativeShareAt(50)
     return {
       summary: [
         this.hasGiniValue && { label: "Gini", value: Number(this.giniValue).toFixed(3) },

@@ -6,7 +6,7 @@ export function squarify(items, x, y, w, h, out) {
   }
 
   const total = items.reduce((at, i) => at + i.v, 0)
-  let take = 1
+  let rowCount = 1
   let bestRatio = Infinity
   for (let n = 1; n <= items.length; n++) {
     const part = items.slice(0, n).reduce((at, i) => at + i.v, 0)
@@ -21,12 +21,12 @@ export function squarify(items, x, y, w, h, out) {
     }, 0)
     if (worst < bestRatio) {
       bestRatio = worst
-      take = n
+      rowCount = n
     } else break
   }
 
-  const head = items.slice(0, take)
-  const tail = items.slice(take)
+  const head = items.slice(0, rowCount)
+  const tail = items.slice(rowCount)
   const part = head.reduce((at, i) => at + i.v, 0)
   const frac = part / total
 

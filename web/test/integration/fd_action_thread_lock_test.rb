@@ -63,11 +63,11 @@ class FdActionThreadLockTest < ActionDispatch::IntegrationTest
 
   test "logging a lock names nobody as a subject" do
     guard = lock!
-    was = @kase.subject_user_ids.sort
+    subject_ids = @kase.subject_user_ids.sort
     log(thread_guard_id: guard.id, target_user_id: "UNEW")
 
     assert_nil actions.sole.target_user_id
-    assert_equal was, @kase.reload.subject_user_ids.sort
+    assert_equal subject_ids, @kase.reload.subject_user_ids.sort
   end
 
   test "a lock must be picked" do
@@ -141,21 +141,21 @@ class FdActionThreadLockTest < ActionDispatch::IntegrationTest
   end
 
   test "the form offers every live lock, this case first" do
-    mine = lock!(case_id: @kase.id, thread_ts: "1700000000.000200")
-    loose = lock!(case_id: nil, thread_ts: "1700000000.000300")
+    case_lock = lock!(case_id: @kase.id, thread_ts: "1700000000.000200")
+    unattached_lock = lock!(case_id: nil, thread_ts: "1700000000.000300")
     get fd_case_path(@kase, do: "action")
     body = response.body
 
-    assert_operator body.index(%(value="#{mine.id}")), :<, body.index(%(value="#{loose.id}"))
+    assert_operator body.index(%(value="#{case_lock.id}")), :<, body.index(%(value="#{unattached_lock.id}"))
     assert_match(/on this case/, body)
     assert_match(/on no case/, body)
   end
 
   test "a lifted lock is not offered" do
-    gone = lock!(state: "done", thread_ts: "1700000000.000400")
+    done_lock = lock!(state: "done", thread_ts: "1700000000.000400")
     get fd_case_path(@kase, do: "action")
 
-    assert_no_match(/name="thread_guard_id" value="#{gone.id}"/, response.body)
+    assert_no_match(/name="thread_guard_id" value="#{done_lock.id}"/, response.body)
   end
 
   test "the picker and the member fields start hidden behind the kind" do
@@ -163,7 +163,7 @@ class FdActionThreadLockTest < ActionDispatch::IntegrationTest
     body = response.body
 
     assert_match(/data-action-standing-target="locks" hidden/, body)
-    assert_match(/data-action-standing-target="aimed"/, body)
+    assert_match(/data-action-standing-target="targetFields"/, body)
     assert_match(/data-action-standing-target="why"/, body)
   end
 

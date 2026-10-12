@@ -1,0 +1,10 @@
+<% selected = @query.search.first_value("is") %>
+<%= link_to "Any", fd_audit_path(@query.set_params("is")), class: "btn",
+      aria: { current: ("true" if selected.nil?) } %>
+<div class="menu-sep"></div>
+<% AuditHelper::ACTOR_TYPES.each do |label, key| %>
+  <%= link_to fd_audit_path(@query.set_params("is", key)), class: "btn",
+        aria: { current: ("true" if selected == key) } do %>
+    <span><%= label %></span><%= audit_count(counts&.fetch(key, 0)) %>
+  <% end %>
+<% end %>

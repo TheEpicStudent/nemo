@@ -5,7 +5,7 @@ module Fd
     View = Struct.new(:key, :label, :count, :current, keyword_init: true)
     Row = Struct.new(:source, :id, :at, :actor_id, :actor_kind, :verb, :entity_kind,
       :entity_id, :entity_ref, :subject_id, :before, :after, :detail, :channel, :app, :session,
-      keyword_init: true) do
+      :addressed, :address, keyword_init: true) do
       def ours? = source == FIRE_ENGINE
 
       def slack? = source == SLACK
@@ -36,7 +36,7 @@ module Fd
 
       def now(key) = (after || {})[key]
 
-      def ip = (detail || {})["ip_address"]
+      def ip = address.presence || (detail || {})["ip_address"]
 
       def app_name = (detail || {}).dig("app", "name")
     end
@@ -73,7 +73,7 @@ module Fd
 
 
     TERM_KEY = "q".freeze
-    KEYS = %w[view q before_at before_id after_at after_id on].freeze
+    KEYS = %w[view q before_at before_id after_at after_id on live].freeze
 
     DEFAULT_VIEW = "slack".freeze
     NO_VIEW = "none".freeze
@@ -87,10 +87,13 @@ module Fd
       "actor:@handle" => "by them",
       "did:deactivated" => "one event",
       "category:people" => "one kind of event",
+      "network:vpn" => "a network class: stable, rotating, vpn, hosting or tor",
+      "country:DE" => "one country, from the address",
       "show:high_volume" => "previews, downloads and list edits",
       "in:#ask" => "one channel",
       "source:slack" => "one log",
       "is:nemo" => "nemo, not a person",
+      "by:me" => "by you",
       "after:2026-09-01" => "from a date",
       "before:2026-09-20" => "up to a date",
       "last:24h" => "the last 24 hours",
@@ -99,16 +102,16 @@ module Fd
       "invite spam" => "free text"
     }.freeze
 
-    ONE = {
+    ROW_BY_ID = {
       FIRE_ENGINE => "a.id::text = :id",
       SLACK => "e.id::text = :id",
       READ => "'r' || l.id::text = :id"
     }.freeze
 
-    def self.one(source, id, actor: nil)
+    def self.find_one(source, id, actor: nil)
       return nil unless SOURCES.include?(source) && id.present?
 
-      new({ "when" => "any", "view" => view_for(source) }, actor: actor).send(:pick, source, id)
+      new({ "when" => "any", "view" => view_for(source) }, actor: actor).send(:find_row, source, id)
     end
 
     def self.view_for(source)
@@ -132,7 +135,7 @@ module Fd
 
     def terms = search.terms
 
-    def asked? = search.any?
+    def searching? = search.any?
 
     ENGINE_READ = "access.read".freeze
     SLACK_READ = "audit.read".freeze
@@ -155,10 +158,10 @@ module Fd
     def identity_refused? = search.identity_terms? && !identity?
 
     def allowed_views
-      held = VIEWS
-      held = held.except(*ENGINE_ONLY) unless may_engine?
-      held = held.except(*SLACK_ONLY) unless may_slack?
-      held
+      views = VIEWS
+      views = views.except(*ENGINE_ONLY) unless may_engine?
+      views = views.except(*SLACK_ONLY) unless may_slack?
+      views
     end
 
     ENGINE_ONLY = %w[engine refusals].freeze
@@ -175,10 +178,10 @@ module Fd
     def default_view = may_slack? ? DEFAULT_VIEW : "everything"
 
     def view
-      raw = @params["view"].to_s
-      return nil if raw == NO_VIEW
+      requested = @params["view"].to_s
+      return nil if requested == NO_VIEW
 
-      allowed_views.key?(raw) ? raw : default_view
+      allowed_views.key?(requested) ? requested : default_view
     end
 
     def view_label = VIEWS.fetch(view)
@@ -190,47 +193,104 @@ module Fd
       end
     end
 
-    def carried
-      asked? ? { TERM_KEY => term } : {}
+    def query_params
+      searching? ? { TERM_KEY => term } : {}
     end
 
-    def placed
-      return group_params if view.nil? || view == default_view
+    def scope_params
+      params = group_params.merge(live_params)
+      return params if view.nil? || view == default_view
 
-      { "view" => view }.merge(group_params)
+      { "view" => view }.merge(params)
     end
 
-    def to_params = carried.merge(placed)
+    def live? = @params["live"].to_s == "1"
+
+    def newest_page? = @params["before_at"].blank? && @params["after_at"].blank? && jump_date.nil?
+
+    def live_params = live? ? { "live" => "1" } : {}
+
+    LIVE_ACTIONS = %w[
+      anomaly user_sessions_reset_by_anomaly_event_response user_session_reset_by_admin
+      bulk_session_reset_by_admin cli_login user_password_reset_requested
+      user_deactivated user_reactivated guest_deactivated guest_reactivated user_email_updated
+      email_change_confirmed
+      role_assigned role_removed role_change_to_user permissions_assigned permissions_removed
+      audit_logs_export_json_started audit_logs_records_searched_anomaly
+      app_installed app_approved app_scopes_expanded app_token_preserved app_collaborator_added
+      private_message_forwarded file_public_link_created file_malicious_content_detected
+      private_channel_converted_to_public external_shared_channel_connected
+      external_shared_channel_invite_accepted public_channel_deleted private_channel_deleted
+      channel_retention_changed
+      refused granted revoked read exported turned_on turned_off performed reversed
+    ].freeze
+    LIVE_ACTION_PREFIXES = %w[pref.].freeze
+    LIVE_SUBJECT_KINDS = %w[actor about ip email domain session].freeze
+    LIVE_NETWORKS = %w[tor].freeze
+    LIVE_VIEWS = %w[reads refusals].freeze
+
+    def live_watch
+      return nil unless live_push?
+
+      {
+        "sources" => selected_sources,
+        "actions" => (view == "refusals" ? ["refused"] : watched_actions).presence,
+        "actors" => search.of("actor").presence,
+        "subjects" => search.of("about").presence
+      }.compact
+    end
+
+    def live_push?
+      return true if LIVE_VIEWS.include?(view)
+      return true if terms.any? { |term| LIVE_SUBJECT_KINDS.include?(term.kind) }
+      return true if search.of("network").intersect?(LIVE_NETWORKS)
+
+      watched_actions.any? && watched_actions.all? { |action| live_action?(action) }
+    end
+
+    def watched_actions
+      @watched_actions ||= (search.of("action") + AuditCatalogue.actions_in(search.of("category"))).uniq
+    end
+
+    def live_action?(action)
+      LIVE_ACTIONS.include?(action) || LIVE_ACTION_PREFIXES.any? { |prefix| action.start_with?(prefix) }
+    end
+
+    def live_toggle_params
+      live? ? to_params.except("live") : to_params.merge("live" => "1")
+    end
+
+    def to_params = query_params.merge(scope_params)
 
     def view_params(key)
-      held = carried.merge(group_params)
-      key == default_view ? held : held.merge("view" => key)
+      params = query_params.merge(group_params)
+      key == default_view ? params : params.merge("view" => key)
     end
 
-    def without_params(one)
-      held = carried.merge(placed)
-      rest = search.without(one)
-      rest.present? ? held.merge(TERM_KEY => rest) : held.except(TERM_KEY)
+    def without_params(term_value)
+      params = query_params.merge(scope_params)
+      remaining = search.without(term_value)
+      remaining.present? ? params.merge(TERM_KEY => remaining) : params.except(TERM_KEY)
     end
 
     def with_params(term_value)
-      carried.merge(placed).merge(TERM_KEY => [term, term_value].compact_blank.join(" ").strip)
+      query_params.merge(scope_params).merge(TERM_KEY => [term, term_value].compact_blank.join(" ").strip)
     end
 
     RANGE_KINDS = %w[after before last].freeze
-    HOUR = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}\z/
+    HOUR_STAMP = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}\z/
 
     def range_params(start_on, end_on)
       start = start_on.to_s
       ending = end_on.presence&.to_s || start
-      kept = terms.reject { |one| RANGE_KINDS.include?(one.kind) }.map { |one| search.label_for(one) }
-      placed.merge(TERM_KEY => (kept + range_terms(start, ending)).join(" "))
+      remaining = terms.reject { |query_term| RANGE_KINDS.include?(query_term.kind) }.map { |query_term| search.label_for(query_term) }
+      scope_params.merge(TERM_KEY => (remaining + range_terms(start, ending)).join(" "))
     rescue Date::Error, ArgumentError, NoMethodError
       to_params
     end
 
     def range_terms(start, ending)
-      if start.match?(HOUR) && ending.match?(HOUR)
+      if start.match?(HOUR_STAMP) && ending.match?(HOUR_STAMP)
         from, upto = [Time.zone.parse(start), Time.zone.parse(ending)].minmax
         return ["after:#{from.strftime(AuditSearch::MINUTE)}", "before:#{(upto + 1.hour).strftime(AuditSearch::MINUTE)}"]
       end
@@ -241,10 +301,10 @@ module Fd
 
     def set_params(kinds, value = nil)
       kinds = Array(kinds)
-      kept = terms.reject { |one| kinds.include?(one.kind) }.map { |one| search.label_for(one) }
-      kept << "#{kinds.first}:#{value}" if value
-      held = placed
-      kept.any? ? held.merge(TERM_KEY => kept.join(" ")) : held
+      remaining = terms.reject { |query_term| kinds.include?(query_term.kind) }.map { |query_term| search.label_for(query_term) }
+      remaining << "#{kinds.first}:#{value}" if value
+      params = scope_params
+      remaining.any? ? params.merge(TERM_KEY => remaining.join(" ")) : params
     end
 
     def rows
@@ -258,68 +318,73 @@ module Fd
       to_params.merge("after_at" => first.at.iso8601(6), "after_id" => first.id)
     end
 
-    def looked_at
-      held = {}
-      held["identity_search"] = shown_people if search.identity_terms? && identity?
-      held["audit"] = search.of("actor") | search.of("about") if wanted_sources.include?(SLACK)
-      held.transform_values { |ids| ids.grep(MEMBER_ID) }.reject { |_, ids| ids.empty? }
+    def identity_reads
+      reads = {}
+      reads["identity_search"] = visible_member_ids if search.identity_terms? && identity?
+      reads["audit"] = search.of("actor") | search.of("about") if selected_sources.include?(SLACK)
+      reads.transform_values { |ids| ids.grep(MEMBER_ID) }.reject { |_, ids| ids.empty? }
     end
 
-    def shown_people
+    def visible_member_ids
       return group == "actor" ? groups.map(&:key) : [] if group
 
       rows.flat_map { |row| [row.actor_id, row.subject_id, row.entity_id] }.compact.uniq
     end
 
     Pivot = Struct.new(:label, :params, :kind, keyword_init: true)
-    AROUND = 15.minutes
-    EVERYTHING_SHOWN = "show:high_volume".freeze
+    PIVOT_WINDOW = 15.minutes
+    HIGH_VOLUME_TERM = "show:high_volume".freeze
 
     def pivots(row)
-      person = row.actor_id.to_s.match?(MEMBER_ID)
-      held = []
-      held << value_pivot("Same actor", "actor", row.actor_id) if person
-      held << value_pivot("Same action", "action", row.verb) if row.verb.present?
-      held << value_pivot("Same address", "ip", row.ip) if row.ip.present?
-      held << value_pivot("Same channel", "channel", row.channel) if row.channel.present?
-      held << value_pivot("Same app", "app", row.app) if row.app.present?
-      held << Pivot.new(label: "Same actor within 15 minutes", kind: "around", params: around_params(row)) if person
-      if person && row.session.present?
-        held << Pivot.new(label: "Same session", kind: "session",
-          params: fresh_params("actor:#{row.actor_id}", "session:#{row.session}", EVERYTHING_SHOWN))
+      member_actor = row.actor_id.to_s.match?(MEMBER_ID)
+      pivots = []
+      pivots << value_pivot("Same actor", "actor", row.actor_id) if member_actor
+      pivots << value_pivot("Same action", "action", row.verb) if row.verb.present?
+      pivots << value_pivot("Same address", "ip", row.ip) if row.ip.present?
+      pivots << value_pivot("Same channel", "channel", row.channel) if row.channel.present?
+      pivots << value_pivot("Same app", "app", row.app) if row.app.present?
+      pivots << Pivot.new(label: "Same actor within 15 minutes", kind: "around", params: around_params(row)) if member_actor
+      if member_actor && row.session.present?
+        pivots << Pivot.new(label: "Same session", kind: "session",
+          params: reset_params("actor:#{row.actor_id}", "session:#{row.session}", HIGH_VOLUME_TERM))
       end
-      held.compact
+      pivots.compact
     end
 
     def value_pivot(label, kind, value)
       return nil if search.of(kind) == [value]
 
-      kept = terms.reject { |one| one.kind == kind }.map { |one| search.label_for(one) }
+      remaining = terms.reject { |query_term| query_term.kind == kind }.map { |query_term| search.label_for(query_term) }
       Pivot.new(label: label, kind: kind,
-        params: placed.except("group").merge(TERM_KEY => (kept << "#{kind}:#{value}").join(" ")))
+        params: scope_params.except("group").merge(TERM_KEY => (remaining << "#{kind}:#{value}").join(" ")))
     end
 
     def around_params(row)
       at = row.at.in_time_zone
-      from = (at - AROUND).change(sec: 0)
-      upto = (at + AROUND).change(sec: 0) + 1.minute
-      fresh_params("actor:#{row.actor_id}", "after:#{from.strftime(AuditSearch::MINUTE)}",
-        "before:#{upto.strftime(AuditSearch::MINUTE)}", EVERYTHING_SHOWN)
+      from = (at - PIVOT_WINDOW).change(sec: 0)
+      upto = (at + PIVOT_WINDOW).change(sec: 0) + 1.minute
+      reset_params("actor:#{row.actor_id}", "after:#{from.strftime(AuditSearch::MINUTE)}",
+        "before:#{upto.strftime(AuditSearch::MINUTE)}", HIGH_VOLUME_TERM)
     end
 
-    def fresh_params(*said) = placed.except("group").merge(TERM_KEY => said.join(" "))
+    def reset_params(*query_terms) = scope_params.except("group").merge(TERM_KEY => query_terms.join(" "))
+
+    NETWORK_ATTRIBUTE = "(SELECT n.%<field>s FROM fd.ip_network n WHERE n.ip_prefix = " \
+                 "network(set_masklen(%<ip>s, CASE WHEN family(%<ip>s) = 4 THEN 24 ELSE 64 END)))".freeze
+    ROW_IP = "(events.ip::inet)".freeze
 
     GROUPS = {
-      "actor" => "Actor", "action" => "Action", "address" => "Address",
-      "channel" => "Channel", "app" => "App"
+      "actor" => "Actor", "action" => "Event", "address" => "IP",
+      "channel" => "Channel", "app" => "App", "country" => "Country"
     }.freeze
     GROUP_COLUMNS = {
       "actor" => "actor_id", "action" => "verb", "address" => "ip",
-      "channel" => "channel", "app" => "app"
+      "channel" => "channel", "app" => "app",
+      "country" => format(NETWORK_ATTRIBUTE, field: "country", ip: ROW_IP)
     }.freeze
     GROUP_TERMS = {
       "actor" => "actor", "action" => "action", "address" => "ip",
-      "channel" => "in", "app" => "app"
+      "channel" => "in", "app" => "app", "country" => "country"
     }.freeze
     GROUP_LIMIT = 100
 
@@ -330,8 +395,8 @@ module Fd
     end
 
     def group
-      raw = @params["group"].to_s
-      allowed_groups.key?(raw) ? raw : nil
+      requested = @params["group"].to_s
+      allowed_groups.key?(requested) ? requested : nil
     end
 
     def group_label = GROUPS[group]
@@ -348,11 +413,11 @@ module Fd
       "#{number_label(groups.size)} of #{number_label(@group_total.to_i)} #{group_label.downcase.pluralize(@group_total.to_i)}"
     end
 
-    def group_params_for(one)
-      with_params("#{GROUP_TERMS.fetch(group)}:#{one.key}").except("group")
+    def group_params_for(group_row)
+      with_params("#{GROUP_TERMS.fetch(group)}:#{group_row.key}").except("group")
     end
 
-    def jump_on
+    def jump_date
       Date.iso8601(@params["on"].to_s)
     rescue Date::Error
       nil
@@ -370,7 +435,7 @@ module Fd
     end
 
     def total
-      @total ||= ask(count_sql).first["found"].to_i
+      @total ||= select_rows(count_sql).first["event_count"].to_i
     end
 
     HISTOGRAM_DAYS = 30
@@ -392,15 +457,15 @@ module Fd
 
     def histogram
       from, upto = histogram_span
-      return [] if from >= upto || wanted_sources.empty?
+      return [] if from >= upto || selected_sources.empty?
 
       unit = hourly? ? "hour" : "day"
-      found = ApplicationRecord.transaction do
+      counts = ApplicationRecord.transaction do
         ApplicationRecord.connection.execute(HISTOGRAM_TIMEOUT)
-        ask(histogram_sql, unit: unit, zone: Time.zone.tzinfo.name, histogram_from: from, histogram_upto: upto)
-          .to_h { |row| [bin_key(row["bin"]), row["found"].to_i] }
+        select_rows(histogram_sql, unit: unit, zone: Time.zone.tzinfo.name, histogram_from: from, histogram_upto: upto)
+          .to_h { |row| [bin_key(row["bin"]), row["event_count"].to_i] }
       end
-      histogram_bins(from, upto).map { |bin| [bin, found.fetch(bin_key(bin), 0)] }
+      histogram_bins(from, upto).map { |bin| [bin, counts.fetch(bin_key(bin), 0)] }
     rescue ActiveRecord::QueryCanceled
       []
     end
@@ -418,36 +483,59 @@ module Fd
     end
 
     def title
-      return "#{view_label} matching #{term}" if view && asked?
+      return "#{view_label} matching #{term}" if view && searching?
       return view_label if view
 
       terms.any? ? "Everything #{terms.map(&:label).to_sentence}" : "Everything"
     end
 
     def summary
-      "#{number_label(rows.size)} of #{counted}"
+      "#{number_label(rows.size)} of #{total_label}"
     end
 
     COUNT_CEILING = 10_000
 
-    def counted
+    def total_label
       total > COUNT_CEILING ? "#{number_label(COUNT_CEILING)}+" : number_label(total)
     end
 
     def empty_note
-      return "Not yours to search by address or email" if identity_refused?
-      return "Nothing matches that." if asked?
+      return "Requires identity.read" if identity_refused?
+      return "No events" if searching?
 
       case view
-      when "reads" then "Nobody has looked anybody up."
-      when "refusals" then "Nothing has been refused."
-      when "slack" then "No Slack audit event has landed yet."
-      else "Nothing here yet."
+      when "reads" then "No identity reads"
+      when "refusals" then "No refusals"
+      else "No events"
       end
     end
 
     def suggestions
       known_verbs.first(SUGGESTED)
+    end
+
+    FACETS = %w[category action network is].freeze
+    FACET_TERMS = { "category" => %w[category], "action" => %w[action], "network" => %w[network],
+                    "is" => %w[is] }.freeze
+    FACET_LIMIT = 200
+    ACTOR_TYPE_COUNTS = <<~SQL.freeze
+      SELECT count(*) FILTER (WHERE actor_kind = 'human' AND actor_id IS NOT NULL) AS human,
+             count(*) FILTER (WHERE actor_kind <> 'human') AS nemo,
+             count(*) FILTER (WHERE actor_id IS NULL) AS nobody
+      FROM (UNION_SQL) events
+    SQL
+
+    def facet(key)
+      return {} unless FACETS.include?(key)
+
+      self.class.new(@params.merge(TERM_KEY => set_params(FACET_TERMS.fetch(key))[TERM_KEY].to_s), actor: actor)
+        .send(:facet_counts, key)
+    end
+
+    EXPORT_LIMIT = 1000
+
+    def export_rows
+      select_rows("#{union_sql} ORDER BY at DESC, id DESC LIMIT #{EXPORT_LIMIT}").map { |row| build_row(row) }
     end
 
     SUGGESTED = 12
@@ -467,17 +555,54 @@ module Fd
 
     private
 
+    def facet_counts(key)
+      from, upto = histogram_span
+      return {} if from >= upto || selected_sources.empty?
+
+      ApplicationRecord.transaction do
+        ApplicationRecord.connection.execute(HISTOGRAM_TIMEOUT)
+        result = select_rows(facet_sql(key), histogram_from: from, histogram_upto: upto).to_a
+        key == "is" ? (result.first || {}).transform_values(&:to_i) : result.to_h { |row| [row["key"], row["event_count"].to_i] }
+      end
+    rescue ActiveRecord::QueryCanceled
+      {}
+    end
+
+    def facet_sql(key)
+      return ACTOR_TYPE_COUNTS.sub("UNION_SQL", union_sql(HISTOGRAM_WINDOW)) if key == "is"
+
+      column = key == "network" ? format(NETWORK_ATTRIBUTE, field: "class", ip: ROW_IP) : "verb"
+      <<~SQL
+        SELECT #{column} AS key, count(*) AS event_count
+        FROM (#{union_sql(HISTOGRAM_WINDOW)}) events
+        WHERE #{key == "network" ? "events.ip IS NOT NULL" : "true"}
+        GROUP BY 1
+        ORDER BY event_count DESC
+        LIMIT #{FACET_LIMIT}
+      SQL
+    end
+
+    def network_filter? = search.of("network").any? || search.of("country").any?
+
+    def network_clause(table)
+      ip = "#{table}.ip"
+      parts = []
+      parts << "AND #{format(NETWORK_ATTRIBUTE, field: 'class', ip: ip)} IN (:networks)" if search.of("network").any?
+      parts << "AND #{format(NETWORK_ATTRIBUTE, field: 'country', ip: ip)} IN (:countries)" if search.of("country").any?
+      parts.join("\n").presence
+    end
+
     def number_label(count) = ActiveSupport::NumberHelper.number_to_delimited(count)
 
     def since = Time.zone.at(0)
 
-    def wanted_sources
+    def selected_sources
       return [] if identity_refused?
 
-      held = view ? VIEW_SOURCES.fetch(view) : SOURCES
-      asked = search.of("source")
-      held = held & asked.map { |one| one == "engine" ? FIRE_ENGINE : one } if asked.any?
-      held.select { |source| may_see?(source) }
+      sources = view ? VIEW_SOURCES.fetch(view) : SOURCES
+      requested_sources = search.of("source")
+      sources = sources & requested_sources.map { |source| source == "engine" ? FIRE_ENGINE : source } if requested_sources.any?
+      sources.select { |source| may_see?(source) }
     end
 
     def refusals? = view == "refusals"
@@ -491,7 +616,7 @@ module Fd
              NULL::text AS ip, CASE WHEN a.entity_ref ~ '^[CGD][A-Z0-9]{2,}$' THEN a.entity_ref END AS channel,
              NULL::text AS app, NULL::text AS session
       FROM fd.audit a
-      WHERE a.occurred_at >= :since AND (a.verb <> 'refused') = :wanted_kept
+      WHERE a.occurred_at >= :since AND (a.verb <> 'refused') = :non_refusals
         ENGINE_WHERE
     SQL
 
@@ -609,21 +734,21 @@ module Fd
         parts << (channel ? "AND #{channel} IN (:channels)" : "AND false")
       end
       parts << "AND false" if search.text?
-      parts << "AND false" if search.of("ip").any?
+      parts << "AND false" if search.of("ip").any? || network_filter?
       parts << "AND false" if search.of("app").any? || search.of("session").any?
       parts << "AND false" if search.of("category").any?
-      if looked_up? && search.of("ip").empty?
-        parts << (anybody.any? ? "AND (#{actor} IN (:anybody) OR " \
-                                 "#{subject} IN (:anybody))" : "AND false")
+      if identity_lookup? && search.of("ip").empty?
+        parts << (matched_user_ids.any? ? "AND (#{actor} IN (:matched_user_ids) OR " \
+                                 "#{subject} IN (:matched_user_ids))" : "AND false")
       end
-      parts << api_doer(actor, kind)
+      parts << api_actor_type_clause(actor, kind)
       parts << "AND #{at} >= :after" if from_at
       parts << "AND #{at} < :before" if upto_at
       parts.compact.join("\n")
     end
 
-    def api_doer(actor, kind)
-      case search.one("is")
+    def api_actor_type_clause(actor, kind)
+      case search.first_value("is")
       when "human" then kind == "human" ? nil : "AND false"
       when "nemo" then "AND false"
       when "nobody" then "AND #{actor} IS NULL"
@@ -645,15 +770,15 @@ module Fd
         verb: "'api/checked'", kind: "app", channel: "r.channel_id")
     end
 
-    def anybody
-      @anybody ||= (search.people_for_email + search.people_for_ip).uniq
+    def matched_user_ids
+      @matched_user_ids ||= (search.member_ids_for_email + search.member_ids_for_ip).uniq
     end
 
-    def looked_up?
+    def identity_lookup?
       search.of("email").any? || search.of("domain").any? || search.of("ip").any?
     end
 
-    def nobody_found? = looked_up? && anybody.empty? && search.of("ip").empty?
+    def no_identity_match? = identity_lookup? && matched_user_ids.empty? && search.of("ip").empty?
 
     def engine_where
       parts = []
@@ -664,12 +789,12 @@ module Fd
       parts << "AND false" if search.of("app").any? || search.of("session").any?
       parts << "AND false" if search.of("category").any?
       parts << "AND a.searchable @@ websearch_to_tsquery('simple', :text)" if search.text?
-      parts << "AND false" if search.of("ip").any?
-      if looked_up? && search.of("ip").empty?
-        parts << (anybody.any? ? "AND (a.subject_user_id IN (:anybody) OR " \
-                                 "a.actor_user_id IN (:anybody))" : "AND false")
+      parts << "AND false" if search.of("ip").any? || network_filter?
+      if identity_lookup? && search.of("ip").empty?
+        parts << (matched_user_ids.any? ? "AND (a.subject_user_id IN (:matched_user_ids) OR " \
+                                 "a.actor_user_id IN (:matched_user_ids))" : "AND false")
       end
-      parts << doer_clause("a.actor_user_id", "a.actor_kind")
+      parts << actor_type_clause("a.actor_user_id", "a.actor_kind")
       parts << "AND a.occurred_at >= :after" if from_at
       parts << "AND a.occurred_at < :before" if upto_at
       parts.compact.join("\n")
@@ -686,8 +811,9 @@ module Fd
       parts << "AND e.category IN (:categories)" if search.of("category").any?
       parts << "AND #{SLACK_SEARCHED} @@ websearch_to_tsquery('simple', :text)" if search.text?
       parts << ip_clause("e") if search.of("ip").any?
-      parts << email_clause if search.of("ip").empty? && looked_up?
-      parts << "AND false" if search.one("is") == "nemo"
+      parts << network_clause("e") if network_filter?
+      parts << email_clause if search.of("ip").empty? && identity_lookup?
+      parts << "AND false" if search.first_value("is") == "nemo"
       parts << "AND e.at >= :after" if from_at
       parts << "AND e.at < :before" if upto_at
       parts.compact.join("\n")
@@ -704,10 +830,11 @@ module Fd
       parts << "AND a.action IN (:category_actions)" if search.of("category").any?
       parts << "AND #{SLACK_VIEW_SEARCHED} @@ websearch_to_tsquery('simple', :text)" if search.text?
       parts << ip_clause("v") if search.of("ip").any?
-      if looked_up? && search.of("ip").empty?
-        parts << (anybody.any? ? "AND v.actor_id IN (:anybody)" : "AND false")
+      parts << network_clause("v") if network_filter?
+      if identity_lookup? && search.of("ip").empty?
+        parts << (matched_user_ids.any? ? "AND v.actor_id IN (:matched_user_ids)" : "AND false")
       end
-      parts << "AND false" if search.one("is") == "nemo"
+      parts << "AND false" if search.first_value("is") == "nemo"
       parts << "AND v.at >= :after" if from_at
       parts << "AND v.at < :before" if upto_at
       parts.join("\n")
@@ -717,35 +844,35 @@ module Fd
       @view_actions ||= ApplicationRecord.connection.select_values(VIEW_ACTIONS)
     end
 
-    def high_volume? = search.one("show") == "high_volume"
+    def high_volume? = search.first_value("show") == "high_volume"
 
     def slack_views? = high_volume? || search.of("action").intersect?(view_actions)
 
     EMAIL_FIELDS = %w[e.actor_email e.entity_email].freeze
 
     def email_clause
-      held = []
-      search.of("email").each_with_index do |_said, at|
-        held.concat(EMAIL_FIELDS.map { |field| "#{field} = :email_#{at}" })
+      conditions = []
+      search.of("email").each_with_index do |_value, at|
+        conditions.concat(EMAIL_FIELDS.map { |field| "#{field} = :email_#{at}" })
       end
-      search.of("domain").each_with_index do |_said, at|
-        held.concat(EMAIL_FIELDS.map { |field| "split_part(#{field}, '@', 2) = :domain_#{at}" })
+      search.of("domain").each_with_index do |_value, at|
+        conditions.concat(EMAIL_FIELDS.map { |field| "split_part(#{field}, '@', 2) = :domain_#{at}" })
       end
-      held << "e.actor_id IN (:anybody)" if anybody.any?
-      held.empty? ? "AND false" : "AND (#{held.join(' OR ')})"
+      conditions << "e.actor_id IN (:matched_user_ids)" if matched_user_ids.any?
+      conditions.empty? ? "AND false" : "AND (#{conditions.join(' OR ')})"
     end
 
     def ip_clause(table)
-      held = search.of("ip").map { |term_value|
+      conditions = search.of("ip").map { |term_value|
         operator = term_value.include?("/") ? "<<" : "="
         "#{table}.ip #{operator} :ip_#{term_value.hash.abs}::inet"
       }
-      seen = anybody.any? ? " OR #{table}.actor_id IN (:anybody)" : ""
-      "AND ((#{held.join(' OR ')})#{seen})"
+      actor_match = matched_user_ids.any? ? " OR #{table}.actor_id IN (:matched_user_ids)" : ""
+      "AND ((#{conditions.join(' OR ')})#{actor_match})"
     end
 
-    def doer_clause(actor_column, kind_column)
-      case search.one("is")
+    def actor_type_clause(actor_column, kind_column)
+      case search.first_value("is")
       when "human" then "AND #{kind_column} = 'human' AND #{actor_column} IS NOT NULL"
       when "nemo" then "AND #{kind_column} <> 'human'"
       when "nobody" then "AND #{actor_column} IS NULL"
@@ -761,36 +888,36 @@ module Fd
       parts << "AND false" if search.of("app").any? || search.of("session").any?
       parts << "AND false" if search.of("category").any?
       parts << "AND false" if search.text?
-      parts << "AND false" if search.of("ip").any?
-      if looked_up? && search.of("ip").empty?
-        parts << (anybody.any? ? "AND (l.subject_user_id IN (:anybody) OR " \
-                                 "l.actor_id IN (:anybody))" : "AND false")
+      parts << "AND false" if search.of("ip").any? || network_filter?
+      if identity_lookup? && search.of("ip").empty?
+        parts << (matched_user_ids.any? ? "AND (l.subject_user_id IN (:matched_user_ids) OR " \
+                                 "l.actor_id IN (:matched_user_ids))" : "AND false")
       end
-      parts << "AND false" if search.one("is") == "nemo"
+      parts << "AND false" if search.first_value("is") == "nemo"
       parts << "AND l.looked_at >= :after" if from_at
       parts << "AND l.looked_at < :before" if upto_at
       parts.compact.join("\n")
     end
 
     def branches
-      held = []
-      if wanted_sources.include?(FIRE_ENGINE)
-        held << ENGINE_BRANCH.sub("ENGINE_WHERE", engine_where)
+      selects = []
+      if selected_sources.include?(FIRE_ENGINE)
+        selects << ENGINE_BRANCH.sub("ENGINE_WHERE", engine_where)
       end
-      if wanted_sources.include?(SLACK)
-        held << SLACK_BRANCH.sub("SLACK_WHERE", slack_where)
-        held << SLACK_VIEW_BRANCH.sub("SLACK_VIEW_WHERE", slack_view_where) if slack_views?
+      if selected_sources.include?(SLACK)
+        selects << SLACK_BRANCH.sub("SLACK_WHERE", slack_where)
+        selects << SLACK_VIEW_BRANCH.sub("SLACK_VIEW_WHERE", slack_view_where) if slack_views?
       end
-      held << READ_BRANCH.sub("READ_WHERE", read_where) if wanted_sources.include?(READ)
-      if wanted_sources.include?(API)
-        held << API_EVENT_BRANCH.sub("API_EVENT_WHERE", api_event_where)
-        held << API_CONSENT_BRANCH.sub("API_CONSENT_WHERE", api_consent_where)
-        held << API_REQUEST_BRANCH.sub("API_REQUEST_WHERE", api_request_where)
+      selects << READ_BRANCH.sub("READ_WHERE", read_where) if selected_sources.include?(READ)
+      if selected_sources.include?(API)
+        selects << API_EVENT_BRANCH.sub("API_EVENT_WHERE", api_event_where)
+        selects << API_CONSENT_BRANCH.sub("API_CONSENT_WHERE", api_consent_where)
+        selects << API_REQUEST_BRANCH.sub("API_REQUEST_WHERE", api_request_where)
       end
-      held
+      selects
     end
 
-    NOTHING = <<~SQL.freeze
+    EMPTY_BRANCH = <<~SQL.freeze
       SELECT NULL::text AS source, NULL::text AS id, NULL::timestamptz AS at,
              NULL::text AS actor_id, NULL::text AS actor_kind, NULL::text AS verb,
              NULL::text AS entity_kind, NULL::text AS entity_id, NULL::text AS entity_ref,
@@ -800,15 +927,15 @@ module Fd
       WHERE false
     SQL
 
-    COUNTING_PICK = "source".freeze
+    COUNT_COLUMNS = "source".freeze
 
-    def body(where = "true", capped: false, pick: "*")
-      held = branches.presence || [NOTHING]
+    def union_sql(where = "true", capped: false, columns: "*")
+      selects = branches.presence || [EMPTY_BRANCH]
       if capped
-        held = held.map { |one| "(SELECT #{pick} FROM (#{one}) one LIMIT #{COUNT_CEILING + 1})" }
+        selects = selects.map { |branch| "(SELECT #{columns} FROM (#{branch}) branch LIMIT #{COUNT_CEILING + 1})" }
       end
 
-      "WITH held AS (\n#{held.join("\nUNION ALL\n")}\n) SELECT * FROM held WHERE #{where}"
+      "WITH events AS (\n#{selects.join("\nUNION ALL\n")}\n) SELECT * FROM events WHERE #{where}"
     end
 
     def keyset
@@ -817,16 +944,16 @@ module Fd
       "(at, id) < (:before_at::timestamptz, :before_id)"
     end
 
-    RISING = "(at, id) > (:after_at::timestamptz, :after_id)".freeze
+    AFTER_KEYSET = "(at, id) > (:after_at::timestamptz, :after_id)".freeze
 
     def paged_rows
-      return ask(page_sql).map { |row| build(row) } if after_at.nil?
+      return select_rows(page_sql).map { |row| build_row(row) } if after_at.nil?
 
-      found = ask("#{body(RISING)} ORDER BY at, id LIMIT #{LIMIT + 1}").map { |row| build(row) }
-      return found.first(LIMIT).reverse if found.size > LIMIT
+      result = select_rows("#{union_sql(AFTER_KEYSET)} ORDER BY at, id LIMIT #{LIMIT + 1}").map { |row| build_row(row) }
+      return result.first(LIMIT).reverse if result.size > LIMIT
 
       @top = true
-      ask("#{body} ORDER BY at DESC, id DESC LIMIT #{LIMIT}").map { |row| build(row) }
+      select_rows("#{union_sql} ORDER BY at DESC, id DESC LIMIT #{LIMIT}").map { |row| build_row(row) }
     end
 
     def first_page?
@@ -835,22 +962,22 @@ module Fd
     end
 
     def before_at
-      return (jump_on + 1).in_time_zone.beginning_of_day if jump_on && @params["before_at"].blank?
+      return (jump_date + 1).in_time_zone.beginning_of_day if jump_date && @params["before_at"].blank?
 
-      stamp(@params["before_at"])
+      parse_timestamp(@params["before_at"])
     end
 
     def after_at
-      return nil if @params["before_at"].present? || jump_on
+      return nil if @params["before_at"].present? || jump_date
 
-      stamp(@params["after_at"])
+      parse_timestamp(@params["after_at"])
     end
 
     def after_id = @params["after_id"].to_s.presence
 
-    def stamp(value)
-      held = value.to_s.presence
-      held && Time.zone.parse(held)
+    def parse_timestamp(value)
+      text = value.to_s.presence
+      text && Time.zone.parse(text)
     rescue ArgumentError
       nil
     end
@@ -858,21 +985,21 @@ module Fd
     def before_id = @params["before_id"].to_s.presence
 
     def page_sql
-      "#{body(keyset)} ORDER BY at DESC, id DESC LIMIT #{LIMIT}"
+      "#{union_sql(keyset)} ORDER BY at DESC, id DESC LIMIT #{LIMIT}"
     end
 
     def fetch_groups
       from, upto = histogram_span
-      return [] if group.nil? || from >= upto || wanted_sources.empty?
+      return [] if group.nil? || from >= upto || selected_sources.empty?
 
-      found = ApplicationRecord.transaction do
+      result = ApplicationRecord.transaction do
         ApplicationRecord.connection.execute(HISTOGRAM_TIMEOUT)
-        ask(group_sql, histogram_from: from, histogram_upto: upto).to_a
+        select_rows(group_sql, histogram_from: from, histogram_upto: upto).to_a
       end
-      @group_total = found.first&.fetch("groups").to_i
-      names = group == "app" ? app_names(found.filter_map { |row| row["sample"] }) : {}
-      found.map do |row|
-        Group.new(key: row["key"], count: row["found"].to_i, first_at: row["first_at"],
+      @group_total = result.first&.fetch("groups").to_i
+      names = group == "app" ? app_names(result.filter_map { |row| row["sample"] }) : {}
+      result.map do |row|
+        Group.new(key: row["key"], count: row["event_count"].to_i, first_at: row["first_at"],
           last_at: row["last_at"], name: names[row["key"]])
       end
     rescue ActiveRecord::QueryCanceled
@@ -883,15 +1010,15 @@ module Fd
     def group_sql
       column = GROUP_COLUMNS.fetch(group)
       <<~SQL
-        SELECT key, found, first_at, last_at, sample, count(*) OVER () AS groups
+        SELECT key, event_count, first_at, last_at, sample, count(*) OVER () AS groups
         FROM (
-          SELECT #{column} AS key, count(*) AS found, min(at) AS first_at, max(at) AS last_at,
+          SELECT #{column} AS key, count(*) AS event_count, min(at) AS first_at, max(at) AS last_at,
                  min(id) FILTER (WHERE source = 'slack') AS sample
-          FROM (#{body(HISTOGRAM_WINDOW)}) held
+          FROM (#{union_sql(HISTOGRAM_WINDOW)}) events
           WHERE #{column} IS NOT NULL
           GROUP BY 1
         ) grouped
-        ORDER BY found DESC, key
+        ORDER BY event_count DESC, key
         LIMIT #{GROUP_LIMIT}
       SQL
     end
@@ -910,20 +1037,20 @@ module Fd
     end
 
     def histogram_sql
-      "SELECT date_trunc(:unit, at AT TIME ZONE :zone)::text AS bin, count(*) AS found " \
-        "FROM (#{body(HISTOGRAM_WINDOW)}) held GROUP BY 1"
+      "SELECT date_trunc(:unit, at AT TIME ZONE :zone)::text AS bin, count(*) AS event_count " \
+        "FROM (#{union_sql(HISTOGRAM_WINDOW)}) events GROUP BY 1"
     end
 
     def count_sql
-      capped = body(capped: true, pick: COUNTING_PICK)
-      "SELECT count(*) AS found FROM (#{capped} LIMIT #{COUNT_CEILING + 1}) counted"
+      capped = union_sql(capped: true, columns: COUNT_COLUMNS)
+      "SELECT count(*) AS event_count FROM (#{capped} LIMIT #{COUNT_CEILING + 1}) capped_rows"
     end
 
     def binds
-      held = {
+      values = {
         since: since, text: search.text, before_at: before_at, before_id: before_id,
         after_at: after_at, after_id: after_id,
-        wanted_kept: !refusals?,
+        non_refusals: !refusals?,
         actors: search.of("actor").presence || [""],
         subjects: search.of("about").presence || [""],
         actions: search.of("action").presence || [""],
@@ -932,32 +1059,34 @@ module Fd
         sessions: search.of("session").map(&:to_i).presence || [0],
         categories: search.of("category").presence || [""],
         category_actions: AuditCatalogue.actions_in(search.of("category")).presence || [""],
-        anybody: anybody.presence || [""],
+        matched_user_ids: matched_user_ids.presence || [""],
+        networks: search.of("network").presence || [""],
+        countries: search.of("country").presence || [""],
         after: from_at, before: upto_at
       }
-      search.of("ip").each { |term_value| held[:"ip_#{term_value.hash.abs}"] = term_value }
-      search.of("email").each_with_index { |term_value, at| held[:"email_#{at}"] = term_value.downcase }
-      search.of("domain").each_with_index { |term_value, at| held[:"domain_#{at}"] = term_value.downcase }
-      held
+      search.of("ip").each { |term_value| values[:"ip_#{term_value.hash.abs}"] = term_value }
+      search.of("email").each_with_index { |term_value, at| values[:"email_#{at}"] = term_value.downcase }
+      search.of("domain").each_with_index { |term_value, at| values[:"domain_#{at}"] = term_value.downcase }
+      values
     end
 
-    def day_start(value)
+    def parse_day(value)
       value && Time.zone.parse(value)
     end
 
     def from_at
       return @from_at if defined?(@from_at)
 
-      @from_at = [day_start(search.one("after")), search.since].compact.max
+      @from_at = [parse_day(search.first_value("after")), search.since].compact.max
     end
 
     def upto_at
       return @upto_at if defined?(@upto_at)
 
-      @upto_at = day_start(search.one("before"))
+      @upto_at = parse_day(search.first_value("before"))
     end
 
-    def ask(sql, extra = {})
+    def select_rows(sql, extra = {})
       ApplicationRecord.connection.select_all(ApplicationRecord.sanitize_sql([sql, binds.merge(extra)]))
     end
 
@@ -969,25 +1098,25 @@ module Fd
         count(*) FILTER (WHERE source = 'read') AS reads,
         count(*) FILTER (WHERE source = 'api') AS api,
         0 AS refusals
-      FROM held
+      FROM events
     SQL
 
     def view_counts
       @view_counts ||= begin
-        whole = self.class.new(@params.except("view").merge("view" => NO_VIEW), actor: actor)
+        unfiltered = self.class.new(@params.except("view").merge("view" => NO_VIEW), actor: actor)
         row = ApplicationRecord.connection.select_one(
-          ApplicationRecord.sanitize_sql([whole.send(:counting_sql), whole.send(:binds)])
+          ApplicationRecord.sanitize_sql([unfiltered.send(:counting_sql), unfiltered.send(:binds)])
         ) || {}
         VIEWS.keys.index_with { |key| row[key].to_i }
       end
     end
 
     def counting_sql
-      capped = body(capped: true, pick: COUNTING_PICK)
-      "#{capped.sub(/SELECT \* FROM held WHERE true\z/, '')}#{COUNTS}"
+      capped = union_sql(capped: true, columns: COUNT_COLUMNS)
+      "#{capped.sub(/SELECT \* FROM events WHERE true\z/, '')}#{COUNTS}"
     end
 
-    def held_json(value)
+    def parse_json(value)
       return value if value.is_a?(Hash)
       return nil if value.blank?
 
@@ -996,7 +1125,7 @@ module Fd
       nil
     end
 
-    def pick(source, id)
+    def find_row(source, id)
       branch = case source
       when FIRE_ENGINE then ENGINE_BRANCH.sub("ENGINE_WHERE", "AND a.id::text = :id")
       when SLACK then "#{SLACK_BRANCH.sub('SLACK_WHERE', 'AND e.id::text = :id')}\n" \
@@ -1004,10 +1133,10 @@ module Fd
       when READ then READ_BRANCH.sub("READ_WHERE", "AND 'r' || l.id::text = :id")
       else api_branch_for(id)
       end
-      found = ApplicationRecord.connection.select_all(
+      row = ApplicationRecord.connection.select_all(
         ApplicationRecord.sanitize_sql([branch, binds.merge(id: id, since: Time.zone.at(0))])
       ).first
-      found && build(found)
+      row && build_row(row)
     end
 
     def api_branch_for(id)
@@ -1018,14 +1147,15 @@ module Fd
       end
     end
 
-    def build(row)
+    def build_row(row)
       Row.new(
         source: row["source"], id: row["id"], at: row["at"], actor_id: row["actor_id"],
         actor_kind: row["actor_kind"], verb: row["verb"], entity_kind: row["entity_kind"],
         entity_id: row["entity_id"], entity_ref: row["entity_ref"],
-        subject_id: row["subject_id"], before: shown(held_json(row["before"])),
-        after: shown(held_json(row["after"])), detail: shown(held_json(row["detail"])),
-        channel: row["channel"], app: row["app"], session: row["session"]
+        subject_id: row["subject_id"], before: visible(parse_json(row["before"])),
+        after: visible(parse_json(row["after"])), detail: visible(parse_json(row["detail"])),
+        channel: row["channel"], app: row["app"], session: row["session"],
+        addressed: row["ip"].present?, address: (row["ip"] if identity?)
       )
     end
 
@@ -1033,17 +1163,17 @@ module Fd
     ADDRESS_SHAPE = /\A[0-9a-f.:]{3,45}\z/i
     HIDDEN = "hidden".freeze
 
-    def shown(value)
+    def visible(value)
       return value if identity?
 
-      scrubbed(value)
+      redacted(value)
     end
 
-    def scrubbed(value)
+    def redacted(value)
       case value
       when Hash
-        value.reject { |key, _| identity_key?(key, value) }.transform_values { |one| scrubbed(one) }
-      when Array then value.map { |one| scrubbed(one) }
+        value.reject { |key, _| identity_key?(key, value) }.transform_values { |item| redacted(item) }
+      when Array then value.map { |item| redacted(item) }
       when String then identity_value?(value) ? HIDDEN : value
       else value
       end
@@ -1051,10 +1181,10 @@ module Fd
 
     PERSON_NAMES = %w[name real_name display_name].freeze
 
-    def identity_key?(key, held)
+    def identity_key?(key, hash)
       return true if key.to_s.match?(IDENTITY_KEY)
 
-      PERSON_NAMES.include?(key.to_s) && held["id"].to_s.match?(MEMBER_ID)
+      PERSON_NAMES.include?(key.to_s) && hash["id"].to_s.match?(MEMBER_ID)
     end
 
     def identity_value?(value)

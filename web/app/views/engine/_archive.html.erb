@@ -1,8 +1,8 @@
 <% totals = archive.totals %>
 <% live = archive.live %>
-<% held = live&.messages_held&.to_i || totals.messages_held %>
-<% parents = live&.parents_held&.to_i || totals.parents_held %>
-<% replies = live&.replies_held&.to_i || totals.replies_held %>
+<% messages = live&.messages_archived&.to_i || totals.messages_held %>
+<% parents = live&.parents_archived&.to_i || totals.parents_held %>
+<% replies = live&.replies_archived&.to_i || totals.replies_held %>
 
 <div class="section">
   <div class="section-head">
@@ -15,10 +15,10 @@
         <div>
           <h2 class="card-title">What the archive holds</h2>
           <p class="card-sub">
-            <% if totals.held_days %>
-              <%= totals.oldest_held.to_date.strftime("%-d %b %Y") %>
-              to <%= totals.newest_held.to_date.strftime("%-d %b %Y") %>,
-              <%= pluralize(number_with_delimiter(totals.held_days), "day") %>
+            <% if totals.archived_days %>
+              <%= totals.oldest_archived.to_date.strftime("%-d %b %Y") %>
+              to <%= totals.newest_archived.to_date.strftime("%-d %b %Y") %>,
+              <%= pluralize(number_with_delimiter(totals.archived_days), "day") %>
             <% else %>
               Nothing has landed yet
             <% end %>
@@ -37,7 +37,7 @@
       <dl class="fact-grid">
         <div class="fact">
           <dt>Messages held</dt>
-          <dd><%= number_with_delimiter(held) %></dd>
+          <dd><%= number_with_delimiter(messages) %></dd>
         </div>
         <div class="fact">
           <dt>Parents</dt>
@@ -92,10 +92,10 @@
               <tr>
                 <td class="font-medium"><%= stage.name.to_s.upcase_first %></td>
                 <td class="cell-share">
-                  <% if stage.shown_share %>
+                  <% if stage.visible_share %>
                     <div class="inbar">
-                      <span><i style="width: <%= [[stage.shown_share, 100].min, 2].max.round(1) %>%"></i></span>
-                      <span><%= number_to_percentage(stage.shown_share, precision: 1) %></span>
+                      <span><i style="width: <%= [[stage.visible_share, 100].min, 2].max.round(1) %>%"></i></span>
+                      <span><%= number_to_percentage(stage.visible_share, precision: 1) %></span>
                     </div>
                   <% else %>
                     <span class="sub">Nothing to measure against yet</span>

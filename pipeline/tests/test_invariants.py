@@ -111,7 +111,7 @@ class Ledgers:
         return self.last
 
 
-ERA = (date(2026, 7, 15), date(2026, 9, 11))
+DATE_RANGE = (date(2026, 7, 15), date(2026, 9, 11))
 
 
 def test_ledgers_with_no_slices_yet_pass():
@@ -122,21 +122,21 @@ def test_ledgers_with_no_slices_yet_pass():
 
 
 def test_agreeing_ledgers_pass():
-    conn = Ledgers([ERA, (0, 0), ERA, (0, 0)])
+    conn = Ledgers([DATE_RANGE, (0, 0), DATE_RANGE, (0, 0)])
     _, status, observed, _ = invariants.i12_day_ledgers_agree(conn)
     assert status == "pass"
     assert "2 day source(s) agree" in observed
 
 
 def test_a_complete_slice_with_no_loaded_day_fails():
-    conn = Ledgers([ERA, (0, 3), ERA, (0, 0)])
+    conn = Ledgers([DATE_RANGE, (0, 3), DATE_RANGE, (0, 0)])
     _, status, observed, _ = invariants.i12_day_ledgers_agree(conn)
     assert status == "fail"
     assert "3 complete slice(s) with no loaded day" in observed
 
 
 def test_a_loaded_day_inside_the_era_with_no_slice_fails():
-    conn = Ledgers([ERA, (0, 0), ERA, (4, 0)])
+    conn = Ledgers([DATE_RANGE, (0, 0), DATE_RANGE, (4, 0)])
     _, status, observed, _ = invariants.i12_day_ledgers_agree(conn)
     assert status == "fail"
     assert "4 loaded day(s) with no slice" in observed

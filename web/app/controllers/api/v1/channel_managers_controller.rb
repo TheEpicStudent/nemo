@@ -9,8 +9,8 @@ module Api
         channel = params[:channel_id].to_s
         user = params[:user_id].to_s
 
-        return refuse(:unprocessable_content, "bad_channel_id") unless CHANNEL.match?(channel)
-        return refuse(:unprocessable_content, "bad_user_id") unless MEMBER.match?(user)
+        return render_error(:unprocessable_content, "bad_channel_id") unless CHANNEL.match?(channel)
+        return render_error(:unprocessable_content, "bad_user_id") unless MEMBER.match?(user)
 
         render json: { channel_id: channel, user_id: user }.merge(answer(channel, user))
       end
@@ -19,27 +19,27 @@ module Api
 
       def answer(channel, user)
         unless ::Api::Consent.granted?(user, current_token.app_id, CAPABILITY)
-          return withheld(channel, user)
+          return no_consent_response(channel, user)
         end
 
-        ChannelManagers.freshen(channel)
-        held = ::Api::ChannelManager.find_by(channel_id: channel, user_id: user)
-        log(channel, user, held ? ::Api::RequestLog::MANAGER : ::Api::RequestLog::NOT_MANAGER)
+        ChannelManagers.refresh_if_stale(channel)
+        assignment = ::Api::ChannelManager.find_by(channel_id: channel, user_id: user)
+        log(channel, user, assignment ? ::Api::RequestLog::MANAGER : ::Api::RequestLog::NOT_MANAGER)
 
-        { consent: "granted", is_manager: held.present? }.merge(freshness(channel))
+        { consent: "granted", is_manager: assignment.present? }.merge(sync_status(channel))
       end
 
-      def withheld(channel, user)
+      def no_consent_response(channel, user)
         log(channel, user, ::Api::RequestLog::WITHHELD)
 
         { consent: "withheld", is_manager: nil, opt_in_url: "#{request.base_url}/settings/permissions" }
       end
 
-      def freshness(channel)
-        swept = ChannelManagers.swept_at(channel)
+      def sync_status(channel)
+        synced_at = ChannelManagers.swept_at(channel)
 
-        { synced_at: swept&.utc&.iso8601,
-          stale: swept.nil? || swept < ChannelManagers::TTL.ago }
+        { synced_at: synced_at&.utc&.iso8601,
+          stale: synced_at.nil? || synced_at < ChannelManagers::TTL.ago }
       end
 
       def log(channel, user, outcome)

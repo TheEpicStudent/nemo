@@ -6,7 +6,7 @@ from bot.nemo.surface import on_event
 
 log = logging.getLogger("bot.nemo")
 
-CARRIES = (None, "file_share", "me_message", "thread_broadcast")
+HANDLED_SUBTYPES = (None, "file_share", "me_message", "thread_broadcast")
 EDITED = "message_changed"
 
 
@@ -19,14 +19,14 @@ def permalink_for(client, channel_id, ts):
 
 
 def as_posted(event):
-    if event.get("subtype") not in CARRIES or event.get("bot_id"):
+    if event.get("subtype") not in HANDLED_SUBTYPES or event.get("bot_id"):
         return None
     return event
 
 
 def as_edited(event):
     message = event.get("message") or {}
-    if message.get("bot_id") or message.get("subtype") not in CARRIES:
+    if message.get("bot_id") or message.get("subtype") not in HANDLED_SUBTYPES:
         return None
     return {
         "user": message.get("user"),
@@ -52,17 +52,17 @@ def watched(ctx):
     if not message:
         return None
 
-    found = automod.caught(message.get("text"))
-    if not found:
+    rules = automod.caught(message.get("text"))
+    if not rules:
         return None
 
     with session() as conn:
-        kept = [row[0] for row in
-                (automod.record(conn, watch, message) for watch in found) if row]
-        if not kept:
+        hit_ids = [row[0] for row in
+                (automod.record(conn, rule, message) for rule in rules) if row]
+        if not hit_ids:
             return None
-        automod.link(conn, kept, permalink_for(ctx.client, message["channel"], message["ts"]))
+        automod.link(conn, hit_ids, permalink_for(ctx.client, message["channel"], message["ts"]))
 
     log.info("nemo: automod caught %s word(s) in %s from %s",
-             len(kept), message["ts"], message.get("user"))
-    return len(kept)
+             len(hit_ids), message["ts"], message.get("user"))
+    return len(hit_ids)

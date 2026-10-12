@@ -35,7 +35,7 @@
           data: { controller: "live-search", action: "input->live-search#go",
                   turbo_frame: "roster", turbo_action: "advance" } do %>
       <%= hidden_field_tag :layout, "table", id: nil %>
-      <% @query.picked.each do |key, value| %>
+      <% @query.filter_params.each do |key, value| %>
         <%= hidden_field_tag key, value, id: nil %>
       <% end %>
       <%= search_field_tag :q, @query.term, placeholder: "Find a member",
@@ -81,22 +81,22 @@
             </thead>
             <tbody>
               <% @rows.each do |row| %>
-                <% seen = @context[row.user_id] %>
+                <% member_context = @context[row.user_id] %>
                 <tr>
                   <td>
                     <span class="row-name">
-                      <%= face(row.user_id) %>
+                      <%= avatar(row.user_id) %>
                       <span class="two-line">
                         <%= link_to fd_member_path(row.user_id) do %>
                           <b><%= person_name(row.user_id) %></b>
                         <% end %>
                         <span>
-                          here since <%= seen&.cohort_at ? on_day(seen.cohort_at).downcase : "n/a" %><% if @grants[row.user_id] %> &middot; <%= @grants[row.user_id].label %><% end %>
+                          here since <%= member_context&.cohort_at ? on_day(member_context.cohort_at).downcase : "n/a" %><% if @grants[row.user_id] %> &middot; <%= @grants[row.user_id].label %><% end %>
                         </span>
                       </span>
                     </span>
                   </td>
-                  <td class="col-num"><%= seen&.messages_posted ? number_with_delimiter(seen.messages_posted) : "n/a" %></td>
+                  <td class="col-num"><%= member_context&.messages_posted ? number_with_delimiter(member_context.messages_posted) : "n/a" %></td>
                   <td class="col-num col-cases <%= "is-none" if row.cases.zero? %>"><%= row.cases %></td>
                   <td class="col-num col-actions <%= "is-none" if row.actions.zero? %>">
                     <%= row.actions %><% if row.in_force.positive? %> <span class="delta-down">&middot;<%= row.in_force %></span><% end %>

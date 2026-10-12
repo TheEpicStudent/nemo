@@ -71,9 +71,9 @@ def record(conn, event, direction="inbound", sent_by=None):
             parse.posted_at(ts),
         ),
     ).fetchone()
-    message_id, fresh = row[0], row[1]
+    message_id, inserted = row[0], row[1]
 
-    if not fresh:
+    if not inserted:
         return message_id, False
 
     conn.execute(

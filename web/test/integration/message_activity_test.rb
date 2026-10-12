@@ -34,34 +34,34 @@ class MessageActivityTest < ActionDispatch::IntegrationTest
     Channels::Activity::Setting.where(channel_id: @post&.channel_id).delete_all
   end
 
-  def shown!
+  def enable_activity!
     Channels::Activity::Setting.create!(channel_id: @post.channel_id, set_by: "test",
       set_at: Time.current)
   end
 
-  def answering(reply)
-    was = Slack::ProxyClient.method(:call)
-    asked = []
+  def stub_slack(reply)
+    original_call = Slack::ProxyClient.method(:call)
+    calls = []
     Slack::ProxyClient.define_singleton_method(:call) do |method, params = {}, **|
-      asked << [method, params]
+      calls << [method, params]
       reply.call(method, params)
     end
-    yield asked
+    yield calls
   ensure
-    Slack::ProxyClient.define_singleton_method(:call, was)
+    Slack::ProxyClient.define_singleton_method(:call, original_call)
   end
 
   test "the author sees how their own post did" do
-    shown!
+    enable_activity!
     sign_in_as(@author)
 
-    answering(->(*) { STATS }) do |asked|
+    stub_slack(->(*) { STATS }) do |calls|
       get @path
 
       assert_response :success
-      assert_includes asked,
+      assert_includes calls,
         ["insights.messageStats", { "channel" => @post.channel_id, "ts" => @post.ts }]
-      assert_includes asked.map(&:first), "conversations.history"
+      assert_includes calls.map(&:first), "conversations.history"
     end
     assert_includes response.body, "224"
     assert_includes response.body, "Reach over time"
@@ -70,10 +70,10 @@ class MessageActivityTest < ActionDispatch::IntegrationTest
   end
 
   test "a span can be picked" do
-    shown!
+    enable_activity!
     sign_in_as(@author)
 
-    answering(->(*) { STATS }) do
+    stub_slack(->(*) { STATS }) do
       get "#{@path}?span=1h"
     end
 
@@ -82,10 +82,10 @@ class MessageActivityTest < ActionDispatch::IntegrationTest
   end
 
   test "somebody else is turned away with nothing shown" do
-    shown!
+    enable_activity!
     sign_in_as(Account.find_or_create_by!(user_id: "UMSGOTHER"))
 
-    answering(->(*) { flunk "slack was asked for a post that is not theirs" }) do
+    stub_slack(->(*) { flunk "slack was asked for a post that is not theirs" }) do
       get @path
     end
 
@@ -94,10 +94,10 @@ class MessageActivityTest < ActionDispatch::IntegrationTest
   end
 
   test "a manager is turned away too, it is the author's alone" do
-    shown!
+    enable_activity!
     sign_in_as(hold_role!("UMSGBOSS", "community_manager"))
 
-    answering(->(*) { flunk "slack was asked" }) do
+    stub_slack(->(*) { flunk "slack was asked" }) do
       get @path
     end
 
@@ -107,7 +107,7 @@ class MessageActivityTest < ActionDispatch::IntegrationTest
   test "a channel that does not show how posts did says so, even to the author" do
     sign_in_as(@author)
 
-    answering(->(*) { flunk "slack was asked about a channel that is not shown" }) do
+    stub_slack(->(*) { flunk "slack was asked about a channel that is not shown" }) do
       get @path
     end
 
@@ -117,10 +117,10 @@ class MessageActivityTest < ActionDispatch::IntegrationTest
   end
 
   test "a post the warehouse has not landed says so without asking slack" do
-    shown!
+    enable_activity!
     sign_in_as(@author)
 
-    answering(->(*) { flunk "slack was asked" }) do
+    stub_slack(->(*) { flunk "slack was asked" }) do
       get message_activity_path(@post.channel_id, "1.000001")
     end
 
@@ -129,10 +129,10 @@ class MessageActivityTest < ActionDispatch::IntegrationTest
   end
 
   test "when slack will not answer the page still stands" do
-    shown!
+    enable_activity!
     sign_in_as(@author)
 
-    answering(->(*) { raise Slack::ProxyClient::Error, "down" }) do
+    stub_slack(->(*) { raise Slack::ProxyClient::Error, "down" }) do
       get @path
     end
 

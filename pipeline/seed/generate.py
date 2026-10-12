@@ -125,8 +125,8 @@ def cohort_calendar(profile, members, as_of, history_months=None):
     calendar = []
     for iso, count in sizes:
         month = date.fromisoformat(iso)
-        moved = shift_months(month, shift)
-        calendar.append((moved, round(count * members / total)))
+        shifted_month = shift_months(month, shift)
+        calendar.append((shifted_month, round(count * members / total)))
     return [(month, count) for month, count in calendar if count > 0 and month <= as_of]
 
 
@@ -149,9 +149,9 @@ def make_channels(rng, profile, count, as_of):
     members_q = Sampler(profile["channels"]["total_members"])
     guest_q = Sampler(profile["channels"]["guest_share"])
     archived_rate = profile["channels"]["archived_rate"]
-    channels, seen = [], set()
+    channels, used_names = [], set()
     for i in range(count):
-        name = unique_name(rng, seen)
+        name = unique_name(rng, used_names)
         total = max(1, int(members_q(rng.random())))
         guests = int(total * clip(guest_q(rng.random())))
         channels.append(
@@ -168,16 +168,16 @@ def make_channels(rng, profile, count, as_of):
     return channels
 
 
-def unique_name(rng, seen):
+def unique_name(rng, used_names):
     for _ in range(50):
         name = f"{rng.choice(PREFIXES)}{rng.choice(WORDS)}{rng.choice(SUFFIXES)}"
         if rng.random() < 0.25:
             name = f"{name}-{rng.choice(WORDS)}"
-        if name not in seen:
-            seen.add(name)
+        if name not in used_names:
+            used_names.add(name)
             return name
-    name = f"{rng.choice(WORDS)}-{len(seen)}"
-    seen.add(name)
+    name = f"{rng.choice(WORDS)}-{len(used_names)}"
+    used_names.add(name)
     return name
 
 
@@ -218,7 +218,7 @@ def make_member(rng, rates, messages_q, delay_q, channels, weights, month, index
     first_post_at, first_post_channel, home = None, None, []
     delay = 0.0
     if total > 0:
-        home = pick_channels(rng, channels, weights, rng.randint(*HOME_CHANNELS))
+        home = sample_channels(rng, channels, weights, rng.randint(*HOME_CHANNELS))
         delay = max(0.0, delay_q(rng.random()))
         first_post_at = cohort_at + timedelta(hours=delay)
         if first_post_at > latest:
@@ -264,17 +264,17 @@ def channel_weights(channels):
     return running
 
 
-def pick_channels(rng, channels, weights, count):
-    picked, seen = [], set()
+def sample_channels(rng, channels, weights, count):
+    selected, selected_indexes = [], set()
     for _ in range(count * 3):
-        if len(picked) >= count:
+        if len(selected) >= count:
             break
         i = bisect.bisect_left(weights, rng.random() * weights[-1])
         i = min(i, len(channels) - 1)
-        if i not in seen:
-            seen.add(i)
-            picked.append(channels[i])
-    return picked or [channels[0]]
+        if i not in selected_indexes:
+            selected_indexes.add(i)
+            selected.append(channels[i])
+    return selected or [channels[0]]
 
 
 def seasonal_factor(profile, day):

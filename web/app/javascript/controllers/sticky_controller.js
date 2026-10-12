@@ -1,11 +1,11 @@
 import { Controller } from "@hotwired/stimulus"
 
-const NEARLY = 60
+const BOTTOM_THRESHOLD = 60
 const LOG = "chatscroll"
 
 export default class extends Controller {
   connect() {
-    this.following = true
+    this.followBottom = true
     this.onScroll = this.onScroll.bind(this)
     this.onLoad = this.onLoad.bind(this)
     this.onAppend = this.onAppend.bind(this)
@@ -15,7 +15,7 @@ export default class extends Controller {
     this.element.addEventListener("turbo:frame-load", this.onLoad)
     this.element.addEventListener("chat:changed", this.onAppend)
     this.element.addEventListener("load", this.onImage, true)
-    this.settle()
+    this.scrollToBottomAfterRender()
   }
 
   disconnect() {
@@ -33,32 +33,32 @@ export default class extends Controller {
     const log = event.target
     if (!log.classList?.contains(LOG)) return
 
-    const left = log.scrollHeight - log.scrollTop - log.clientHeight
-    this.following = left < NEARLY
+    const distanceFromBottom = log.scrollHeight - log.scrollTop - log.clientHeight
+    this.followBottom = distanceFromBottom < BOTTOM_THRESHOLD
   }
 
   onLoad() {
-    this.following = true
-    this.settle()
+    this.followBottom = true
+    this.scrollToBottomAfterRender()
   }
 
   onAppend() {
-    if (this.following) this.settle()
+    if (this.followBottom) this.scrollToBottomAfterRender()
   }
 
   onImage(event) {
-    if (!this.following || event.target.tagName !== "IMG") return
+    if (!this.followBottom || event.target.tagName !== "IMG") return
     if (!this.log?.contains(event.target)) return
 
-    this.pin()
+    this.scrollToBottom()
   }
 
-  settle() {
-    this.pin()
-    requestAnimationFrame(() => this.pin())
+  scrollToBottomAfterRender() {
+    this.scrollToBottom()
+    requestAnimationFrame(() => this.scrollToBottom())
   }
 
-  pin() {
+  scrollToBottom() {
     const log = this.log
     if (log) log.scrollTop = log.scrollHeight
   }

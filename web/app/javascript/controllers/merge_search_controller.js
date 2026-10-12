@@ -4,7 +4,7 @@ export default class extends Controller {
   static targets = ["field"]
   static values = { url: String, wait: { type: Number, default: 200 } }
 
-  look() {
+  search() {
     clearTimeout(this.timer)
     this.timer = setTimeout(() => this.fetch(), this.waitValue)
   }
@@ -13,8 +13,8 @@ export default class extends Controller {
     const frame = document.getElementById("merge-body")
     if (!frame) return
 
-    const asked = this.fieldTarget.value.trim()
-    frame.src = asked ? `${this.urlValue}?q=${encodeURIComponent(asked)}` : this.urlValue
+    const query = this.fieldTarget.value.trim()
+    frame.src = query ? `${this.urlValue}?q=${encodeURIComponent(query)}` : this.urlValue
   }
 
   disconnect() {

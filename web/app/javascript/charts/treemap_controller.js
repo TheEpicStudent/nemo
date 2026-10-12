@@ -75,19 +75,19 @@ export default class extends TileChart {
 
     const pair = nameSize + valSize + 4
     const first = y + h / 2 - pair / 2 + nameSize
-    const room = w - 8
-    const shownName = clip(label, nameSize, room)
-    const shownValue = clip(value, valSize, room, 500)
+    const maxWidth = w - 8
+    const nameLabel = clip(label, nameSize, maxWidth)
+    const valueLabel = clip(value, valSize, maxWidth, 500)
 
     let text = ""
-    if (shownName) {
+    if (nameLabel) {
       text += `<text class="t-n" x="${cx.toFixed(1)}" y="${first.toFixed(1)}"
-        text-anchor="middle" font-size="${nameSize}">${esc(shownName)}</text>`
+        text-anchor="middle" font-size="${nameSize}">${esc(nameLabel)}</text>`
     }
-    if (shownValue) {
+    if (valueLabel) {
       text += `<text class="t-v" x="${cx.toFixed(1)}" y="${
         (first + valSize + 4).toFixed(1)}" text-anchor="middle"
-        font-size="${valSize}">${esc(shownValue)}</text>`
+        font-size="${valSize}">${esc(valueLabel)}</text>`
     }
     return text
   }
@@ -100,9 +100,9 @@ export default class extends TileChart {
       bits.push(`largest ${top.name} at ${N(top.messages)} messages, ${
         PC(top.messages / this.total * 100)} of ${N(this.total)}`)
     }
-    const grew = rows.filter((r) => r.pct != null && r.pct > 0).length
-    const shrank = rows.filter((r) => r.pct != null && r.pct < 0).length
-    bits.push(`${grew} grew, ${shrank} shrank`)
+    const growingCount = rows.filter((r) => r.pct != null && r.pct > 0).length
+    const shrinkingCount = rows.filter((r) => r.pct != null && r.pct < 0).length
+    bits.push(`${growingCount} grew, ${shrinkingCount} shrank`)
     return bits.join(", ")
   }
 

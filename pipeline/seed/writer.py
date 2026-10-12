@@ -9,7 +9,7 @@ from seed import SEED_SOURCE_PREFIX, SEED_USER_PREFIX
 from seed import dims as dims_module
 from seed import directory as directory_module
 from seed import runs as runs_module
-from seed import schedule as spine_module
+from seed import schedule as schedule_module
 from seed.generate import COVERED_DAYS
 
 MEMBER_DAY_SOURCE = db.MEMBER_DAY
@@ -124,11 +124,11 @@ def copy_rows(conn, table, columns, rows):
     return written
 
 
-def fold(stream):
+def aggregate_events(stream):
     by_member = collections.defaultdict(lambda: [0, 0])
     by_channel = collections.defaultdict(lambda: [0, 0, set()])
     totals = collections.Counter()
-    first_seen = {}
+    last_active = {}
     for event in stream:
         member = by_member[(event.user_id, event.day)]
         member[0] += event.messages
@@ -138,13 +138,13 @@ def fold(stream):
         channel[1] += event.reactions
         channel[2].add(event.user_id)
         totals[event.user_id] += event.messages
-        first_seen.setdefault(event.channel_id, event.day)
-        if event.day > first_seen[event.channel_id]:
-            first_seen[event.channel_id] = event.day
-    return by_member, by_channel, totals, first_seen
+        last_active.setdefault(event.channel_id, event.day)
+        if event.day > last_active[event.channel_id]:
+            last_active[event.channel_id] = event.day
+    return by_member, by_channel, totals, last_active
 
 
-def a_day_on(user_id, day):
+def device_flags(user_id, day):
     roll = zlib.crc32(f"{user_id}:{day.isoformat()}".encode())
     ios = 1 if roll % 100 < 62 else 0
     desktop = 1 if (roll // 100) % 100 < 46 else 0
@@ -154,7 +154,7 @@ def a_day_on(user_id, day):
     return ios, desktop, android
 
 
-def a_day_of_use(user_id, day, messages):
+def usage_counts(user_id, day, messages):
     roll = zlib.crc32(f"use:{user_id}:{day.isoformat()}".encode())
     huddles = 1 if roll % 100 < 9 else 0
     files = min(messages, (roll // 100) % 3)
@@ -164,22 +164,22 @@ def a_day_of_use(user_id, day, messages):
 
 def member_days(by_member):
     for (user_id, day), (messages, reactions) in by_member.items():
-        ios, desktop, android = a_day_on(user_id, day)
-        huddles, files, searches = a_day_of_use(user_id, day, messages)
+        ios, desktop, android = device_flags(user_id, day)
+        huddles, files, searches = usage_counts(user_id, day, messages)
         yield (
             user_id, day, day, MEMBER_DAY_SOURCE, 1, desktop, android, ios,
             messages, messages, reactions, huddles, files, searches, noon(day),
         )
 
 
-def idle_days(by_member, members, start, days, holes):
-    alive = sorted(members, key=lambda m: m.cohort_at)
+def idle_days(by_member, members, start, days, gap_days):
+    members_by_cohort = sorted(members, key=lambda m: m.cohort_at)
     for offset in range(days):
         day = start + timedelta(days=offset)
-        if day in holes:
+        if day in gap_days:
             continue
         emitted = 0
-        for member in alive:
+        for member in members_by_cohort:
             if emitted >= IDLE_ROWS_PER_DAY:
                 break
             if member.cohort_at > day:
@@ -206,8 +206,8 @@ def channel_days(by_channel, members_of):
 def member_ranges(by_member, start, end):
     rolled = collections.defaultdict(lambda: [0, 0, 0, 0, 0, 0, 0, 0, 0])
     for (user_id, day), (messages, reactions) in by_member.items():
-        ios, desktop, android = a_day_on(user_id, day)
-        huddles, files, searches = a_day_of_use(user_id, day, messages)
+        ios, desktop, android = device_flags(user_id, day)
+        huddles, files, searches = usage_counts(user_id, day, messages)
         row = rolled[user_id]
         row[0] += 1
         row[1] += messages
@@ -285,16 +285,16 @@ def team_days(by_member, channels, members, start, days):
         daily[day].add(user_id)
         messages[day] += count
 
-    everyone = sorted(joined)
+    cohort_days = sorted(joined)
     running = running_claimed = running_guests = 0
     cursor = 0
     window = collections.deque()
     for offset in range(days):
         day = start + timedelta(days=offset)
-        while cursor < len(everyone) and everyone[cursor] <= day:
-            running += joined[everyone[cursor]]
-            running_claimed += claimed.get(everyone[cursor], 0)
-            running_guests += guests.get(everyone[cursor], 0)
+        while cursor < len(cohort_days) and cohort_days[cursor] <= day:
+            running += joined[cohort_days[cursor]]
+            running_claimed += claimed.get(cohort_days[cursor], 0)
+            running_guests += guests.get(cohort_days[cursor], 0)
             cursor += 1
         window.append(daily.get(day, set()))
         while len(window) > 28:
@@ -309,10 +309,10 @@ def team_days(by_member, channels, members, start, days):
         )
 
 
-def analytics_days(start, days, holes):
+def analytics_days(start, days, gap_days):
     for offset in range(days):
         day = start + timedelta(days=offset)
-        blocked = day in holes
+        blocked = day in gap_days
         for source in (MEMBER_DAY_SOURCE, CHANNEL_DAY_SOURCE):
             yield (source, day, not blocked, None if blocked else 1, blocked or None,
                    "seeded gap" if blocked else None)
@@ -377,9 +377,9 @@ def history_rows(members, totals, as_of):
 def write(conn, channels, members, profile, as_of, rng, stream, scale, seed,
           days=COVERED_DAYS, hostile=False):
     start = as_of - timedelta(days=days - 1)
-    holes = {start + timedelta(days=UNAVAILABLE_OFFSET + i) for i in range(UNAVAILABLE_DAYS)}
-    kept = [event for event in stream if event.day not in holes]
-    by_member, by_channel, totals, last_active = fold(kept)
+    gap_days = {start + timedelta(days=UNAVAILABLE_OFFSET + i) for i in range(UNAVAILABLE_DAYS)}
+    retained_events = [event for event in stream if event.day not in gap_days]
+    by_member, by_channel, totals, last_active = aggregate_events(retained_events)
 
     counts = {}
     counts["member_dim"] = copy_rows(
@@ -417,7 +417,7 @@ def write(conn, channels, members, profile, as_of, rng, stream, scale, seed,
     )
     counts["member_day_idle"] = copy_rows(
         conn, "raw.member_activity_snapshot", member_columns,
-        idle_days(by_member, members, start, days, holes),
+        idle_days(by_member, members, start, days, gap_days),
     )
     counts["member_range"] = copy_rows(
         conn, "raw.member_activity_snapshot", member_columns,
@@ -446,19 +446,19 @@ def write(conn, channels, members, profile, as_of, rng, stream, scale, seed,
     )
     counts["analytics_day"] = copy_rows(
         conn, "raw.analytics_day", ["source", "ds", "loaded", "rows_in", "unavailable", "reason"],
-        analytics_days(start, days, holes),
+        analytics_days(start, days, gap_days),
     )
 
-    messages, threads, walks = spine_module.build(rng, kept, members, as_of)
+    messages, threads, walks = schedule_module.build(rng, retained_events, members, as_of)
     counts["archive.message"] = copy_rows(
-        conn, "archive.message", spine_module.ARCHIVE_MESSAGE_COLUMNS,
-        [spine_module.archive_message_row(row) for row in messages]
+        conn, "archive.message", schedule_module.ARCHIVE_MESSAGE_COLUMNS,
+        [schedule_module.archive_message_row(row) for row in messages]
     )
     counts["thread"] = copy_rows(
-        conn, "raw.thread", spine_module.THREAD_COLUMNS, threads
+        conn, "raw.thread", schedule_module.THREAD_COLUMNS, threads
     )
     counts["channel_walk"] = copy_rows(
-        conn, "raw.channel_walk", spine_module.WALK_COLUMNS, walks
+        conn, "raw.channel_walk", schedule_module.WALK_COLUMNS, walks
     )
 
     counts["member_dim_snapshot"] = copy_rows(

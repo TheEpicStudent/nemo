@@ -126,7 +126,7 @@ export class Overview {
     this.capturePointer(event.pointerId)
     this.drag = {
       mode: this.modeAt(event.clientX), originX: event.clientX,
-      originUnit: this.unitAt(event.clientX), window: this.geometry.window, moved: false
+      originUnit: this.unitAt(event.clientX), window: this.geometry.window, hasMoved: false
     }
   }
 
@@ -138,8 +138,8 @@ export class Overview {
       this.element.style.cursor = { start: "ew-resize", end: "ew-resize", move: "grab", new: "pointer" }[this.modeAt(event.clientX)]
       return
     }
-    if (Math.abs(event.clientX - drag.originX) > CLICK_TOLERANCE) drag.moved = true
-    if (!drag.moved) return
+    if (Math.abs(event.clientX - drag.originX) > CLICK_TOLERANCE) drag.hasMoved = true
+    if (!drag.hasMoved) return
 
     const unit = this.unitAt(event.clientX)
     const count = this.geometry.count
@@ -158,7 +158,7 @@ export class Overview {
     const drag = this.drag
     this.drag = null
     this.element.style.cursor = ""
-    if (!drag || !this.geometry || drag.moved || drag.mode !== "new") return
+    if (!drag || !this.geometry || drag.hasMoved || drag.mode !== "new") return
 
     const [start, end] = drag.window
     const unit = this.unitAt(event.clientX)

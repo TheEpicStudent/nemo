@@ -5,24 +5,24 @@ const ROW = 26
 const PAD = { t: 8, r: 52, b: 22 }
 const MIN_BAR = 2
 
-const RULER = typeof document === "undefined"
+const MEASURE_CTX = typeof document === "undefined"
   ? null
   : document.createElement("canvas").getContext("2d")
 
-function wideAs(text, size) {
-  if (!RULER) return String(text).length * size * 0.6
+function textWidth(text, size) {
+  if (!MEASURE_CTX) return String(text).length * size * 0.6
 
-  RULER.font = `${size}px Geist, ui-sans-serif, system-ui, sans-serif`
-  return RULER.measureText(String(text)).width
+  MEASURE_CTX.font = `${size}px Geist, ui-sans-serif, system-ui, sans-serif`
+  return MEASURE_CTX.measureText(String(text)).width
 }
 
-function clip(text, size, room) {
-  if (room <= 0) return ""
-  if (wideAs(text, size) <= room) return text
+function clip(text, size, maxWidth) {
+  if (maxWidth <= 0) return ""
+  if (textWidth(text, size) <= maxWidth) return text
 
   for (let n = text.length - 1; n >= 2; n--) {
-    const cut = `${text.slice(0, n)}…`
-    if (wideAs(cut, size) <= room) return cut
+    const truncated = `${text.slice(0, n)}…`
+    if (textWidth(truncated, size) <= maxWidth) return truncated
   }
   return ""
 }
@@ -32,7 +32,7 @@ const esc = (s) =>
 
 const F = (n) => (n == null ? "n/a" : Number(n).toLocaleString("en-US"))
 
-const axl = (v) =>
+const axisLabel = (v) =>
   Math.abs(v) >= 1000 ? `${+(v / 1000).toFixed(v % 1000 ? 1 : 0)}k` : `${Math.round(v)}`
 
 export default class extends Controller {
@@ -76,9 +76,9 @@ export default class extends Controller {
     if (!rows.length) return
 
     const high = PAD.t + rows.length * ROW + PAD.b
-    const room = wide * GUTTER_MAX
-    const gutter = Math.min(room,
-      rows.reduce((mx, r) => Math.max(mx, wideAs(r.label, 10)), 0) + 12)
+    const maxGutter = wide * GUTTER_MAX
+    const gutter = Math.min(maxGutter,
+      rows.reduce((mx, r) => Math.max(mx, textWidth(r.label, 10)), 0) + 12)
     const x0 = Math.round(gutter)
     const x1 = wide - PAD.r
     const max = Math.max(...rows.map((r) => Number(r.value) || 0), 1)
@@ -89,7 +89,7 @@ export default class extends Controller {
       return `<line class="${f === 0 ? "base" : "grid"}" x1="${at.toFixed(1)}" y1="${PAD.t}"
         x2="${at.toFixed(1)}" y2="${high - PAD.b}"/>` +
         `<text class="ax" x="${at.toFixed(1)}" y="${high - PAD.b + 14}" text-anchor="middle">${
-          axl(max * f)}</text>`
+          axisLabel(max * f)}</text>`
     }).join("")
 
     this.zones = []
@@ -196,7 +196,7 @@ export default class extends Controller {
     box.querySelector(".tip")?.classList.remove("on")
     box.classList.remove("lit")
     box.querySelectorAll(".hrow").forEach((row) => row.classList.remove("on"))
-    const say = box.querySelector(".chart-caption")
-    if (say) say.textContent = ""
+    const caption = box.querySelector(".chart-caption")
+    if (caption) caption.textContent = ""
   }
 }

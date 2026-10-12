@@ -8,29 +8,29 @@ class MessageFilesController < ApplicationController
   def show
     channel_id = params[:channel_id]
     ts = params[:ts]
-    return head :not_found unless Channels::Activity.shown?(channel_id)
+    return head :not_found unless Channels::Activity.visible?(channel_id)
 
     post = Analytics::FctMessage.post(channel_id, ts)
     return head :not_found if post.nil?
     return head :forbidden unless may_community?("analytics.message.read", post)
 
-    found = Slack::Message.at(channel_id, ts)
-    one = Messages::File.in(found.message, params[:file_id])
-    return head :not_found if one.nil? || one["url_private"].blank?
+    slack_message = Slack::Message.at(channel_id, ts)
+    file = Messages::File.in(slack_message.message, params[:file_id])
+    return head :not_found if file.nil? || file["url_private"].blank?
 
-    hand_over(one)
+    send_file_download(file)
   end
 
   private
 
-  def hand_over(one)
-    found = Messages::File.bytes_of(one)
-    return head :bad_gateway if found.error
+  def send_file_download(file)
+    download = Messages::File.bytes_of(file)
+    return head :bad_gateway if download.error
 
     response.headers["Cache-Control"] = CACHE
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Content-Security-Policy"] = LOCKED_DOWN
-    send_data found.bytes, type: found.kind, filename: found.name.presence || params[:file_id],
-      disposition: Messages::File.image?(one) ? "inline" : "attachment"
+    send_data download.bytes, type: download.kind, filename: download.name.presence || params[:file_id],
+      disposition: Messages::File.image?(file) ? "inline" : "attachment"
   end
 end

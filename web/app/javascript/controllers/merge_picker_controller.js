@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["case", "form", "keeper", "submit", "count"]
+  static targets = ["case", "form", "primaryCase", "submit", "count"]
   static values = { baseId: Number, baseOpenedAt: String }
 
   initialize() {
@@ -31,7 +31,7 @@ export default class extends Controller {
 
     const visible = new Set(this.caseTargets.map((box) => box.value))
     this.caseTargets.forEach((box) => { box.checked = this.selected.has(box.value) })
-    this.formTarget.querySelectorAll("[data-merge-picker-held]").forEach((input) => input.remove())
+    this.formTarget.querySelectorAll("[data-merge-picker-hidden]").forEach((input) => input.remove())
 
     this.selected.forEach((_openedAt, id) => {
       if (visible.has(id)) return
@@ -40,11 +40,11 @@ export default class extends Controller {
       input.type = "hidden"
       input.name = "case_ids[]"
       input.value = id
-      input.dataset.mergePickerHeld = "true"
+      input.dataset.mergePickerHidden = "true"
       this.formTarget.append(input)
     })
 
-    this.keeperTarget.value = this.keeperId()
+    this.primaryCaseTarget.value = this.oldestCaseId()
     const selected = this.selected.size
     const total = selected + 1
     this.countTarget.textContent = selected === 0 ? "Select at least one case" : `${selected} selected`
@@ -53,12 +53,12 @@ export default class extends Controller {
     this.submitTarget.classList.toggle("is-off", selected === 0)
   }
 
-  keeperId() {
-    let keeper = { id: this.baseIdValue, openedAt: Date.parse(this.baseOpenedAtValue) }
+  oldestCaseId() {
+    let oldest = { id: this.baseIdValue, openedAt: Date.parse(this.baseOpenedAtValue) }
     this.selected.forEach((openedAt, id) => {
       const timestamp = Date.parse(openedAt)
-      if (timestamp < keeper.openedAt) keeper = { id, openedAt: timestamp }
+      if (timestamp < oldest.openedAt) oldest = { id, openedAt: timestamp }
     })
-    return keeper.id
+    return oldest.id
   }
 }

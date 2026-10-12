@@ -19,7 +19,7 @@ SAVED = "white_check_mark"
 NEEDS = {CASE: "case.read", CLAIM: "case.open", ASSIGN: "case.open", UNASSIGN: "case.open"}
 
 
-def asked(text):
+def parse_command(text):
     words = (text or "").strip()
     if words.lower() in RESOLVE_WORDS:
         return RESOLVE, ""
@@ -29,92 +29,92 @@ def asked(text):
     return parts[0].lower(), parts[1].strip() if len(parts) > 1 else ""
 
 
-def done(say=(), react=None, keep=False):
-    return {"say": list(say), "react": react, "keep": keep, "refused": None}
+def done(say=(), react=None, retain=False):
+    return {"say": list(say), "react": react, "retain": retain, "refused": None}
 
 
 def refused(text):
-    return {"say": [], "react": None, "keep": False, "refused": text}
+    return {"say": [], "react": None, "retain": False, "refused": text}
 
 
 def mentions(text):
-    found = []
+    user_ids = []
     for one in WHO.findall(text or ""):
-        if one not in found:
-            found.append(one)
-    return found
+        if one not in user_ids:
+            user_ids.append(one)
+    return user_ids
 
 
-def held_by(conn, case_id):
-    return [row[0] for row in conn.execute(case_actions.HELD_BY, (case_id,)).fetchall()]
+def current_assignees(conn, case_id):
+    return [row[0] for row in conn.execute(case_actions.CASE_ASSIGNEES, (case_id,)).fetchall()]
 
 
-def case_link(conn, case_id, user_id, rest):
+def case_link(conn, case_id, user_id, args):
     return done(say=[lines.header(case_id, channel.case_url(case_id))])
 
 
-def claim(conn, case_id, user_id, rest):
-    if user_id in held_by(conn, case_id):
+def claim(conn, case_id, user_id, args):
+    if user_id in current_assignees(conn, case_id):
         return refused(lines.already_claimed(case_id))
     case_actions.claimed(conn, case_id, user_id)
     return done(say=[lines.claimed(user_id, case_id)])
 
 
-def assign(conn, case_id, user_id, rest):
-    named = mentions(rest)
+def assign(conn, case_id, user_id, args):
+    named = mentions(args)
     if not named:
         return refused(lines.ASSIGN_USAGE)
-    held = held_by(conn, case_id)
-    fresh = [one for one in named if one not in held]
-    if not fresh:
+    assigned = current_assignees(conn, case_id)
+    new_ids = [one for one in named if one not in assigned]
+    if not new_ids:
         return refused(lines.already_assigned(case_id, named))
-    case_actions.assign_people(conn, case_id, fresh, user_id)
-    return done(say=lines.assigned(user_id, case_id, fresh))
+    case_actions.assign_people(conn, case_id, new_ids, user_id)
+    return done(say=lines.assigned(user_id, case_id, new_ids))
 
 
-def unassign(conn, case_id, user_id, rest):
-    named = mentions(rest)
+def unassign(conn, case_id, user_id, args):
+    named = mentions(args)
     if not named:
         return refused(lines.UNASSIGN_USAGE)
-    held = held_by(conn, case_id)
-    on = [one for one in named if one in held]
-    if not on:
+    assigned = current_assignees(conn, case_id)
+    to_remove = [one for one in named if one in assigned]
+    if not to_remove:
         return refused(lines.not_assigned(case_id, named))
-    for one in on:
+    for one in to_remove:
         case_actions.remove_assignee(conn, case_id, one, user_id)
-    return done(say=[lines.unassigned(user_id, case_id, on)])
+    return done(say=[lines.unassigned(user_id, case_id, to_remove)])
 
 
-def note(conn, case_id, user_id, rest):
-    about = WHO.match(rest)
-    words = rest[about.end():].strip() if about else rest
+def note(conn, case_id, user_id, args):
+    mention = WHO.match(args)
+    words = args[mention.end():].strip() if mention else args
     if not words:
         return refused(lines.NOTE_USAGE)
-    if about:
-        case_actions.member_note(conn, about.group(1), words, user_id)
+    if mention:
+        case_actions.member_note(conn, mention.group(1), words, user_id)
     else:
-        case_actions.keep_note(conn, case_id, words, user_id)
-    return done(react=SAVED, keep=True)
+        case_actions.add_note(conn, case_id, words, user_id)
+    return done(react=SAVED, retain=True)
 
 
 RUN = {CASE: case_link, CLAIM: claim, ASSIGN: assign, UNASSIGN: unassign, NOTE: note}
 
 
-def needed(verb, rest):
+def needed(verb, args):
     if verb == NOTE:
-        return "member.note" if WHO.match(rest) else "case.note"
+        return "member.note" if WHO.match(args) else "case.note"
     return NEEDS[verb]
 
 
-def run(verb, rest, case_id, user_id):
+def run(verb, args, case_id, user_id):
     with session() as conn:
-        allowed, refusal = access.may(conn, user_id, needed(verb, rest), case_id)
+        allowed, refusal = access.may(conn, user_id, needed(verb, args), case_id)
         if not allowed:
             return refused(lines.not_permitted(refusal))
-        return RUN[verb](conn, case_id, user_id, rest)
+        return RUN[verb](conn, case_id, user_id, args)
 
 
-def forget(client, channel_id, ts, failed):
+def delete_command(client, channel_id, ts, failed):
     try:
         privileged.delete_message(channel_id, ts, max_retries=1)
         return True
@@ -128,7 +128,7 @@ def forget(client, channel_id, ts, failed):
     return False
 
 
-def tell(client, channel_id, user_id, thread_ts, text):
+def send_ephemeral(client, channel_id, user_id, thread_ts, text):
     try:
         client.chat_postEphemeral(channel=channel_id, user=user_id, thread_ts=thread_ts, text=text)
     except Exception as failure:
@@ -138,8 +138,8 @@ def tell(client, channel_id, user_id, thread_ts, text):
 def reply(client, event, thread_ts, outcome):
     channel_id, ts = event["channel"], event["ts"]
     if outcome["refused"]:
-        forget(client, channel_id, ts, failed=True)
-        tell(client, channel_id, event.get("user"), thread_ts, outcome["refused"])
+        delete_command(client, channel_id, ts, failed=True)
+        send_ephemeral(client, channel_id, event.get("user"), thread_ts, outcome["refused"])
         return False
 
     for text in outcome["say"]:
@@ -153,17 +153,17 @@ def reply(client, event, thread_ts, outcome):
             client.reactions_add(channel=channel_id, timestamp=ts, name=outcome["react"])
         except Exception as failure:
             log.warning("nemo: could not mark the command at %s: %s", ts, failure)
-    if not outcome["keep"]:
-        forget(client, channel_id, ts, failed=False)
+    if not outcome["retain"]:
+        delete_command(client, channel_id, ts, failed=False)
     return True
 
 
-def handle(client, event, thread_ts, verb, rest):
+def handle(client, event, thread_ts, verb, args):
     with session() as conn:
         case_id = chat.case_of_thread(conn, thread_ts)
     if case_id is None:
         return None
-    outcome = run(verb, rest, case_id, event.get("user"))
+    outcome = run(verb, args, case_id, event.get("user"))
     reply(client, event, thread_ts, outcome)
     log.info("nemo: %s ran %s on case %s (%s)", event.get("user"), verb, case_id,
              "refused" if outcome["refused"] else "done")

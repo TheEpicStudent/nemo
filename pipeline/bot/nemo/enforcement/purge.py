@@ -61,41 +61,41 @@ def has_replies(message):
     return bool(message.get("thread_ts")) and message.get("thread_ts") == message.get("ts")
 
 
-def newest(client, channel_id, wanted):
-    held = []
+def newest(client, channel_id, max_messages):
+    messages = []
     cursor = None
-    while len(held) < wanted:
-        asked = {"channel": channel_id, "limit": min(PAGE, wanted - len(held))}
+    while len(messages) < max_messages:
+        params = {"channel": channel_id, "limit": min(PAGE, max_messages - len(messages))}
         if cursor:
-            asked["cursor"] = cursor
-        found = client.conversations_history(**asked) or {}
-        for message in found.get("messages") or []:
+            params["cursor"] = cursor
+        response = client.conversations_history(**params) or {}
+        for message in response.get("messages") or []:
             if not deletable(message):
                 continue
-            held.append(message)
-            if len(held) >= wanted:
+            messages.append(message)
+            if len(messages) >= max_messages:
                 break
-        cursor = ((found.get("response_metadata") or {}).get("next_cursor") or "").strip()
+        cursor = ((response.get("response_metadata") or {}).get("next_cursor") or "").strip()
         if not cursor:
             break
-    return held
+    return messages
 
 
 def replies(client, channel_id, thread_ts):
-    seen, cursor = [], None
+    messages, cursor = [], None
     while True:
-        found = client.conversations_replies(
+        response = client.conversations_replies(
             channel=channel_id, ts=thread_ts, limit=PAGE, cursor=cursor
         ) or {}
-        for message in found.get("messages") or []:
+        for message in response.get("messages") or []:
             if message.get("ts") and message["ts"] != thread_ts:
-                seen.append(message)
-        cursor = ((found.get("response_metadata") or {}).get("next_cursor") or "").strip()
+                messages.append(message)
+        cursor = ((response.get("response_metadata") or {}).get("next_cursor") or "").strip()
         if not cursor:
-            return seen
+            return messages
 
 
-def kept_from(message, thread_ts=None):
+def transcript_entry(message, thread_ts=None):
     return {
         "ts": message.get("ts"),
         "thread_ts": thread_ts,
@@ -104,26 +104,26 @@ def kept_from(message, thread_ts=None):
     }
 
 
-def take_thread(client, channel_id, parent, taken):
+def delete_thread_replies(client, channel_id, parent, deleted):
     thread_ts = parent["ts"]
     for _ in range(MAX_PASSES):
-        below = replies(client, channel_id, thread_ts)
-        if not below:
+        thread_replies = replies(client, channel_id, thread_ts)
+        if not thread_replies:
             break
-        for message in below:
-            if len(taken) >= CEILING:
+        for message in thread_replies:
+            if len(deleted) >= CEILING:
                 raise PurgeLimitExceeded(f"more than {CEILING} messages hang off {channel_id}")
             guard_actions.remove(client, channel_id, message["ts"])
-            taken.append(kept_from(message, thread_ts))
+            deleted.append(transcript_entry(message, thread_ts))
 
 
-def delete_messages(client, channel_id, message, taken):
+def delete_messages(client, channel_id, message, deleted):
     if has_replies(message):
-        take_thread(client, channel_id, message, taken)
-    if len(taken) >= CEILING:
+        delete_thread_replies(client, channel_id, message, deleted)
+    if len(deleted) >= CEILING:
         raise PurgeLimitExceeded(f"more than {CEILING} messages hang off {channel_id}")
     guard_actions.remove(client, channel_id, message["ts"])
-    taken.append(kept_from(message))
+    deleted.append(transcript_entry(message))
 
 
 def run(client, purge_id):
@@ -132,20 +132,20 @@ def run(client, purge_id):
     if claimed is None:
         return 0
 
-    channel_id, wanted = claimed
-    taken = []
+    channel_id, requested_count = claimed
+    deleted = []
     failure = None
     try:
-        for message in newest(client, channel_id, min(wanted, MOST)):
-            delete_messages(client, channel_id, message, taken)
-    except Exception as blew_up:
-        failure = str(blew_up)[:500]
-        log.warning("nemo: purge %s stopped after %s: %s", purge_id, len(taken), failure)
+        for message in newest(client, channel_id, min(requested_count, MOST)):
+            delete_messages(client, channel_id, message, deleted)
+    except Exception as error:
+        failure = str(error)[:500]
+        log.warning("nemo: purge %s stopped after %s: %s", purge_id, len(deleted), failure)
 
     with session() as conn:
         conn.execute(FAILED if failure else DONE,
-                     (len(taken), json.dumps(taken), failure, purge_id) if failure
-                     else (len(taken), json.dumps(taken), purge_id))
+                     (len(deleted), json.dumps(deleted), failure, purge_id) if failure
+                     else (len(deleted), json.dumps(deleted), purge_id))
 
-    log.info("nemo: purge %s took down %s in %s", purge_id, len(taken), channel_id)
-    return len(taken)
+    log.info("nemo: purge %s took down %s in %s", purge_id, len(deleted), channel_id)
+    return len(deleted)

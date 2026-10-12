@@ -57,11 +57,11 @@ module Channels
     end
 
     def posters_change
-      was = prior.posters_per_day
-      now = posters_per_day
-      return nil if was.nil? || now.nil? || was.zero?
+      previous = prior.posters_per_day
+      current = posters_per_day
+      return nil if previous.nil? || current.nil? || previous.zero?
 
-      ((now - was) * 100.0 / was).round(1)
+      ((current - previous) * 100.0 / previous).round(1)
     end
 
     def busiest_day
@@ -73,17 +73,17 @@ module Channels
     end
 
     def change(measure)
-      was = prior.total(measure)
-      return nil if was.zero?
+      previous = prior.total(measure)
+      return nil if previous.zero?
 
-      ((total(measure) - was) * 100.0 / was).round(1)
+      ((total(measure) - previous) * 100.0 / previous).round(1)
     end
 
-    def share(part, whole)
-      part, whole = total(part), total(whole) if part.is_a?(Symbol) && whole.is_a?(Symbol)
-      return nil if whole.to_i.zero?
+    def share(numerator, denominator)
+      numerator, denominator = total(numerator), total(denominator) if numerator.is_a?(Symbol) && denominator.is_a?(Symbol)
+      return nil if denominator.to_i.zero?
 
-      (part.to_f / whole * 100).round(1)
+      (numerator.to_f / denominator * 100).round(1)
     end
 
     def answered_share
@@ -118,9 +118,9 @@ module Channels
 
     def series
       @series ||= begin
-        held = rows.index_by(&:ds)
+        rows_by_day = rows.index_by(&:ds)
         (@from..@to).map do |ds|
-          row = held[ds]
+          row = rows_by_day[ds]
           Day.new(ds: ds,
             member_messages: row&.member_messages.to_i,
             bot_messages: row&.bot_messages.to_i,
@@ -136,9 +136,9 @@ module Channels
     end
 
     def share_series(measure)
-      held = rows.index_by(&:ds)
+      rows_by_day = rows.index_by(&:ds)
       (@from..@to).map do |ds|
-        row = held[ds]
+        row = rows_by_day[ds]
         messages = row&.messages.to_i
         next nil if messages.zero?
 

@@ -36,7 +36,7 @@ module Fd
       code_text = code.to_s.strip.upcase
       return nil unless code_text.match?(SHAPE)
 
-      code_text.each_char.map { |one| (FIRST + one.ord - LETTER_A).chr(Encoding::UTF_8) }.join
+      code_text.each_char.map { |letter| (FIRST + letter.ord - LETTER_A).chr(Encoding::UTF_8) }.join
     end
   end
 end

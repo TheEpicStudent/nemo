@@ -22,7 +22,7 @@ class FdMemberGuardsTest < ActionDispatch::IntegrationTest
 
   def guards = Fd::MemberGuard.for_subject("USUB")
 
-  def audited(verb)
+  def audit_entries(verb)
     Fd::AuditEntry.where(entity_type: "member_guard", verb: verb)
   end
 
@@ -33,7 +33,7 @@ class FdMemberGuardsTest < ActionDispatch::IntegrationTest
     assert guard.orphaned?
     assert_equal "pending", guard.enforcement_status
     assert_equal "UME", guard.opened_by
-    assert_equal 1, audited("opened").count
+    assert_equal 1, audit_entries("opened").count
   end
 
   test "a channel ban needs a channel, a shush ignores one" do
@@ -81,7 +81,7 @@ class FdMemberGuardsTest < ActionDispatch::IntegrationTest
     assert_equal "UME", guard.lifted_by
     assert_equal "they apologised", guard.lift_reason
     assert_equal "being awful", guard.reason
-    assert_equal 1, audited("lifted").count
+    assert_equal 1, audit_entries("lifted").count
     assert_empty Fd::MemberGuard.still_on.for_subject("USUB")
   end
 
@@ -95,11 +95,11 @@ class FdMemberGuardsTest < ActionDispatch::IntegrationTest
 
   test "the date it runs until can be changed" do
     guard = guard!
-    fresh = 30.days.from_now.to_date
-    patch fd_member_guard_path("USUB", guard), params: { expires_on: fresh.to_s }
+    new_expiry = 30.days.from_now.to_date
+    patch fd_member_guard_path("USUB", guard), params: { expires_on: new_expiry.to_s }
 
-    assert_equal fresh, guard.reload.expires_at.to_date
-    assert_equal 1, audited("extended").count
+    assert_equal new_expiry, guard.reload.expires_at.to_date
+    assert_equal 1, audit_entries("extended").count
   end
 
   test "a lifted one cannot be lifted or re-dated again" do

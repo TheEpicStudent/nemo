@@ -9,11 +9,11 @@ SLACK_HOSTS = (".slack.com", ".slack-edge.com", ".slack-files.com")
 
 def slack_url(url):
     try:
-        seen = urlparse(url or "")
+        parsed = urlparse(url or "")
     except ValueError:
         return False
-    host = (seen.hostname or "").lower()
-    return seen.scheme == "https" and (
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and (
         host == "slack.com" or host.endswith(SLACK_HOSTS)
     )
 

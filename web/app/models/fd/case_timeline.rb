@@ -175,7 +175,7 @@ module Fd
 
     def action_detail(action)
       parts = []
-      if action.aimed_at_member? && !subject_user_ids.include?(action.target_user_id)
+      if action.targets_member? && !subject_user_ids.include?(action.target_user_id)
         parts << "on #{names[action.target_user_id]}"
       end
       parts << "taken by #{names[action.decided_by]}"
@@ -221,13 +221,13 @@ module Fd
     end
 
     def erasure_detail(row)
-      gone = row.before || {}
-      what = case row.entity_type
-      when "participant" then names[gone["user_id"]]
-      when "thread" then gone["channel_id"]
+      removed = row.before || {}
+      target = case row.entity_type
+      when "participant" then names[removed["user_id"]]
+      when "thread" then removed["channel_id"]
       end
 
-      ["by #{names[row.actor_user_id]}", what].compact.join(" · ")
+      ["by #{names[row.actor_user_id]}", target].compact.join(" · ")
     end
 
     def span(seconds)

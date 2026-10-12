@@ -128,8 +128,8 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     bot = Fd::Member.live.where(is_bot: false).first
     skip "the corpus has no member" if bot.nil?
 
-    found = Fd::MemberFinder.new(bot.name).pick(limit: Fd::Member::LIMIT, bots: true)
-    assert_not_includes found, bot.user_id
+    user_ids = Fd::MemberFinder.new(bot.name).suggest(limit: Fd::Member::LIMIT, bots: true)
+    assert_not_includes user_ids, bot.user_id
   end
 
   test "what the guard did survives the guard being lifted" do
@@ -144,9 +144,9 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
   end
 
   test "somebody without channel.guard cannot turn one on" do
-    them = hold_role!("UFF9", "firefighter")
+    firefighter = hold_role!("UFF9", "firefighter")
     move_capability!("firefighter", "channel.guard", false, by: "UME")
-    sign_in_as(them)
+    sign_in_as(firefighter)
 
     post fd_channel_guard_path(@channel.channel_id, "bot_allowlist")
 

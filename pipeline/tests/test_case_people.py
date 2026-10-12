@@ -8,10 +8,10 @@ class Conn:
     def __init__(self, rows=(), one=None):
         self.rows = rows
         self.one = one
-        self.ran = []
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def fetchall(self):
@@ -20,8 +20,8 @@ class Conn:
     def fetchone(self):
         return self.one
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.executed if mark in sql]
 
 
 def test_the_people_on_a_case_are_a_user_and_a_role():
@@ -37,7 +37,7 @@ def test_taking_somebody_off_writes_down_who_and_what_they_were():
     conn = Conn(one=("U1",))
 
     assert case_actions.remove_participant(conn, 6, "U1", "subject", "UFD") is True
-    before = conn.did("INSERT INTO fd.audit")[0][5].obj
+    before = conn.args_for("INSERT INTO fd.audit")[0][5].obj
     assert before == {"user_id": "U1", "role": "subject"}
 
 
@@ -45,12 +45,12 @@ def test_taking_off_somebody_who_is_not_there_changes_nothing():
     conn = Conn(one=None)
 
     assert case_actions.remove_participant(conn, 6, "U1", "subject", "UFD") is False
-    assert conn.did("INSERT INTO fd.audit") == []
+    assert conn.args_for("INSERT INTO fd.audit") == []
 
 
 def test_no_query_asks_for_the_column_0112_dropped():
-    asked = [case_actions.PARTICIPANTS, case_actions.ADD_PARTICIPANT, case_actions.REMOVE_PARTICIPANT]
-    assert [one for one in asked if DROPPED in one] == []
+    statements = [case_actions.PARTICIPANTS, case_actions.ADD_PARTICIPANT, case_actions.REMOVE_PARTICIPANT]
+    assert [one for one in statements if DROPPED in one] == []
 
 
 def test_the_people_modal_sends_only_what_the_table_holds():
@@ -63,8 +63,8 @@ def test_subjects_and_assignees_share_one_modal():
     texts = [block["text"]["text"] for block in built["blocks"] if block["type"] == "section"]
     assert texts == ["<@UBOB> · Subject", "<@UME> · Assigned"]
     assert {block.get("block_id") for block in built["blocks"]} >= {people.WHO, people.ASSIGN}
-    removing = [block["accessory"]["value"] for block in built["blocks"] if "accessory" in block]
-    assert removing == ["UBOB:subject:9", "UME:assignee:9"]
+    remove_values = [block["accessory"]["value"] for block in built["blocks"] if "accessory" in block]
+    assert remove_values == ["UBOB:subject:9", "UME:assignee:9"]
 
 
 def test_the_modal_offers_only_what_you_may_change():

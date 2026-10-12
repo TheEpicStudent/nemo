@@ -42,10 +42,10 @@ def tuned(conn):
 
 
 def value(conn, source, name, fallback):
-    got = tuned(conn)
-    if got is UNREADABLE:
+    tuned_values = tuned(conn)
+    if tuned_values is UNREADABLE:
         return fallback
-    return got.get((source, name), fallback)
+    return tuned_values.get((source, name), fallback)
 
 
 def cadence(conn, key):
@@ -69,7 +69,7 @@ def budget_minutes(conn):
     return int(value(conn, ENGINE, "budget_minutes", DEFAULTS["budget_minutes"]))
 
 
-KEEP = "keep"
+RETAIN_ALL = "keep"
 
 
 def floor_days(key):
@@ -85,21 +85,21 @@ OFF = "off"
 
 
 def reclaim_seconds(conn):
-    asked = value(conn, ENGINE, "reclaim_seconds", DEFAULTS["reclaim_seconds"])
-    if asked == OFF:
+    configured = value(conn, ENGINE, "reclaim_seconds", DEFAULTS["reclaim_seconds"])
+    if configured == OFF:
         return None
-    if asked in (None, ""):
-        asked = DEFAULTS["reclaim_seconds"]
-    return max(int(asked), RECLAIM_FLOOR_SECONDS)
+    if configured in (None, ""):
+        configured = DEFAULTS["reclaim_seconds"]
+    return max(int(configured), RECLAIM_FLOOR_SECONDS)
 
 
 def retention_days(conn, key):
-    asked = value(conn, key, "retention_days", KEEP)
-    if asked == KEEP:
+    configured = value(conn, key, "retention_days", RETAIN_ALL)
+    if configured == RETAIN_ALL:
         return None
 
     floor = floor_days(key)
-    days = int(asked)
+    days = int(configured)
     if floor and days < floor:
         raise ValueError(f"{key}: {days} days is under the {floor} day floor")
     return days
@@ -115,16 +115,16 @@ def skip_reason(conn, key, now):
     if not enabled(conn, key):
         return "paused"
 
-    how_often = cadence(conn, key)
-    if how_often not in PERIOD:
-        return f"{how_often}, not scheduled"
+    cadence_name = cadence(conn, key)
+    if cadence_name not in PERIOD:
+        return f"{cadence_name}, not scheduled"
 
-    since = last_ok(conn, key)
-    if since is None:
+    last_ok_at = last_ok(conn, key)
+    if last_ok_at is None:
         return None
 
-    due_at = since + PERIOD[how_often]
+    due_at = last_ok_at + PERIOD[cadence_name]
     if now < due_at:
-        return f"{how_often}, next due {due_at:%b %-d %H:%M}"
+        return f"{cadence_name}, next due {due_at:%b %-d %H:%M}"
 
     return None

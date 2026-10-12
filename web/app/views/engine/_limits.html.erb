@@ -17,7 +17,7 @@
         <div class="tgrid tgrid-limits">
           <div class="tstack"><b><%= source.key %></b><span><%= name %></span></div>
           <div class="tcell">
-            <%= render "setting_value", source: source.key, name: name, may_tune: may_tune, show_was: true %>
+            <%= render "setting_value", source: source.key, name: name, may_edit_setting: may_edit_setting, show_default: true %>
           </div>
           <div class="tcell sub"><%= bounds["min"] %> to <%= bounds["max"] %></div>
           <div class="sub"><%= unit_cost(source, name) %></div>

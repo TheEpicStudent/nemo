@@ -7,33 +7,33 @@ from bot.nemo.surface import reaction_watch
 from bot.nemo.views import edit, linked
 
 BOT = "UNEMO"
-ROOM = "C_FIRE"
+CHANNEL_ID = "C_FIRE"
 CARD = "100.000"
 
 
 class Conn:
     def __init__(self, answers=None):
         self.answers = answers or {}
-        self.ran = []
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def fetchone(self):
         for mark, row in self.answers.items():
-            if mark in self.ran[-1][0]:
+            if mark in self.executed[-1][0]:
                 return row
         return None
 
     def fetchall(self):
         for mark, rows in self.answers.items():
-            if mark in self.ran[-1][0]:
+            if mark in self.executed[-1][0]:
                 return rows
         return []
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.executed if mark in sql]
 
 
 class Ctx:
@@ -47,60 +47,60 @@ def test_the_ban_prompt_is_one_button_that_carries_the_case_and_who():
     button = blocks[0]["elements"][0]
     assert [b["type"] for b in blocks] == ["actions"]
     assert button["text"]["text"] == "Log action"
-    assert edit.ban_asked(button["value"]) == (39, "UBAD")
-    assert edit.ban_asked(edit.ban_prompt(39)[0]["elements"][0]["value"]) == (39, None)
+    assert edit.parse_ban_value(button["value"]) == (39, "UBAD")
+    assert edit.parse_ban_value(edit.ban_prompt(39)[0]["elements"][0]["value"]) == (39, None)
 
 
 @pytest.fixture
-def banning(monkeypatch):
-    heard = {"prompted": [], "opened": [], "posted": []}
+def ban_calls(monkeypatch):
+    recorded = {"prompted": [], "opened": [], "posted": []}
 
     @contextlib.contextmanager
     def one_session():
-        yield Conn({"FROM fd.case_reports WHERE forwarded_ts": heard.get("card")})
+        yield Conn({"FROM fd.case_reports WHERE forwarded_ts": recorded.get("card")})
 
     monkeypatch.setattr(reaction_watch, "session", one_session)
     monkeypatch.setattr(reaction_watch.whoami, "bot_user_id", lambda client, name: BOT)
     monkeypatch.setattr(reaction_watch.access, "may",
-                        lambda conn, who, needs, case=None: (True, None))
+                        lambda conn, user_id, capability, case=None: (True, None))
     monkeypatch.setattr(reaction_watch.channels, "react_channels", lambda conn=None: {"C_REACT"})
     monkeypatch.setattr(reaction_watch, "post_ban_prompt",
-                        lambda client, conn, case_id, target: heard["prompted"].append((case_id, target)))
+                        lambda client, conn, case_id, target: recorded["prompted"].append((case_id, target)))
     monkeypatch.setattr(reaction_watch, "root_of",
                         lambda client, channel_id, ts: ("5.5", {"ts": "5.5", "user": "UBAD"}))
     monkeypatch.setattr(reaction_watch.case_queue, "case_on", lambda conn, channel_id, ts: None)
     monkeypatch.setattr(reaction_watch.case_actions, "open_case",
-                        lambda conn, subject, body, who: heard["opened"].append(who) or 77)
-    monkeypatch.setattr(reaction_watch, "keep_the_root", lambda conn, case_id, channel_id, message: None)
+                        lambda conn, subject, body, user_id: recorded["opened"].append(user_id) or 77)
+    monkeypatch.setattr(reaction_watch, "store_root_message", lambda conn, case_id, channel_id, message: None)
     monkeypatch.setattr(reaction_watch.case_queue, "post",
-                        lambda client, conn, case_id, channel_id, thread_ts: heard["posted"].append(case_id))
-    return heard
+                        lambda client, conn, case_id, channel_id, thread_ts: recorded["posted"].append(case_id))
+    return recorded
 
 
-def ban(channel_id, ts, who="UME"):
-    return Ctx({"reaction": "ban", "user": who,
+def ban(channel_id, ts, user_id="UME"):
+    return Ctx({"reaction": "ban", "user": user_id,
                 "item": {"type": "message", "channel": channel_id, "ts": ts}})
 
 
-def test_ban_on_a_card_asks_to_log_an_action(banning):
-    banning["card"] = (23,)
-    assert reaction_watch.banned(ban(ROOM, CARD)) == 23
-    assert banning["prompted"] == [(23, None)]
-    assert banning["opened"] == []
+def test_ban_on_a_card_asks_to_log_an_action(ban_calls):
+    ban_calls["card"] = (23,)
+    assert reaction_watch.banned(ban(CHANNEL_ID, CARD)) == 23
+    assert ban_calls["prompted"] == [(23, None)]
+    assert ban_calls["opened"] == []
 
 
-def test_ban_on_a_message_opens_a_case_and_names_its_author(banning):
+def test_ban_on_a_message_opens_a_case_and_names_its_author(ban_calls):
     assert reaction_watch.banned(ban("C_REACT", "5.5")) == 77
-    assert banning["opened"] == ["UME"]
-    assert banning["posted"] == [77]
-    assert banning["prompted"] == [(77, "UBAD")]
+    assert ban_calls["opened"] == ["UME"]
+    assert ban_calls["posted"] == [77]
+    assert ban_calls["prompted"] == [(77, "UBAD")]
 
 
-def test_ban_elsewhere_or_by_nemo_does_nothing(banning):
+def test_ban_elsewhere_or_by_nemo_does_nothing(ban_calls):
     assert reaction_watch.banned(ban("C_ELSEWHERE", "5.5")) is None
-    banning["card"] = (23,)
-    assert reaction_watch.banned(ban(ROOM, CARD, who=BOT)) is None
-    assert banning["prompted"] == []
+    ban_calls["card"] = (23,)
+    assert reaction_watch.banned(ban(CHANNEL_ID, CARD, user_id=BOT)) is None
+    assert ban_calls["prompted"] == []
 
 
 def row(row_id, verb, entity, entity_id, actor="UFE", before=None, after=None, request="r1"):
@@ -125,17 +125,17 @@ def test_fire_engine_changes_become_thread_lines(monkeypatch):
         row(10, "resolved", "case", 40, after={"resolution": "no_action"}, request="h"),
     ]
 
-    said = announce.said(conn, rows)
+    announcements = announce.announcement_lines(conn, rows)
 
-    merge = "<@UFE> merged cases 25 and 31 into case 39"
-    assert said == [
+    merge_text = "<@UFE> merged cases 25 and 31 into case 39"
+    assert announcements == [
         (39, "<@UFE> claimed case 39"),
         (39, "<@UFE> assigned case 39 to <@UA> and <@UB>"),
         (39, "<@UFE> unassigned <@UA> from case 39"),
         (39, "<@UFE> unassigned themselves from case 39"),
         (39, "<@UFE> added a note: spoke to them"),
         (39, "<@UFE> reopened case 39"),
-        (39, merge), (25, merge), (31, merge),
+        (39, merge_text), (25, merge_text), (31, merge_text),
     ]
 
 
@@ -148,7 +148,7 @@ def test_the_announcer_moves_its_cursor_past_what_it_read(monkeypatch):
 
     assert announce.announce(None, conn) == 2
     assert posted == [39, 40]
-    assert conn.did("UPDATE fd.bot_cursor")[0] == (9, "fire_engine_audit")
+    assert conn.args_for("UPDATE fd.bot_cursor")[0] == (9, "fire_engine_audit")
 
 
 def test_only_fire_engine_rows_are_read_so_slack_lines_are_not_repeated():
@@ -160,23 +160,23 @@ LINK = "https://hackclub.slack.com/archives/C0BSBP62C3U/p1791730046580269"
 
 def test_a_bare_link_typed_in_fire_engine_is_found():
     text = f"Testing links\n{LINK}?thread_ts=1791725791.702509&cid=C0BSBP62C3U"
-    found = linked.occurrences(text)
-    assert [(one["channel_id"], one["ts"], one["thread_ts"]) for one in found] == [
+    occurrences = linked.occurrences(text)
+    assert [(one["channel_id"], one["ts"], one["thread_ts"]) for one in occurrences] == [
         ("C0BSBP62C3U", "1791730046.580269", "1791725791.702509")]
 
 
 class Reader:
     def __init__(self, messages):
         self.messages = messages
-        self.asked = []
+        self.calls = []
         self.posted = []
 
     def conversations_replies(self, **kwargs):
-        self.asked.append(("replies", kwargs))
+        self.calls.append(("replies", kwargs))
         return {"messages": self.messages}
 
     def conversations_history(self, **kwargs):
-        self.asked.append(("history", kwargs))
+        self.calls.append(("history", kwargs))
         return {"messages": self.messages}
 
     def chat_postMessage(self, **kwargs):
@@ -188,11 +188,11 @@ def test_nemo_reads_a_linked_reply_from_its_thread():
     reader = Reader([{"ts": "1791725791.702509", "text": "root"},
                      {"ts": "1791730046.580269", "text": "the reply", "user": "UA"}])
 
-    found = channel.read_linked(reader, "C0BSBP62C3U", "1791730046.580269", "1791725791.702509")
+    linked_message = channel.read_linked(reader, "C0BSBP62C3U", "1791730046.580269", "1791725791.702509")
 
-    assert reader.asked[0][0] == "replies"
-    assert found["source_body"] == "the reply" and found["is_reachable"]
-    assert found["source_author_user_id"] == "UA"
+    assert reader.calls[0][0] == "replies"
+    assert linked_message["source_body"] == "the reply" and linked_message["is_reachable"]
+    assert linked_message["source_author_user_id"] == "UA"
 
 
 def test_a_message_nemo_cannot_find_is_left_unread():
@@ -204,8 +204,8 @@ def test_a_staff_case_unfurls_its_links_once():
     reader = Reader([{"ts": "1791730046.580269", "text": "the reply", "user": "UA"}])
     conn = Conn({"unfurl_ts IS NULL\nORDER BY": (480, text)})
 
-    assert channel.unfurl_opening(reader, conn, 39, ROOM, CARD) == "9.9"
+    assert channel.unfurl_opening(reader, conn, 39, CHANNEL_ID, CARD) == "9.9"
     assert reader.posted[0]["thread_ts"] == CARD
-    assert conn.did("SET unfurl_ts")[0] == ("9.9", 480)
+    assert conn.args_for("SET unfurl_ts")[0] == ("9.9", 480)
 
-    assert channel.unfurl_opening(reader, Conn(), 39, ROOM, CARD) is None
+    assert channel.unfurl_opening(reader, Conn(), 39, CHANNEL_ID, CARD) is None

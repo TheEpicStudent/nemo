@@ -5,7 +5,7 @@ module Admin
       @keys = Authz.by_area
       @holders = holders
       @overrides = Authz::Override.all.index_by { |row| [row.role, row.capability] }
-      @moved = @overrides.size
+      @override_count = @overrides.size
     end
 
     private

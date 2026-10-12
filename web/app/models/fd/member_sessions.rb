@@ -1,7 +1,7 @@
 module Fd
   class MemberSessions
     CROWDED = 20
-    SHOWN = 12
+    DEVICE_LIMIT = 12
 
     Address = Struct.new(:ip, :prefix, :country, :region, :isp, :first_at, :last_at,
       :seen, :people, :alongside, keyword_init: true) do
@@ -46,9 +46,9 @@ module Fd
 
     def devices
       @devices ||= rows.group_by { |row| [row.ua_app, row.ua_os] }
-        .map { |(app, os), held| device_for(app, os, held) }
-        .sort_by { |one| -one.last_at.to_i }
-        .first(SHOWN)
+        .map { |(app, os), device_rows| device_for(app, os, device_rows) }
+        .sort_by { |device| -device.last_at.to_i }
+        .first(DEVICE_LIMIT)
     end
 
     def addresses
@@ -77,20 +77,20 @@ module Fd
 
     private
 
-    def device_for(app, os, held)
+    def device_for(app, os, device_rows)
       Device.new(
-        app: app, os: os, addresses: addresses_in(held),
-        first_at: held.map(&:first_at).compact.min, last_at: held.map(&:last_at).compact.max,
-        seen: held.sum { |row| row.seen.to_i }
+        app: app, os: os, addresses: addresses_in(device_rows),
+        first_at: device_rows.map(&:first_at).compact.min, last_at: device_rows.map(&:last_at).compact.max,
+        seen: device_rows.sum { |row| row.seen.to_i }
       )
     end
 
-    def addresses_in(held)
-      held.group_by { |row| self.class.with_prefix(row.ip_prefix) }.filter_map do |prefix, rows|
+    def addresses_in(device_rows)
+      device_rows.group_by { |row| self.class.with_prefix(row.ip_prefix) }.filter_map do |prefix, rows|
         next nil if prefix.nil?
 
         address_for(prefix, rows)
-      end.sort_by { |one| -one.last_at.to_i }
+      end.sort_by { |address| -address.last_at.to_i }
     end
 
     def address_for(prefix, rows)
@@ -118,14 +118,14 @@ module Fd
 
     def cohorts
       @cohorts ||= begin
-        found = {}
+        counts = {}
         hosts = prefixes.index_by { |prefix| prefix.split("/").first }
         if hosts.any?
           ApplicationRecord.connection.select_all(
             ApplicationRecord.sanitize_sql([PEOPLE, { hosts: hosts.keys }])
-          ).each { |row| found[hosts.fetch(row["value"])] = row["people"].to_i }
+          ).each { |row| counts[hosts.fetch(row["value"])] = row["people"].to_i }
         end
-        found
+        counts
       end
     end
 
@@ -137,14 +137,14 @@ module Fd
 
     def neighbours
       @neighbours ||= begin
-        found = Hash.new { |held, key| held[key] = [] }
-        small = prefixes.select { |prefix| cohorts[prefix].to_i.between?(2, CROWDED - 1) }
-        if small.any?
+        user_ids_by_prefix = Hash.new { |hash, key| hash[key] = [] }
+        shared_prefixes = prefixes.select { |prefix| cohorts[prefix].to_i.between?(2, CROWDED - 1) }
+        if shared_prefixes.any?
           ApplicationRecord.connection.select_all(
-            ApplicationRecord.sanitize_sql([NEIGHBOURS, { prefixes: small, who: user_id }])
-          ).each { |row| found[row["prefix"]] << row["user_id"] }
+            ApplicationRecord.sanitize_sql([NEIGHBOURS, { prefixes: shared_prefixes, who: user_id }])
+          ).each { |row| user_ids_by_prefix[row["prefix"]] << row["user_id"] }
         end
-        found
+        user_ids_by_prefix
       end
     end
   end

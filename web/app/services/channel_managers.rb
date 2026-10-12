@@ -1,6 +1,6 @@
 class ChannelManagers
   TTL = 1.hour
-  HELD_FOR = 20.seconds
+  LOCK_TTL = 20.seconds
   METHOD = "admin.roles.listAssignments".freeze
   PAGE = 200
   PAGE_CAP = 20
@@ -12,7 +12,7 @@ class ChannelManagers
   def self.for(channel_id)
     return [] if channel_id.blank?
 
-    freshen(channel_id)
+    refresh_if_stale(channel_id)
     Api::ChannelManager.user_ids_in(channel_id)
   end
 
@@ -24,31 +24,31 @@ class ChannelManagers
     Api::ChannelSweep.find_by(channel_id: channel_id)&.synced_at
   end
 
-  def self.freshen(channel_id)
-    swept = Api::ChannelSweep.find_by(channel_id: channel_id)
+  def self.refresh_if_stale(channel_id)
+    sweep = Api::ChannelSweep.find_by(channel_id: channel_id)
 
-    return refresh(channel_id) if swept.nil?
-    return unless swept.stale?(TTL)
+    return refresh(channel_id) if sweep.nil?
+    return unless sweep.stale?(TTL)
 
     refresh(channel_id) if claim(channel_id)
   end
 
   def self.claim(channel_id)
     Rails.cache.write("channel_managers/lock/#{channel_id}", true,
-      expires_in: HELD_FOR, unless_exist: true)
+      expires_in: LOCK_TTL, unless_exist: true)
   end
 
   def self.refresh(channel_id)
-    found = fetch(channel_id)
-    return if found.nil?
+    assignments = fetch(channel_id)
+    return if assignments.nil?
 
-    store(channel_id, found)
+    store(channel_id, assignments)
   end
 
   def self.fetch(channel_id)
     return nil if role_id.nil?
 
-    found = []
+    assignments = []
     cursor = nil
     PAGE_CAP.times do
       page = Slack::ProxyClient.call(METHOD,
@@ -59,29 +59,29 @@ class ChannelManagers
       Array(page["role_assignments"]).each do |row|
         next unless row["entity_id"] == channel_id && row["user_id"].present?
 
-        found << [row["user_id"], row["date_create"]]
+        assignments << [row["user_id"], row["date_create"]]
       end
 
       cursor = page.dig("response_metadata", "next_cursor").presence
       break if cursor.nil?
     end
-    found
+    assignments
   rescue Slack::ProxyClient::Error, Slack::ProxyClient::NotConfiguredError => e
     Rails.logger.warn("channel_managers: #{e.class} for #{channel_id}")
     nil
   end
 
-  def self.store(channel_id, found)
+  def self.store(channel_id, assignments)
     Api::ChannelManager.transaction do
       Api::ChannelManager.where(channel_id: channel_id).delete_all
-      Api::ChannelManager.insert_all(rows_for(channel_id, found)) if found.any?
-      Api::ChannelSweep.stamp!(channel_id, found.size)
+      Api::ChannelManager.insert_all(rows_for(channel_id, assignments)) if assignments.any?
+      Api::ChannelSweep.stamp!(channel_id, assignments.size)
     end
   end
 
-  def self.rows_for(channel_id, found)
-    found.uniq { |user_id, _at| user_id }.map do |user_id, at|
-      { channel_id: channel_id, user_id: user_id, assigned_at: at ? Time.zone.at(at) : nil }
+  def self.rows_for(channel_id, assignments)
+    assignments.uniq { |user_id, _created_epoch| user_id }.map do |user_id, created_epoch|
+      { channel_id: channel_id, user_id: user_id, assigned_at: created_epoch ? Time.zone.at(created_epoch) : nil }
     end
   end
 end

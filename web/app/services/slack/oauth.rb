@@ -13,7 +13,7 @@ module Slack
       client_id.present? && client_secret.present?
     end
 
-    def self.walk_to(redirect_uri:, state:)
+    def self.authorize_url(redirect_uri:, state:)
       raise NotConfiguredError, "NEMO_CLIENT_ID and NEMO_CLIENT_SECRET are not set" unless configured?
 
       query = { client_id: client_id, user_scope: Fd::StaffSlack::SCOPE,
@@ -24,14 +24,14 @@ module Slack
     def self.exchange(code:, redirect_uri:)
       raise NotConfiguredError, "NEMO_CLIENT_ID and NEMO_CLIENT_SECRET are not set" unless configured?
 
-      answer = call("oauth.v2.access", client_id: client_id, client_secret: client_secret,
+      payload = call("oauth.v2.access", client_id: client_id, client_secret: client_secret,
         code: code, redirect_uri: redirect_uri)
-      raise RefusedError, answer["error"].to_s.presence || "slack refused it" unless answer["ok"]
+      raise RefusedError, payload["error"].to_s.presence || "slack refused it" unless payload["ok"]
 
-      answer
+      payload
     end
 
-    def self.give_back(token)
+    def self.revoke_token(token)
       call("auth.revoke", {}, token)
     rescue UnavailableError
       { "ok" => false, "error" => "unreachable" }

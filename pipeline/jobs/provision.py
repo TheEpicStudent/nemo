@@ -48,10 +48,10 @@ def apply_init_sql(conn):
 
 
 def report_mode(conn):
-    found = roles.roles_present(conn)
-    if len(found) == len(roles.EXPECTED_ROLES):
+    present_roles = roles.roles_present(conn)
+    if len(present_roles) == len(roles.EXPECTED_ROLES):
         print(f"provision: {roles.SEPARATED_MODE} deployment, grants enforced by "
-              f"{', '.join(found)}")
+              f"{', '.join(present_roles)}")
         return
     print(f"provision: {roles.SHARED_MODE} deployment, every service shares "
           f"{os.environ.get('POSTGRES_USER', 'one login')} and the boundary is the "

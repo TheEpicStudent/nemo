@@ -23,8 +23,8 @@ def test_token_heads_take_the_first_letter_of_every_token():
 
 
 def test_only_latin_letters_and_digits_are_queryable_shards():
-    heads = {"a", "z", "0", "9", "é", "ø", "α", "в", "中", "か"}
-    assert cm.queryable_shards(heads) == ["0", "9", "a", "z"]
+    prefixes = {"a", "z", "0", "9", "é", "ø", "α", "в", "中", "か"}
+    assert cm.queryable_shards(prefixes) == ["0", "9", "a", "z"]
 
 
 def test_astral_plane_names_yield_no_shard_at_all():
@@ -37,12 +37,12 @@ def test_sweep_dedupes_overlapping_shards_and_lands_only_fresh_records():
         ("a", "asc"): [rec("C1", "alpha"), rec("C2", "banana")],
         ("b", "asc"): [rec("C2", "banana"), rec("C3", "bravo")],
     })
-    found, landed = {}, []
+    records, batches = {}, []
     cm.MIN_SECONDS_PER_CALL = 0
-    truncated = cm.sweep(client, "2026-08", ["a", "b"], found, landed.append)
+    truncated = cm.sweep(client, "2026-08", ["a", "b"], records, batches.append)
     assert truncated == []
-    assert sorted(found) == ["C1", "C2", "C3"]
-    assert [[r["channel_id"] for r in batch] for batch in landed] == [["C1", "C2"], ["C3"]]
+    assert sorted(records) == ["C1", "C2", "C3"]
+    assert [[r["channel_id"] for r in batch] for batch in batches] == [["C1", "C2"], ["C3"]]
 
 
 def test_a_shard_whose_num_found_exceeds_its_page_is_reported_truncated():
@@ -62,16 +62,16 @@ def test_tail_sweep_adds_only_channels_the_shards_missed():
     client = FakeClient({
         (None, "desc"): [rec("C9", "鏡音レン"), rec("C1", "alpha")],
     })
-    found = {"C1": rec("C1", "alpha")}
-    landed = []
-    added = cm.tail_sweep(client, "2026-08", found, landed.append)
+    records = {"C1": rec("C1", "alpha")}
+    batches = []
+    added = cm.tail_sweep(client, "2026-08", records, batches.append)
     assert added == 1
-    assert sorted(found) == ["C1", "C9"]
-    assert [r["channel_id"] for r in landed[0]] == ["C9"]
+    assert sorted(records) == ["C1", "C9"]
+    assert [r["channel_id"] for r in batches[0]] == ["C9"]
     assert client.calls[0]["sort_direction"] == "desc"
     assert "query" not in client.calls[0]
 
 
 def test_absorb_reports_zero_when_nothing_is_new():
-    found = {"C1": rec("C1", "a")}
-    assert cm.merge_records([rec("C1", "a")], found, None) == 0
+    records = {"C1": rec("C1", "a")}
+    assert cm.merge_records([rec("C1", "a")], records, None) == 0

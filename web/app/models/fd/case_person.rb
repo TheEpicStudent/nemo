@@ -40,7 +40,7 @@ module Fd
       @cases_ever ||= CaseParticipant.where(user_id: user_id).distinct.count(:case_id)
     end
 
-    Earlier = Struct.new(:kase, :counts, :why, :actions, keyword_init: true)
+    Earlier = Struct.new(:kase, :counts, :reason, :actions, keyword_init: true)
 
     def earlier_cases
       @earlier_cases ||= Case
@@ -55,16 +55,16 @@ module Fd
     private
 
     def compare_to(other)
-      aimed = other.actions.select { |action| action.target_user_id == user_id }
-      why = skip_reason(other, aimed)
-      Earlier.new(kase: other, actions: aimed, why: why, counts: why.nil?)
+      targeted_actions = other.actions.select { |action| action.target_user_id == user_id }
+      reason = skip_reason(other, targeted_actions)
+      Earlier.new(kase: other, actions: targeted_actions, reason: reason, counts: reason.nil?)
     end
 
-    def skip_reason(other, aimed)
+    def skip_reason(other, targeted_actions)
       return "logged, not the subject" unless other.subject_user_ids.include?(user_id)
       return "still open" if other.resolved_at.nil?
-      return "nothing was done to them" if aimed.empty?
-      return "the action was reversed" if aimed.all?(&:reversed?)
+      return "nothing was done to them" if targeted_actions.empty?
+      return "the action was reversed" if targeted_actions.all?(&:reversed?)
       return "outside 12 months" if other.resolved_at < @kase.opened_at - Case::PRIOR_WINDOW
 
       nil

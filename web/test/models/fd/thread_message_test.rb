@@ -11,26 +11,26 @@ class Fd::ThreadMessageTest < ActiveSupport::TestCase
 
   test "several threads are read in one pass, oldest first" do
     kase = make_case
-    lounge = Fd::CaseThread.create!(case_id: kase.id, channel_id: "C0LOUNGE",
+    primary_thread = Fd::CaseThread.create!(case_id: kase.id, channel_id: "C0LOUNGE",
       thread_ts: "1754487721.123456", added_by: "UFF1", is_primary: true)
-    ship = Fd::CaseThread.create!(case_id: kase.id, channel_id: "C0SHIP",
+    second_thread = Fd::CaseThread.create!(case_id: kase.id, channel_id: "C0SHIP",
       thread_ts: "1754570000.100000", added_by: "UFF1")
 
-    sql = Fd::ThreadMessage.for_threads([lounge, ship]).to_sql
+    sql = Fd::ThreadMessage.for_threads([primary_thread, second_thread]).to_sql
 
     assert_includes sql, "C0LOUNGE"
     assert_includes sql, "C0SHIP"
     assert_equal 1, sql.scan(/ORDER BY/).size
-    assert_empty Fd::ThreadMessage.for_threads([lounge, ship]).to_a
+    assert_empty Fd::ThreadMessage.for_threads([primary_thread, second_thread]).to_a
   end
 
   test "a thread attached twice is only asked for once" do
     kase = make_case
-    twice = Array.new(2) do
+    duplicate_threads = Array.new(2) do
       Fd::CaseThread.new(channel_id: "C0LOUNGE", thread_ts: "1754487721.123456",
         case_id: kase.id, added_by: "UFF1")
     end
 
-    assert_equal 1, Fd::ThreadMessage.for_threads(twice).to_sql.scan("C0LOUNGE").size
+    assert_equal 1, Fd::ThreadMessage.for_threads(duplicate_threads).to_sql.scan("C0LOUNGE").size
   end
 end

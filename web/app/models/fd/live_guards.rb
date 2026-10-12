@@ -1,7 +1,7 @@
 module Fd
   class LiveGuards
-    def initialize(asked = nil)
-      @kind = ChannelGuard.kind?(asked) ? asked : nil
+    def initialize(requested_kind = nil)
+      @kind = ChannelGuard.kind?(requested_kind) ? requested_kind : nil
     end
 
     attr_reader :kind
@@ -31,9 +31,9 @@ module Fd
 
     def sorted
       @sorted ||= begin
-        found = ChannelGuard.live.to_a
-        @channels = ChannelNames.for(found.map(&:channel_id))
-        found.sort_by { |guard|
+        guards = ChannelGuard.live.to_a
+        @channels = ChannelNames.for(guards.map(&:channel_id))
+        guards.sort_by { |guard|
           [ChannelGuard::KINDS.index(guard.kind) || ChannelGuard::KINDS.size,
            @channels[guard.channel_id]]
         }

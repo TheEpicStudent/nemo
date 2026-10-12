@@ -21,25 +21,25 @@ module Fd
       @participants = CaseParticipant.where(case_id: family).by_role.to_a
         .uniq { |person| [person.user_id, person.role] }
       @others = @participants.reject { |person| person.role == "subject" }
-      @people = CasePeople.for(@participants, asked: params[:person])
+      @people = CasePeople.for(@participants, selected_user_id: params[:person])
       @reports = CaseReport.where(case_id: family).oldest_first.to_a
       @actions = Action.where(case_id: family).oldest_first.to_a
       @live_actions = @actions.reject(&:reversed?)
       @thread_guards = ThreadGuard.for_case(family).newest_first.to_a
-      @thread_locks = ThreadGuard.pickable_locks(family)
+      @thread_locks = ThreadGuard.selectable_locks(family)
       @locks_logged = Action.thread_guards_logged_on(family)
       @guards_logged = Action.guards_logged_on(family)
       subjects = @case.subject_user_ids
       @action_standing = MemberGuard.standing_on(
-        @people.chosen&.user_id || (subjects.first if subjects.one?)
+        @people.selected&.user_id || (subjects.first if subjects.one?)
       )
       @siblings = @case.sibling_cases.includes(:subjects).oldest_first.to_a
       @duplicate_candidates = Case.candidates_for(@case, @siblings)
       @notes = Note.where(case_id: family).visible.recent_first.to_a
       @conversations = IntakeConversation.for_case(family).to_a
       @reachable = @conversations.reject(&:closed?).map(&:report_id).to_set
-      @thread = chosen_thread(@reports)
-      @thread_conversation = @conversations.find { |one| one.report_id == @thread&.id }
+      @thread = selected_thread(@reports)
+      @thread_conversation = @conversations.find { |conversation| conversation.report_id == @thread&.id }
       @conversation_messages = IntakeMessage.tail([@thread_conversation&.id].compact)
       @conversation_count = IntakeMessage.count_for([@thread_conversation&.id].compact)
       @queued = if @thread_conversation
@@ -53,13 +53,13 @@ module Fd
       @standing_notes = Note.for_subjects(@participants.map(&:user_id)).visible.recent_first
         .group_by(&:subject_user_id)
       @thread_messages = ThreadMessage.for_threads(@threads).to_a
-      @case_person = CasePerson.for(@people.chosen, kase: @case, actions: @actions,
+      @case_person = CasePerson.for(@people.selected, kase: @case, actions: @actions,
         notes: @notes, messages: @thread_messages)
       @cited_shares = IntakeShare.for_messages(@conversation_messages.map(&:id))
       @channels = ChannelNames.for(@threads.map(&:channel_id) + cited_channel_ids +
         @thread_guards.map(&:channel_id) + @thread_locks.map(&:channel_id) +
         @action_standing.map(&:channel_id) +
-        @actions.filter_map { |a| a.details["channel_id"] } +
+        @actions.filter_map { |action| action.details["channel_id"] } +
         Array(@pane_channels) +
         ChatChannels.ids(@chat, @conversation_messages, @queued, @reports))
       @emoji = ChatEmoji.for(@chat, @conversation_messages, @queued, @reports)
@@ -99,13 +99,13 @@ module Fd
       @subject = @case.subject_user_ids.first
       @subject_priors = @subject ? Case.prior_count(@subject, within: Case::PRIOR_WINDOW) : 0
       @merge_into = @duplicate_candidates.find { |other| !other.resolved? }
-      @open_reports = @reports.count { |report| !report.told_of_outcome? }
+      @open_reports = @reports.count { |report| !report.outcome_notified? }
     end
 
     def update
       kase = Case.find(params[:id])
-      wanted = params[:category_key].to_s
-      unless Case::CATEGORIES.include?(wanted)
+      requested_category = params[:category_key].to_s
+      unless Case::CATEGORIES.include?(requested_category)
         wrong!(:category_key, "Pick one of these.")
         return redirect_to(fd_case_path(kase, do: "category"))
       end
@@ -113,23 +113,23 @@ module Fd
         return redirect_to(fd_case_path(kase), alert: "This case already has a category")
       end
 
-      was = kase.category_key
+      previous_category = kase.category_key
       writing do
-        kase.update!(category_key: wanted)
+        kase.update!(category_key: requested_category)
         audit(kase, "categorised",
-          before: { "category_key" => was }, after: { "category_key" => wanted })
+          before: { "category_key" => previous_category }, after: { "category_key" => requested_category })
       end
 
-      redirect_to fd_case_path(kase), notice: "Case #{kase.id} marked #{wanted.tr('_', ' ')}"
+      redirect_to fd_case_path(kase), notice: "Case #{kase.id} marked #{requested_category.tr('_', ' ')}"
     end
 
     MEMBER_ID = /\A[UW][A-Z0-9]{2,}\z/
 
     def create
-      subjects = asked_subjects
+      subjects = requested_subjects
 
-      problem = objection(subjects)
-      return refuse(problem) if problem
+      error = validation_error(subjects)
+      return render_error(error) if error
 
       kase = nil
       writing do
@@ -152,7 +152,7 @@ module Fd
 
     private
 
-    def chosen_thread(reports)
+    def selected_thread(reports)
       reports.find { |report| report.id == params[:thread].to_i } || reports.last
     end
 
@@ -170,7 +170,7 @@ module Fd
         @participants.map(&:user_id),
         @assignees.flat_map { |person| [person.user_id, person.assigned_by] },
         @reports.map(&:reporter_user_id),
-        @actions.flat_map { |a| [a.target_user_id, a.decided_by, a.performed_by, a.reversed_by] },
+        @actions.flat_map { |action| [action.target_user_id, action.decided_by, action.performed_by, action.reversed_by] },
         (@notes + @standing_notes.values.flatten).map(&:author),
         @siblings.flat_map(&:subject_user_ids),
         (@notes + @standing_notes.values.flatten).flat_map { |note| Mentions.ids(note.body) },
@@ -184,7 +184,7 @@ module Fd
       ]
     end
 
-    def asked_subjects
+    def requested_subjects
       raw = params[:subject_user_ids].presence || [params[:subject_user_id]]
       Array(raw).map { |id| id.to_s.strip.delete_prefix("@").upcase }.reject(&:blank?).uniq
     end
@@ -192,13 +192,13 @@ module Fd
     def preset_for(subjects)
       return [] if subjects.empty?
 
-      known = Names.for(subjects)
+      names = Names.for(subjects)
       subjects.map do |id|
-        { id: id, name: known[id], initial: known.member(id)&.initial || id[0] }
+        { id: id, name: names[id], initial: names.member(id)&.initial || id[0] }
       end
     end
 
-    def objection(subjects)
+    def validation_error(subjects)
       unless subjects.all? { |id| id.match?(MEMBER_ID) }
         return "that does not look like a Slack member id"
       end
@@ -229,7 +229,7 @@ module Fd
       )
     end
 
-    def refuse(message)
+    def render_error(message)
       flash.now[:alert] = message
       @open_modal = true
       load_pane
@@ -240,8 +240,8 @@ module Fd
     PANE_LIMIT = 60
 
     def load_pane
-      asked = params[:view].presence || (action_name == "show" ? "attention" : nil)
-      @pane_query = CaseQuery.new(params.merge(view: asked), viewer: current_account&.user_id)
+      requested_view = params[:view].presence || (action_name == "show" ? "attention" : nil)
+      @pane_query = CaseQuery.new(params.merge(view: requested_view), viewer: current_account&.user_id)
       @pane_views = @pane_query.views
       @pane_params = @pane_query.to_params
       @pane_cases = @pane_query.relation
@@ -249,9 +249,9 @@ module Fd
         .limit(PANE_LIMIT).to_a
       @pane_priors = Case.prior_counts_for(@pane_cases.flat_map(&:subject_user_ids))
       @pane_violations = Case.violations_for(@pane_cases.map(&:id))
-      @cited_words = IntakeShare.first_words_for(@pane_cases.map(&:id))
-      @held_counts = IntakeFile.counts_for_cases(@pane_cases.map(&:id))
-      @pane_reachable = IntakeConversation.open_ones
+      @cited_words = IntakeShare.first_shares_for(@pane_cases.map(&:id))
+      @attachment_counts = IntakeFile.counts_for_cases(@pane_cases.map(&:id))
+      @pane_reachable = IntakeConversation.open
         .where(report_id: @pane_cases.flat_map { |kase| kase.reports.map(&:id) })
         .pluck(:report_id).to_set
       @pane_people = @pane_cases.flat_map { |kase|
@@ -264,7 +264,7 @@ module Fd
     def load_index
       @names = Names.for(Array(@pane_people))
       @channels = ChannelNames.for(Array(@pane_channels))
-      @subject_preset = preset_for(asked_subjects)
+      @subject_preset = preset_for(requested_subjects)
     end
   end
 end

@@ -38,19 +38,19 @@ def rows_from(path):
 
 
 def run(conn, paths):
-    seen = {}
+    created_by_user = {}
     rejected = 0
     for path in paths:
         for user_id, created in rows_from(path):
-            if user_id in seen and seen[user_id] != created:
+            if user_id in created_by_user and created_by_user[user_id] != created:
                 print(f"conflicting dates within the export for {user_id}: "
-                      f"{seen[user_id].date()} vs {created.date()}, keeping the first seen")
+                      f"{created_by_user[user_id].date()} vs {created.date()}, keeping the first seen")
                 rejected += 1
                 continue
-            seen[user_id] = created
+            created_by_user[user_id] = created
 
-    rows = list(seen.items())
-    ids = list(seen)
+    rows = list(created_by_user.items())
+    ids = list(created_by_user)
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM raw.member_created_override WHERE user_id = ANY(%s)", (ids,))
         before = cur.fetchone()[0]

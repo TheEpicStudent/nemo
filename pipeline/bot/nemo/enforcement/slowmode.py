@@ -31,11 +31,11 @@ WHERE channel_id = %s AND thread_ts = %s AND user_id = %s
 """
 
 
-def scope(standing, event):
+def scope(guard, event):
     thread_ts = event.get("thread_ts")
     if not thread_ts:
         return ""
-    return thread_ts if standing.threads() else None
+    return thread_ts if guard.threads() else None
 
 
 def record_post(conn, channel_id, thread_ts, user_id, seconds):
@@ -55,43 +55,43 @@ def time_left(seconds):
 
 
 @on_event("message", open_to_all=True)
-def seen(ctx):
+def on_message(ctx):
     event = ctx.payload or {}
-    channel_id, subject_id, ts = notify.ours(event)
+    channel_id, subject_id, ts = notify.message_target(event)
     if not channel_id:
         return None
 
-    standing = channelguards.guarding(channel_id, KIND)
-    if standing is None or standing.lets_past(subject_id):
+    guard = channelguards.guarding(channel_id, KIND)
+    if guard is None or guard.lets_past(subject_id):
         return None
 
-    seconds = standing.seconds()
+    seconds = guard.seconds()
     if seconds <= 0:
         return None
 
-    thread_ts = scope(standing, event)
+    thread_ts = scope(guard, event)
     if thread_ts is None:
         return None
 
     with session() as conn:
         if record_post(conn, channel_id, thread_ts, subject_id, seconds):
             return None
-        left = left_to_go(conn, channel_id, thread_ts, subject_id, seconds)
+        seconds_remaining = left_to_go(conn, channel_id, thread_ts, subject_id, seconds)
 
     body = event.get("text") or ""
     try:
         guard_actions.remove(ctx.client, channel_id, ts)
     except Exception as failure:
         log.warning("nemo: slow mode %s could not remove %s in %s: %s",
-                    standing.guard_id, ts, channel_id, failure)
+                    guard.guard_id, ts, channel_id, failure)
         return None
 
     with session() as conn:
-        channelguards.record_enforcement(conn, standing.guard_id, channel_id, subject_id,
+        channelguards.record_enforcement(conn, guard.guard_id, channel_id, subject_id,
                                DELETED, text=body, message_ts=ts)
 
     notify.post_ephemeral(ctx.client, channel_id, subject_id,
-                     IN_CHANNEL.format(left=time_left(left), body=body),
+                     IN_CHANNEL.format(left=time_left(seconds_remaining), body=body),
                      thread_ts=event.get("thread_ts"))
-    log.info("nemo: slow mode %s removed %s from %s", standing.guard_id, ts, channel_id)
+    log.info("nemo: slow mode %s removed %s from %s", guard.guard_id, ts, channel_id)
     return True

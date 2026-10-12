@@ -134,7 +134,7 @@ def once(case_channel, channel_id=None):
     with session() as conn:
         missing = [row[0] for row in conn.execute(UNCARDED).fetchall()]
         cardless = [row[0] for row in conn.execute(CARDLESS).fetchall()]
-        standing = [row[0] for row in conn.execute(WORTH_REDRAWING).fetchall()]
+        redraw_ids = [row[0] for row in conn.execute(WORTH_REDRAWING).fetchall()]
         unmirrored = chat.waiting_anywhere(conn)
         following = channel.waiting_follow_ups(conn)
         woke = channel.unannounced_reopens(conn)
@@ -153,15 +153,15 @@ def once(case_channel, channel_id=None):
 
     posted = each(missing, "still has no card", channel.post_report, client, channel_id)
     posted += each(cardless, "was opened without a card", case_queue.card, client, channel_id)
-    drawn = each(standing, "could not be redrawn", channel.refresh_card, client, channel_id)
-    carried = each(
+    redrawn_count = each(redraw_ids, "could not be redrawn", channel.refresh_card, client, channel_id)
+    mirrored_count = each(
         unmirrored, "has chat that did not go out", channel.mirror, client, channel_id
     )
     each(unshared, "has a file that never went into the thread",
          channel.carry_files, client, channel_id)
     each(following, "has a follow-up still waiting",
          channel.carry_follow_ups, client, channel_id)
-    each(standing, "has links that would not unfurl",
+    each(redraw_ids, "has links that would not unfurl",
          channel.carry_unfurls, client, channel_id)
     each(woke, "was reopened without saying so",
          channel.post_reopen_notice, client, channel_id)
@@ -184,7 +184,7 @@ def once(case_channel, channel_id=None):
         ("notifying expiring guards", lambda: sweep.sweep_ending(client)),
     )
 
-    return posted, drawn, carried
+    return posted, redrawn_count, mirrored_count
 
 
 def start(case_channel, stopping, channel_id=None):

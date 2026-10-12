@@ -31,40 +31,40 @@ def survey(env=None):
     return [(index, identify(token)) for index, token in shards.discover(env)]
 
 
-def pool_configured(_conn, found):
-    if not found:
+def pool_configured(_conn, probes):
+    if not probes:
         return ("the pool is configured", "warn",
                 f"no {shards.PREFIX}n set, replies stay on the proxy", "1 or more")
-    return ("the pool is configured", "pass", f"{len(found)} token(s)", "1 or more")
+    return ("the pool is configured", "pass", f"{len(probes)} token(s)", "1 or more")
 
 
-def tokens_valid(_conn, found):
-    dead = [f"{shards.PREFIX}{index} ({error})" for index, (who, error) in found if who is None]
-    if not found:
+def tokens_valid(_conn, probes):
+    dead = [f"{shards.PREFIX}{index} ({error})" for index, (identity, error) in probes if identity is None]
+    if not probes:
         return ("every token is live", "pass", "no token to probe", "0 dead")
     return ("every token is live", "pass" if not dead else "fail",
-            f"{len(dead)} dead: {', '.join(dead)}" if dead else f"{len(found)} live", "0 dead")
+            f"{len(dead)} dead: {', '.join(dead)}" if dead else f"{len(probes)} live", "0 dead")
 
 
-def tokens_are_user_tokens(_conn, found):
-    bots = [f"{shards.PREFIX}{index}" for index, (who, _) in found if who and who.get("bot_id")]
+def tokens_are_user_tokens(_conn, probes):
+    bots = [f"{shards.PREFIX}{index}" for index, (identity, _) in probes if identity and identity.get("bot_id")]
     return ("every token is a user token", "pass" if not bots else "fail",
             f"{', '.join(bots)} carry a bot_id, so they cannot read unjoined channels"
-            if bots else f"{len([1 for _, (w, _) in found if w])} user token(s)",
+            if bots else f"{len([1 for _, (identity, _) in probes if identity])} user token(s)",
             "0 bot tokens")
 
 
-def tokens_single_workspace(_conn, found):
-    teams = {who.get("team_id") for _, (who, _) in found if who}
+def tokens_single_workspace(_conn, probes):
+    teams = {identity.get("team_id") for _, (identity, _) in probes if identity}
     teams.discard(None)
     return ("every token points at one workspace", "pass" if len(teams) <= 1 else "fail",
             f"{len(teams)} workspace(s) across the pool", "1 workspace")
 
 
-def tokens_unique(_conn, _found):
-    trouble = [note for note in shards.problems() if "repeats" in note]
-    return ("no token is repeated", "pass" if not trouble else "fail",
-            "; ".join(trouble) if trouble else "every token is distinct", "0 repeats")
+def tokens_unique(_conn, _probes):
+    issues = [note for note in shards.problems() if "repeats" in note]
+    return ("no token is repeated", "pass" if not issues else "fail",
+            "; ".join(issues) if issues else "every token is distinct", "0 repeats")
 
 
 CHECKS = (
@@ -83,8 +83,8 @@ def severity_of(assertion, status):
 
 
 def record(conn, run_id=None, env=None):
-    found = survey(env)
-    results = [check(conn, found) for check in CHECKS]
+    probes = survey(env)
+    results = [check(conn, probes) for check in CHECKS]
     with conn.cursor() as cur:
         for assertion, status, observed, expected in results:
             cur.execute(RECORD_SQL,

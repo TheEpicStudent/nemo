@@ -7,7 +7,7 @@ from bot.nemo import memberguards
 from bot.nemo.enforcement import shush
 
 
-class _held:
+class _conn_context:
     def __init__(self, conn):
         self.conn = conn
 
@@ -25,37 +25,37 @@ class Ctx:
 
 
 def event(**over):
-    return {"user": WHO, "channel": ROOM, "ts": TS, "text": "hey", **over}
+    return {"user": USER_ID, "channel": CHANNEL_ID, "ts": TS, "text": "hey", **over}
 
-WHO = "U1"
-ROOM = "C1"
+USER_ID = "U1"
+CHANNEL_ID = "C1"
 TS = "1700000000.000100"
-ENDS = dt.datetime(2026, 3, 10, 12, tzinfo=dt.UTC)
+EXPIRES_AT = dt.datetime(2026, 3, 10, 12, tzinfo=dt.UTC)
 
 
 class Conn:
     def __init__(self, counts=None, claims=True):
         self.counts = counts or {}
         self.claims = claims
-        self.ran = []
+        self.statements = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.statements.append((sql, args))
         return self
 
     def fetchone(self):
-        sql, args = self.ran[-1]
+        sql, args = self.statements[-1]
         if "verb = %s AND at >" in sql:
             return (self.counts.get(args[1], 0),)
         if "enforcement_status = 'held'" in sql:
             return (7,) if self.claims else None
         return (1,)
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.statements if mark in sql]
 
     def executed(self, mark):
-        return any(mark in sql for sql, _ in self.ran)
+        return any(mark in sql for sql, _ in self.statements)
 
 
 class Slack:
@@ -73,15 +73,15 @@ class Slack:
 
 
 def guard(**over):
-    row = {"id": 7, "kind": "shush", "subject_id": WHO, "channel_id": None,
-           "reason": "being awful", "expires_at": ENDS}
+    row = {"id": 7, "kind": "shush", "subject_id": USER_ID, "channel_id": None,
+           "reason": "being awful", "expires_at": EXPIRES_AT}
     row.update(over)
     return row
 
 
 @pytest.fixture(autouse=True)
-def quiet(monkeypatch):
-    monkeypatch.setattr(shush.guard_actions, "remove", lambda client, room, ts: True)
+def stub_remove(monkeypatch):
+    monkeypatch.setattr(shush.guard_actions, "remove", lambda client, channel_id, ts: True)
 
 
 def test_taking_one_up_notifies_them_once_and_says_when_it_ends():
@@ -89,10 +89,10 @@ def test_taking_one_up_notifies_them_once_and_says_when_it_ends():
     assert shush.take_up(client, conn, guard())
 
     posted = client.posted[0]
-    assert posted["channel"] == WHO
+    assert posted["channel"] == USER_ID
     assert "you've been shushed for being awful" in posted["text"]
     assert "until 10 Mar" in posted["text"]
-    assert conn.did("INSERT INTO fd.member_guard_events")[0][3] == "notified"
+    assert conn.args_for("INSERT INTO fd.member_guard_events")[0][3] == "notified"
 
 
 def test_one_that_never_ends_says_so_rather_than_a_date():
@@ -109,22 +109,22 @@ def test_one_already_held_is_not_notified_again():
 
 def test_a_removed_message_is_written_down_and_the_guard_reads_as_held():
     conn = Conn()
-    assert shush.remove(Slack(), conn, guard(), ROOM, TS)
+    assert shush.remove(Slack(), conn, guard(), CHANNEL_ID, TS)
 
     assert conn.executed("enforcement_status = 'held'")
-    recorded = conn.did("INSERT INTO fd.member_guard_events")[0]
+    recorded = conn.args_for("INSERT INTO fd.member_guard_events")[0]
     assert recorded[3] == "deleted"
     assert recorded[4] == TS
 
 
 def test_seen_notifies_them_inside_the_thread_they_posted_in(monkeypatch):
-    monkeypatch.setattr(shush, "session", lambda: _held(Conn()))
+    monkeypatch.setattr(shush, "session", lambda: _conn_context(Conn()))
     monkeypatch.setattr(shush.channel, "internal_log_channel", lambda: "COTHER")
-    memberguards._shushes[WHO] = guard()
+    memberguards._shushes[USER_ID] = guard()
     memberguards._loaded = True
     try:
         client = Slack()
-        shush.seen(Ctx(event(thread_ts="1700000000.000000"), client))
+        shush.on_message(Ctx(event(thread_ts="1700000000.000000"), client))
         assert client.ephemeral[0]["thread_ts"] == "1700000000.000000"
     finally:
         memberguards._shushes.clear()
@@ -132,13 +132,13 @@ def test_seen_notifies_them_inside_the_thread_they_posted_in(monkeypatch):
 
 
 def test_seen_tells_them_channel_wide_outside_a_thread(monkeypatch):
-    monkeypatch.setattr(shush, "session", lambda: _held(Conn()))
+    monkeypatch.setattr(shush, "session", lambda: _conn_context(Conn()))
     monkeypatch.setattr(shush.channel, "internal_log_channel", lambda: "COTHER")
-    memberguards._shushes[WHO] = guard()
+    memberguards._shushes[USER_ID] = guard()
     memberguards._loaded = True
     try:
         client = Slack()
-        shush.seen(Ctx(event(), client))
+        shush.on_message(Ctx(event(), client))
         assert client.ephemeral[0]["thread_ts"] is None
     finally:
         memberguards._shushes.clear()
@@ -146,15 +146,15 @@ def test_seen_tells_them_channel_wide_outside_a_thread(monkeypatch):
 
 
 def test_a_message_that_will_not_go_drops_the_guard(monkeypatch):
-    def cannot(client, room, ts):
+    def failing_remove(client, channel_id, ts):
         raise RuntimeError("channel_not_found")
 
-    monkeypatch.setattr(shush.guard_actions, "remove", cannot)
+    monkeypatch.setattr(shush.guard_actions, "remove", failing_remove)
     conn = Conn()
-    assert not shush.remove(Slack(), conn, guard(), ROOM, TS)
+    assert not shush.remove(Slack(), conn, guard(), CHANNEL_ID, TS)
 
     assert conn.executed("enforcement_status = 'failed'")
-    assert conn.did("INSERT INTO fd.member_guard_events")[0][3] == "failed"
+    assert conn.args_for("INSERT INTO fd.member_guard_events")[0][3] == "failed"
 
 
 def test_the_live_set_is_only_what_is_still_live():
@@ -169,17 +169,17 @@ def test_only_what_nemo_carries_is_taken_up():
 
 def test_nothing_is_shushed_until_the_set_has_been_loaded():
     memberguards._loaded = False
-    assert memberguards.shushed(WHO) is None
-    assert memberguards.banned(WHO, ROOM) is None
+    assert memberguards.shushed(USER_ID) is None
+    assert memberguards.banned(USER_ID, CHANNEL_ID) is None
 
 
 def test_a_guard_the_web_opens_reaches_the_bot_without_waiting_for_a_sweep():
     from bot.nemo import loop
 
     assert loop.MEMBER_GUARD == "fd_member_guard"
-    watched = pathlib.Path(loop.__file__).read_text()
-    assert "MEMBER_GUARD, APP_SETTING" in watched, "the loop must LISTEN for it"
-    assert "elif channel_name == MEMBER_GUARD:" in watched
+    loop_source = pathlib.Path(loop.__file__).read_text()
+    assert "MEMBER_GUARD, APP_SETTING" in loop_source, "the loop must LISTEN for it"
+    assert "elif channel_name == MEMBER_GUARD:" in loop_source
 
 
 def test_the_trigger_that_wakes_the_bot_fires_on_a_fresh_guard():

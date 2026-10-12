@@ -52,24 +52,24 @@ def check_target_name(dbname=None, allow=None):
 
 
 def foreign_rows(conn):
-    found = []
+    counts = []
     for table, predicate in FOREIGN_ROWS:
         count = conn.execute(f"SELECT count(*) FROM {table} WHERE {predicate}").fetchone()[0]
         if count:
-            found.append((table, count))
-    return found
+            counts.append((table, count))
+    return counts
 
 
 def check_no_real_data(conn, force=False):
-    found = foreign_rows(conn)
-    if not found:
-        return found
-    listed = ", ".join(f"{table} ({count} rows)" for table, count in found)
+    foreign = foreign_rows(conn)
+    if not foreign:
+        return foreign
+    summary = ", ".join(f"{table} ({count} rows)" for table, count in foreign)
     if force:
-        print(f"seed: --force, overwriting a database that holds rows the seeder did not write: {listed}")
-        return found
+        print(f"seed: --force, overwriting a database that holds rows the seeder did not write: {summary}")
+        return foreign
     raise SeedRefusedError(
-        f"this database holds rows the seeder did not write: {listed}. "
+        f"this database holds rows the seeder did not write: {summary}. "
         "seeding would mix synthetic data into it. pass --force only if you are certain"
     )
 

@@ -7,21 +7,21 @@ module Fd
     def create
       kase = Case.find(params[:case_id])
       lock = Action.from_thread_lock?(type_key) ? thread_lock : nil
-      held = lock ? nil : standing_guard
+      guard = lock ? nil : standing_guard
 
-      problem = held ? standing_objection(kase, held) : action_objection(kase)
-      if problem
+      error = guard ? standing_error(kase, guard) : action_error(kase)
+      if error
         return redirect_to(fd_case_path(kase, do: "action"),
-          alert: (problem unless flash[:field_error]))
+          alert: (error unless flash[:field_error]))
       end
 
-      named = false
+      subject_added = false
       adopted = lock&.orphaned?
       echoed = nil
       writing do
-        named = name_a_subject(kase) unless lock
-        if held
-          attach_standing(kase, held)
+        subject_added = add_target_subject(kase) unless lock
+        if guard
+          attach_standing(kase, guard)
         elsif lock
           audit(log_thread_lock(kase, lock), "performed")
         else
@@ -31,22 +31,22 @@ module Fd
           echoed = ActionEcho.write!(kase, action, by: current_account.user_id)
         end
       end
-      SlackPost.carry(echoed) if echoed&.mirrored_as == "user"
+      SlackPost.post_to_thread(echoed) if echoed&.mirrored_as == "user"
 
       redirect_to fd_case_path(kase, tab: "actions"),
-        notice: notice_for(kase, held: held, lock: lock, adopted: adopted, named: named)
+        notice: notice_for(kase, guard: guard, lock: lock, adopted: adopted, subject_added: subject_added)
     end
 
     private
 
-    def notice_for(kase, held:, lock:, adopted:, named:)
-      return attached_notice(kase, held) if held
+    def notice_for(kase, guard:, lock:, adopted:, subject_added:)
+      return attached_notice(kase, guard) if guard
       return locked_notice(kase, adopted) if lock
 
-      logged_notice(kase, named)
+      logged_notice(kase, subject_added)
     end
 
-    def name_a_subject(kase)
+    def add_target_subject(kase)
       return false if target_user_id.blank?
       return false if kase.subject_user_ids.include?(target_user_id)
 
@@ -68,13 +68,13 @@ module Fd
       adopted ? "#{message}, and the thread is now on this case" : message
     end
 
-    def logged_notice(kase, named)
+    def logged_notice(kase, subject_added)
       message = if kase.resolved?
         "#{type_name.downcase} logged on case #{kase.id}"
       else
         "#{type_name.downcase} logged, case #{kase.id} stays open"
       end
-      named ? "#{message}, and the case is now also about @#{target_user_id}" : message
+      subject_added ? "#{message}, and the case is now also about @#{target_user_id}" : message
     end
   end
 end

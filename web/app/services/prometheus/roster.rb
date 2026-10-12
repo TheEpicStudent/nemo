@@ -32,16 +32,16 @@ module Prometheus
         body = get(appointments_path(cursor))
         raise UnavailableError, "prometheus answered ok:false" unless body["ok"]
 
-        Array(body["appointments"]).each { |one| yield one }
+        Array(body["appointments"]).each { |appointment| yield appointment }
         cursor = body["next_cursor"]
         break if cursor.blank?
       end
     end
 
     def self.appointments_path(cursor)
-      asked = { limit: PAGE_SIZE }
-      asked[:cursor] = cursor if cursor.present?
-      "#{APPOINTMENTS}?#{asked.to_query}"
+      query = { limit: PAGE_SIZE }
+      query[:cursor] = cursor if cursor.present?
+      "#{APPOINTMENTS}?#{query.to_query}"
     end
 
     def self.get(path)

@@ -6,10 +6,10 @@ module Fd
       user_id = params[:member_id].to_s.upcase
       body = Mentions.normalise(params[:body].to_s.strip)
 
-      problem = objection(body)
-      if problem
+      error = validation_error(body)
+      if error
         return redirect_to(fd_member_path(user_id, show: "notes"),
-          alert: (problem unless flash[:field_error]))
+          alert: (error unless flash[:field_error]))
       end
 
       writing do
@@ -54,12 +54,12 @@ module Fd
 
     private
 
-    def objection(body)
+    def validation_error(body)
       return wrong!(:body, "Write the note before saving it.") if body.blank?
 
-      most = NotesController::MAX_LENGTH
-      if body.length > most
-        return wrong!(:body, "Keep it under #{most} characters. That one is #{body.length}.", body)
+      max_length = NotesController::MAX_LENGTH
+      if body.length > max_length
+        return wrong!(:body, "Keep it under #{max_length} characters. That one is #{body.length}.", body)
       end
 
       nil

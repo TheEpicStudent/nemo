@@ -1,6 +1,6 @@
 module Channels
   class Crowd
-    SHOWN = 10
+    TOP_LIMIT = 10
     MONTHS_OFFERED = 12
 
     TENURE = {
@@ -49,24 +49,24 @@ module Channels
     def messages = head&.channel_messages.to_i
     def month_end = head&.month_end
 
-    def top(limit: SHOWN)
+    def top(limit: TOP_LIMIT)
       @top ||= {}
       @top[limit] ||= people.order(:channel_rank).limit(limit).to_a
     end
 
     def tenure
       @tenure ||= begin
-        counted = people.group(:tenure_band)
+        band_counts = people.group(:tenure_band)
           .pluck(Arel.sql("tenure_band, count(*), coalesce(sum(messages), 0)"))
-          .to_h { |band, folk, messages| [band, [folk.to_i, messages.to_i]] }
-        whole = counted.values.sum { |_, messages| messages }
+          .to_h { |band, member_count, messages| [band, [member_count.to_i, messages.to_i]] }
+        total_messages = band_counts.values.sum { |_, messages| messages }
 
         TENURE_ORDER.filter_map do |band|
-          folk, messages = counted[band]
-          next if folk.nil? || messages.to_i.zero?
+          member_count, messages = band_counts[band]
+          next if member_count.nil? || messages.to_i.zero?
 
-          Slice.new(key: band, label: TENURE.fetch(band), people: folk, messages: messages,
-            share: whole.positive? ? (messages * 100.0 / whole).round(1) : nil)
+          Slice.new(key: band, label: TENURE.fetch(band), people: member_count, messages: messages,
+            share: total_messages.positive? ? (messages * 100.0 / total_messages).round(1) : nil)
         end
       end
     end
@@ -77,15 +77,15 @@ module Channels
       members = range.total_members.to_i
       return [] unless members.positive?
 
-      spoke = range.members_who_posted.to_i.clamp(0, members)
-      viewed = range.members_who_viewed.to_i.clamp(spoke, members)
-      read_only = viewed - spoke
-      never = members - viewed
+      poster_count = range.members_who_posted.to_i.clamp(0, members)
+      viewer_count = range.members_who_viewed.to_i.clamp(poster_count, members)
+      read_only_count = viewer_count - poster_count
+      never_opened_count = members - viewer_count
 
-      [["spoke", "spoke", spoke], ["read", "read only", read_only],
-       ["never", "never opened", never]].map do |key, label, folk|
-        Part.new(key: key, label: label, people: folk,
-          share: (folk * 100.0 / members).round(1))
+      [["spoke", "spoke", poster_count], ["read", "read only", read_only_count],
+       ["never", "never opened", never_opened_count]].map do |key, label, member_count|
+        Part.new(key: key, label: label, people: member_count,
+          share: (member_count * 100.0 / members).round(1))
       end
     end
 

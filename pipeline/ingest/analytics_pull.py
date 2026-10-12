@@ -29,7 +29,7 @@ from lib.proxy_client import ProxyClient
 from lib.walk import NO_FLOOR, SHORT, UNVERIFIED, check_walk
 
 ANALYTICS_SOURCE = "admin_analytics_api"
-BY_HAND = "analytics_by_hand"
+MANUAL_WORKER = "analytics_by_hand"
 MEMBER_DAYS_KEY = sources.key_for_run(f"{ANALYTICS_SOURCE}:member")
 CHANNEL_DAYS_KEY = sources.key_for_run(f"{ANALYTICS_SOURCE}:public_channel")
 MEMBER_PAGE_SIZE = 500
@@ -253,16 +253,16 @@ def refresh_statistics(kind):
     table = DAY_TABLES.get(kind)
     if table is None:
         return
-    refused = []
+    notices = []
     try:
         with connect() as stats_conn:
-            stats_conn.add_notice_handler(lambda note: refused.append(note.message_primary))
+            stats_conn.add_notice_handler(lambda note: notices.append(note.message_primary))
             stats_conn.execute(f"ANALYZE {table}")
     except Exception as exc:
         print(f"{table}: could not refresh statistics, {type(exc).__name__}: {exc}")
         return
-    if refused:
-        print(f"{table}: statistics NOT refreshed, {refused[0]}")
+    if notices:
+        print(f"{table}: statistics NOT refreshed, {notices[0]}")
     else:
         print(f"{table}: statistics refreshed")
 
@@ -278,24 +278,24 @@ def note_unavailable(source, day, reason):
     return True
 
 
-HELD = "held"
+DAY_LOCKED = "held"
 
 
-def lane_outcome(source, asked, landed, failed, pending, unavailable, held=()):
+def lane_outcome(source, requested, loaded, failed, pending, unavailable, locked=()):
     lines = []
-    if held:
-        lines.append(f"{source}: {len(held)} day(s) held by another worker, left for the next run")
+    if locked:
+        lines.append(f"{source}: {len(locked)} day(s) held by another worker, left for the next run")
     if unavailable:
         lines.append(f"{source}: {len(unavailable)} day(s) have no export and will not be retried")
     if pending:
         lines.append(f"{source}: {len(pending)} day(s) not exported yet, left for the next run")
     if failed:
-        lines.append(f"{source}: {len(failed)} of {asked} day(s) failed, left for the next run: "
+        lines.append(f"{source}: {len(failed)} of {requested} day(s) failed, left for the next run: "
                      + "; ".join(failed))
     if not failed:
         return lines, None
-    what = "no day landed" if not landed else f"{landed} of {asked} landed"
-    return lines, f"{source}: {what}, {len(failed)} failed: " + "; ".join(failed)
+    summary = "no day landed" if not loaded else f"{loaded} of {requested} landed"
+    return lines, f"{source}: {summary}, {len(failed)} failed: " + "; ".join(failed)
 
 
 def backfill_days(conn, source, kind, pull_fn, limit, workers=DAY_WORKERS):
@@ -315,7 +315,7 @@ def backfill_days(conn, source, kind, pull_fn, limit, workers=DAY_WORKERS):
         with connect() as worker_conn, run_step(*step), cancel_scope(cancel):
             return pull_fn(worker_conn, day)
 
-    failed, unavailable, pending, held = [], [], [], []
+    failed, unavailable, pending, locked = [], [], [], []
     with ThreadPoolExecutor(max_workers=lanes) as pool:
         submitted = {pool.submit(work, day): day for day in days}
         for future in as_completed(submitted):
@@ -335,12 +335,12 @@ def backfill_days(conn, source, kind, pull_fn, limit, workers=DAY_WORKERS):
                 else:
                     failed.append(f"{day}: {type(exc).__name__}: {exc}")
             else:
-                if outcome == HELD:
-                    held.append(str(day))
-    landed = len(days) - len(unavailable) - len(pending) - len(failed) - len(held)
-    if landed:
+                if outcome == DAY_LOCKED:
+                    locked.append(str(day))
+    loaded = len(days) - len(unavailable) - len(pending) - len(failed) - len(locked)
+    if loaded:
         refresh_statistics(kind)
-    lines, error = lane_outcome(source, len(days), landed, failed, pending, unavailable, held)
+    lines, error = lane_outcome(source, len(days), loaded, failed, pending, unavailable, locked)
     for line in lines:
         print(line)
     if error:
@@ -359,7 +359,7 @@ def pull_member_day(conn, pull_date):
         if fence is None:
             counts.status = "skipped"
             print(f"member analytics {pull_date}: another worker holds this day, skipping")
-            return HELD
+            return DAY_LOCKED
         activity_rows, dim_rows = [], []
         client = ProxyClient.for_source(MEMBER_DAYS_KEY)
         params = {
@@ -424,7 +424,7 @@ def pull_channel_day(conn, pull_date):
         if fence is None:
             counts.status = "skipped"
             print(f"channel analytics {pull_date}: another worker holds this day, skipping")
-            return HELD
+            return DAY_LOCKED
         activity_rows, dim_rows = [], []
         try:
             raw = ProxyClient.for_source(CHANNEL_DAYS_KEY).fetch_file(
@@ -474,7 +474,7 @@ def main():
 
     args = parser.parse_args()
     load_dotenv(ENV_FILE)
-    set_worker(BY_HAND)
+    set_worker(MANUAL_WORKER)
 
     source, pull_fn = DAY_WALKS[args.kind]
     with connect() as conn:

@@ -43,11 +43,11 @@ def test_the_window_moves_once_the_ttl_expires():
 
 def test_a_long_lived_worker_never_freezes_at_its_boot_answer():
     clock, slack = Clock(), Slack("2026-09-10", "2026-09-11", "2026-09-12")
-    seen = []
+    dates = []
     for _ in range(3):
-        seen.append(calendar.available(slack, "member", clock)[1])
+        dates.append(calendar.available(slack, "member", clock)[1])
         clock.advance(24 * 3600)
-    assert seen == [date(2026, 9, 10), date(2026, 9, 11), date(2026, 9, 12)]
+    assert dates == [date(2026, 9, 10), date(2026, 9, 11), date(2026, 9, 12)]
 
 
 def test_each_kind_keeps_its_own_window():

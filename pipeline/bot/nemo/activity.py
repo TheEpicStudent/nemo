@@ -11,11 +11,11 @@ log = logging.getLogger("bot.nemo")
 
 METHOD = "insights.messageStats"
 
-SHOWN = """
+ENABLED_CHANNEL = """
 SELECT 1 FROM app.channel_message_activity WHERE channel_id = %s
 """
 
-LANDED = """
+ARCHIVED_MESSAGE = """
 SELECT reply_count, reply_users_count, posted_at
 FROM archive.message
 WHERE channel_id = %s AND ts = %s
@@ -33,12 +33,12 @@ SPANS = ("1h", "1d", "1w", "30d")
 CLIENTS = (("browser_count", "browser"), ("desktop_count", "desktop"), ("mobile_count", "mobile"))
 
 
-def shown(conn, channel_id):
-    return conn.execute(SHOWN, (channel_id,)).fetchone() is not None
+def activity_enabled(conn, channel_id):
+    return conn.execute(ENABLED_CHANNEL, (channel_id,)).fetchone() is not None
 
 
-def landed(conn, channel_id, ts):
-    row = conn.execute(LANDED, (channel_id, ts)).fetchone()
+def archived_message(conn, channel_id, ts):
+    row = conn.execute(ARCHIVED_MESSAGE, (channel_id, ts)).fetchone()
     if row is None:
         return None
     return {"reply_count": row[0], "reply_users_count": row[1], "posted_at": row[2]}
@@ -77,26 +77,26 @@ def chart(client, curves, posted_at, viewers):
 
 def fetch(channel_id, ts):
     try:
-        found = privileged.proxy().call(
+        response = privileged.proxy().call(
             METHOD, {"channel": channel_id, "ts": ts}, credential="internal", max_retries=1
         )
     except ProxyError as failure:
         log.warning("activity: could not read %s/%s: %s", channel_id, ts, failure)
         return None
-    return shaped((found or {}).get("stats") or {})
+    return shaped((response or {}).get("stats") or {})
 
 
-def share(count, whole):
-    if not whole:
+def share(count, total):
+    if not total:
         return None
-    return round(100 * count / whole)
+    return round(100 * count / total)
 
 
 def clients(stats):
     breakdown = stats.get("client_breakdown") or {}
     counts = [(label, int(breakdown.get(key) or 0)) for key, label in CLIENTS]
-    whole = sum(count for _, count in counts)
-    return [(label, count, share(count, whole)) for label, count in counts]
+    total = sum(count for _, count in counts)
+    return [(label, count, share(count, total)) for label, count in counts]
 
 
 def curve(stats, span):

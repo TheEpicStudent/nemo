@@ -17,7 +17,7 @@ WHERE g.state = 'live'
 GROUP BY g.kind, g.channel_id, g.id, g.settings
 """
 
-HELD = """
+LIVE_GUARD = """
 SELECT id, kind, channel_id, state, opened_by, case_id
 FROM fd.channel_guards
 WHERE channel_id = %s AND kind = %s AND state = 'live'
@@ -139,12 +139,12 @@ WHERE id = %s
 RETURNING remove_pending
 """
 
-_held = {}
+_guards = {}
 _loaded = False
 _lock = threading.Lock()
 
 
-class HeldGuard:
+class LiveGuard:
     def __init__(self, guard_id, settings, allowed):
         self.guard_id = guard_id
         self.settings = settings or {}
@@ -168,34 +168,34 @@ class HeldGuard:
 
 def refresh(conn):
     global _loaded
-    found = {
-        (row[0], row[1]): HeldGuard(row[2], row[3], frozenset(row[4] or ()))
+    guards_by_key = {
+        (row[0], row[1]): LiveGuard(row[2], row[3], frozenset(row[4] or ()))
         for row in conn.execute(LIVE).fetchall()
     }
     with _lock:
-        _held.clear()
-        _held.update(found)
+        _guards.clear()
+        _guards.update(guards_by_key)
         _loaded = True
-    return sum(1 for kind, _ in found if kind == BOT_ALLOWLIST)
+    return sum(1 for kind, _ in guards_by_key if kind == BOT_ALLOWLIST)
 
 
 def guarding(channel_id, kind=BOT_ALLOWLIST):
     with _lock:
         if not _loaded:
             return None
-        return _held.get((kind, channel_id))
+        return _guards.get((kind, channel_id))
 
 
 def lets_past(channel_id, *ids, kind=BOT_ALLOWLIST):
-    standing = guarding(channel_id, kind)
-    if standing is None:
+    guard = guarding(channel_id, kind)
+    if guard is None:
         return True
 
-    return standing.lets_past(*ids)
+    return guard.lets_past(*ids)
 
 
-def held(conn, channel_id, kind=BOT_ALLOWLIST):
-    return conn.execute(HELD, (channel_id, kind)).fetchone()
+def live_guard(conn, channel_id, kind=BOT_ALLOWLIST):
+    return conn.execute(LIVE_GUARD, (channel_id, kind)).fetchone()
 
 
 def allowed(conn, guard_id):
@@ -290,7 +290,7 @@ def removal_failed(conn, event_id, why, give_up_after):
     return conn.execute(REMOVAL_FAILED, (why, give_up_after, give_up_after, event_id)).fetchone()[0]
 
 
-KEPT_WORDS = 8000
+TEXT_LIMIT = 8000
 
 
 def record_enforcement(conn, guard_id, channel_id, subject_id, verb, bot_id=None, label=None, text=None,
@@ -299,6 +299,6 @@ def record_enforcement(conn, guard_id, channel_id, subject_id, verb, bot_id=None
     return conn.execute(
         HAPPENED,
         (guard_id, channel_id, subject_id, bot_id, label, verb,
-         (text or None) and text[:KEPT_WORDS],
+         (text or None) and text[:TEXT_LIMIT],
          message_ts, permalink, app_id, detail, notice_wanted, remove_pending),
     ).fetchone()[0]

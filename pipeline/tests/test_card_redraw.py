@@ -4,15 +4,15 @@ from bot.nemo import case_queue, channel
 class Conn:
     def __init__(self, answers=None):
         self.answers = answers or {}
-        self.ran = []
+        self.executed = []
 
     def execute(self, sql, args=None):
-        self.ran.append((sql, args))
+        self.executed.append((sql, args))
         return self
 
     def fetchone(self):
         for mark, row in self.answers.items():
-            if mark in self.ran[-1][0]:
+            if mark in self.executed[-1][0]:
                 return row
         return None
 
@@ -20,8 +20,8 @@ class Conn:
         row = self.fetchone()
         return [row] if row else []
 
-    def did(self, mark):
-        return [args for sql, args in self.ran if mark in sql]
+    def args_for(self, mark):
+        return [args for sql, args in self.executed if mark in sql]
 
 
 class Slack:
@@ -37,8 +37,8 @@ class Slack:
             return {"ts": "9.9", "ok": True}
         return call
 
-    def made(self, name):
-        return [kwargs for called, kwargs in self.calls if called == name]
+    def calls_to(self, name):
+        return [kwargs for method, kwargs in self.calls if method == name]
 
 
 def report_case(**over):
@@ -55,9 +55,9 @@ def test_a_card_slack_will_not_edit_is_left_as_it_is(monkeypatch):
 
     assert channel.refresh_card(slack, conn, 15) == "1.1"
 
-    assert slack.made("chat_postMessage") == [], "never a second card"
-    assert conn.did("SET forwarded_ts = NULL") == []
-    assert conn.did("SET card_digest = %s")[0][1] == 10, "kept as drawn so the sweep moves on"
+    assert slack.calls_to("chat_postMessage") == [], "never a second card"
+    assert conn.args_for("SET forwarded_ts = NULL") == []
+    assert conn.args_for("SET card_digest = %s")[0][1] == 10, "kept as drawn so the sweep moves on"
 
 
 def test_a_report_card_is_edited_where_it_was_posted(monkeypatch):
@@ -66,7 +66,7 @@ def test_a_report_card_is_edited_where_it_was_posted(monkeypatch):
 
     channel.refresh_card(slack, Conn(), 15, "C_NOW")
 
-    assert slack.made("chat_update")[0]["channel"] == "C_OLD"
+    assert slack.calls_to("chat_update")[0]["channel"] == "C_OLD"
 
 
 def test_a_new_report_card_remembers_its_channel(monkeypatch):
@@ -77,7 +77,7 @@ def test_a_new_report_card_remembers_its_channel(monkeypatch):
 
     channel.post_report(Slack(), conn, 15, "C_NOW")
 
-    assert conn.did("SET forwarded_ts = %s")[0][:3][2] == "C_NOW"
+    assert conn.args_for("SET forwarded_ts = %s")[0][:3][2] == "C_NOW"
 
 
 def test_threads_follow_the_report_card_into_its_channel():
@@ -96,8 +96,8 @@ def test_a_staff_card_keeps_its_place_when_slack_refuses(monkeypatch):
 
     assert case_queue.refresh_card(slack, conn, 41) == "8.8"
 
-    assert conn.did("card_ts = NULL") == []
-    assert conn.did("SET card_digest = %s"), "a refusal is not retried every sweep"
+    assert conn.args_for("card_ts = NULL") == []
+    assert conn.args_for("SET card_digest = %s"), "a refusal is not retried every sweep"
 
 
 def test_a_staff_card_retries_after_a_passing_failure(monkeypatch):
@@ -105,4 +105,4 @@ def test_a_staff_card_retries_after_a_passing_failure(monkeypatch):
 
     assert case_queue.refresh_card(slack, conn, 41) == "8.8"
 
-    assert conn.did("SET card_digest = %s") == []
+    assert conn.args_for("SET card_digest = %s") == []

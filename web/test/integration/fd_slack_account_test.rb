@@ -1,29 +1,29 @@
 require "test_helper"
 
 class FdSlackAccountTest < ActionDispatch::IntegrationTest
-  def instead_of(name, answer)
+  def stub_oauth(name, result)
     original = Slack::Oauth.method(name)
     Slack::Oauth.define_singleton_method(name) do |*args, **kwargs|
-      answer.respond_to?(:call) ? answer.call(*args, **kwargs) : answer
+      result.respond_to?(:call) ? result.call(*args, **kwargs) : result
     end
     yield
   ensure
     Slack::Oauth.define_singleton_method(name, original)
   end
 
-  KEPT = %w[NEMO_CLIENT_ID NEMO_CLIENT_SECRET SLACK_TEAM_ID].freeze
+  ENV_KEYS = %w[NEMO_CLIENT_ID NEMO_CLIENT_SECRET SLACK_TEAM_ID].freeze
 
   setup do
     @me = hold_role!("UME", "community_manager")
-    @was = ENV.slice(*KEPT)
-    KEPT.each { |name| ENV.delete(name) }
+    @original_env = ENV.slice(*ENV_KEYS)
+    ENV_KEYS.each { |name| ENV.delete(name) }
     ENV["NEMO_CLIENT_ID"] = "1.2"
     ENV["NEMO_CLIENT_SECRET"] = "shh"
   end
 
   teardown do
-    KEPT.each { |name| ENV.delete(name) }
-    @was.each { |name, value| ENV[name] = value }
+    ENV_KEYS.each { |name| ENV.delete(name) }
+    @original_env.each { |name, value| ENV[name] = value }
   end
 
   def granted(id: "UME", scope: "chat:write", token: "xoxp-real", team: "T0FIRE")
@@ -74,11 +74,11 @@ class FdSlackAccountTest < ActionDispatch::IntegrationTest
     start_linking
     state = Rack::Utils.parse_query(URI.parse(response.location).query)["state"]
 
-    instead_of(:exchange, granted) do
+    stub_oauth(:exchange, granted) do
       get fd_slack_account_callback_path(code: "c0de", state: state)
     end
 
-    row = Fd::StaffSlack.held_by("UME")
+    row = Fd::StaffSlack.active_for("UME")
     assert_not_nil row
     assert_equal "xoxp-real", row.user_token
     assert_equal "T0FIRE", row.team_id
@@ -89,7 +89,7 @@ class FdSlackAccountTest < ActionDispatch::IntegrationTest
 
   test "the token is not readable straight from the column" do
     sign_in_as(@me)
-    Fd::StaffSlack.keep!("UME", token: "xoxp-real", team_id: "T0FIRE", scopes: "chat:write")
+    Fd::StaffSlack.store!("UME", token: "xoxp-real", team_id: "T0FIRE", scopes: "chat:write")
 
     stored = Fd::StaffSlack.with_connection do |conn|
       conn.select_value("SELECT user_token FROM fd.staff_slack WHERE staff_user_id = 'UME'")
@@ -101,11 +101,11 @@ class FdSlackAccountTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
     start_linking
 
-    instead_of(:exchange, granted) do
+    stub_oauth(:exchange, granted) do
       get fd_slack_account_callback_path(code: "c0de", state: "somebody-elses")
     end
 
-    assert_nil Fd::StaffSlack.held_by("UME")
+    assert_nil Fd::StaffSlack.active_for("UME")
     assert_match(/did not match this browser/, flash[:alert])
   end
 
@@ -113,7 +113,7 @@ class FdSlackAccountTest < ActionDispatch::IntegrationTest
     sign_in_as(@me)
     get fd_slack_account_callback_path(code: "c0de", state: "made-up")
 
-    assert_nil Fd::StaffSlack.held_by("UME")
+    assert_nil Fd::StaffSlack.active_for("UME")
     assert_match(/did not match this browser/, flash[:alert])
   end
 
@@ -122,11 +122,11 @@ class FdSlackAccountTest < ActionDispatch::IntegrationTest
     start_linking
     state = Rack::Utils.parse_query(URI.parse(response.location).query)["state"]
 
-    instead_of(:exchange, granted(id: "UOTHER")) do
+    stub_oauth(:exchange, granted(id: "UOTHER")) do
       get fd_slack_account_callback_path(code: "c0de", state: state)
     end
 
-    assert_nil Fd::StaffSlack.held_by("UME")
+    assert_nil Fd::StaffSlack.active_for("UME")
     assert_match(/not the account you are signed in as/, flash[:alert])
   end
 
@@ -135,11 +135,11 @@ class FdSlackAccountTest < ActionDispatch::IntegrationTest
     start_linking
     state = Rack::Utils.parse_query(URI.parse(response.location).query)["state"]
 
-    instead_of(:exchange, granted(scope: "identity.basic")) do
+    stub_oauth(:exchange, granted(scope: "identity.basic")) do
       get fd_slack_account_callback_path(code: "c0de", state: state)
     end
 
-    assert_nil Fd::StaffSlack.held_by("UME")
+    assert_nil Fd::StaffSlack.active_for("UME")
     assert_match(/not chat:write/, flash[:alert])
   end
 
@@ -149,11 +149,11 @@ class FdSlackAccountTest < ActionDispatch::IntegrationTest
     start_linking
     state = Rack::Utils.parse_query(URI.parse(response.location).query)["state"]
 
-    instead_of(:exchange, granted(team: "T0OTHER")) do
+    stub_oauth(:exchange, granted(team: "T0OTHER")) do
       get fd_slack_account_callback_path(code: "c0de", state: state)
     end
 
-    assert_nil Fd::StaffSlack.held_by("UME")
+    assert_nil Fd::StaffSlack.active_for("UME")
     assert_match(/different workspace/, flash[:alert])
   end
 
@@ -163,7 +163,7 @@ class FdSlackAccountTest < ActionDispatch::IntegrationTest
     state = Rack::Utils.parse_query(URI.parse(response.location).query)["state"]
     get fd_slack_account_callback_path(error: "access_denied", state: state)
 
-    assert_nil Fd::StaffSlack.held_by("UME")
+    assert_nil Fd::StaffSlack.active_for("UME")
     assert_match(/cancelled/, flash[:alert])
   end
 
@@ -173,26 +173,26 @@ class FdSlackAccountTest < ActionDispatch::IntegrationTest
     state = Rack::Utils.parse_query(URI.parse(response.location).query)["state"]
 
     refusal = ->(**) { raise Slack::Oauth::RefusedError, "invalid_code" }
-    instead_of(:exchange, refusal) do
+    stub_oauth(:exchange, refusal) do
       get fd_slack_account_callback_path(code: "c0de", state: state)
     end
 
-    assert_nil Fd::StaffSlack.held_by("UME")
+    assert_nil Fd::StaffSlack.active_for("UME")
     assert_match(/invalid_code/, flash[:alert])
   end
 
   test "unlinking gives the token back to slack and marks the row" do
     sign_in_as(@me)
-    row = Fd::StaffSlack.keep!("UME", token: "xoxp-real", team_id: "T0FIRE",
+    row = Fd::StaffSlack.store!("UME", token: "xoxp-real", team_id: "T0FIRE",
       scopes: "chat:write")
 
-    given_back = nil
-    instead_of(:give_back, ->(token) { given_back = token }) do
+    revoked_token = nil
+    stub_oauth(:revoke_token, ->(token) { revoked_token = token }) do
       delete fd_slack_account_path
     end
 
-    assert_equal "xoxp-real", given_back, "slack must be told to forget the token"
-    assert_nil Fd::StaffSlack.held_by("UME")
+    assert_equal "xoxp-real", revoked_token, "slack must be told to forget the token"
+    assert_nil Fd::StaffSlack.active_for("UME")
     assert_not_nil row.reload.revoked_at
     assert_equal "UME", row.revoked_by
     assert_equal 1, entries("unlinked").count
@@ -208,16 +208,16 @@ class FdSlackAccountTest < ActionDispatch::IntegrationTest
 
   test "linking again after unlinking brings the row back to life" do
     sign_in_as(@me)
-    Fd::StaffSlack.keep!("UME", token: "old", team_id: "T0FIRE", scopes: "chat:write")
+    Fd::StaffSlack.store!("UME", token: "old", team_id: "T0FIRE", scopes: "chat:write")
       .return_token!("UME")
 
     start_linking
     state = Rack::Utils.parse_query(URI.parse(response.location).query)["state"]
-    instead_of(:exchange, granted) do
+    stub_oauth(:exchange, granted) do
       get fd_slack_account_callback_path(code: "c0de", state: state)
     end
 
-    row = Fd::StaffSlack.held_by("UME")
+    row = Fd::StaffSlack.active_for("UME")
     assert_not_nil row
     assert_equal "xoxp-real", row.user_token
     assert_nil row.revoked_by

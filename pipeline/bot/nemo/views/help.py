@@ -1,4 +1,4 @@
-HELD = "SELECT capability FROM app.effective_capability WHERE user_id = %s"
+USER_CAPABILITIES = "SELECT capability FROM app.effective_capability WHERE user_id = %s"
 
 GRANTERS = """
 SELECT user_id FROM app.effective_capability WHERE capability = 'access.grant'
@@ -39,7 +39,7 @@ WRITING = (
     ),
 )
 
-HOLDING = (
+GUARDS = (
     "Holding somebody",
     (
         ("member.guard", "/nemo shush @somebody 3d why",
@@ -74,22 +74,22 @@ CARD = (
     ),
 )
 
-SECTIONS = (LOOKING, WRITING, HOLDING, THREAD, CARD)
+SECTIONS = (LOOKING, WRITING, GUARDS, THREAD, CARD)
 
 
 def line(command, note):
     return f"> `{command}` · {note}"
 
 
-def section(title, rows, held):
-    lines = [line(command, note) for key, command, note in rows if key in held]
+def section(title, rows, capabilities):
+    lines = [line(command, note) for key, command, note in rows if key in capabilities]
     if not lines:
         return None
     return "*{}*\n{}".format(title, "\n".join(lines))
 
 
-def words(title, rows, held):
-    text = section(title, rows, held)
+def words(title, rows, capabilities):
+    text = section(title, rows, capabilities)
     return {"type": "section", "text": {"type": "mrkdwn", "text": text}} if text else None
 
 
@@ -99,12 +99,12 @@ def grant_prompt(granters):
     return NOTHING.format(who=", ".join(f"<@{one}>" for one in granters))
 
 
-def build_blocks(held, granters=()):
+def build_blocks(capabilities, granters=()):
     built = [{"type": "section", "text": {"type": "mrkdwn", "text": OPENING}}]
-    shown = [words(title, rows, held) for title, rows in SECTIONS]
-    shown = [one for one in shown if one]
+    visible_sections = [words(title, rows, capabilities) for title, rows in SECTIONS]
+    visible_sections = [one for one in visible_sections if one]
 
-    if not shown:
+    if not visible_sections:
         return [
             {
                 "type": "section",
@@ -112,16 +112,16 @@ def build_blocks(held, granters=()):
             }
         ]
 
-    for one in shown:
+    for one in visible_sections:
         built.append({"type": "divider"})
         built.append(one)
     return built
 
 
-def flat(held):
-    parts = [section(title, rows, held) for title, rows in SECTIONS]
+def flat(capabilities):
+    parts = [section(title, rows, capabilities) for title, rows in SECTIONS]
     return "\n\n".join(one for one in parts if one) or OPENING
 
 
-def build_view(held, granters=()):
-    return {"text": flat(held), "blocks": build_blocks(held, granters)}
+def build_view(capabilities, granters=()):
+    return {"text": flat(capabilities), "blocks": build_blocks(capabilities, granters)}
