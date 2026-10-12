@@ -26,6 +26,7 @@
       data: { src: fd_links_path(view: (@view unless @view == Fd::MemberLinksController::DEFAULT_VIEW),
                                  over: params[:over].presence) } do %>
   <div class="stack">
+    <%= render "health", health: @health %>
     <%= render @view %>
   </div>
 <% end %>

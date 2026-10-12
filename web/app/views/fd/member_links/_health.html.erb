@@ -1,0 +1,16 @@
+<dl class="card facts-strip">
+  <div class="fact">
+    <dt>Queued for rescoring</dt>
+    <dd><%= number_with_delimiter(health.waiting) %></dd>
+  </div>
+  <div class="fact">
+    <dt>Oldest queued</dt>
+    <dd><%= time_ago(health.oldest) || "n/a" %></dd>
+  </div>
+  <% Fd::LinkHealth::LANES.each do |source, label| %>
+    <div class="fact">
+      <dt><%= label %></dt>
+      <dd><%= lane_run_label(health.run(source)) %></dd>
+    </div>
+  <% end %>
+</dl>

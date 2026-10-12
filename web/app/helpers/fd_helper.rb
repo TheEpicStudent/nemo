@@ -456,6 +456,14 @@ module FdHelper
     on_day(at)
   end
 
+  def lane_run_label(run)
+    return "n/a" if run.never?
+    return safe_join(["running", tag.span("started #{time_ago(run.started_at)}", class: "fact-note")], " ") if run.running?
+
+    note = run.ok? ? "took #{duration_label(run.seconds)}" : run.status
+    safe_join([time_ago(run.finished_at), tag.span(note, class: "fact-note")], " ")
+  end
+
   def last_case_label(at)
     ago_label(at)
   end

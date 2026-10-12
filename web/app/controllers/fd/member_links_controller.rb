@@ -14,6 +14,7 @@ module Fd
       else review_ids
       end
       @names = Names.for(ids + @verdicts.values.map(&:decided_by))
+      @health = LinkHealth.load
     end
 
     private
