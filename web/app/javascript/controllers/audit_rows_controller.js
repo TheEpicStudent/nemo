@@ -31,6 +31,13 @@ export default class extends Controller {
     event.preventDefault()
     pane.src = row.dataset.eventUrl
     this.select(row.dataset.rowId)
+    this.remember(row.dataset.rowId)
+  }
+
+  remember(rowId) {
+    const url = new URL(window.location.href)
+    url.searchParams.set("event", rowId)
+    window.history.replaceState(window.history.state, "", url)
   }
 
   select(rowId) {

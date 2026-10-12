@@ -4,7 +4,6 @@
 <% may_note = current_account.may?("member.note") %>
 <% may_guard = current_account.may?("member.guard") %>
 <% may_deactivate = current_account.may?("member.deactivate") %>
-<% may_identity = current_account.may?("identity.read") %>
 <% may_links = current_account.may?("member.links") %>
 <% standing_guard = @guards.find(&:deactivation?) %>
 
@@ -27,8 +26,14 @@
         <%= avatar(@user_id, css: "avatar member-hero-face") %>
         <div class="member-hero-who">
           <h1 class="member-hero-name"><%= member_title %></h1>
-          <% if member_name.present? && member_name.delete_prefix("@") != member_handle.delete_prefix("@") %>
-            <span class="member-hero-sub"><%= member_name %></span>
+          <% show_name = member_name.present? && member_name.delete_prefix("@") != member_handle.delete_prefix("@") %>
+          <% if show_name || @account&.state %>
+            <span class="member-hero-sub">
+              <% if show_name %><span class="member-hero-name-sub"><%= member_name %></span><% end %>
+              <% if @account&.state %>
+                <span class="state <%= member_account_tone(@account.state) %>"><%= @account.state_label %></span>
+              <% end %>
+            </span>
           <% end %>
         </div>
         <div class="member-hero-do">
@@ -45,10 +50,7 @@
           <% end %>
           <%= render layout: "shared/dropdown", locals: {
                 label: "More actions", trigger: menu_dots } do %>
-            <%= opens_modal "identity.read", menu_item("sessions", "Sessions"),
-                  opens: "member-sessions" %>
-            <%= opens_modal "member.links", menu_item("people", "Linked accounts"),
-                  opens: "member-links" %>
+            <%= link_to menu_item("history", "Audit log"), fd_audit_path(q: "about:#{@user_id}"), class: "btn" %>
             <% if standing_guard %>
               <%= opens_modal "member.deactivate", menu_item("hand", "Activate"),
                     opens: "guard-lift-#{standing_guard.id}" %>
@@ -97,9 +99,8 @@
               <% if @member_links.count.zero? %>
                 None
               <% else %>
-                <button type="button" class="fact-go" data-modal-open="member-links" aria-haspopup="dialog">
-                  <%= @member_links.count %>
-                </button>
+                <%= link_to @member_links.count, fd_member_path(@user_id, tab: "links"), class: "fact-go",
+                      data: { turbo_frame: "member-record", turbo_action: "advance" } %>
                 <% if @member_links.certain.positive? %>
                   <span class="sub"><%= @member_links.certain %> certain</span>
                 <% elsif @member_links.strong.positive? %>
@@ -126,86 +127,23 @@
     <%= render "standing", user_id: @user_id, guards: @guards, names: names,
           may_guard: may_guard, may_deactivate: may_deactivate %>
 
-    <% if @record.subject_cases.any? %>
-      <section class="member-section">
+    <%= turbo_frame_tag "member-record", target: "_top", class: "member-record-frame" do %>
+      <section class="member-section member-history-section">
         <div class="member-section-head">
-          <h2 class="member-section-title">Cases</h2>
+          <h2 class="member-section-title">Record</h2>
         </div>
-        <div class="list member-case-list">
-          <% @record.subject_cases.reverse_each do |kase| %>
-            <div class="lrow">
-              <span class="evdot <%= kase.resolved? ? "good" : "crit" %>"><%= case_action_icon("shield") %></span>
-              <span class="grow">
-                <b>#<%= kase.id %><%= " #{category_label(kase.category_key)}" if kase.category_key.present? %></b>
-                <span class="sub short"><%= plain_text(case_first_report(kase)&.body.presence) .presence || (kase.resolved? ? "Resolved" : "Open case") %></span>
-              </span>
-              <span class="lrow-right"><%= link_to "Open", fd_case_path(kase), class: "btn btn-sm" %></span>
-            </div>
+
+        <nav class="views member-record-tabs" aria-label="Member record">
+          <% @tabs.each do |key, label| %>
+            <%= member_tab_link(@user_id, key, label, member_tab_count(key)) %>
           <% end %>
+        </nav>
+
+        <div class="member-tab">
+          <%= render "tab_#{@tab}", user_id: @user_id %>
         </div>
       </section>
     <% end %>
-
-    <section class="member-section member-history-section">
-      <div class="member-section-head">
-        <h2 class="member-section-title">History</h2>
-        <% if may_note %>
-          <button type="button" class="btn" data-modal-open="member-note" aria-haspopup="dialog">
-            <%= case_action_button("note", "Write a note") %>
-          </button>
-        <% end %>
-      </div>
-
-      <nav class="views member-record-tabs" aria-label="Member history">
-        <% Fd::MemberTimeline::KINDS.each do |key, label| %>
-          <%= member_tab_link(@user_id, key, label, @counts.fetch(key, 0)) %>
-        <% end %>
-      </nav>
-
-      <% if @history.any? %>
-        <div class="member-timeline">
-          <% history_by_month(@history).each do |month, entries| %>
-            <p class="record-month"><%= month.strftime("%B %Y") %></p>
-            <div class="list">
-              <% entries.each do |entry| %>
-                <% event_icon = entry.kind == "cases" ? "shield" : entry.kind == "actions" ? "gauge" : "note" %>
-                <% event_tone = entry.word == "reversal" ? "good" : entry.kind == "actions" ? "warn" : entry.state == "open" ? "crit" : "" %>
-                <div class="evrow<%= " is-reversed" if entry.state == "reversed" && entry.word != "reversal" %>">
-                  <span class="evdot <%= event_tone %>"><%= case_action_icon(event_icon) %></span>
-                  <div>
-                    <div class="member-event-head">
-                      <% if entry.case_id %>
-                        <b><%= link_to entry.title, fd_case_path(entry.case_id) %></b>
-                      <% else %>
-                        <b><%= entry.title %></b>
-                      <% end %>
-                    </div>
-                    <% if entry.body.present? %>
-                      <p class="member-event-body"><%= mentioned(entry.body) %></p>
-                    <% else %>
-                      <% event_detail = [entry.state, entry.detail].reject(&:blank?).join(" · ") %>
-                      <% if event_detail.present? %><p class="member-event-body"><%= named_text(event_detail) %></p><% end %>
-                    <% end %>
-                    <span class="member-event-by">
-                      <%= entry.who ? member_face(entry.who) : "n/a" %>
-                    </span>
-                  </div>
-                  <span class="evrow-right">
-                    <span class="evwhen"><%= entry.at.strftime("%-d %b") %></span>
-                    <% if entry.ref.is_a?(Fd::Note) %>
-                      <%= render "note_remove", user_id: @user_id, note: entry.ref %>
-                    <% end %>
-                  </span>
-                </div>
-              <% end %>
-            </div>
-          <% end %>
-        </div>
-      <% else %>
-        <div class="empty"><p class="empty-title"><%= history_empty_note(@only) %></p></div>
-      <% end %>
-
-    </section>
   </div>
 </div>
 
@@ -213,33 +151,8 @@
   <%= render "guards", user_id: @user_id, member: names[@user_id] %>
 <% end %>
 
-<% if may_identity %>
-  <%= render layout: "fd/modal", locals: { id: "member-sessions", title: "Sessions",
-        sub: names[@user_id], size: "xl", open: params[:do] == "sessions" } do %>
-    <div class="modal-body">
-      <%= turbo_frame_tag Fd::MemberSessions.frame(@user_id), target: "_top",
-            src: fd_member_logins_path(@user_id), loading: "lazy" do %>
-        <p class="card-note">Reading the sign-ins…</p>
-      <% end %>
-    </div>
-  <% end %>
-<% end %>
-
-<% if may_links %>
-  <%= render layout: "fd/modal", locals: { id: "member-links", title: "Linked accounts",
-        sub: names[@user_id], size: "xl", open: params[:do] == "links" } do %>
-    <div class="modal-body">
-      <%= turbo_stream_from Fd::MemberLinkBroadcast.stream(@user_id) %>
-      <%= turbo_frame_tag Fd::MemberLinkBroadcast.frame(@user_id), target: "_top",
-            src: fd_member_links_path(@user_id), loading: "lazy" do %>
-        <p class="card-note">Reading the links…</p>
-      <% end %>
-    </div>
-  <% end %>
-<% end %>
-
 <% if may_links && may_judge? %>
-  <%= render "fd/member_links/verdict_modal", back: fd_member_path(@user_id, do: "links") %>
+  <%= render "fd/member_links/verdict_modal", back: fd_member_path(@user_id, tab: "links") %>
 <% end %>
 
 <% if may_deactivate && standing_guard.nil? %>

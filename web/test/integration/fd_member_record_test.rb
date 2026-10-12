@@ -56,7 +56,7 @@ class FdMemberRecordTest < ActionDispatch::IntegrationTest
     assert_nil note.case_id, "a standing note belongs to the member, not a case"
     assert_equal "UME", note.author
     assert_match(/follows them to every case/, flash[:notice])
-    assert_redirected_to fd_member_path(SUBJECT, show: "notes")
+    assert_redirected_to fd_member_path(SUBJECT)
   end
 
   test "an empty note is refused here too" do
@@ -66,7 +66,7 @@ class FdMemberRecordTest < ActionDispatch::IntegrationTest
     assert_nil flash[:alert], "a problem with one field is not a page-level message"
     assert_equal "body", flash[:field_error]["field"]
     assert_match(/Write the note/i, flash[:field_error]["message"])
-    assert_redirected_to fd_member_path(SUBJECT, show: "notes")
+    assert_redirected_to fd_member_path(SUBJECT)
   end
 
   test "the note text never reaches the trail, only its length" do

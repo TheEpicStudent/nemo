@@ -8,7 +8,7 @@ module Fd
 
       error = validation_error(body)
       if error
-        return redirect_to(fd_member_path(user_id, show: "notes"),
+        return redirect_to(fd_member_path(user_id),
           alert: (error unless flash[:field_error]))
       end
 
@@ -18,7 +18,7 @@ module Fd
       end
 
       flash[:action] = { "label" => "See their record", "href" => fd_member_path(user_id) }
-      redirect_to fd_member_path(user_id, show: "notes"),
+      redirect_to fd_member_path(user_id),
         notice: "Noted; it now follows them to every case"
     end
 
@@ -46,9 +46,9 @@ module Fd
 
       if removed
         flash[:detail] = "It stays in the audit trail, but it no longer follows them to a case."
-        redirect_to fd_member_path(user_id, show: "notes"), notice: "Note removed"
+        redirect_to fd_member_path(user_id), notice: "Note removed"
       else
-        redirect_to fd_member_path(user_id, show: "notes"), alert: "Only the author of a note can remove it"
+        redirect_to fd_member_path(user_id), alert: "Only the author of a note can remove it"
       end
     end
 

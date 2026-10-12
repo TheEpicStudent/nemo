@@ -158,13 +158,15 @@ class FdSessionsTest < ActionDispatch::IntegrationTest
     assert_select ".empty-title", "Nothing on file"
   end
 
-  test "the member page offers sessions and loads them only when opened" do
+  test "the member page offers a sessions tab and loads it only when opened" do
     sign_in_as(@me)
 
     assert_no_difference -> { AccessLog.where(field_class: "login").count } do
       get fd_member_path(WHO)
+      assert_select "nav.member-record-tabs a[href=?]", fd_member_path(WHO, tab: "sessions")
+
+      get fd_member_path(WHO, tab: "sessions")
     end
-    assert_select %([data-modal-open="member-sessions"])
-    assert_select %(turbo-frame#member-sessions-#{WHO}[loading="lazy"])
+    assert_select %(turbo-frame#member-sessions-#{WHO}[loading="lazy"][src="#{fd_member_logins_path(WHO)}"])
   end
 end

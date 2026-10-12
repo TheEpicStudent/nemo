@@ -15,7 +15,8 @@ module Fd
       @rows = @query.group ? [] : @query.rows
       @views = @query.views
       @saved = AuditSavedQuery.for(current_account)
-      record_reads(@query)
+      @open_event_url = open_event_url(params[:event])
+      record_audit_reads(@query)
       @names = Names.for(member_ids_in(@rows) + group_keys("actor"))
       @channels = ChannelNames.for(channel_ids(@rows) + group_keys("channel"))
     end
@@ -24,7 +25,7 @@ module Fd
       @query = AuditQuery.new(params, actor: current_account)
       @groups = @query.group ? @query.groups : []
       @rows = @query.group ? [] : @query.rows
-      record_reads(@query)
+      record_audit_reads(@query)
       @names = Names.for(member_ids_in(@rows) + group_keys("actor"))
       @channels = ChannelNames.for(channel_ids(@rows) + group_keys("channel"))
       render layout: false
@@ -42,7 +43,7 @@ module Fd
     def export
       query = AuditQuery.new(params, actor: current_account)
       rows = query.export_rows
-      record_reads(query)
+      record_audit_reads(query)
       AuditEntry.create!(
         actor_user_id: current_account.user_id, actor_kind: "human", entity_type: "audit_query",
         entity_id: 0, verb: "exported", source_app: Audit::SOURCE_APP, request_id: request.request_id,
@@ -72,10 +73,9 @@ module Fd
 
     private
 
-    def record_reads(query)
-      query.identity_reads.each do |field_class, user_ids|
-        AccessLog.record_many!(actor: current_account, subject_user_ids: user_ids, field_class: field_class)
-      end
+    def open_event_url(value)
+      source, id = value.to_s.split(":", 2)
+      fd_audit_event_path(source: source, id: id) if AuditQuery::SOURCES.include?(source) && id.present?
     end
 
     CSV_COLUMNS = %w[time source actor actor_kind event entity_kind entity target ip channel session].freeze

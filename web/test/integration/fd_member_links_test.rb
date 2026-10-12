@@ -20,9 +20,9 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_select %(turbo-frame##{Fd::MemberLinkBroadcast::LIST_FRAME}[data-src="#{fd_links_path(over: "strong")}"])
   end
 
-  test "a member page listens for changes to that member's links" do
+  test "the linked accounts tab listens for changes to that member's links" do
     member!("UONE")
-    get fd_member_path("UONE")
+    get fd_member_path("UONE", tab: "links")
 
     assert_select "turbo-cable-stream-source", minimum: 2
     assert_select %(turbo-frame#member-links-UONE)

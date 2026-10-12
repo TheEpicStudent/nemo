@@ -31,7 +31,7 @@ class FdMemberLinkFactsTest < ActionDispatch::IntegrationTest
 
     links = fact("Links")
     assert_match(/3\s+1 certain/, links.text.squish)
-    assert links.at("button[data-modal-open='member-links']")
+    assert links.at("a.fact-go[href='#{fd_member_path(WHO, tab: "links")}']")
   end
 
   test "the cluster fact leads to the cluster page and carries its flags" do

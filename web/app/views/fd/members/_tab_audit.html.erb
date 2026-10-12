@@ -1,0 +1,29 @@
+<div class="member-tab-head">
+  <span class="sub2"><%= @audit_query.total_label %> <%= "event".pluralize(@audit_query.total) %></span>
+  <%= link_to fd_audit_path(@audit_params), class: "btn btn-sm" do %>
+    <%= audit_icon("search", size: 14) %><span>Open in audit log</span>
+  <% end %>
+</div>
+<% if @audit_rows.any? %>
+  <div class="member-audit">
+    <% @audit_rows.group_by { |row| row.at.in_time_zone.to_date }.each do |day, rows| %>
+      <p class="member-audit-day"><%= day.strftime("%-d %B %Y") %></p>
+      <% rows.each do |row| %>
+        <%= link_to fd_audit_path(@audit_params.merge(event: "#{row.source}:#{row.id}")), class: "member-audit-row" do %>
+          <span class="member-audit-time mono"><%= row.at.in_time_zone.strftime("%H:%M") %></span>
+          <span class="member-audit-what">
+            <span class="audit-verb"><%= audit_verb(row) %></span>
+            <% if row.actor_id.present? && row.actor_id != user_id %>
+              <span class="sub2">by <%= person_name(row.actor_id) %></span>
+            <% elsif row.subject_id.present? && row.subject_id != user_id %>
+              <span class="sub2">on <%= person_name(row.subject_id) %></span>
+            <% end %>
+          </span>
+          <% if row.address.present? %><span class="member-audit-ip mono"><%= row.address %></span><% end %>
+        <% end %>
+      <% end %>
+    <% end %>
+  </div>
+<% else %>
+  <div class="empty"><p class="empty-title">No events</p></div>
+<% end %>

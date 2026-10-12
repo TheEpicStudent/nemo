@@ -520,11 +520,31 @@ module FdHelper
   end
 
   def member_tab_link(user_id, key, label, count)
-    link_to fd_member_path(user_id, (@pane_params || {}).merge(show: (key unless key == "all")).compact),
-      class: "view", aria: { current: ("true" if key == @only) } do
+    link_to fd_member_path(user_id, (@pane_params || {}).merge(tab: (key unless key == "history")).compact),
+      class: "view", aria: { current: ("true" if key == @tab) },
+      data: { turbo_frame: "member-record", turbo_action: "advance" } do
       concat tag.span(label)
-      concat tag.span(count, class: "tab-count")
+      concat tag.span(count, class: "tab-count") if count
     end
+  end
+
+  def member_tab_count(key)
+    case key
+    when "history" then @entries.size
+    when "links" then @member_links&.count
+    end
+  end
+
+  MEMBER_ACCOUNT_TONES = { "active" => "state-good", "invite_pending" => "state-warn",
+                           "claimed_no_sign_in" => "state-warn" }.freeze
+
+  def member_account_tone(state) = MEMBER_ACCOUNT_TONES[state]
+
+  def guard_ends(guard)
+    return "Lifted #{on_day(guard.lifted_at)}" if guard.lifted_at
+    return on_day(guard.expires_at) if guard.expires_at
+
+    "No end date"
   end
 
   def menu_item(icon, label, note: nil)
@@ -609,16 +629,6 @@ module FdHelper
 
   def history_by_month(entries)
     entries.group_by { |entry| entry.at.to_date.beginning_of_month }
-  end
-
-  HISTORY_EMPTY = {
-    "cases" => "No case has ever involved them.",
-    "actions" => "Nothing has ever been done to them.",
-    "notes" => "Nobody has written a standing note about them."
-  }.freeze
-
-  def history_empty_note(only)
-    HISTORY_EMPTY.fetch(only, "Nothing on record.")
   end
 
   def case_age_seconds(kase)

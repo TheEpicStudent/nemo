@@ -13,25 +13,34 @@ module Fd
       assign_pane_from_index
     end
 
+    TABS = { "history" => "History", "links" => "Linked accounts", "sessions" => "Sessions",
+             "audit" => "Audit", "enforcement" => "Enforcement" }.freeze
+    TAB_CAPABILITIES = { "links" => "member.links", "sessions" => "identity.read" }.freeze
+    AUDIT_ROWS = 60
+    AUDIT_SOURCES = "source:slack source:engine".freeze
+    CHANNEL_ID = /\A[CGD][A-Z0-9]{2,}\z/
+
     def show
       @user_id = params[:id].to_s.upcase
       @record = MemberRecord.new(@user_id)
       return show_drawer if turbo_frame_request_id == "person-drawer"
 
       load_member_pane
-      @names = Names.for(@record.people_named + @pane_rows.map(&:user_id))
+      @tabs = TABS.select { |key, _| may_open_tab?(key) }
+      @tab = [params[:tab], params[:do]].find { |key| @tabs.key?(key) } || "history"
+      load_member_audit if @tab == "audit"
+      @guard_history = @tab == "enforcement" ? guard_history : []
+      @names = Names.for(@record.people_named + @pane_rows.map(&:user_id) + audit_member_ids +
+        @guard_history.flat_map(&:people_named))
       @member = @names.member(@user_id)
-      @only = MemberTimeline::TABS.key?(params[:show]) ? params[:show] : "all"
+      @account = MemberAccount.find_by(user_id: @user_id)
       @entries = MemberTimeline.for(@record, names: @names)
-      @counts = @entries.group_by(&:kind).transform_values(&:size)
-      @counts["all"] = @entries.size
-      @history = @only == "all" ? @entries : @entries.select { |entry| entry.kind == @only }
       @identity = MemberIdentity.look_up(@user_id, actor: current_account)
       @context = MemberContext.for([@user_id])[@user_id]
       @rooms = SlackScan.channels(@user_id)
       @standing = MemberStanding.new(@record)
       @guards = @standing.in_force
-      @channels = ChannelNames.for(@guards.map(&:channel_id))
+      @channels = ChannelNames.for(@guards.map(&:channel_id) + @guard_history.map(&:channel_id) + audit_channel_ids)
       @member_grant = @pane_grants[@user_id] || Authz::Grant.live.roles.find_by(user_id: @user_id)
       return unless current_account.may?("member.links")
 
@@ -70,6 +79,31 @@ module Fd
     end
 
     private
+
+    def may_open_tab?(key)
+      capability = TAB_CAPABILITIES[key]
+      capability.nil? || current_account.may?(capability)
+    end
+
+    def load_member_audit
+      @audit_params = { "view" => "everything", AuditQuery::TERM_KEY => "about:#{@user_id} #{AUDIT_SOURCES}" }
+      @audit_query = AuditQuery.new(@audit_params, actor: current_account)
+      @audit_rows = @audit_query.rows.first(AUDIT_ROWS)
+      record_audit_reads(@audit_query)
+    end
+
+    def audit_member_ids
+      Array(@audit_rows).flat_map { |row| [row.actor_id, row.subject_id] }.compact
+    end
+
+    def audit_channel_ids
+      Array(@audit_rows).flat_map { |row| [row.entity_ref, row.entity_id, row.channel] }
+        .grep(CHANNEL_ID)
+    end
+
+    def guard_history
+      MemberGuard.for_subject(@user_id).order(opened_at: :desc, id: :desc).to_a
+    end
 
     def show_drawer
       @names = Names.for(@record.people_named + [@user_id])

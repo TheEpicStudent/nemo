@@ -46,7 +46,7 @@ export default class extends Controller {
 
     return this.overlaps(watch.actions, event.actions) &&
       this.overlaps(watch.actors, event.actors) &&
-      this.overlaps(watch.subjects, event.subjects)
+      this.overlaps(watch.subjects, [...(event.actors || []), ...(event.subjects || [])])
   }
 
   overlaps(watched, received) {

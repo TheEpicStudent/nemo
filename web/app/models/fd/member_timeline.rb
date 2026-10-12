@@ -10,13 +10,6 @@ module Fd
       "notes" => "Notes"
     }.freeze
 
-    TABS = {
-      "all" => "Record",
-      "cases" => "Cases",
-      "actions" => "Actions",
-      "notes" => "Notes"
-    }.freeze
-
     def self.for(record, names: Names.none, only: "all")
       new(record, names).entries(only)
     end

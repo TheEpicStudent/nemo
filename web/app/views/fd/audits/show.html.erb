@@ -32,8 +32,11 @@
   <%= render "filters" %>
 
   <% if @rows.any? || @groups.any? %>
-    <turbo-frame id="audit-histogram" class="audit-histogram" loading="lazy"
-                 src="<%= fd_audit_histogram_path(@query.to_params) %>"></turbo-frame>
+    <details class="foldcard audit-histogram-fold">
+      <summary>Histogram</summary>
+      <turbo-frame id="audit-histogram" class="audit-histogram" loading="lazy"
+                   src="<%= fd_audit_histogram_path(@query.to_params) %>"></turbo-frame>
+    </details>
   <% end %>
 
   <% live = @query.live? && @query.newest_page? %>
@@ -68,6 +71,7 @@
 
 <% content_for :side do %>
   <aside class="side-pane" aria-label="Event">
-    <turbo-frame id="audit-panel" target="_top" data-controller="side-pane"></turbo-frame>
+    <turbo-frame id="audit-panel" target="_top" data-controller="side-pane"
+                 <%= tag.attributes(src: @open_event_url) %>></turbo-frame>
   </aside>
 <% end %>

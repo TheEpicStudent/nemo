@@ -1,0 +1,3 @@
+<%= turbo_stream_from Fd::MemberLinkBroadcast.stream(user_id) %>
+<%= turbo_frame_tag Fd::MemberLinkBroadcast.frame(user_id), target: "_top",
+      src: fd_member_links_path(user_id), loading: "lazy", class: "member-tab-frame" %>

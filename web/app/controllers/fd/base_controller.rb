@@ -47,6 +47,12 @@ module Fd
       needs(:fire_engine)
     end
 
+    def record_audit_reads(query)
+      query.identity_reads.each do |field_class, user_ids|
+        AccessLog.record_many!(actor: current_account, subject_user_ids: user_ids, field_class: field_class)
+      end
+    end
+
     def in_viewer_zone(&)
       Time.use_zone(viewer_time_zone, &)
     end

@@ -117,7 +117,7 @@
         <% end %>
         <% linked = @context.linked_accounts %>
         <% if linked.positive? %>
-          <%= link_to fd_member_path(@context.member_id), class: "btn btn-sm", data: { turbo_frame: "_top" } do %>
+          <%= link_to fd_member_path(@context.member_id, tab: "links"), class: "btn btn-sm", data: { turbo_frame: "_top" } do %>
             <%= nav_icon("link") %><span><%= pluralize(linked, "linked account") %></span>
           <% end %>
         <% end %>

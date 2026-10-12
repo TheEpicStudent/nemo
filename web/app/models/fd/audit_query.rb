@@ -83,7 +83,7 @@ module Fd
       "86.12.44.0/24" => "a range",
       "kid@school.example" => "an email",
       "domain:throwaway.example" => "an email domain",
-      "@handle" => "about them",
+      "@handle" => "by or about them",
       "actor:@handle" => "by them",
       "did:deactivated" => "one event",
       "category:people" => "one kind of event",
@@ -728,7 +728,7 @@ module Fd
     def api_where(at:, actor:, subject:, verb:, kind:, channel: nil)
       parts = []
       parts << "AND #{actor} IN (:actors)" if search.of("actor").any?
-      parts << "AND #{subject} IN (:subjects)" if search.of("about").any?
+      parts << "AND (#{actor} IN (:subjects) OR #{subject} IN (:subjects))" if search.of("about").any?
       parts << "AND #{verb} IN (:actions)" if search.of("action").any?
       if search.of("channel").any?
         parts << (channel ? "AND #{channel} IN (:channels)" : "AND false")
@@ -783,7 +783,7 @@ module Fd
     def engine_where
       parts = []
       parts << "AND a.actor_user_id IN (:actors)" if search.of("actor").any?
-      parts << "AND a.subject_user_id IN (:subjects)" if search.of("about").any?
+      parts << "AND (a.actor_user_id IN (:subjects) OR a.subject_user_id IN (:subjects))" if search.of("about").any?
       parts << "AND a.verb IN (:actions)" if search.of("action").any?
       parts << "AND a.entity_ref IN (:channels)" if search.of("channel").any?
       parts << "AND false" if search.of("app").any? || search.of("session").any?
@@ -803,7 +803,7 @@ module Fd
     def slack_where
       parts = []
       parts << "AND e.actor_id IN (:actors)" if search.of("actor").any?
-      parts << "AND e.entity_id IN (:subjects)" if search.of("about").any?
+      parts << "AND (e.actor_id IN (:subjects) OR e.entity_id IN (:subjects))" if search.of("about").any?
       parts << "AND e.action IN (:actions)" if search.of("action").any?
       parts << "AND e.channel_id IN (:channels)" if search.of("channel").any?
       parts << "AND e.app_id IN (:apps)" if search.of("app").any?
@@ -823,7 +823,7 @@ module Fd
       parts = []
       parts << "AND a.action IN (:actions)" if search.of("action").any?
       parts << "AND v.actor_id IN (:actors)" if search.of("actor").any?
-      parts << "AND v.object_id IN (:subjects)" if search.of("about").any?
+      parts << "AND (v.actor_id IN (:subjects) OR v.object_id IN (:subjects))" if search.of("about").any?
       parts << "AND v.object_id IN (:channels)" if search.of("channel").any?
       parts << "AND false" if search.of("app").any?
       parts << "AND v.session_id IN (:sessions)" if search.of("session").any?
@@ -882,7 +882,7 @@ module Fd
     def read_where
       parts = []
       parts << "AND l.actor_id IN (:actors)" if search.of("actor").any?
-      parts << "AND l.subject_user_id IN (:subjects)" if search.of("about").any?
+      parts << "AND (l.actor_id IN (:subjects) OR l.subject_user_id IN (:subjects))" if search.of("about").any?
       parts << "AND false" if search.of("action").any? && search.of("action") != ["read"]
       parts << "AND false" if search.of("channel").any?
       parts << "AND false" if search.of("app").any? || search.of("session").any?

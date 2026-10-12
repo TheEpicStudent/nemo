@@ -1,0 +1,22 @@
+<% if @guard_history.any? %>
+  <div class="scroll">
+    <table class="data-table">
+      <thead>
+        <tr><th>Guard</th><th>Reason</th><th>By</th><th>Opened</th><th>Ends</th></tr>
+      </thead>
+      <tbody>
+        <% @guard_history.each do |guard| %>
+          <tr>
+            <td><%= guard_line(guard) %></td>
+            <td><%= guard.reason %></td>
+            <td><%= member_face(guard.opened_by) %></td>
+            <td class="sub2"><%= on_day(guard.opened_at) %></td>
+            <td class="sub2"><%= guard_ends(guard) %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+<% else %>
+  <div class="empty"><p class="empty-title">No guards</p></div>
+<% end %>
