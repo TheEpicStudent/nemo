@@ -64,6 +64,28 @@ module Fd
       LIMIT :limit
     SQL
 
+    REVIEW_COUNT_SQL = <<~SQL.squish.freeze
+      SELECT count(*)
+      FROM fd.member_link l
+      JOIN fd.member a ON a.user_id = l.a_user_id
+      JOIN fd.member b ON b.user_id = l.b_user_id
+      WHERE l.score >= :strong AND a.is_deleted <> b.is_deleted
+        AND NOT EXISTS (SELECT 1 FROM fd.member_link_verdict v
+                        WHERE v.a_user_id = l.a_user_id AND v.b_user_id = l.b_user_id)
+    SQL
+
+    REVIEW_TALLY_FOR = 1.minute
+
+    CLUSTERS_OF_SQL = <<~SQL.squish.freeze
+      SELECT cluster_id, max(accounts) AS accounts, count(*) FILTER (WHERE active) AS active,
+             bool_or(ring) AS ring, bool_or(conflict) AS conflict
+      FROM fd.member_cluster
+      WHERE cluster_id IN (SELECT cluster_id FROM fd.member_cluster WHERE user_id IN (:ids))
+      GROUP BY cluster_id
+      ORDER BY max(accounts) DESC, cluster_id
+      LIMIT :limit
+    SQL
+
     CLUSTERS_SQL = <<~SQL.squish.freeze
       SELECT cluster_id, max(accounts) AS accounts, count(*) FILTER (WHERE active) AS active,
              bool_or(ring) AS ring, bool_or(conflict) AS conflict
@@ -105,6 +127,23 @@ module Fd
     def self.clusters(limit: 100)
       flag = ActiveModel::Type::Boolean.new
       connection.select_all(sanitize_sql([CLUSTERS_SQL, { limit: limit }])).map do |row|
+        Cluster.new(cluster_id: row["cluster_id"], accounts: row["accounts"].to_i,
+          active: row["active"].to_i, ring: flag.cast(row["ring"]),
+          conflict: flag.cast(row["conflict"]))
+      end
+    end
+
+    def self.review_tally
+      Rails.cache.fetch("fd/member_link/review_tally", expires_in: REVIEW_TALLY_FOR) do
+        connection.select_value(sanitize_sql([REVIEW_COUNT_SQL, { strong: STRONG }])).to_i
+      end
+    end
+
+    def self.clusters_of(user_ids, limit: 3)
+      return [] if user_ids.empty?
+
+      flag = ActiveModel::Type::Boolean.new
+      connection.select_all(sanitize_sql([CLUSTERS_OF_SQL, { ids: user_ids, limit: limit }])).map do |row|
         Cluster.new(cluster_id: row["cluster_id"], accounts: row["accounts"].to_i,
           active: row["active"].to_i, ring: flag.cast(row["ring"]),
           conflict: flag.cast(row["conflict"]))

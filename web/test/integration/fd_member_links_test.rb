@@ -189,6 +189,16 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_equal "n/a", ApplicationController.helpers.lane_run_label(health.run("member_links"))
   end
 
+  test "the sidebar groups the alt pages and marks the one open" do
+    get fd_links_path(view: "clusters")
+
+    assert_select "p.community-nav-label", text: "Alts"
+    assert_select "p.community-nav-label", text: "Records"
+    assert_select %(a[href="#{fd_links_path}"]), text: /Review/
+    assert_select %(a[href="#{fd_links_path(view: "pairs")}"]), text: /Links/
+    assert_select %(a[aria-current="page"][href="#{fd_links_path(view: "clusters")}"]), text: /Clusters/
+  end
+
   private
 
   def gone!(user_id)

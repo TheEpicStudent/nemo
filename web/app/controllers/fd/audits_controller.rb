@@ -2,8 +2,6 @@ module Fd
   class AuditsController < BaseController
     permit "case.read"
 
-    around_action :in_viewer_zone
-
     def show
       @query = AuditQuery.new(params, actor: current_account)
       if params[:start].present?
@@ -41,15 +39,6 @@ module Fd
     end
 
     private
-
-    def in_viewer_zone(&)
-      Time.use_zone(viewer_zone, &)
-    end
-
-    def viewer_zone
-      tz = Member.where(user_id: current_account&.user_id).pick(:tz)
-      ActiveSupport::TimeZone[tz.to_s] || Time.zone
-    end
 
     def grouped(kind)
       @query.group == kind ? @groups.map(&:key) : []

@@ -15,7 +15,7 @@
         <% end %>
         <span class="sub">
           <%= member_face(guard.opened_by, small: true) %> ·
-          <%= guard.created_at.strftime("%-d %b %H:%M") %>
+          <%= clock_stamp(guard.created_at) %>
         </span>
       </span>
       <span class="lrow-right">

@@ -185,6 +185,8 @@ export default class extends Controller {
       img.dataset.cachetFace = row.id
       img.dataset.cachetInitial = row.initial || "?"
       icon.append(img)
+    } else if (row.svg) {
+      icon.innerHTML = row.svg
     } else {
       icon.innerHTML = this.icon(row.icon)
     }

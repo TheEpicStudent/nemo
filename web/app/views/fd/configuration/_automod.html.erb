@@ -60,7 +60,7 @@
               <span class="sub">
                 <%= member_face(match.user_id, small: true) %> ·
                 <%= channel_link(match.channel_id, permalink: match.permalink) %> ·
-                <%= match.at.strftime("%-d %b %H:%M") %>
+                <%= clock_stamp(match.at) %>
               </span>
             </span>
           </div>

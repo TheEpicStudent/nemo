@@ -3,6 +3,7 @@ module Fd
     before_action :require_fd
     before_action :needs_the_engine
     before_action :require_a_declaration, unless: :read_only_request?
+    around_action :in_viewer_zone
 
     class << self
       def permit(key, on: nil, **filters)
@@ -44,6 +45,15 @@ module Fd
 
     def needs_the_engine
       needs(:fire_engine)
+    end
+
+    def in_viewer_zone(&)
+      Time.use_zone(fd_zone, &)
+    end
+
+    def fd_zone
+      tz = Member.where(user_id: current_account&.user_id).pick(:tz)
+      ActiveSupport::TimeZone[tz.to_s] || ActiveSupport::TimeZone[viewer_zone] || Time.zone
     end
 
     def read_only_request?

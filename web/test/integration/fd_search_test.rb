@@ -28,7 +28,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     make_case(opened_at: 3.days.ago)
 
     keys = found("")["groups"].map { |one| one["key"] }
-    assert_equal ["waiting", "do"], keys
+    assert_equal ["waiting", "do", "page"], keys
 
     waiting = group("", "waiting")["rows"]
     assert_match(/unassigned case/, waiting.first["title"])
@@ -78,6 +78,50 @@ class FdSearchTest < ActionDispatch::IntegrationTest
 
   test "a term nobody typed enough of finds nothing" do
     assert_empty found("a")["groups"].reject { |one| ["waiting", "do"].include?(one["key"]) }
+  end
+
+  test "an empty box lists the pages from the sidebar" do
+    pages = group("", "page")["rows"].map { |one| one["title"] }
+
+    assert_equal "Go to", group("", "page")["label"]
+    assert_includes pages, "Cases"
+    assert_includes pages, "Audit log"
+  end
+
+  test "a page is found by the start of a word in its name" do
+    assert_equal ["Audit log"], group("aud", "page")["rows"].map { |one| one["title"] }
+    assert_equal ["Audit log"], group("log", "page")["rows"].map { |one| one["title"] }
+  end
+
+  test "any term opens the audit log for the last 30 days" do
+    row = group("raid", "audit")["rows"].first
+
+    assert_equal "Audit log: raid", row["title"]
+    assert_equal fd_audit_path(q: "raid last:30d"), row["url"]
+  end
+
+  test "an address or an email becomes its own audit qualifier" do
+    assert_equal fd_audit_path(q: "ip:10.1.2.3 last:30d"), group("10.1.2.3", "audit")["rows"].first["url"]
+    assert_equal fd_audit_path(q: "email:pix@example.net last:30d"),
+      group("pix@example.net", "audit")["rows"].first["url"]
+    assert_equal fd_audit_path(q: %("two words" last:30d)), group("two words", "audit")["rows"].first["url"]
+  end
+
+  test "a member's cluster comes up beside them" do
+    member!("UPIXRINGA", handle: "pixringa")
+    member!("UPIXRINGB", handle: "pixringb")
+    %w[UPIXRINGA UPIXRINGB].each do |user_id|
+      as_pipeline("INSERT INTO fd.member_cluster (user_id, cluster_id, accounts, ring, active) " \
+                  "VALUES (?, 'UPIXRINGA', 2, true, true)", user_id)
+      seeded!("fd.member_cluster", "user_id", user_id)
+    end
+
+    row = group("pixringb", "cluster")["rows"].first
+
+    assert_equal "Clusters", group("pixringb", "cluster")["label"]
+    assert_match(/cluster\z/, row["title"])
+    assert_equal "2 accounts · ring", row["sub"]
+    assert_equal fd_cluster_path("UPIXRINGA"), row["url"]
   end
 
   test "a scope keeps one kind and says so back" do

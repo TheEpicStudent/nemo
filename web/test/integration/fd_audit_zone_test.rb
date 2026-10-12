@@ -23,6 +23,10 @@ class FdAuditZoneTest < ActionDispatch::IntegrationTest
     id
   end
 
+  test "every fire engine page runs in the viewer's zone, not only the audit log" do
+    assert_includes Fd::BaseController._process_action_callbacks.map(&:filter), :in_viewer_zone
+  end
+
   def lives_in!(tz)
     as_pipeline("UPDATE fd.member SET tz = ? WHERE user_id = 'UZONEME'", tz)
   end

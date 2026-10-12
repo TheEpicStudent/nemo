@@ -202,7 +202,7 @@
               <div>
                 <div class="msg-head">
                   <span class="msg-who"><%= named_text(entry.title) %></span>
-                  <span class="msg-at"><%= entry.at.strftime("%-d %b, %H:%M") %></span>
+                  <span class="msg-at"><%= clock_stamp(entry.at, "%-d %b, %H:%M") %></span>
                 </div>
                 <% marks = [entry.detail.presence, *entry.chips].compact %>
                 <% if marks.any? %>

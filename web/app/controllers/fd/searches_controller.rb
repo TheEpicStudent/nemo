@@ -5,6 +5,9 @@ module Fd
               "report" => "report" }.freeze
 
     PAGE_LIMIT = 20
+    CLUSTERS_SHOWN = 3
+    AUDIT_WINDOW = "last:30d".freeze
+    EMAIL_TERM = /\A[^@\s]+@[^@\s]+\.[a-z]+\z/i
 
     def show
       respond_to do |format|
@@ -19,8 +22,72 @@ module Fd
       return commanding if commanding?
 
       found = Search.new(params[:q], scope: params[:scope], actor: current_account)
-      { term: found.term, scope: found.scope,
-        groups: found.asked? ? shown(found) : resting }
+      groups = found.asked? ? shown(found) : resting
+      { term: found.term, scope: found.scope, groups: found.scope ? groups : widened(groups, found) }
+    end
+
+    def widened(groups, found)
+      people, rest = groups.partition { |group| group[:key] == "member" }
+      [*people, clusters_group(found), *rest, audit_group(found), pages_group(found.term)]
+        .compact.reject { |group| group[:rows].empty? }
+    end
+
+    def clusters_group(found)
+      return nil unless found.searching? && current_account.may?("member.links")
+
+      clusters = MemberLink.clusters_of(found.matched_member_ids, limit: CLUSTERS_SHOWN)
+      names = Names.for(clusters.map(&:cluster_id))
+      { key: "cluster", label: "Clusters", total: clusters.size,
+        rows: clusters.map { |one| cluster_row(one, names) } }
+    end
+
+    def cluster_row(cluster, names)
+      flags = [("ring" if cluster.ring), ("conflict" if cluster.conflict)].compact
+      { kind: "cluster", svg: helpers.nav_icon("network").to_s, title: "#{names[cluster.cluster_id]} cluster",
+        sub: [helpers.pluralize(cluster.accounts, "account"), *flags].join(" · "),
+        url: fd_cluster_path(cluster.cluster_id) }
+    end
+
+    def audit_group(found)
+      return nil unless found.searching? && audit_reader?
+
+      token = audit_token(found.term)
+      return nil if token.nil?
+
+      asked = "#{token} #{AUDIT_WINDOW}"
+      { key: "audit", label: "Audit log", total: 1,
+        rows: [{ kind: "audit", svg: helpers.nav_icon("history").to_s, title: "Audit log: #{found.term}",
+                 sub: asked, url: fd_audit_path(q: asked) }] }
+    end
+
+    def audit_reader?
+      current_account.may?("access.read") || current_account.may?("audit.read")
+    end
+
+    def audit_token(term)
+      return nil if term.match?(AuditSearch::IDENTITY_TEXT) && !current_account.may?("identity.read")
+      return "ip:#{term}" if address?(term)
+      return "email:#{term}" if term.match?(EMAIL_TERM)
+      return term if AuditSearch::OPERATORS.key?(term.split(":", 2).first.downcase) && term.include?(":")
+
+      term.include?(" ") ? %("#{term}") : term
+    end
+
+    def address?(term)
+      IPAddr.new(term)
+      true
+    rescue IPAddr::Error
+      false
+    end
+
+    def pages_group(term)
+      wanted = term.to_s.downcase
+      return nil if wanted.present? && wanted.length < Search::MIN_TERM
+
+      stops = helpers.fd_nav_groups.flat_map { |_, held| held }
+        .select { |stop| wanted.empty? || stop.label.downcase.split.any? { |word| word.start_with?(wanted) } }
+      { key: "page", label: "Go to", total: stops.size,
+        rows: stops.map { |stop| { kind: "page", svg: helpers.nav_icon(stop.icon).to_s, title: stop.label, url: stop.path } } }
     end
 
     def page

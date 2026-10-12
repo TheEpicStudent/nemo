@@ -475,4 +475,12 @@ class FdHelperTest < ActionView::TestCase
     assert_equal "Shush, on no case", guard_held_line(held)
     assert_equal "Shush", guard_held_line(held(case_id: 1))
   end
+
+  test "a clock time shows in the viewer's zone with UTC on hover" do
+    at = Time.utc(2026, 10, 12, 14, 5)
+
+    stamp = Time.use_zone("America/New_York") { clock_stamp(at) }
+
+    assert_match(%r{<time datetime="2026-10-12T10:05:00-04:00" title="12 Oct 2026 14:05 UTC">12 Oct 10:05</time>}, stamp)
+  end
 end

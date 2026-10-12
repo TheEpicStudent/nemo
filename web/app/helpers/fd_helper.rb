@@ -445,6 +445,11 @@ module FdHelper
     at ? at.to_time.strftime("%-d %b %Y") : none
   end
 
+  def clock_stamp(at, format = "%-d %b %H:%M")
+    local = at.in_time_zone
+    tag.time(local.strftime(format), datetime: local.iso8601, title: at.utc.strftime("%-d %b %Y %H:%M UTC"))
+  end
+
   def ago_label(at, none: "n/a")
     return none if at.nil?
 
@@ -529,12 +534,16 @@ module FdHelper
   Stop = Struct.new(:key, :label, :icon, :path, :here, :tally, keyword_init: true)
 
   NAV_HOME = { "fd/fire" => "overview", "fd/members" => "members",
-               "fd/new_members" => "new_members", "fd/member_links" => "links",
+               "fd/new_members" => "new_members", "fd/clusters" => "clusters",
                "fd/channels" => "channels", "fd/audits" => "audit",
                "fd/configuration" => "configuration",
                "fd/channel_purges" => "channels" }.freeze
 
+  LINK_VIEWS = { "clusters" => "clusters", "pairs" => "pairs" }.freeze
+
   def fd_nav_here
+    return LINK_VIEWS.fetch(params[:view].to_s, "review") if controller_path == "fd/member_links"
+
     NAV_HOME.fetch(controller_path, "cases")
   end
 
@@ -550,20 +559,28 @@ module FdHelper
     ])
   end
 
+  def fd_nav_alts
+    return [] unless current_account&.may?("member.links")
+
+    fd_nav_mark([
+      Stop.new(key: "review", label: "Review", icon: "inbox", path: fd_links_path,
+        tally: Fd::MemberLink.review_tally),
+      Stop.new(key: "clusters", label: "Clusters", icon: "network", path: fd_links_path(view: "clusters")),
+      Stop.new(key: "pairs", label: "Links", icon: "link", path: fd_links_path(view: "pairs"))
+    ])
+  end
+
+  def fd_nav_records
+    return [] unless current_account&.may?("access.read") || current_account&.may?("audit.read")
+
+    fd_nav_mark([Stop.new(key: "audit", label: "Audit log", icon: "history", path: fd_audit_path)])
+  end
+
   def fd_nav_tools
-    stops = []
-    if current_account&.may?("app.configure")
-      stops << Stop.new(key: "configuration", label: "Configuration", icon: "gear",
-        path: fd_configuration_path)
-    end
-    if current_account&.may?("member.links")
-      stops << Stop.new(key: "links", label: "Linked accounts", icon: "people",
-        path: fd_links_path)
-    end
-    if current_account&.may?("access.read") || current_account&.may?("audit.read")
-      stops << Stop.new(key: "audit", label: "Audit log", icon: "history", path: fd_audit_path)
-    end
-    fd_nav_mark(stops)
+    return [] unless current_account&.may?("app.configure")
+
+    fd_nav_mark([Stop.new(key: "configuration", label: "Configuration", icon: "gear",
+      path: fd_configuration_path)])
   end
 
   def fd_nav_groups
@@ -571,8 +588,9 @@ module FdHelper
     [
       [nil, stops.values_at("overview", "cases")],
       ["People", stops.values_at("members", "new_members")],
-      ["Places", stops.values_at("channels")],
-      ["Manage", fd_nav_tools]
+      ["Alts", fd_nav_alts],
+      ["Records", fd_nav_records],
+      ["Manage", fd_nav_tools + stops.values_at("channels")]
     ].reject { |_, group| group.empty? }
   end
 
@@ -1629,7 +1647,7 @@ module FdHelper
     return "Never" if at.nil?
 
     swept = Api::ChannelSweep.count
-    "#{at.strftime('%-d %b %H:%M')}, #{swept} #{'channel'.pluralize(swept)}"
+    "#{at.in_time_zone.strftime('%-d %b %H:%M')}, #{swept} #{'channel'.pluralize(swept)}"
   end
 
   def dial_reach(key, tokens)

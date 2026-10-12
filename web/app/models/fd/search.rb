@@ -36,6 +36,8 @@ module Fd
 
     def searching? = term.length >= MIN_TERM || case_id.present?
 
+    def matched_member_ids = searching? ? member_ids : []
+
     def thread
       return @thread if defined?(@thread)
 
