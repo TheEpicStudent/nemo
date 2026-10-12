@@ -63,6 +63,42 @@ def test_the_lane_measures_missing_totals_instead_of_waiting_for_a_rebuild(monke
     assert ran.index(live.links.KEEP_WHOLE) < ran.index("COMMIT") < ran.index(live.TOUCHED_SQL)
 
 
+class Queue:
+    def __init__(self, fresh, rest):
+        self.fresh = fresh
+        self.rest = rest
+        self.ran = []
+
+    def execute(self, sql, args=None):
+        self.ran.append((sql, args))
+        return self
+
+    def fetchall(self):
+        sql, _ = self.ran[-1]
+        return self.fresh if sql == live.FRESH_SQL else self.rest
+
+
+def test_accounts_that_joined_this_week_are_rescored_first():
+    conn = Queue(fresh=[("U1", "t1")], rest=[("U9", "t0")])
+
+    assert live.waiting(conn, live.BATCH) == [("U1", "t1")]
+    assert conn.ran == [(live.FRESH_SQL, (live.FRESH_DAYS, live.FRESH_BATCH))]
+
+
+def test_the_rest_of_the_queue_follows_when_no_new_account_waits():
+    conn = Queue(fresh=[], rest=[("U9", "t0")])
+
+    assert live.waiting(conn, live.BATCH) == [("U9", "t0")]
+    assert conn.ran[-1] == (live.TOUCHED_SQL, (live.BATCH,))
+
+
+def test_new_accounts_come_in_small_batches_by_join_age():
+    assert live.FRESH_BATCH < live.BATCH
+    assert live.FRESH_DAYS == 7
+    assert "j.joined_at > now() - make_interval(days => %s)" in live.FRESH_SQL
+    assert "ORDER BY t.touched_at" in live.FRESH_SQL
+
+
 def test_measuring_reads_whole_tables_and_the_stored_shared_networks():
     assert live.MEASURED["login"] == "fd.login_event"
     assert live.MEASURED["identity"] == "fd.member_identity"

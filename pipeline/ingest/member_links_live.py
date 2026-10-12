@@ -5,9 +5,20 @@ from lib.db import ingest_run
 
 SOURCE = "member_links_live"
 BATCH = 300
+FRESH_BATCH = 50
+FRESH_DAYS = 7
 CAP = 101
 
 TOUCHED_SQL = "SELECT user_id, touched_at FROM fd.member_touch ORDER BY touched_at LIMIT %s"
+
+FRESH_SQL = """
+SELECT t.user_id, t.touched_at
+FROM fd.member_touch t
+JOIN fd.member_joins j ON j.user_id = t.user_id
+WHERE j.joined_at > now() - make_interval(days => %s)
+ORDER BY t.touched_at
+LIMIT %s
+"""
 
 QUEUED_SQL = "SELECT user_id, touched_at FROM fd.member_touch WHERE user_id = ANY(%s)"
 
@@ -277,10 +288,15 @@ def score(conn, user_ids):
     return changed
 
 
+def waiting(conn, batch):
+    fresh = conn.execute(FRESH_SQL, (FRESH_DAYS, FRESH_BATCH)).fetchall()
+    return fresh or conn.execute(TOUCHED_SQL, (batch,)).fetchall()
+
+
 def run(conn, batch=BATCH):
     held = links.catalogue()
     wholes = measured(conn, held, links.held_wholes(conn))
-    queued = conn.execute(TOUCHED_SQL, (batch,)).fetchall()
+    queued = waiting(conn, batch)
     conn.commit()
     if not queued:
         return 0
