@@ -9,10 +9,11 @@ from dotenv import load_dotenv
 
 from ingest import member_links as links
 from lib.db import connect
-from lib.paths import ENV_FILE
+from lib.paths import DB_DIR, ENV_FILE
 
 VARIANT_NAME = re.compile(r"^[a-z0-9_]{1,40}$")
 RESERVED_NAMES = ("live",)
+VARIANTS_DIR = DB_DIR / "link_variants"
 
 
 def overlay(base, changes):
@@ -25,6 +26,12 @@ def overlay(base, changes):
         else:
             merged[key] = copy.deepcopy(value)
     return merged
+
+
+def variant_path(value):
+    if VARIANT_NAME.match(value):
+        return VARIANTS_DIR / f"{value}.yml"
+    return pathlib.Path(value)
 
 
 def variant_name(path, name=None):
@@ -45,14 +52,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         description="rebuild every link with a variant file laid over db/alt_signals.yml, into fd.member_link_shadow")
     parser.add_argument("--variant", required=True, metavar="FILE",
-                        help="YAML whose keys replace those in db/alt_signals.yml; a null value removes the key")
+                        help="YAML whose keys replace those in db/alt_signals.yml, or the name of one in "
+                             "db/link_variants; a null value removes the key")
     parser.add_argument("--name", help="variant name stored with the links; the file name without .yml by default")
     parser.add_argument("--dsn", help="Postgres DSN to use instead of the environment configuration")
     args = parser.parse_args(argv)
     load_dotenv(ENV_FILE)
     try:
-        name = variant_name(args.variant, args.name)
-        config = load_variant(args.variant)
+        path = variant_path(args.variant)
+        name = variant_name(path, args.name)
+        config = load_variant(path)
     except (OSError, ValueError, yaml.YAMLError) as error:
         print(f"links: {error}", file=sys.stderr)
         return 2

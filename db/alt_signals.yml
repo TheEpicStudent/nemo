@@ -81,6 +81,8 @@ identity_signals:
     label: Same normalized mailbox
     weight: 8.0
     crowd_ceiling: 100
+    rarity_discount: true
+    link_to_oldest: false
 
   local_part:
     label: Same mailbox name on another domain

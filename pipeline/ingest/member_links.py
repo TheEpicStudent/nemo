@@ -41,18 +41,35 @@ keep AS (
 small AS (
     SELECT e.user_id, e.value, e.first_seen, e.last_seen
     FROM ev e JOIN keep k ON k.value = e.value
-)
+){oldest}
 SELECT least(a.user_id, b.user_id) AS a_user_id,
        greatest(a.user_id, b.user_id) AS b_user_id,
        a.value,
        k.people,
-       %(weight)s::numeric * rarity(%(whole)s::numeric, k.people) AS score,
+       {score} AS score,
        least(a.first_seen, b.first_seen) AS first_seen,
        greatest(a.last_seen, b.last_seen) AS last_seen
 FROM small a
 JOIN small b ON b.value = a.value AND b.user_id > a.user_id
-JOIN keep k ON k.value = a.value
+JOIN keep k ON k.value = a.value{star}
 """
+
+RARITY_SCORE = "%(weight)s::numeric * rarity(%(whole)s::numeric, k.people)"
+FLAT_SCORE = "%(weight)s::numeric"
+
+OLDEST_HOLDER = """,
+oldest AS (
+    SELECT DISTINCT ON (s.value) s.value, s.user_id
+    FROM small s
+    LEFT JOIN {joins} j ON j.user_id = s.user_id
+    ORDER BY s.value, j.joined_at NULLS LAST, s.user_id
+)"""
+
+STAR_FILTER = """
+JOIN oldest o ON o.value = a.value
+WHERE o.user_id IN (a.user_id, b.user_id)
+   OR EXISTS (SELECT 1 FROM fd.member_link_verdict v
+              WHERE v.a_user_id = least(a.user_id, b.user_id) AND v.b_user_id = greatest(a.user_id, b.user_id))"""
 
 WHOLE_SQL = """
 WITH ev AS ({evidence})
@@ -751,7 +768,13 @@ def evidence(name, settings, sightings, sources=FULL):
     source = source_of(name)
     if source is None:
         return None, None
-    return PAIRS_SQL.format(evidence=source.format(**names), **names), args
+    star = settings.get("link_to_oldest", False)
+    return PAIRS_SQL.format(
+        evidence=source.format(**names),
+        score=RARITY_SCORE if settings.get("rarity_discount", True) else FLAT_SCORE,
+        oldest=OLDEST_HOLDER.format(**names) if star else "",
+        star=STAR_FILTER if star else "",
+        **names), args
 
 
 def whole_sql(name, settings, sightings, sources=FULL):

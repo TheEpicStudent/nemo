@@ -2,6 +2,7 @@ import contextlib
 import pathlib
 
 from ingest import member_links as links
+from ingest import member_links_live as live
 
 POPULATION = 1000
 
@@ -463,7 +464,7 @@ def test_the_full_rebuild_keeps_what_the_live_lane_needs():
     passed = inspect.getsource(links.run)
     assert "save_wholes(conn, wholes)" in passed
     assert "SAVE_SHARED_SQL" in inspect.getsource(links.mark_shared)
-    assert "rarity(%(whole)s::numeric, k.people)" in links.PAIRS_SQL
+    assert "rarity(%(whole)s::numeric, k.people)" in links.RARITY_SCORE
     assert "rarity(%(whole)s::numeric, k.people)" in links.TOGETHER_SQL
 
 
@@ -533,3 +534,44 @@ def test_the_shadow_insert_copies_every_column_the_live_upsert_writes():
         assert column in links.SHADOW_INSERT_SQL
     assert "INSERT INTO fd.member_link_shadow" in links.SHADOW_INSERT_SQL
     assert "FROM link_pass" in links.SHADOW_INSERT_SQL
+
+
+def test_a_signal_keeps_its_rarity_discount_and_every_pair_by_default():
+    sql, _args = links.evidence("device_agent", {"weight": 3.0, "crowd_ceiling": 8}, 2)
+
+    assert links.RARITY_SCORE + " AS score" in sql
+    assert "oldest" not in sql
+
+
+def test_a_flat_star_inbox_scores_its_weight_and_pairs_each_account_with_the_oldest():
+    settings = {"weight": 8.0, "crowd_ceiling": 100, "rarity_discount": False, "link_to_oldest": True}
+
+    sql, args = links.evidence("mailbox_alias", settings, 2)
+
+    assert "%(weight)s::numeric AS score" in sql and "rarity(" not in sql
+    assert "LEFT JOIN fd.member_joins j ON j.user_id = s.user_id" in sql
+    assert "ORDER BY s.value, j.joined_at NULLS LAST, s.user_id" in sql
+    assert "WHERE o.user_id IN (a.user_id, b.user_id)" in sql
+    assert args["ceiling"] == 100
+
+
+def test_a_star_keeps_a_pair_that_has_a_verdict():
+    assert "OR EXISTS (SELECT 1 FROM fd.member_link_verdict v" in links.STAR_FILTER
+
+
+def test_the_live_lane_finds_the_oldest_holder_among_its_scoped_joins():
+    settings = {"weight": 8.0, "crowd_ceiling": 100, "link_to_oldest": True}
+
+    sql, _args = links.evidence("mailbox_alias", settings, 2, live.LIVE)
+
+    assert "LEFT JOIN scope_joins j ON j.user_id = s.user_id" in sql
+
+
+def test_the_inbox_star_variant_turns_on_both_settings():
+    import yaml
+
+    variant = yaml.safe_load((links.DB_DIR / "link_variants" / "inbox_star.yml").read_text())
+    shipped = links.catalogue()["identity_signals"]["mailbox_alias"]
+
+    assert variant["identity_signals"]["mailbox_alias"] == {"rarity_discount": False, "link_to_oldest": True}
+    assert (shipped["rarity_discount"], shipped["link_to_oldest"]) == (True, False)

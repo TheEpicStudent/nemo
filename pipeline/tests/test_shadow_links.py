@@ -71,3 +71,17 @@ def test_a_missing_variant_file_exits_2_without_connecting(tmp_path, monkeypatch
 
     assert shadow_links.main(["--variant", str(tmp_path / "nope.yml")]) == 2
     assert capsys.readouterr().err.startswith("links: ")
+
+
+def test_a_bare_name_reads_the_variant_kept_in_db_link_variants():
+    path = shadow_links.variant_path("inbox_star")
+
+    assert path == shadow_links.VARIANTS_DIR / "inbox_star.yml"
+    assert path.exists()
+    assert shadow_links.variant_path("/tmp/x.yml") == shadow_links.pathlib.Path("/tmp/x.yml")
+
+
+def test_every_kept_variant_loads_over_the_catalogue():
+    for path in shadow_links.VARIANTS_DIR.glob("*.yml"):
+        assert shadow_links.variant_name(path) == path.stem
+        assert "identity_signals" in shadow_links.load_variant(path)
