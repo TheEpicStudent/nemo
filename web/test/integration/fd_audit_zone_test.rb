@@ -47,8 +47,7 @@ class FdAuditZoneTest < ActionDispatch::IntegrationTest
     set_member_tz!("America/New_York")
 
     get fd_audit_event_path(source: "slack", id: @id)
-    assert_select ".fact", text: /When\s+30 Sep 2026 22:30:00 EDT/
-    assert_select ".fact", text: /UTC\s+1 Oct 2026 02:30:00/
+    assert_select ".side-facts dd", text: /30 Sep 2026 22:30:00 EDT\s+1 Oct 2026 02:30:00 UTC/
   end
 
   test "dates in a search are the viewer's days" do
@@ -69,7 +68,6 @@ class FdAuditZoneTest < ActionDispatch::IntegrationTest
     assert_equal "1 Oct 02:30", when_cell.text.squish
 
     get fd_audit_event_path(source: "slack", id: @id)
-    assert_select ".fact dt", text: "UTC", count: 0
-    assert_select ".fact", text: /When\s+1 Oct 2026 02:30:00 UTC/
+    assert_select ".side-facts dd", text: /\A\s*1 Oct 2026 02:30:00 UTC\s*\z/
   end
 end

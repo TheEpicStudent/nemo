@@ -130,7 +130,7 @@ class FdAuditExplorerTest < ActionDispatch::IntegrationTest
     get fd_audit_path(live: "1")
 
     assert_select %(a.btn[aria-pressed="true"][href="#{fd_audit_path}"]), text: /Live/
-    assert_select %(turbo-frame#audit-results[data-controller="audit-live"][data-audit-live-url-value="#{fd_audit_rows_path(live: "1")}"])
+    assert_select %(turbo-frame#audit-results[data-controller~="audit-live"][data-audit-live-url-value="#{fd_audit_rows_path(live: "1")}"])
     assert_select %(.audit-filters a[href*="live=1"])
 
     get fd_audit_rows_path(live: "1")
@@ -140,7 +140,7 @@ class FdAuditExplorerTest < ActionDispatch::IntegrationTest
   test "an older page does not poll" do
     get fd_audit_path(live: "1", before_at: 1.day.ago.iso8601, before_id: "x")
 
-    assert_select %(turbo-frame#audit-results[data-controller="audit-live"]), false
+    assert_select %(turbo-frame#audit-results[data-controller~="audit-live"]), false
   end
 
   test "the saved queries start with the shared defaults" do

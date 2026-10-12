@@ -43,7 +43,7 @@
            data-controller="mobile-bar<%= " pane pane-size" if pane %>">
         <%= render "layouts/topbar", fire_engine: fire_engine, pane: pane %>
 
-        <div class="work<%= " has-pane" if pane %>" data-controller="case-timeline">
+        <div class="work<%= " has-pane" if pane %><%= " has-side" if content_for?(:side) %>" data-controller="case-timeline">
           <%= content_for :pane if pane %>
           <% if pane %>
             <button type="button" class="queue-rail" tabindex="-1" aria-hidden="true"
@@ -87,6 +87,7 @@
               </div>
             </div>
           </main>
+          <%= content_for :side if content_for?(:side) %>
         </div>
 
         <%= render "layouts/explorer" %>

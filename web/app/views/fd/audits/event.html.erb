@@ -1,127 +1,134 @@
-<turbo-frame id="audit-panel" data-controller="person-drawer">
-  <div class="audit-panel" role="dialog" aria-label="<%= audit_verb(@row) %>">
-    <div class="drawer-head">
-      <b class="grow"><%= audit_verb(@row) %></b>
-      <button type="button" class="person-menu-x" aria-label="Close"
-              data-action="click->person-drawer#close">&#10005;</button>
+<turbo-frame id="audit-panel">
+  <div class="side-head" data-row-id="<%= @row.source %>:<%= @row.id %>">
+    <div class="grow">
+      <div class="side-kicker">
+        <%= FdHelper::AUDIT_SOURCE.fetch(@row.source, @row.source) %><%= " · #{@context.category}" if @context.category %>
+      </div>
+      <h2 class="side-title"><%= audit_verb(@row) %></h2>
+      <div class="side-sub"><%= time_ago(@row.at) %></div>
     </div>
+    <button type="button" class="btn btn-ghost btn-only btn-sm" aria-label="Close" data-action="side-pane#close">
+      <%= audit_icon("x", size: 16) %>
+    </button>
+  </div>
 
-    <div class="audit-panel-body">
-      <dl class="audit-panel-facts">
-        <% at = @row.at.in_time_zone %>
-        <div class="fact">
-          <dt>When</dt>
-          <dd><%= at.strftime("%-d %b %Y %H:%M:%S %Z") %></dd>
-        </div>
-        <% if at.utc_offset != 0 %>
-          <div class="fact">
-            <dt>UTC</dt>
-            <dd><%= @row.at.utc.strftime("%-d %b %Y %H:%M:%S") %></dd>
-          </div>
+  <div class="side-body">
+    <dl class="side-facts">
+      <dt>Actor</dt>
+      <dd>
+        <%= audit_actor(@row) %>
+        <% if @context.actor_email.present? %>
+          <div class="side-dim mono"><%= @context.actor_email %></div>
         <% end %>
-        <div class="fact">
-          <dt>Log</dt>
-          <dd><%= FdHelper::AUDIT_SOURCE.fetch(@row.source, @row.source) %><%= " · #{@context.category}" if @context.category %></dd>
-        </div>
-        <div class="fact">
-          <dt>Actor</dt>
-          <dd>
-            <%= audit_actor(@row) %>
-            <% if @context.actor_email.present? %>
-              <span class="audit-panel-sub mono"><%= @context.actor_email %></span>
-            <% end %>
-          </dd>
-        </div>
-        <div class="fact">
-          <dt>Entity</dt>
-          <dd>
-            <%= audit_about(@row) %>
-            <% if @context.entity_name.present? %>
-              <span class="audit-panel-sub"><%= @context.entity_name %></span>
-            <% end %>
-          </dd>
-        </div>
-        <% if @row.ip.present? %>
-          <div class="fact">
-            <dt>Address</dt>
-            <dd class="mono"><%= @row.ip %></dd>
-          </div>
+      </dd>
+      <dt>Target</dt>
+      <dd>
+        <%= audit_about(@row) %>
+        <% if @context.entity_name.present? %>
+          <div class="side-dim"><%= @context.entity_name %></div>
         <% end %>
-        <% if (place = @context.place) %>
-          <div class="fact">
-            <dt>Location</dt>
-            <dd>
-              <%= [place.country, place.network].compact_blank.join(" · ") %>
-              <% if place.kind.present? %>
-                <span class="audit-panel-sub"><%= place.kind %></span>
-              <% end %>
-            </dd>
+      </dd>
+      <% if @row.ip.present? %>
+        <dt>IP</dt>
+        <dd class="mono"><%= @row.ip %></dd>
+      <% elsif @row.addressed %>
+        <dt>IP</dt>
+        <dd><%= locked_note("Hidden") %></dd>
+      <% end %>
+      <% if (place = @context.place) %>
+        <dt>Network</dt>
+        <dd>
+          <%= [place.network, place.country].compact_blank.join(" · ") %>
+          <div class="side-dim">
+            <%= [place.kind, (pluralize(place.accounts, "account") + " on this IP" if place.accounts.positive?)].compact_blank.join(", ") %>
           </div>
+        </dd>
+      <% end %>
+      <% if (device = @context.device) %>
+        <dt>Client</dt>
+        <dd title="<%= device.ua %>">
+          <%= device.app ? [device.app, device.os].compact_blank.join(" · ") : device.ua.to_s.truncate(90) %>
+        </dd>
+      <% end %>
+      <% if @row.session.present? %>
+        <dt>Session</dt>
+        <dd class="mono"><%= @row.session %></dd>
+      <% end %>
+      <% if @row.app_name.present? || @row.app.present? %>
+        <dt>App</dt>
+        <dd>
+          <%= @row.app_name.presence || @row.app %>
+          <% if @row.app_name.present? && @row.app.present? %>
+            <div class="side-dim mono"><%= @row.app %></div>
+          <% end %>
+        </dd>
+      <% end %>
+      <% local_at = @row.at.in_time_zone %>
+      <dt>Time</dt>
+      <dd>
+        <%= local_at.strftime("%-d %b %Y %H:%M:%S %Z") %>
+        <% if local_at.utc_offset != 0 %>
+          <div class="side-dim"><%= @row.at.utc.strftime("%-d %b %Y %H:%M:%S UTC") %></div>
         <% end %>
-        <% if (device = @context.device) %>
-          <div class="fact">
-            <dt>Device</dt>
-            <dd title="<%= device.ua %>">
-              <%= device.app ? [device.app, device.os].compact_blank.join(" · ") : device.ua.to_s.truncate(90) %>
-            </dd>
-          </div>
-        <% end %>
-        <% if @row.session.present? %>
-          <div class="fact">
-            <dt>Session</dt>
-            <dd class="mono"><%= @row.session %></dd>
-          </div>
-        <% end %>
-        <% if @row.app_name.present? || @row.app.present? %>
-          <div class="fact">
-            <dt>App</dt>
-            <dd>
-              <%= @row.app_name.presence || @row.app %>
-              <% if @row.app_name.present? && @row.app.present? %>
-                <span class="audit-panel-sub mono"><%= @row.app %></span>
-              <% end %>
-            </dd>
-          </div>
-        <% end %>
-      </dl>
+      </dd>
+    </dl>
 
-      <% pivots = audit_pivots(@query_for_row, @row) %>
-      <% if pivots.any? %>
-        <div class="chiprow audit-pivots">
+    <% pivots = audit_pivots(@query_for_row, @row) %>
+    <% if pivots.any? %>
+      <section>
+        <h3 class="side-h3">Pivot</h3>
+        <div class="side-pivots">
           <% pivots.each do |pivot| %>
-            <%= link_to pivot.label, fd_audit_path(pivot.params), class: "chip", data: { turbo_frame: "_top" } %>
+            <%= link_to fd_audit_path(pivot.params), class: "btn btn-sm", data: { turbo_frame: "_top" } do %>
+              <span><%= pivot.label %></span>
+              <% if pivot.value.present? %>
+                <span class="side-pivot-value mono"><%= pivot.kind == "actor" ? at_name(pivot.value) : pivot.value.to_s.truncate(32) %></span>
+              <% end %>
+            <% end %>
           <% end %>
         </div>
-      <% end %>
+      </section>
+    <% end %>
 
-      <% related = @context.visible_related %>
-      <% if related.any? %>
-        <section class="audit-related">
-          <h3 class="audit-related-title">Same actor within 15 minutes</h3>
-          <ol class="audit-related-list">
-            <% related.each do |related_event| %>
-              <li>
-                <%= link_to fd_audit_event_path(source: related_event.source, id: related_event.id), class: "audit-related-row",
-                      data: { turbo_frame: "audit-panel" } do %>
-                  <%= audit_stamp(related_event.at) %>
-                  <span class="audit-verb"><%= audit_verb(related_event) %></span>
-                <% end %>
-              </li>
+    <% related = @context.visible_related %>
+    <% if related.any? %>
+      <section>
+        <h3 class="side-h3">Related events · same actor · ±15 min</h3>
+        <div class="side-related">
+          <% related.each do |related_event| %>
+            <%= link_to fd_audit_event_path(source: related_event.source, id: related_event.id),
+                  class: "side-related-row", data: { turbo_frame: "audit-panel" } do %>
+              <span class="side-related-time mono"><%= related_event.at.in_time_zone.strftime("%H:%M") %></span>
+              <span><%= audit_verb(related_event) %></span>
             <% end %>
-          </ol>
-          <% if @context.more_related? %>
-            <%= link_to "All", fd_audit_path(@context.related_params), class: "lnk audit-related-all",
-                  data: { turbo_frame: "_top" } %>
           <% end %>
-        </section>
-      <% end %>
+        </div>
+        <% if @context.more_related? %>
+          <%= link_to "All related events", fd_audit_path(@context.related_params), class: "lnk side-related-all",
+                data: { turbo_frame: "_top" } %>
+        <% end %>
+      </section>
+    <% end %>
 
-      <% if @row.raw? %>
-        <details class="audit-panel-rawbox">
-          <summary>Raw event</summary>
-          <pre class="audit-panel-raw"><code><%= audit_raw(@row) %></code></pre>
-        </details>
-      <% end %>
-    </div>
+    <% if @context.member_id %>
+      <div class="side-pivots">
+        <%= link_to fd_member_path(@context.member_id), class: "btn btn-sm", data: { turbo_frame: "_top" } do %>
+          <%= nav_icon("people") %><span>Open member</span>
+        <% end %>
+        <% linked = @context.linked_accounts %>
+        <% if linked.positive? %>
+          <%= link_to fd_member_path(@context.member_id), class: "btn btn-sm", data: { turbo_frame: "_top" } do %>
+            <%= nav_icon("link") %><span><%= pluralize(linked, "linked account") %></span>
+          <% end %>
+        <% end %>
+      </div>
+    <% end %>
+
+    <% if @row.raw? %>
+      <details class="audit-panel-rawbox">
+        <summary>Raw event</summary>
+        <pre class="audit-panel-raw"><code><%= audit_raw(@row) %></code></pre>
+      </details>
+    <% end %>
   </div>
 </turbo-frame>

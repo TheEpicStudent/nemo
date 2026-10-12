@@ -4,10 +4,11 @@ module Fd
     UUID = /\A\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\z/
 
     Device = Struct.new(:app, :os, :ua, keyword_init: true)
-    Place = Struct.new(:country, :network, :kind, keyword_init: true)
+    Place = Struct.new(:country, :network, :kind, :accounts, keyword_init: true)
 
     CONTEXT_SQL = <<~SQL.squish.freeze
-      SELECT u.ua, u.app, u.os, n.country, n.network, n.class AS kind
+      SELECT u.ua, u.app, u.os, n.country, n.network, n.class AS kind,
+             (SELECT count(DISTINCT l.user_id) FROM fd.login_event l WHERE l.ip = e.ip) AS accounts
       FROM (SELECT ua_id, ip FROM slack.audit_event WHERE id = :id
             UNION ALL
             SELECT ua_id, ip FROM slack.audit_view WHERE id = :id) e
@@ -34,7 +35,8 @@ module Fd
     def place
       return nil unless context_row && @query.identity?
 
-      result = Place.new(country: context_row["country"], network: context_row["network"], kind: context_row["kind"])
+      result = Place.new(country: context_row["country"], network: context_row["network"], kind: context_row["kind"],
+        accounts: context_row["accounts"].to_i)
       result.country || result.network ? result : nil
     end
 
@@ -68,6 +70,16 @@ module Fd
     def visible_related = related.first(RELATED)
 
     def more_related? = related.size > RELATED
+
+    def member_id
+      [row.actor_id, row.subject_id].find { |user_id| user_id.to_s.match?(AuditQuery::MEMBER_ID) }
+    end
+
+    def linked_accounts
+      return 0 if member_id.nil? || !@query.actor&.may?("member.links")
+
+      MemberLink.link_counts_for(member_id).count
+    end
 
     private
 

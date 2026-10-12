@@ -41,8 +41,8 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     id = slack!
 
     get fd_audit_path(q: "after:2026-09-01")
-    assert_equal ["Same actor", "Same action", "Same address", "Same app",
-                  "Same actor within 15 minutes", "Same session"], menu_links.keys
+    assert_equal ["Actor", "Event", "IP", "App",
+                  "Actor ±15 min", "Session"], menu_links.keys
     assert_select "tr.audit-row a.audit-more[data-turbo-frame=audit-panel][href=?]",
       fd_audit_event_path(source: "slack", id: id)
   end
@@ -53,7 +53,7 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     seeded!("raw.channel_dim", "channel_id", "C0PIVROOM")
 
     get fd_audit_path(q: "after:2026-09-01")
-    assert_equal fd_audit_path(q: "after:2026-09-01 channel:C0PIVROOM"), menu_links["Same channel"]
+    assert_equal fd_audit_path(q: "after:2026-09-01 channel:C0PIVROOM"), menu_links["Channel"]
   end
 
   test "a value pivot swaps that term and keeps the rest of the search" do
@@ -61,9 +61,9 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
 
     get fd_audit_path(q: "after:2026-09-01 action:user_channel_join")
     links = menu_links
-    assert_nil links["Same action"]
-    assert_equal fd_audit_path(q: "after:2026-09-01 action:user_channel_join actor:#{WHO}"), links["Same actor"]
-    assert_equal fd_audit_path(q: "after:2026-09-01 action:user_channel_join app:A0PIVAPP1"), links["Same app"]
+    assert_nil links["Event"]
+    assert_equal fd_audit_path(q: "after:2026-09-01 action:user_channel_join actor:#{WHO}"), links["Actor"]
+    assert_equal fd_audit_path(q: "after:2026-09-01 action:user_channel_join app:A0PIVAPP1"), links["App"]
   end
 
   test "around an event starts a fresh search on that actor, 15 minutes either side, views included" do
@@ -73,7 +73,7 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     slack!(actor: "UPIVOTHER", at: AT + 1.minute)
 
     get fd_audit_path(q: "after:2026-09-01 action:user_channel_join")
-    href = menu_links["Same actor within 15 minutes"]
+    href = menu_links["Actor ±15 min"]
     assert_equal fd_audit_path(q: "actor:#{WHO} after:2026-09-29T15:22 before:2026-09-29T15:53 show:high_volume"), href
 
     get href
@@ -86,7 +86,7 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     slim!(at: AT + 2.hours, session: 9999)
 
     get fd_audit_path(q: "after:2026-09-01")
-    href = menu_links["Same session"]
+    href = menu_links["Session"]
     assert_equal fd_audit_path(q: "actor:#{WHO} session:4242 show:high_volume"), href
 
     get href
@@ -98,8 +98,8 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     move_capability!("firefighter", "identity.read", false, by: "UPIVBOSS")
 
     get fd_audit_path(q: "after:2026-09-01")
-    assert_nil menu_links["Same address"]
-    assert menu_links["Same actor"]
+    assert_nil menu_links["IP"]
+    assert menu_links["Actor"]
   end
 
   test "an event with no payload still opens in the drawer" do
@@ -116,14 +116,14 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     get fd_audit_event_path(source: "slack", id: id)
     assert_response :success
     assert_select ".audit-panel-raw", count: 0
-    assert_select ".audit-pivots a.chip", text: "Same actor"
+    assert_select ".side-pivots a.btn", text: /\AActor\s+@UPIVBARE\z/
   end
 
   test "the drawer carries the same pivots" do
     id = slack!
 
     get fd_audit_event_path(source: "slack", id: id)
-    assert_select ".audit-pivots a.chip", text: "Same session"
-    assert_select ".audit-pivots a.chip[href=?]", fd_audit_path(q: "actor:#{WHO}")
+    assert_select ".side-pivots a.btn", text: /\ASession\s+4242\z/
+    assert_select ".side-pivots a.btn[href=?]", fd_audit_path(q: "actor:#{WHO}")
   end
 end

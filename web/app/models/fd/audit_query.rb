@@ -331,21 +331,21 @@ module Fd
       rows.flat_map { |row| [row.actor_id, row.subject_id, row.entity_id] }.compact.uniq
     end
 
-    Pivot = Struct.new(:label, :params, :kind, keyword_init: true)
+    Pivot = Struct.new(:label, :params, :kind, :value, keyword_init: true)
     PIVOT_WINDOW = 15.minutes
     HIGH_VOLUME_TERM = "show:high_volume".freeze
 
     def pivots(row)
       member_actor = row.actor_id.to_s.match?(MEMBER_ID)
       pivots = []
-      pivots << value_pivot("Same actor", "actor", row.actor_id) if member_actor
-      pivots << value_pivot("Same action", "action", row.verb) if row.verb.present?
-      pivots << value_pivot("Same address", "ip", row.ip) if row.ip.present?
-      pivots << value_pivot("Same channel", "channel", row.channel) if row.channel.present?
-      pivots << value_pivot("Same app", "app", row.app) if row.app.present?
-      pivots << Pivot.new(label: "Same actor within 15 minutes", kind: "around", params: around_params(row)) if member_actor
+      pivots << value_pivot("Actor", "actor", row.actor_id) if member_actor
+      pivots << value_pivot("Event", "action", row.verb) if row.verb.present?
+      pivots << value_pivot("IP", "ip", row.ip) if row.ip.present?
+      pivots << value_pivot("Channel", "channel", row.channel) if row.channel.present?
+      pivots << value_pivot("App", "app", row.app) if row.app.present?
+      pivots << Pivot.new(label: "Actor ±15 min", kind: "around", params: around_params(row)) if member_actor
       if member_actor && row.session.present?
-        pivots << Pivot.new(label: "Same session", kind: "session",
+        pivots << Pivot.new(label: "Session", kind: "session", value: row.session,
           params: reset_params("actor:#{row.actor_id}", "session:#{row.session}", HIGH_VOLUME_TERM))
       end
       pivots.compact
@@ -355,7 +355,7 @@ module Fd
       return nil if search.of(kind) == [value]
 
       remaining = terms.reject { |query_term| query_term.kind == kind }.map { |query_term| search.label_for(query_term) }
-      Pivot.new(label: label, kind: kind,
+      Pivot.new(label: label, kind: kind, value: value,
         params: scope_params.except("group").merge(TERM_KEY => (remaining << "#{kind}:#{value}").join(" ")))
     end
 

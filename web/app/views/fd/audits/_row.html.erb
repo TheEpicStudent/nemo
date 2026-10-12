@@ -1,4 +1,6 @@
-<tr class="audit-row" data-row-id="<%= row.source %>:<%= row.id %>">
+<tr class="audit-row" tabindex="0" data-row-id="<%= row.source %>:<%= row.id %>"
+    data-event-url="<%= fd_audit_event_path(source: row.source, id: row.id) %>"
+    data-action="click->audit-rows#open keydown.enter->audit-rows#open">
   <td class="audit-when">
     <%= audit_stamp(row.at) %>
   </td>
@@ -48,7 +50,7 @@
       <% end %>
     <% end %>
     <%= link_to fd_audit_event_path(source: row.source, id: row.id),
-          class: "btn btn-ghost btn-only audit-more", aria: { label: "Everything on this event" },
+          class: "btn btn-ghost btn-only audit-more", aria: { label: "Open event" },
           data: { turbo_frame: "audit-panel" } do %>
       <%= menu_dots %>
     <% end %>
