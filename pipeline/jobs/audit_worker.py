@@ -1,9 +1,11 @@
 import os
 import signal
 import threading
+import time
 
 from dotenv import load_dotenv
 
+from bot.core import loops
 from ingest.access_logs_pull import backfill as backfill_access_logs
 from ingest.access_logs_pull import run as walk_access_logs
 from ingest.audit_logs_pull import backfill_next, unknown_backfill_sets
@@ -39,6 +41,8 @@ DEFAULT_AGENT_SECONDS = 3600
 JOIN_TIMEOUT = 10
 BUSY_POLL_SECONDS = 2
 REFUSED_BACKOFF_SECONDS = 900
+SETTLE_SECONDS = 2
+WAKES = {"clusters": "fd_member_link"}
 
 REFUSALS = ("invalid_auth", "auditlogs:read", "not_allowed_token_type", "audit 403", "audit 401")
 
@@ -86,7 +90,32 @@ def note(state):
     return ", ".join(f"{name} {state[name]}" for name, *_ in LANES)
 
 
-def lane(name, work, state, stopping, poll, drains=True):
+def rest(stopping, wake, seconds):
+    if wake is None:
+        return stopping.wait(seconds)
+    deadline = time.monotonic() + seconds
+    while not stopping.is_set():
+        if wake.wait(min(1.0, max(0.0, deadline - time.monotonic()))):
+            wake.clear()
+            return stopping.wait(SETTLE_SECONDS)
+        if time.monotonic() >= deadline:
+            return False
+    return True
+
+
+def wakes_for(lanes, stopping):
+    events = {name: threading.Event() for name, *_ in lanes if name in WAKES}
+    if events:
+        def ring(channel, _payload):
+            for name, event in events.items():
+                if WAKES[name] == channel:
+                    event.set()
+
+        loops.watching(f"{WORKER}-notify", tuple(sorted({WAKES[name] for name in events})), ring, stopping)
+    return events
+
+
+def lane(name, work, state, stopping, poll, drains=True, wake=None):
     def loop():
         while not stopping.is_set():
             moved = 0
@@ -109,7 +138,7 @@ def lane(name, work, state, stopping, poll, drains=True):
             except Exception as failure:  # noqa: BLE001
                 state[name] = f"failed, {type(failure).__name__}"
                 print(f"{WORKER}: the {name} lane failed, trying again after the poll: {failure}")
-            if stopping.wait(BUSY_POLL_SECONDS if moved and drains else poll):
+            if rest(stopping, wake, BUSY_POLL_SECONDS if moved and drains else poll):
                 return
         state[name] = "stopped"
 
@@ -167,7 +196,8 @@ def serve():
 
     print(f"{WORKER}: {len(lanes)} lane(s) running independently")
     with heartbeat_loop(WORKER, lambda: note(state)):
-        running = [lane(name, work, state, stopping, seconds(var, fallback), drains)
+        wakes = wakes_for(lanes, stopping)
+        running = [lane(name, work, state, stopping, seconds(var, fallback), drains, wakes.get(name))
                    for name, work, var, fallback, drains in lanes]
         stopping.wait()
         for thread in running:
