@@ -88,11 +88,14 @@ def test_measure_scores_verdicts_people_and_aliases(monkeypatch):
     monkeypatch.setattr(links, "scoring", lambda: THRESHOLDS)
     monkeypatch.setattr(links, "catalogue", lambda: {"staff_domains": ["hackclub.com"]})
     among = [("U1", "U2", 9.0), ("U2", "U3", 4.0), ("U6", "U7", 5.5)]
+    asked = {}
     conn = Conn({
         "count(*) FILTER": [(1, 2, 3)],
         "FROM fd.member_link_verdict": [
-            ("U1", "U2", "same_person", 9.0), ("U2", "U3", "same_person", 4.0),
-            ("U3", "U4", "same_person", None), ("U5", "U8", "different_people", None)],
+            ("U1", "U2", "same_person", 9.0, "mailbox_alias"), ("U2", "U3", "same_person", 4.0, "ip_burst"),
+            ("U3", "U4", "same_person", None, None), ("U5", "U8", "different_people", None, None)],
+        "'user_deactivated'": lambda params: asked.update(params) or [
+            ("U10", "U11", 9.0, "mailbox_alias", ["inbox"]), ("U12", "U13", None, None, ["VPN exit"])],
         "ANY(%(ids)s)": lambda params: [row for row in among
                                         if row[0] in params["ids"] and row[1] in params["ids"]],
         "FROM fd.member_identity": [("U6", "a.b@gmail.com"), ("U7", "ab@gmail.com"),
@@ -110,6 +113,67 @@ def test_measure_scores_verdicts_people_and_aliases(monkeypatch):
         {"hub": "U2", "accounts": 4, "together": 3, "strong_together": 2}]
     assert (result["aliases"]["pairs"], result["aliases"]["linked"]) == (1, 1)
     assert result["aliases"]["bands"] == {"strong": 1}
+    assert asked == {"machines": ["USLACKBOT", "U09ULFV88KU"], "within": 30, "home": 8, "exit": 10}
+    post_ban = result["recall"]["post-ban"]
+    assert (post_ban["pairs"], post_ban["found"]) == (2, 1)
+    assert post_ban["evidence"] == {"inbox": (1, 1), "VPN exit": (0, 1)}
+    same = result["recall"]["same person"]
+    assert (same["pairs"], same["found"]) == (3, 1)
+    assert same["signals"] == {"mailbox_alias": (1, 1), "ip_burst": (0, 1)}
+
+
+def test_recall_counts_strong_and_certain_pairs_by_band_signal_and_evidence():
+    items = [(9.0, "mailbox_alias", ("inbox",)), (6.0, "ip_stable", ("home address", "inbox")),
+             (4.0, "ip_burst", ("VPN exit",)), (None, None, ("VPN exit",))]
+
+    one = links.recall(items, THRESHOLDS)
+
+    assert (one["pairs"], one["found"]) == (4, 2)
+    assert one["bands"] == {"certain": 1, "strong": 1, "worth a look": 1, "not linked": 1}
+    assert one["signals"] == {"mailbox_alias": (1, 1), "ip_stable": (1, 1), "ip_burst": (0, 1)}
+    assert one["evidence"] == {"inbox": (2, 2), "home address": (1, 1), "VPN exit": (0, 2)}
+
+
+def test_post_ban_pairs_need_two_admin_bans_and_one_shared_value():
+    text = links.POST_BAN_SQL
+
+    assert "d.action = 'user_deactivated' AND NOT d.ours" in text
+    assert "d.actor_id <> d.entity_id AND d.actor_id <> ALL(%(machines)s)" in text
+    assert "r.action = 'user_reactivated' AND r.at > o.off_at" in text
+    assert "off_at <= joined_at + make_interval(days => %(within)s)" in text
+    assert text.count("l.joined_at > b.off_at") == 2
+    assert "tb.kind = 'mailbox'" in text and "tl.value = tb.value" in text
+
+
+def test_a_vpn_exit_counts_only_on_one_build_and_rotating_addresses_never_count():
+    text = links.POST_BAN_SQL
+
+    assert "(sb.kind = 'home' OR sl.ua_id = sb.ua_id)" in text
+    assert "WHEN n.class IN ('rotating', 'tor') THEN NULL" in text
+    assert "SELECT 1 FROM fd.shared_ip s WHERE s.ip = e.ip) THEN NULL" in text
+    assert "c.people <= CASE a.kind WHEN 'home' THEN %(home)s ELSE %(exit)s END" in text
+    assert "LEFT JOIN {links} l" in text
+
+
+def test_render_prints_both_recalls_with_their_breakdowns():
+    recall = {"pairs": 4, "found": 2, "bands": {"certain": 1, "strong": 1, "not linked": 2},
+              "signals": {"mailbox_alias": (1, 1), "ip_burst": (0, 1)},
+              "evidence": {"inbox": (2, 2), "VPN exit": (0, 2)}}
+    result = {
+        "links": "fd.member_link",
+        "bands": {"certain": 1, "strong": 1, "worth a look": 0},
+        "recall": {"post-ban": recall, "same person": {**recall, "evidence": {}}},
+        "verdicts": {},
+        "people": [],
+        "aliases": {"pairs": 0, "linked": 0, "bands": {}},
+    }
+
+    text = "\n".join(links.render(result))
+
+    assert "  post-ban               2 of 4       50%  certain 1, strong 1, worth a look 0, not linked 2" in text
+    assert "by what they share  VPN exit 0 of 2, inbox 2 of 2" in text
+    assert "by top signal       ip_burst 0 of 1, mailbox_alias 1 of 1" in text
+    assert text.count("by what they share") == 1
 
 
 def test_render_reports_shares_of_each_count():
