@@ -17,14 +17,17 @@ from lib.paths import ENV_FILE
 LINKS = "fd.member_link"
 TABLE = re.compile(r"^([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)$")
 BAND_NAMES = ("certain", "strong", "worth a look")
-FOUND = ("certain", "strong")
+RECALLED_BANDS = ("certain", "strong")
 UNLINKED = "not linked"
 RIGHT = ("same_person",)
 WRONG = ("different_people", "household")
-MACHINES = ["USLACKBOT", "U09ULFV88KU"]
-BANNED_AGAIN_DAYS = 30
-HOME_CROWD = 8
-EXIT_CROWD = 10
+BOT_USER_IDS = ["USLACKBOT", "U09ULFV88KU"]
+REBAN_WINDOW_DAYS = 30
+HOME_IP_MAX_USERS = 8
+VPN_IP_MAX_USERS = 10
+LIVE_VARIANT = "live"
+SAMPLE_BANDS = ("certain", "strong", "weak")
+SAMPLE_TARGET_KEYS = {"certain": "certain", "strong": "strong", "weak": "floor"}
 
 BANDS_SQL = """
 SELECT count(*) FILTER (WHERE score >= %(certain)s),
@@ -46,75 +49,118 @@ WHERE a_user_id = ANY(%(ids)s) AND b_user_id = ANY(%(ids)s)
 """
 
 POST_BAN_SQL = """
-WITH off AS MATERIALIZED (
-    SELECT DISTINCT ON (d.entity_id) d.entity_id AS user_id, d.at AS off_at
+WITH deactivation AS MATERIALIZED (
+    SELECT DISTINCT ON (d.entity_id) d.entity_id AS user_id, d.at AS deactivated_at
     FROM slack.audit_event d
     WHERE d.action = 'user_deactivated' AND NOT d.ours AND d.entity_id IS NOT NULL
-      AND d.actor_id <> d.entity_id AND d.actor_id <> ALL(%(machines)s)
+      AND d.actor_id <> d.entity_id AND d.actor_id <> ALL(%(bot_user_ids)s)
     ORDER BY d.entity_id, d.at DESC
 ),
-banned AS MATERIALIZED (
-    SELECT o.user_id, o.off_at, j.joined_at
-    FROM off o
-    LEFT JOIN fd.member_joins j ON j.user_id = o.user_id
+banned_account AS MATERIALIZED (
+    SELECT d.user_id, d.deactivated_at, j.joined_at
+    FROM deactivation d
+    LEFT JOIN fd.member_joins j ON j.user_id = d.user_id
     WHERE NOT EXISTS (SELECT 1 FROM slack.audit_event r
-                      WHERE r.entity_id = o.user_id AND r.action = 'user_reactivated' AND r.at > o.off_at)
+                      WHERE r.entity_id = d.user_id AND r.action = 'user_reactivated'
+                        AND r.at > d.deactivated_at)
 ),
-later AS MATERIALIZED (
-    SELECT user_id, joined_at FROM banned
-    WHERE off_at <= joined_at + make_interval(days => %(within)s)
+rebanned_account AS MATERIALIZED (
+    SELECT user_id, joined_at FROM banned_account
+    WHERE deactivated_at <= joined_at + make_interval(days => %(reban_window_days)s)
 ),
-inbox AS (
-    SELECT b.user_id AS banned, l.user_id AS later, 'inbox' AS evidence
-    FROM banned b
+mailbox_pair AS (
+    SELECT b.user_id AS banned_user_id, r.user_id AS rebanned_user_id, 'inbox' AS evidence
+    FROM banned_account b
     JOIN fd.member_trait tb ON tb.user_id = b.user_id AND tb.kind = 'mailbox'
-    JOIN fd.member_trait tl ON tl.kind = 'mailbox' AND tl.value = tb.value AND tl.user_id <> b.user_id
-    JOIN later l ON l.user_id = tl.user_id AND l.joined_at > b.off_at
+    JOIN fd.member_trait tr ON tr.kind = 'mailbox' AND tr.value = tb.value AND tr.user_id <> b.user_id
+    JOIN rebanned_account r ON r.user_id = tr.user_id AND r.joined_at > b.deactivated_at
 ),
-seen AS MATERIALIZED (
-    SELECT DISTINCT user_id, ip, ua_id, kind FROM (
+ip_use AS MATERIALIZED (
+    SELECT DISTINCT user_id, ip, ua_id, ip_class FROM (
         SELECT e.user_id, e.ip, e.ua_id,
-               CASE WHEN n.class IN ('vpn', 'hosting') THEN 'exit'
+               CASE WHEN n.class IN ('vpn', 'hosting') THEN 'vpn'
                     WHEN n.class IN ('rotating', 'tor') THEN NULL
                     WHEN EXISTS (SELECT 1 FROM fd.shared_ip s WHERE s.ip = e.ip) THEN NULL
-                    ELSE 'home' END AS kind
+                    ELSE 'home' END AS ip_class
         FROM fd.login_event e
         LEFT JOIN fd.ip_network n ON n.ip_prefix = e.ip_prefix
-        WHERE e.ip IS NOT NULL AND e.user_id IN (SELECT user_id FROM banned)
-    ) classed
-    WHERE kind IS NOT NULL
+        WHERE e.ip IS NOT NULL AND e.user_id IN (SELECT user_id FROM banned_account)
+    ) classified
+    WHERE ip_class IS NOT NULL
 ),
-address AS MATERIALIZED (
-    SELECT DISTINCT b.user_id AS banned, sl.user_id AS later, sb.ip, sb.kind
-    FROM banned b
-    JOIN seen sb ON sb.user_id = b.user_id
-    JOIN seen sl ON sl.ip = sb.ip AND sl.kind = sb.kind AND sl.user_id <> sb.user_id
-                AND (sb.kind = 'home' OR sl.ua_id = sb.ua_id)
-    JOIN later l ON l.user_id = sl.user_id AND l.joined_at > b.off_at
+ip_pair AS MATERIALIZED (
+    SELECT DISTINCT b.user_id AS banned_user_id, ur.user_id AS rebanned_user_id, ub.ip, ub.ip_class
+    FROM banned_account b
+    JOIN ip_use ub ON ub.user_id = b.user_id
+    JOIN ip_use ur ON ur.ip = ub.ip AND ur.ip_class = ub.ip_class AND ur.user_id <> ub.user_id
+                  AND (ub.ip_class = 'home' OR ur.ua_id = ub.ua_id)
+    JOIN rebanned_account r ON r.user_id = ur.user_id AND r.joined_at > b.deactivated_at
 ),
-crowd AS (
-    SELECT a.ip, count(DISTINCT e.user_id) AS people
-    FROM (SELECT DISTINCT ip FROM address) a
-    JOIN fd.login_event e ON e.ip = a.ip
-    GROUP BY a.ip
+ip_user_count AS (
+    SELECT p.ip, count(DISTINCT e.user_id) AS user_count
+    FROM (SELECT DISTINCT ip FROM ip_pair) p
+    JOIN fd.login_event e ON e.ip = p.ip
+    GROUP BY p.ip
 ),
-shared AS (
-    SELECT banned, later, evidence FROM inbox
+evidence_pair AS (
+    SELECT banned_user_id, rebanned_user_id, evidence FROM mailbox_pair
     UNION
-    SELECT a.banned, a.later, CASE a.kind WHEN 'home' THEN 'home address' ELSE 'VPN exit' END
-    FROM address a
-    JOIN crowd c ON c.ip = a.ip
-    WHERE c.people <= CASE a.kind WHEN 'home' THEN %(home)s ELSE %(exit)s END
+    SELECT p.banned_user_id, p.rebanned_user_id,
+           CASE p.ip_class WHEN 'home' THEN 'home address' ELSE 'VPN exit' END
+    FROM ip_pair p
+    JOIN ip_user_count c ON c.ip = p.ip
+    WHERE c.user_count <= CASE p.ip_class WHEN 'home' THEN %(home_ip_max_users)s
+                                          ELSE %(vpn_ip_max_users)s END
 ),
-pair AS (
-    SELECT least(banned, later) AS a_user_id, greatest(banned, later) AS b_user_id,
+post_ban_pair AS (
+    SELECT least(banned_user_id, rebanned_user_id) AS a_user_id,
+           greatest(banned_user_id, rebanned_user_id) AS b_user_id,
            array_agg(DISTINCT evidence ORDER BY evidence) AS evidence
-    FROM shared
+    FROM evidence_pair
     GROUP BY 1, 2
 )
 SELECT p.a_user_id, p.b_user_id, l.score, l.top_signal, p.evidence
-FROM pair p
+FROM post_ban_pair p
 LEFT JOIN {links} l ON l.a_user_id = p.a_user_id AND l.b_user_id = p.b_user_id
+"""
+
+DRAW_SQL = """
+WITH banded AS (
+    SELECT l.a_user_id, l.b_user_id, l.score, l.top_signal,
+           CASE WHEN l.score >= %(certain)s THEN 'certain'
+                WHEN l.score >= %(strong)s THEN 'strong'
+                ELSE 'weak' END AS band
+    FROM fd.member_link l
+    WHERE NOT EXISTS (SELECT 1 FROM fd.link_sample s
+                      WHERE s.variant = %(variant)s
+                        AND s.a_user_id = l.a_user_id AND s.b_user_id = l.b_user_id)
+),
+stratum_ranked AS (
+    SELECT b.*,
+           row_number() OVER (PARTITION BY b.band, b.top_signal ORDER BY random())::numeric
+               / count(*) OVER (PARTITION BY b.band, b.top_signal) AS stratum_position
+    FROM banded b
+    WHERE b.band = ANY(%(bands)s)
+),
+band_ranked AS (
+    SELECT r.*, row_number() OVER (PARTITION BY r.band ORDER BY r.stratum_position, random()) AS band_rank
+    FROM stratum_ranked r
+)
+INSERT INTO fd.link_sample (variant, a_user_id, b_user_id, band, top_signal, score)
+SELECT %(variant)s, a_user_id, b_user_id, band, top_signal, score
+FROM band_ranked
+WHERE band_rank <= %(per_band)s
+RETURNING band
+"""
+
+SAMPLE_PRECISION_SQL = """
+SELECT s.band, count(*) AS drawn,
+       count(*) FILTER (WHERE v.verdict = ANY(%(right)s)) AS right_count,
+       count(*) FILTER (WHERE v.verdict = ANY(%(wrong)s)) AS wrong_count
+FROM fd.link_sample s
+LEFT JOIN fd.member_link_verdict v ON v.a_user_id = s.a_user_id AND v.b_user_id = s.b_user_id
+WHERE s.variant = %(variant)s
+GROUP BY s.band
 """
 
 MAILBOXES_SQL = """
@@ -174,7 +220,7 @@ def recall(items, thresholds):
     evidence_found, evidence_pairs = Counter(), Counter()
     for score, top_signal, shared in items:
         band = UNLINKED if score is None else band_of(float(score), thresholds)
-        found = band in FOUND
+        found = band in RECALLED_BANDS
         bands[band] += 1
         if top_signal:
             signal_linked[top_signal] += 1
@@ -182,7 +228,7 @@ def recall(items, thresholds):
         for name in shared:
             evidence_pairs[name] += 1
             evidence_found[name] += found
-    return {"pairs": len(items), "found": sum(bands[band] for band in FOUND), "bands": bands,
+    return {"pairs": len(items), "found": sum(bands[band] for band in RECALLED_BANDS), "bands": bands,
             "signals": {name: (signal_found[name], total) for name, total in signal_linked.items()},
             "evidence": {name: (evidence_found[name], total) for name, total in evidence_pairs.items()}}
 
@@ -203,6 +249,23 @@ def suggest_cutoffs(pairs, targets):
                 summary["cuts"][name] = {"cut": cut, "precision": precision, "recall": sum(above) / right}
                 break
     return summary
+
+
+def draw_samples(conn, per_band, bands=SAMPLE_BANDS):
+    thresholds = scoring()
+    rows = conn.execute(DRAW_SQL, {"certain": thresholds["certain"], "strong": thresholds["strong"],
+                                   "variant": LIVE_VARIANT, "bands": list(bands),
+                                   "per_band": per_band}).fetchall()
+    conn.commit()
+    return Counter(band for (band,) in rows)
+
+
+def sample_precision(rows, targets):
+    precision_targets = (targets or {}).get("precision", {})
+    counts = {band: (drawn, right, wrong) for band, drawn, right, wrong in rows}
+    return {band: {"drawn": counts[band][0], "right": counts[band][1], "wrong": counts[band][2],
+                   "target": precision_targets.get(SAMPLE_TARGET_KEYS[band])}
+            for band in SAMPLE_BANDS if band in counts}
 
 
 def measure(conn, links_name=LINKS):
@@ -243,10 +306,16 @@ def measure(conn, links_name=LINKS):
     alias_links = query(AMONG_SQL, {"ids": alias_ids}) if alias_ids else []
     alias_scores = {(a, b): float(score) for a, b, score in alias_links if (a, b) in aliases}
 
-    post_ban = query(POST_BAN_SQL, {"machines": MACHINES, "within": BANNED_AGAIN_DAYS,
-                                    "home": HOME_CROWD, "exit": EXIT_CROWD})
+    post_ban = query(POST_BAN_SQL, {"bot_user_ids": BOT_USER_IDS, "reban_window_days": REBAN_WINDOW_DAYS,
+                                    "home_ip_max_users": HOME_IP_MAX_USERS,
+                                    "vpn_ip_max_users": VPN_IP_MAX_USERS})
     same_person = [(score, top_signal, ()) for _a, _b, verdict, score, top_signal in rows
                    if verdict == "same_person"]
+    samples = None
+    if links_name == LINKS:
+        sample_rows = conn.execute(SAMPLE_PRECISION_SQL, {"right": list(RIGHT), "wrong": list(WRONG),
+                                                          "variant": LIVE_VARIANT}).fetchall()
+        samples = sample_precision(sample_rows, targets)
 
     return {
         "links": links_name,
@@ -256,6 +325,7 @@ def measure(conn, links_name=LINKS):
                                 for _a, _b, score, top_signal, evidence in post_ban], thresholds),
             "same person": recall(same_person, thresholds),
         },
+        "samples": samples,
         "verdicts": verdicts,
         "people": confirmed_people,
         "aliases": band_summary(aliases, alias_scores, thresholds),
@@ -272,23 +342,36 @@ def band_line(bands):
     return ", ".join(f"{name} {bands.get(name, 0):,}" for name in BAND_NAMES)
 
 
-def tally(counts):
+def format_ratios(counts):
     ordered = sorted(counts.items(), key=lambda item: (-item[1][1], item[0]))
     return ", ".join(f"{name} {found:,} of {total:,}" for name, (found, total) in ordered)
 
 
 def recall_lines(recalls):
-    lines = [f"recall at strong or above (post-ban: banned again within {BANNED_AGAIN_DAYS} days, "
-             f"sharing an inbox, a home address held by {HOME_CROWD} or fewer, "
-             f"or a VPN exit held by {EXIT_CROWD} or fewer on one build)"]
+    lines = [f"recall at strong or above (post-ban: banned again within {REBAN_WINDOW_DAYS} days, "
+             f"sharing an inbox, a home address held by {HOME_IP_MAX_USERS} or fewer, "
+             f"or a VPN exit held by {VPN_IP_MAX_USERS} or fewer on one build)"]
     for name, one in recalls.items():
         lines.append(f"  {name:<17} {one['found']:>6,} of {one['pairs']:<6,} "
                      f"{share(one['found'], one['pairs']):>4}  {band_line(one['bands'])}, "
                      f"{UNLINKED} {one['bands'].get(UNLINKED, 0):,}")
         if one["evidence"]:
-            lines.append(f"    by what they share  {tally(one['evidence'])}")
+            lines.append(f"    by what they share  {format_ratios(one['evidence'])}")
         if one["signals"]:
-            lines.append(f"    by top signal       {tally(one['signals'])}")
+            lines.append(f"    by top signal       {format_ratios(one['signals'])}")
+    lines.append("")
+    return lines
+
+
+def sample_lines(samples):
+    if not samples:
+        return ["sampled links: none drawn yet (check-links --draw 50)", ""]
+    lines = ["sampled links, labelled on Compare (Links > Sampled)"]
+    for band, one in samples.items():
+        labelled_count = one["right"] + one["wrong"]
+        target = f", target {share(one['target'], 1)}" if one["target"] is not None else ""
+        lines.append(f"  {band:<8} {labelled_count:>4,} labelled of {one['drawn']:<4,} "
+                     f"precision {share(one['right'], labelled_count)}{target}")
     lines.append("")
     return lines
 
@@ -299,6 +382,8 @@ def render(result):
 
     if result.get("recall"):
         lines.extend(recall_lines(result["recall"]))
+    if "samples" in result and result["links"] == LINKS:
+        lines.extend(sample_lines(result["samples"]))
 
     lines.append("verdict pairs the finder links")
     for verdict, one in result["verdicts"].items():
@@ -351,6 +436,10 @@ def main(argv=None):
     parser.add_argument("--links", default=LINKS,
                         help="schema.table holding a_user_id < b_user_id, score and top_signal, like fd.member_link")
     parser.add_argument("--dsn", help="Postgres DSN to use instead of the environment configuration")
+    parser.add_argument("--draw", type=int, metavar="N",
+                        help="add N links per band from fd.member_link to fd.link_sample, spread across top signals")
+    parser.add_argument("--band", choices=SAMPLE_BANDS, action="append",
+                        help="draw only from this band; repeat for more than one")
     args = parser.parse_args(argv)
     load_dotenv(ENV_FILE)
     try:
@@ -358,8 +447,16 @@ def main(argv=None):
     except ValueError as error:
         print(f"check-links: {error}", file=sys.stderr)
         return 2
+    if args.draw is not None and (args.draw < 1 or args.links != LINKS):
+        print(f"check-links: --draw takes a positive count and samples {LINKS} only", file=sys.stderr)
+        return 2
     try:
         with connect(args.dsn) as conn:
+            if args.draw is not None:
+                drawn = draw_samples(conn, args.draw, args.band or SAMPLE_BANDS)
+                print("check-links: drew " + ", ".join(f"{drawn.get(band, 0):,} {band}" for band in SAMPLE_BANDS)
+                      + " into fd.link_sample")
+                return 0
             conn.read_only = True
             result = measure(conn, args.links)
     except (errors.UndefinedTable, errors.UndefinedColumn) as error:

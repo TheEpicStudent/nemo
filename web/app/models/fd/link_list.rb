@@ -6,7 +6,8 @@ module Fd
       "strong" => "Strong",
       "weak" => "Weak",
       "labelled" => "Household / school",
-      "reviewed" => "Reviewed"
+      "reviewed" => "Reviewed",
+      "sampled" => "Sampled"
     }.freeze
     DEFAULT_VIEW = "review".freeze
     LIMIT = 100
@@ -25,8 +26,11 @@ module Fd
       "strong" => "l.score >= :strong AND l.score < :certain",
       "weak" => "l.score < :strong AND l.label IS NULL",
       "labelled" => "l.label IS NOT NULL",
-      "reviewed" => "v.a_user_id IS NOT NULL"
+      "reviewed" => "v.a_user_id IS NOT NULL",
+      "sampled" => "EXISTS (SELECT 1 FROM fd.link_sample s WHERE s.variant = 'live' " \
+                   "AND s.a_user_id = l.a_user_id AND s.b_user_id = l.b_user_id)"
     }.freeze
+    ORDER_PREFIX = { "reviewed" => "v.decided_at DESC,", "sampled" => "(v.a_user_id IS NOT NULL)," }.freeze
 
     FROM = <<~SQL.squish.freeze
       fd.member_link l
@@ -79,7 +83,7 @@ module Fd
                coalesce(a.is_deleted, false) AS a_deleted, coalesce(b.is_deleted, false) AS b_deleted
         FROM #{FROM}
         WHERE #{CONDITIONS.fetch(view)} #{signal_condition}
-        ORDER BY #{view == "reviewed" ? "v.decided_at DESC," : ""} l.score DESC, l.a_user_id, l.b_user_id
+        ORDER BY #{ORDER_PREFIX[view]} l.score DESC, l.a_user_id, l.b_user_id
         LIMIT :limit
       SQL
     end

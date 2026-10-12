@@ -90,6 +90,7 @@ def test_measure_scores_verdicts_people_and_aliases(monkeypatch):
     among = [("U1", "U2", 9.0), ("U2", "U3", 4.0), ("U6", "U7", 5.5)]
     asked = {}
     conn = Conn({
+        "FROM fd.link_sample s": [("strong", 50, 9, 1), ("certain", 50, 0, 0)],
         "count(*) FILTER": [(1, 2, 3)],
         "FROM fd.member_link_verdict": [
             ("U1", "U2", "same_person", 9.0, "mailbox_alias"), ("U2", "U3", "same_person", 4.0, "ip_burst"),
@@ -113,13 +114,16 @@ def test_measure_scores_verdicts_people_and_aliases(monkeypatch):
         {"hub": "U2", "accounts": 4, "together": 3, "strong_together": 2}]
     assert (result["aliases"]["pairs"], result["aliases"]["linked"]) == (1, 1)
     assert result["aliases"]["bands"] == {"strong": 1}
-    assert asked == {"machines": ["USLACKBOT", "U09ULFV88KU"], "within": 30, "home": 8, "exit": 10}
+    assert asked == {"bot_user_ids": ["USLACKBOT", "U09ULFV88KU"], "reban_window_days": 30,
+                     "home_ip_max_users": 8, "vpn_ip_max_users": 10}
     post_ban = result["recall"]["post-ban"]
     assert (post_ban["pairs"], post_ban["found"]) == (2, 1)
     assert post_ban["evidence"] == {"inbox": (1, 1), "VPN exit": (0, 1)}
     same = result["recall"]["same person"]
     assert (same["pairs"], same["found"]) == (3, 1)
     assert same["signals"] == {"mailbox_alias": (1, 1), "ip_burst": (0, 1)}
+    assert list(result["samples"]) == ["certain", "strong"]
+    assert result["samples"]["strong"] == {"drawn": 50, "right": 9, "wrong": 1, "target": None}
 
 
 def test_recall_counts_strong_and_certain_pairs_by_band_signal_and_evidence():
@@ -138,20 +142,21 @@ def test_post_ban_pairs_need_two_admin_bans_and_one_shared_value():
     text = links.POST_BAN_SQL
 
     assert "d.action = 'user_deactivated' AND NOT d.ours" in text
-    assert "d.actor_id <> d.entity_id AND d.actor_id <> ALL(%(machines)s)" in text
-    assert "r.action = 'user_reactivated' AND r.at > o.off_at" in text
-    assert "off_at <= joined_at + make_interval(days => %(within)s)" in text
-    assert text.count("l.joined_at > b.off_at") == 2
-    assert "tb.kind = 'mailbox'" in text and "tl.value = tb.value" in text
+    assert "d.actor_id <> d.entity_id AND d.actor_id <> ALL(%(bot_user_ids)s)" in text
+    assert "r.action = 'user_reactivated'" in text and "r.at > d.deactivated_at" in text
+    assert "deactivated_at <= joined_at + make_interval(days => %(reban_window_days)s)" in text
+    assert text.count("r.joined_at > b.deactivated_at") == 2
+    assert "tb.kind = 'mailbox'" in text and "tr.value = tb.value" in text
 
 
 def test_a_vpn_exit_counts_only_on_one_build_and_rotating_addresses_never_count():
     text = links.POST_BAN_SQL
 
-    assert "(sb.kind = 'home' OR sl.ua_id = sb.ua_id)" in text
+    assert "(ub.ip_class = 'home' OR ur.ua_id = ub.ua_id)" in text
     assert "WHEN n.class IN ('rotating', 'tor') THEN NULL" in text
     assert "SELECT 1 FROM fd.shared_ip s WHERE s.ip = e.ip) THEN NULL" in text
-    assert "c.people <= CASE a.kind WHEN 'home' THEN %(home)s ELSE %(exit)s END" in text
+    assert "CASE p.ip_class WHEN 'home' THEN %(home_ip_max_users)s" in text
+    assert "ELSE %(vpn_ip_max_users)s END" in text
     assert "LEFT JOIN {links} l" in text
 
 
@@ -270,3 +275,91 @@ def test_render_prints_the_current_and_the_suggested_cut():
     assert "bands from verdicts: 5 same person, 4 different people or household" in text
     assert "strong   now 5, suggested 8.5 (precision 100%, recall 40%)" in text
     assert "floor    now 3, no score reaches the precision asked for" in text
+
+
+def test_a_sample_draw_spreads_each_band_across_top_signals_and_skips_drawn_links():
+    text = links.DRAW_SQL
+
+    assert "PARTITION BY b.band, b.top_signal ORDER BY random()" in text
+    assert "/ count(*) OVER (PARTITION BY b.band, b.top_signal) AS stratum_position" in text
+    assert "PARTITION BY r.band ORDER BY r.stratum_position, random()" in text
+    assert "WHERE band_rank <= %(per_band)s" in text
+    assert "s.variant = %(variant)s" in text and "NOT EXISTS (SELECT 1 FROM fd.link_sample s" in text
+
+
+def test_draw_samples_passes_the_bands_and_commits(monkeypatch):
+    monkeypatch.setattr(links, "scoring", lambda: THRESHOLDS)
+    asked = {}
+
+    class DrawConn(Conn):
+        committed = False
+
+        def commit(self):
+            self.committed = True
+
+    conn = DrawConn({"INSERT INTO fd.link_sample": lambda params: asked.update(params) or [("strong",), ("strong",)]})
+
+    drawn = links.draw_samples(conn, 50, ["strong"])
+
+    assert drawn == {"strong": 2}
+    assert conn.committed
+    assert asked == {"certain": 8.0, "strong": 5.0, "variant": "live", "bands": ["strong"], "per_band": 50}
+
+
+def test_sample_precision_keeps_band_order_and_reads_weak_against_the_floor():
+    targets = {"precision": {"floor": 0.5, "strong": 0.9, "certain": 0.98}}
+
+    samples = links.sample_precision([("weak", 50, 10, 30), ("certain", 50, 4, 0)], targets)
+
+    assert list(samples) == ["certain", "weak"]
+    assert samples["weak"] == {"drawn": 50, "right": 10, "wrong": 30, "target": 0.5}
+    assert samples["certain"]["target"] == 0.98
+
+
+def test_render_prints_sampled_precision_against_each_target():
+    result = {
+        "links": "fd.member_link",
+        "bands": {"certain": 1, "strong": 1, "worth a look": 0},
+        "samples": {"strong": {"drawn": 50, "right": 9, "wrong": 1, "target": 0.9},
+                    "weak": {"drawn": 50, "right": 0, "wrong": 0, "target": 0.5}},
+        "verdicts": {},
+        "people": [],
+        "aliases": {"pairs": 0, "linked": 0, "bands": {}},
+    }
+
+    text = "\n".join(links.render(result))
+
+    assert "strong     10 labelled of 50   precision 90%, target 90%" in text
+    assert "weak        0 labelled of 50   precision n/a, target 50%" in text
+
+
+def test_render_says_when_no_sample_was_drawn():
+    result = {"links": "fd.member_link", "bands": {}, "samples": {}, "verdicts": {}, "people": [],
+              "aliases": {"pairs": 0, "linked": 0, "bands": {}}}
+
+    assert "sampled links: none drawn yet (check-links --draw 50)" in links.render(result)
+
+
+def test_a_draw_needs_a_positive_count_and_the_live_links(monkeypatch, capsys):
+    monkeypatch.setattr(links, "load_dotenv", lambda *_args: None)
+    monkeypatch.setattr(links, "connect", lambda *_args: pytest.fail("connected"))
+
+    assert links.main(["--draw", "0"]) == 2
+    assert links.main(["--draw", "50", "--links", "fd.member_link_shadow"]) == 2
+    assert "--draw takes a positive count and samples fd.member_link only" in capsys.readouterr().err
+
+
+def test_a_draw_prints_how_many_links_each_band_got(monkeypatch, capsys):
+    class Writable:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(links, "load_dotenv", lambda *_args: None)
+    monkeypatch.setattr(links, "connect", lambda *_args: Writable())
+    monkeypatch.setattr(links, "draw_samples", lambda _conn, per_band, bands: {"strong": per_band} if bands == ["strong"] else {})
+
+    assert links.main(["--draw", "50", "--band", "strong"]) == 0
+    assert capsys.readouterr().out == "check-links: drew 0 certain, 50 strong, 0 weak into fd.link_sample\n"
