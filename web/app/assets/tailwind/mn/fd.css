@@ -17,7 +17,8 @@
 
   .audit-histogram { display: block; }
   .audit-histogram:not([complete]) { min-height: 180px; }
-  .audit-histogram[complete]:not(:has(.card)) { display: none; }
+  .audit-histogram[complete]:not(:has(.audit-histogram-chart)) { display: none; }
+  .audit-histogram-chart { position: relative; }
 
   .audit-verb { font-weight: 500; color: var(--ink); }
   .audit-tail {
@@ -178,8 +179,8 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 4px;
-    min-height: 36px;
-    padding: 3px 6px 3px 10px;
+    min-height: 40px;
+    padding: 5px 6px 5px 10px;
     border: 1px solid var(--input);
     border-radius: var(--radius);
     background: var(--background);
@@ -193,7 +194,7 @@
   .audit-token {
     display: inline-flex;
     align-items: center;
-    height: 26px;
+    height: 24px;
     overflow: hidden;
     border-radius: calc(var(--radius) - 3px);
     background: var(--muted);
@@ -207,7 +208,7 @@
     display: grid;
     place-items: center;
     width: 22px;
-    height: 26px;
+    height: 24px;
     color: var(--muted-foreground);
   }
   .audit-token-remove:hover { color: var(--foreground); background: var(--accent); }

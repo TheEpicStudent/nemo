@@ -28,11 +28,11 @@ class FdAuditHistogramTest < ActionDispatch::IntegrationTest
 
   def chart = bars.to_h
 
-  test "the page loads the histogram lazily above the rows" do
+  test "the page folds the histogram above the rows and loads it once opened" do
     slack!(at: 1.hour.ago)
 
     get fd_audit_path(q: "action:user_login")
-    assert_select "turbo-frame#audit-histogram[loading=lazy][src=?]",
+    assert_select "details.audit-histogram-fold:not([open]) > turbo-frame#audit-histogram[loading=lazy][src=?]",
       fd_audit_histogram_path(q: "action:user_login")
   end
 

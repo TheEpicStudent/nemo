@@ -114,6 +114,16 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
     assert_select %(tr.audit-row[data-event-url="#{fd_audit_event_path(source: "slack", id: id)}"][tabindex="0"])
   end
 
+  test "an event named in the address opens in the side pane on load" do
+    id = slack!
+
+    get fd_audit_path(q: "actor:#{WHO}", event: "slack:#{id}")
+    assert_select "turbo-frame#audit-panel[src=?]", fd_audit_event_path(source: "slack", id: id)
+
+    get fd_audit_path(q: "actor:#{WHO}", event: "nowhere:#{id}")
+    assert_select "turbo-frame#audit-panel:not([src])"
+  end
+
   test "the network line counts the accounts seen on that address" do
     id = slack!
     %w[UDRAWIPONE UDRAWIPTWO].each do |user_id|
@@ -122,6 +132,7 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
         VALUES (?, 'audit_logs', date_trunc('hour', now()), '81.2.69.144'::inet, now(), now())
       SQL
       seeded!("fd.login_event", "user_id", user_id)
+      seeded!("fd.member_trait", "user_id", user_id)
     end
 
     get fd_audit_event_path(source: "slack", id: id)
@@ -141,6 +152,6 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
     get fd_audit_event_path(source: "slack", id: id)
 
     assert_select %(.side-pivots a[href="#{fd_member_path(WHO)}"]), text: /Open member/
-    assert_select %(.side-pivots a[href="#{fd_member_path(WHO)}"]), text: /1 linked account/
+    assert_select %(.side-pivots a[href="#{fd_member_path(WHO, tab: "links")}"]), text: /1 linked account/
   end
 end
