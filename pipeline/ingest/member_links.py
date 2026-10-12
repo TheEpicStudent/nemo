@@ -755,10 +755,12 @@ def whole_sql(name, settings, sightings, sources=FULL):
     return WHOLE_SQL.format(evidence=source.format(**names)) if source else None
 
 
-def measure(conn, held, sources=FULL):
+def measure(conn, held, sources=FULL, names=None):
     sightings = sightings_of(held)
     found = {}
     for name, settings in signals(held).items():
+        if names is not None and name not in names:
+            continue
         sql = whole_sql(name, settings, sightings, sources)
         if sql:
             found[name] = conn.execute(sql).fetchone()[0]

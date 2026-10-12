@@ -39,7 +39,7 @@ def score_links(user_id):
         log.warning("nemo: could not score links for %s, the live lane will: %s", user_id, failure)
         return None
     if changed is None:
-        log.info("nemo: links for %s wait for the first full rebuild", user_id)
+        log.info("nemo: links for %s wait for the live lane to measure signal totals", user_id)
     return changed
 
 

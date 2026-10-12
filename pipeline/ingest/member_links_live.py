@@ -220,6 +220,8 @@ LIVE = {
     "crowded": "crowded",
 }
 
+MEASURED = {**links.FULL, "shared_ip": "fd.shared_ip"}
+
 SCOPE = (TOUCHED, TOUCHED_VALUE, TOUCHED_SESSION, RESCORED, SCOPE_VALUE, SCOPE_SESSION, SCOPE_PREFIX,
          SCOPE_AGENT, DEVICE_HOLDER, SCOPE_LOGIN, SCOPE_USER, *SCOPE_TABLES, CROWDED)
 
@@ -231,6 +233,25 @@ def scope(conn, touched):
     for table in ("rescored", "scope_login", "scope_user", "crowded"):
         conn.execute(f"ANALYZE {table}")
     return conn.execute("SELECT count(*) FROM rescored").fetchone()[0]
+
+
+def reads(names, table):
+    return any(f"FROM {table}" in (links.source_of(name) or "") for name in names)
+
+
+def measured(conn, held, wholes):
+    missing = links.wanting(held, wholes)
+    if not missing:
+        return wholes
+    if reads(missing, "sighting"):
+        conn.execute(links.SIGHTING.format(**MEASURED))
+    if reads(missing, "mailbox"):
+        links.load_mailboxes(conn, held, MEASURED)
+    found = links.measure(conn, held, MEASURED, missing)
+    links.keep_wholes(conn, found)
+    conn.commit()
+    print(f"{SOURCE}: measured {', '.join(sorted(found))} without a full rebuild")
+    return {**wholes, **found}
 
 
 def rescore(conn, held, wholes, touched):
@@ -258,11 +279,7 @@ def score(conn, user_ids):
 
 def run(conn, batch=BATCH):
     held = links.catalogue()
-    wholes = links.held_wholes(conn)
-    missing = links.wanting(held, wholes)
-    if missing:
-        print(f"{SOURCE}: waiting for a full rebuild to measure {', '.join(missing)}")
-        return 0
+    wholes = measured(conn, held, links.held_wholes(conn))
     queued = conn.execute(TOUCHED_SQL, (batch,)).fetchall()
     conn.commit()
     if not queued:

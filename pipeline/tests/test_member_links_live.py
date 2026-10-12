@@ -37,16 +37,54 @@ def test_a_member_touched_again_mid_pass_stays_queued():
     assert "t.touched_at = done.touched_at" in live.DONE_SQL
 
 
-def test_the_lane_waits_for_a_full_rebuild_before_it_scores(capsys):
+def test_the_lane_measures_missing_totals_instead_of_waiting_for_a_rebuild(monkeypatch, capsys):
+    ran = []
+
     class Conn:
-        def execute(self, _sql, _args=None):
+        def execute(self, sql, _args=None):
+            ran.append(sql)
             return self
 
         def fetchall(self):
             return []
 
+        def fetchone(self):
+            return (40,)
+
+        def commit(self):
+            ran.append("COMMIT")
+
+    monkeypatch.setattr(live.links, "load_mailboxes", lambda _conn, _held, _sources: ran.append("MAILBOXES"))
+
     assert live.run(Conn()) == 0
-    assert "waiting for a full rebuild" in capsys.readouterr().out
+    assert "without a full rebuild" in capsys.readouterr().out
+    assert any("CREATE TEMP TABLE sighting" in sql and "fd.shared_ip" in sql for sql in ran)
+    assert "MAILBOXES" in ran
+    assert ran.index(live.links.KEEP_WHOLE) < ran.index("COMMIT") < ran.index(live.TOUCHED_SQL)
+
+
+def test_measuring_reads_whole_tables_and_the_stored_shared_networks():
+    assert live.MEASURED["login"] == "fd.login_event"
+    assert live.MEASURED["identity"] == "fd.member_identity"
+    assert live.MEASURED["shared_ip"] == "fd.shared_ip"
+
+
+def test_only_the_missing_totals_are_measured():
+    class Conn:
+        def __init__(self):
+            self.ran = []
+
+        def execute(self, sql, _args=None):
+            self.ran.append(sql)
+            return self
+
+        def fetchone(self):
+            return (40,)
+
+    conn = Conn()
+    found = links.measure(conn, links.catalogue(), live.MEASURED, ["device_agent"])
+    assert found == {"device_agent": 40}
+    assert len(conn.ran) == 1
 
 
 def test_trait_changes_joins_and_bans_queue_the_member():
@@ -59,7 +97,7 @@ def test_trait_changes_joins_and_bans_queue_the_member():
     assert "ON CONFLICT (user_id) DO UPDATE SET touched_at = EXCLUDED.touched_at" in sql
 
 
-def test_scoring_one_member_waits_for_the_first_full_rebuild():
+def test_scoring_one_join_leaves_missing_totals_to_the_live_lane():
     class Conn:
         def execute(self, _sql, _args=None):
             return self
