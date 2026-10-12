@@ -81,8 +81,8 @@ identity_signals:
     label: Same normalized mailbox
     weight: 8.0
     crowd_ceiling: 100
-    rarity_discount: true
-    link_to_oldest: false
+    rarity_discount: false
+    link_to_oldest: true
 
   local_part:
     label: Same mailbox name on another domain
@@ -112,6 +112,7 @@ name_signals:
     label: Same long handle, ignoring trailing numbers
     weight: 4.0
     crowd_ceiling: 20
+    corroborating: true
 
 arrival_signals:
   joined_together:

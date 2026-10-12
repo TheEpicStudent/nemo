@@ -391,11 +391,11 @@ def test_a_shared_name_only_backs_other_evidence_up():
         assert links.signals()[name]["corroborating"] is True, name
 
 
-def test_a_long_shared_handle_stem_links_on_its_own_but_stays_below_strong():
+def test_a_long_shared_handle_stem_adds_weight_but_never_links_on_its_own():
     signal = links.signals()["handle_stem_long"]
     sql, args = links.evidence("handle_stem_long", signal, 2)
 
-    assert not signal.get("corroborating")
+    assert signal["corroborating"] is True
     assert signal["family"] == "name"
     assert f">= {links.SHORTEST_LONG_STEM}" in sql and links.SHORTEST_LONG_STEM >= 8
     assert args["ceiling"] >= 14
@@ -415,7 +415,7 @@ def test_only_precise_evidence_can_make_a_link_on_its_own():
     primary = {name for name, one in links.signals().items() if not one.get("corroborating")}
 
     assert primary == {"ip_stable", "ip_many", "ip_hourly", "ip_burst", "mailbox_alias", "local_part",
-                       "handle_stem_long", "created_same_address", "invited_by",
+                       "created_same_address", "invited_by",
                        "after_ban_address", "after_ban_device"}
 
 
@@ -567,24 +567,12 @@ def test_the_live_lane_finds_the_oldest_holder_among_its_scoped_joins():
     assert "LEFT JOIN scope_joins j ON j.user_id = s.user_id" in sql
 
 
-def test_the_inbox_star_variant_turns_on_both_settings():
-    import yaml
-
-    variant = yaml.safe_load((links.DB_DIR / "link_variants" / "inbox_star.yml").read_text())
+def test_a_shared_inbox_scores_flat_and_links_each_account_to_the_oldest():
     shipped = links.catalogue()["identity_signals"]["mailbox_alias"]
 
-    assert variant["identity_signals"]["mailbox_alias"] == {"rarity_discount": False, "link_to_oldest": True}
-    assert (shipped["rarity_discount"], shipped["link_to_oldest"]) == (True, False)
-
-
-def test_the_stem_variant_makes_a_long_handle_stem_corroborate_only():
-    import yaml
-
-    variant = yaml.safe_load((links.DB_DIR / "link_variants" / "stem_corroborating.yml").read_text())
-    shipped = links.catalogue()["name_signals"]["handle_stem_long"]
-
-    assert variant == {"name_signals": {"handle_stem_long": {"corroborating": True}}}
-    assert not shipped.get("corroborating", False)
+    assert (shipped["rarity_discount"], shipped["link_to_oldest"]) == (False, True)
+    sql, _args = links.evidence("mailbox_alias", shipped, 2)
+    assert "%(weight)s::numeric AS score" in sql and "JOIN oldest o ON o.value = a.value" in sql
 
 
 def test_a_pair_needs_one_signal_that_is_not_corroborating():

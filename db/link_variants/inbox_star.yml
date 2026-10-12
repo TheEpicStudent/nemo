@@ -1,4 +1,0 @@
-identity_signals:
-  mailbox_alias:
-    rarity_discount: false
-    link_to_oldest: true

@@ -1,3 +1,4 @@
+import contextlib
 from datetime import UTC, datetime, timedelta
 
 from ingest import member_clusters as clusters
@@ -55,9 +56,53 @@ def test_household_and_classroom_links_never_join_a_cluster():
     assert set(clusters.UNCLUSTERED_LABELS) == {"household", "classroom"}
 
 
-def test_clusters_build_on_strong_links_only():
+def test_clusters_build_on_certain_links_and_strong_links_from_two_families():
+    sql = clusters.EDGES_SQL
+
     assert clusters.settings()["edge_score"] >= 5.0
-    assert "score >= %(edge)s" in clusters.EDGES_SQL
+    assert "l.score >= %(certain)s" in sql
+    assert "OR (l.score >= %(edge)s" in sql
+    assert "WHERE f.key = ANY(%(families)s) AND f.value::numeric > 0) >= %(strong_families)s" in sql
+    assert clusters.STRONG_EDGE_FAMILIES == 2
+    assert set(clusters.SIGNAL_FAMILIES) == {"network", "device", "identity", "name", "arrival"}
+
+
+def test_a_cluster_pass_asks_for_the_certain_mark_and_the_signal_families(monkeypatch):
+    asked = {}
+
+    class Conn:
+        rowcount = 0
+
+        def execute(self, sql, params=None):
+            if sql == clusters.EDGES_SQL:
+                asked.update(params)
+            return self
+
+        def fetchall(self):
+            return []
+
+        def cursor(self):
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def commit(self):
+            pass
+
+    @contextlib.contextmanager
+    def fake_ingest_run(*_args, **_kwargs):
+        yield type("Counts", (), {"rows_in": 0})()
+
+    monkeypatch.setattr(clusters, "ingest_run", fake_ingest_run)
+    clusters.run(Conn())
+
+    assert asked["certain"] == clusters.links.scoring()["certain"]
+    assert asked["families"] == ["network", "device", "identity", "name", "arrival"]
+    assert asked["strong_families"] == 2
 
 
 def test_an_unchanged_cluster_row_is_not_written_again():

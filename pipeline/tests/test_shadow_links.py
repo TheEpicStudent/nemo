@@ -74,9 +74,9 @@ def test_a_missing_variant_file_exits_2_without_connecting(tmp_path, monkeypatch
 
 
 def test_a_bare_name_reads_the_variant_kept_in_db_link_variants():
-    path = shadow_links.variant_path("inbox_star")
+    path = shadow_links.variant_path("baseline")
 
-    assert path == shadow_links.VARIANTS_DIR / "inbox_star.yml"
+    assert path == shadow_links.VARIANTS_DIR / "baseline.yml"
     assert path.exists()
     assert shadow_links.variant_path("/tmp/x.yml") == shadow_links.pathlib.Path("/tmp/x.yml")
 

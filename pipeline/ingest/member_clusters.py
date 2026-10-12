@@ -8,11 +8,16 @@ SOURCE = "member_clusters"
 UNCLUSTERED_LABELS = ("household", "classroom")
 TOGETHER = ("same_person", "staff_test")
 APART = ("different_people", "household")
+SIGNAL_FAMILIES = (links.NETWORK, links.DEVICE, links.IDENTITY, links.NAME, links.ARRIVAL)
+STRONG_EDGE_FAMILIES = 2
 
 EDGES_SQL = """
 SELECT l.a_user_id, l.b_user_id
 FROM fd.member_link l
-WHERE l.score >= %(edge)s
+WHERE (l.score >= %(certain)s
+       OR (l.score >= %(edge)s
+           AND (SELECT count(*) FROM jsonb_each_text(l.families) f
+                WHERE f.key = ANY(%(families)s) AND f.value::numeric > 0) >= %(strong_families)s))
   AND (l.label IS NULL OR NOT (l.label = ANY(%(unclustered)s)))
   AND NOT EXISTS (SELECT 1 FROM fd.member_link_verdict v
                   WHERE v.a_user_id = l.a_user_id AND v.b_user_id = l.b_user_id
@@ -90,7 +95,9 @@ def cluster_rows(groups, accounts, rule, apart=()):
 def run(conn):
     config = settings()
     with ingest_run(conn, SOURCE) as counts:
-        edges = conn.execute(EDGES_SQL, {"edge": config["edge_score"],
+        edges = conn.execute(EDGES_SQL, {"edge": config["edge_score"], "certain": links.scoring()["certain"],
+                                         "families": list(SIGNAL_FAMILIES),
+                                         "strong_families": STRONG_EDGE_FAMILIES,
                                          "unclustered": list(UNCLUSTERED_LABELS),
                                          "apart": list(APART), "together": list(TOGETHER)}).fetchall()
         apart = [(a, b) for a, b in conn.execute(APART_SQL, (list(APART),)).fetchall()]
