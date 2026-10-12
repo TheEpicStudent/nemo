@@ -16,13 +16,6 @@ IN_CHANNEL = (
     "\n\nYour message was:\n{body}"
 )
 
-KEEP = """
-INSERT INTO fd.member_joins (user_id, joined_at, source)
-VALUES (%s, now(), 'team_join')
-ON CONFLICT (user_id) DO NOTHING
-RETURNING user_id
-"""
-
 DAYS_LEFT = """
 SELECT ceil(extract(epoch FROM (known.at + make_interval(days => %s)) - now()) / 86400)::int
 FROM (
@@ -35,28 +28,11 @@ WHERE known.at IS NOT NULL
 """
 
 
-def joined(conn, user_id):
-    return conn.execute(KEEP, (user_id,)).fetchone()
-
-
 def days_left(conn, user_id, days):
     row = conn.execute(DAYS_LEFT, (days, user_id)).fetchone()
     if row is None:
         return None
     return row[0] if row[0] and row[0] > 0 else None
-
-
-@on_event("team_join", open_to_all=True)
-def arrived(ctx):
-    who = ((ctx.payload or {}).get("user") or {})
-    user_id = who.get("id") if isinstance(who, dict) else who
-    if not user_id:
-        return None
-
-    with session() as conn:
-        if joined(conn, user_id):
-            log.info("nemo: %s joined the workspace", user_id)
-    return user_id
 
 
 @on_event("message", open_to_all=True)

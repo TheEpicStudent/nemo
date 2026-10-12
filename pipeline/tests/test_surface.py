@@ -36,6 +36,13 @@ def test_the_thread_guards_are_registered():
     assert ("view", "thread_lock") in keys
 
 
+def test_only_the_join_watcher_handles_team_join():
+    from bot.nemo.surface import join_watch
+
+    joins = [one.fn for one in surface.ENTRIES if (one.kind, one.key) == (surface.EVENT, "team_join")]
+    assert joins == [join_watch.arrived], "a second fd.member_joins writer makes every joiner look known"
+
+
 def test_the_message_watcher_is_open_to_everyone():
     watcher = [one for one in surface.ENTRIES if one.kind == surface.EVENT]
     assert watcher, "the guarded-thread watcher is not registered"

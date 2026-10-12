@@ -10,10 +10,9 @@ THREAD = "1700000000.000000"
 
 
 class Conn:
-    def __init__(self, tick=None, left=None, joined=True):
+    def __init__(self, tick=None, left=None):
         self.tick = tick
         self.left = left
-        self.joined = joined
         self.ran = []
 
     def execute(self, sql, args=None):
@@ -26,8 +25,6 @@ class Conn:
             return self.tick
         if "FROM fd.slowmode_clock" in sql:
             return (self.left,) if self.left is not None else None
-        if "INSERT INTO fd.member_joins" in sql:
-            return (WHO,) if self.joined else None
         if "fd.member_joins" in sql:
             return (self.left,) if self.left is not None else None
         return (1,)
@@ -287,22 +284,6 @@ def test_account_age_lets_an_exempt_member_post(monkeypatch):
 
     assert account_age.seen(Ctx(message())) is None
     assert taken == []
-
-
-def test_a_join_is_recorded(monkeypatch):
-    conn = Conn()
-    monkeypatch.setattr(account_age, "session", lambda: _held(conn))
-
-    assert account_age.arrived(Ctx({"user": {"id": WHO}})) == WHO
-    assert conn.did("INSERT INTO fd.member_joins")
-
-
-def test_a_join_without_an_id_is_ignored(monkeypatch):
-    conn = Conn()
-    monkeypatch.setattr(account_age, "session", lambda: _held(conn))
-
-    assert account_age.arrived(Ctx({"user": {}})) is None
-    assert not conn.did("INSERT INTO fd.member_joins")
 
 
 def test_a_carrier_ignores_a_bot(monkeypatch):
