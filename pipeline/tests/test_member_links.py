@@ -575,3 +575,21 @@ def test_the_inbox_star_variant_turns_on_both_settings():
 
     assert variant["identity_signals"]["mailbox_alias"] == {"rarity_discount": False, "link_to_oldest": True}
     assert (shipped["rarity_discount"], shipped["link_to_oldest"]) == (True, False)
+
+
+def test_the_stem_variant_makes_a_long_handle_stem_corroborate_only():
+    import yaml
+
+    variant = yaml.safe_load((links.DB_DIR / "link_variants" / "stem_corroborating.yml").read_text())
+    shipped = links.catalogue()["name_signals"]["handle_stem_long"]
+
+    assert variant == {"name_signals": {"handle_stem_long": {"corroborating": True}}}
+    assert not shipped.get("corroborating", False)
+
+
+def test_a_pair_needs_one_signal_that_is_not_corroborating():
+    assert "bool_and(f.corroborating) AS corroborating" in links.PASS
+    assert "HAVING sum(score) >= %(floor)s AND bool_or(NOT corroborating)" in links.PASS
+    table = links.family_table({**links.catalogue(), "name_signals": {
+        **links.catalogue()["name_signals"], "handle_stem_long": {"weight": 4.0, "corroborating": True}}})
+    assert table["corroborating"][table["signals"].index("handle_stem_long")] is True
