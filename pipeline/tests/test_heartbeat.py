@@ -34,3 +34,66 @@ def test_a_plain_string_note_is_passed_through(monkeypatch):
     with heartbeat.heartbeat_loop("w", "idle", every=0.01):
         time.sleep(0.02)
     assert beats and all(n == "idle" for n in beats)
+
+
+def test_the_first_beat_lands_before_the_block_runs(monkeypatch):
+    beats = []
+    monkeypatch.setattr(heartbeat, "record", lambda worker, note: beats.append(note))
+
+    with heartbeat.heartbeat_loop("w", "starting", every=60):
+        assert beats == ["starting"]
+
+
+def test_a_beat_keeps_the_newest_build_it_reads(monkeypatch):
+    class Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr(heartbeat, "connect", Conn)
+    monkeypatch.setattr(heartbeat, "record_heartbeat", lambda conn, worker, note: None)
+    monkeypatch.setattr(heartbeat.build, "keep", lambda conn, worker: "def456def456")
+    monkeypatch.setitem(heartbeat.newest, "build", None)
+
+    heartbeat.record("audit_worker", "idle")
+
+    assert heartbeat.newest["build"] == "def456def456"
+
+
+def test_a_worker_is_behind_only_when_a_newer_build_is_known(monkeypatch):
+    monkeypatch.setattr(heartbeat.build, "fingerprint", lambda: "abc123abc123")
+
+    monkeypatch.setitem(heartbeat.newest, "build", None)
+    assert not heartbeat.behind()
+    monkeypatch.setitem(heartbeat.newest, "build", "abc123abc123")
+    assert not heartbeat.behind()
+    monkeypatch.setitem(heartbeat.newest, "build", "def456def456")
+    assert heartbeat.behind()
+
+
+def test_a_lane_on_an_old_build_is_held_and_says_so_once(monkeypatch, capsys):
+    import threading
+
+    monkeypatch.setattr(heartbeat.build, "fingerprint", lambda: "abc123abc123")
+    monkeypatch.setitem(heartbeat.newest, "build", "def456def456")
+    monkeypatch.setattr(heartbeat, "HELD_POLL_SECONDS", 0)
+    state = {"links_live": "idle"}
+
+    assert heartbeat.hold("audit_worker", "links_live", state, threading.Event())
+    assert heartbeat.hold("audit_worker", "links_live", state, threading.Event())
+
+    assert state["links_live"] == "held, old build"
+    assert capsys.readouterr().out.count("the links_live lane is held") == 1
+
+
+def test_a_lane_on_the_newest_build_is_not_held(monkeypatch):
+    import threading
+
+    monkeypatch.setattr(heartbeat.build, "fingerprint", lambda: "abc123abc123")
+    monkeypatch.setitem(heartbeat.newest, "build", "abc123abc123")
+    state = {"links_live": "idle"}
+
+    assert not heartbeat.hold("audit_worker", "links_live", state, threading.Event())
+    assert state["links_live"] == "idle"

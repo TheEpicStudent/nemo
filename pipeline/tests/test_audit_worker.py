@@ -107,3 +107,23 @@ def test_a_lane_without_a_wake_waits_on_stopping_alone():
     stopping.set()
 
     assert audit_worker.rest(stopping, None, 3600) is True
+
+
+def test_a_lane_on_an_old_build_never_runs_its_work(monkeypatch):
+    from lib import heartbeat
+
+    ran = []
+    stopping = threading.Event()
+    monkeypatch.setattr(heartbeat.build, "fingerprint", lambda: "abc123abc123")
+    monkeypatch.setitem(heartbeat.newest, "build", "def456def456")
+    monkeypatch.setattr(heartbeat, "HELD_POLL_SECONDS", 0.01)
+    state = {"links_live": "starting"}
+
+    thread = audit_worker.lane("links_live", ran.append, state, stopping, 3600)
+    time.sleep(0.1)
+    held = state["links_live"]
+    stopping.set()
+    thread.join(timeout=2)
+
+    assert ran == []
+    assert held == "held, old build"

@@ -25,7 +25,7 @@ from lib.db import (
     instance_lock,
     clear_stale_sessions,
 )
-from lib.heartbeat import heartbeat_loop
+from lib.heartbeat import heartbeat_loop, hold
 from lib.paths import ENV_FILE
 from lib.proxy_client import ProxyError
 
@@ -118,6 +118,8 @@ def wakes_for(lanes, stopping):
 def lane(name, work, state, stopping, poll, drains=True, wake=None):
     def loop():
         while not stopping.is_set():
+            if hold(WORKER, name, state, stopping):
+                continue
             moved = 0
             try:
                 with connect() as conn, cancel_scope(stopping.is_set):

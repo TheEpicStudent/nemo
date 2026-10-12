@@ -19,7 +19,7 @@ from lib.db import (
     instance_lock,
     clear_stale_sessions,
 )
-from lib.heartbeat import heartbeat_loop
+from lib.heartbeat import heartbeat_loop, hold
 from lib.paths import ENV_FILE
 
 WORKER = "archive_worker"
@@ -100,6 +100,8 @@ def note(state):
 def lane(name, work, state, stopping, poll):
     def loop():
         while not stopping.is_set():
+            if hold(WORKER, name, state, stopping):
+                continue
             moved = 0
             try:
                 with connect() as conn, cancel_scope(stopping.is_set):
