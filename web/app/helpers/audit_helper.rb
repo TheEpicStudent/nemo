@@ -3,7 +3,7 @@ module AuditHelper
               "Last 30 days" => "30d" }.freeze
   ACTOR_TYPES = { "Human" => "human", "nemo" => "nemo", "System" => "nobody" }.freeze
   QUERY_KEYS = [
-    ["about", "Actor or target"], %w[actor Actor], %w[by Actor], %w[action Event], %w[category Category],
+    ["about", "Actor or target"], %w[actor Actor], %w[by Actor], ["action", "Event type"], ["category", "Event category"],
     ["network", "Network class"], ["country", "Country code"], %w[in Channel], ["is", "Actor type"],
     %w[source Log], ["app", "App ID"], ["session", "Session ID"], ["last", "Time window"],
     %w[after From], %w[before Until], ["show", "High-volume events"]

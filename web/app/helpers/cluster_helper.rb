@@ -17,6 +17,17 @@ module ClusterHelper
   SERIES = 6
   SEPARATE_VERDICTS = %w[different_people household].freeze
 
+  TAB_PARTIALS = { "overview" => "overview", "accounts" => "accounts", "links" => "links",
+                   "sessions" => "timeline", "snapshots" => "snapshots", "verdicts" => "verdicts" }.freeze
+  ALERT_ICONS = {
+    "alert" => ["M12 3 2 20h20L12 3Z", "M12 10v4", "M12 17v.01"],
+    "scissors" => ["M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M20 4 8.1 15.9",
+                   "M14.5 14.5 20 20", "M8.1 8.1 12 12"]
+  }.freeze
+  TIMELINE_ROWS = 60
+  TIMELINE_LEFT = 170
+  TIMELINE_WIDTH = 1000
+
   MapLayout = Struct.new(:size, :centre, :node, :crowded, :packed, :pull, :points, keyword_init: true)
 
   def cluster_layout(cluster)
@@ -68,6 +79,108 @@ module ClusterHelper
       anchor: cos.negative? ? "end" : "start", turn: cos.negative? ? degrees + 180 : degrees)
   end
 
+  MINI_WIDTH = 320
+  MINI_HEIGHT = 150
+  MINI_CROWDED = 12
+  MINI_BEND = 0.08
+
+  def cluster_mini_points(user_ids)
+    count = user_ids.size
+    cx = MINI_WIDTH / 2.0
+    cy = MINI_HEIGHT / 2.0
+    return { user_ids.first => [cx, cy] } if count == 1
+
+    crowded = count > MINI_CROWDED
+    rx = crowded ? [cx - 20, cy - 14].min : cx - 60
+    ry = crowded ? rx : cy - 32
+    return { user_ids[0] => [cx - (rx * 0.55), cy], user_ids[1] => [cx + (rx * 0.55), cy] } if count == 2
+
+    user_ids.each_with_index.to_h do |user_id, index|
+      angle = (-Math::PI / 2) + (2 * Math::PI * index / count)
+      [user_id, [cx + (Math.cos(angle) * rx), cy + (Math.sin(angle) * ry)]]
+    end
+  end
+
+  def cluster_mini_map(card)
+    points = cluster_mini_points(card.members.map(&:user_id))
+    crowded = card.members.size > MINI_CROWDED
+    radius = crowded ? 4.5 : 8
+    edges = card.edges.filter_map do |edge|
+      a = points[edge.a_user_id]
+      b = points[edge.b_user_id]
+      next if a.nil? || b.nil?
+
+      bend = crowded ? 0 : MINI_BEND
+      qx = ((a[0] + b[0]) / 2) + (((MINI_WIDTH / 2.0) - ((a[0] + b[0]) / 2)) * bend)
+      qy = ((a[1] + b[1]) / 2) + (((MINI_HEIGHT / 2.0) - ((a[1] + b[1]) / 2)) * bend)
+      tag.path(class: cluster_edge_class(edge),
+        d: format("M%<ax>.1f %<ay>.1f Q%<qx>.1f %<qy>.1f %<bx>.1f %<by>.1f", ax: a[0], ay: a[1], qx: qx, qy: qy,
+          bx: b[0], by: b[1]))
+    end
+    nodes = card.members.map do |member|
+      x, y = points[member.user_id]
+      tag.circle(cx: x.round(1), cy: y.round(1), r: radius,
+        class: ["mini-node", ("is-gone" if member.deactivated), ("is-oldest" if member.user_id == card.cluster_id)].compact.join(" "))
+    end
+    tag.svg(safe_join(edges + nodes), viewBox: "0 0 #{MINI_WIDTH} #{MINI_HEIGHT}",
+      class: ["ccard-map", ("is-crowded" if crowded)].compact.join(" "), role: "img",
+      aria: { label: "Link graph, #{card.accounts} accounts" })
+  end
+
+  def cluster_tab_count(cluster, key)
+    case key
+    when "accounts" then cluster.members.size
+    when "links" then cluster.links.size
+    when "snapshots" then cluster.snapshots.size
+    when "verdicts" then cluster.verdict_edges.size
+    end
+  end
+
+  def cluster_alert_icon(name)
+    tag.svg(width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2,
+      "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": true) do
+      safe_join(ALERT_ICONS.fetch(name).map { |path| tag.path(d: path) })
+    end
+  end
+
+  def cluster_join_timeline(cluster)
+    members = cluster.members.select(&:joined_at).first(TIMELINE_ROWS)
+    return nil if members.empty?
+
+    from = members.map(&:joined_at).min
+    upto = Time.current
+    row_height = members.size > 12 ? 14 : 24
+    x = ->(time) { TIMELINE_LEFT + ((time - from) / [upto - from, 1].max * (TIMELINE_WIDTH - TIMELINE_LEFT - 20)) }
+    rows = members.each_with_index.map do |member, index|
+      y = 20 + (index * row_height)
+      ended = cluster.snapshot_of(member.user_id)&.deactivated_at if member.deactivated
+      finish = [x.call(ended || upto), x.call(member.joined_at) + 2].max
+      title = "#{person_label(member.user_id)}, joined #{on_day(member.joined_at)}#{", deactivated #{on_day(ended)}" if ended}"
+      safe_join([
+        tag.text(person_label(member.user_id).to_s.truncate(22), x: 0, y: y + 4, class: "timeline-name"),
+        tag.line(tag.title(title), x1: x.call(member.joined_at).round(1), x2: finish.round(1), y1: y, y2: y,
+          class: ["timeline-bar", (member.deactivated ? "is-gone" : "is-active")].join(" "),
+          "stroke-width": row_height < 20 ? 4 : 6)
+      ])
+    end
+    height = 20 + (members.size * row_height) + 24
+    ticks = [[from, "start", on_day(from)], [from + ((upto - from) / 2), "middle", on_day(from + ((upto - from) / 2))],
+             [upto, "end", "now"]].map do |at, anchor, text|
+      tag.text(text, x: x.call(at).round(1), y: height - 4, "text-anchor": anchor, class: "timeline-tick")
+    end
+    tag.svg(safe_join(rows + ticks), viewBox: "0 0 #{TIMELINE_WIDTH} #{height}", role: "img",
+      aria: { label: "Join and deactivation timeline" })
+  end
+
+  def cluster_flags(ring:, conflict:, returns:, all_gone:)
+    flags = []
+    flags << tag.span(safe_join([tag.i, "Ring"]), class: "flagx warn") if ring
+    flags << tag.span(safe_join([tag.i, "Verdict conflict"]), class: "flagx crit") if conflict
+    flags << tag.span(safe_join([tag.i, pluralize(returns, "post-ban join")]), class: "flagx crit") if returns.to_i.positive?
+    flags << tag.span(safe_join([tag.i, "All deactivated"]), class: "flagx") if all_gone
+    safe_join(flags)
+  end
+
   def cluster_edge_path(layout, a, b)
     centre = layout.centre
     cx = centre + ((((a[:x] + b[:x]) / 2) - centre) * layout.pull)
@@ -91,7 +204,7 @@ module ClusterHelper
     return "certain" if score >= Fd::MemberLink::CERTAIN
     return "strong" if score >= Fd::MemberLink::STRONG
 
-    "worth"
+    "weak"
   end
 
   def edge_tone(verdict)

@@ -1,0 +1,132 @@
+module Fd
+  class LinkList
+    VIEWS = {
+      "review" => "Unreviewed",
+      "certain" => "Certain",
+      "strong" => "Strong",
+      "weak" => "Weak",
+      "labelled" => "Household / school",
+      "reviewed" => "Reviewed"
+    }.freeze
+    DEFAULT_VIEW = "review".freeze
+    LIMIT = 100
+
+    SIGNAL_GROUPS = {
+      "network" => ["Network", "network_signals"],
+      "device" => ["Device", "device_signals"],
+      "email" => ["Email", "identity_signals"],
+      "name" => ["Name", "name_signals"],
+      "arrival" => ["Arrival", "arrival_signals"]
+    }.freeze
+
+    CONDITIONS = {
+      "review" => "l.score >= :strong AND a.is_deleted <> b.is_deleted AND v.a_user_id IS NULL",
+      "certain" => "l.score >= :certain",
+      "strong" => "l.score >= :strong AND l.score < :certain",
+      "weak" => "l.score < :strong AND l.label IS NULL",
+      "labelled" => "l.label IS NOT NULL",
+      "reviewed" => "v.a_user_id IS NOT NULL"
+    }.freeze
+
+    FROM = <<~SQL.squish.freeze
+      fd.member_link l
+      LEFT JOIN fd.member a ON a.user_id = l.a_user_id
+      LEFT JOIN fd.member b ON b.user_id = l.b_user_id
+      LEFT JOIN fd.member_link_verdict v ON v.a_user_id = l.a_user_id AND v.b_user_id = l.b_user_id
+    SQL
+
+    Row = Struct.new(:a_user_id, :b_user_id, :score, :label, :signals, :last_seen, :verdict, :decided_by,
+      :decided_at, :note, :a_deleted, :b_deleted, keyword_init: true) do
+      def band = LinkList.band(score)
+
+      def evidence = MemberLink.evidence_of(signals)
+
+      def verdict_label = LinkVerdict::VERDICTS.fetch(verdict, verdict)
+    end
+
+    def self.band(score)
+      return "certain" if score.to_f >= MemberLink::CERTAIN
+      return "strong" if score.to_f >= MemberLink::STRONG
+
+      "weak"
+    end
+
+    def self.signal_names(group)
+      section = SIGNAL_GROUPS.dig(group, 1)
+      section ? MemberLink::SIGNALS.fetch(section, {}).keys : []
+    end
+
+    def initialize(params = {})
+      @params = params
+    end
+
+    def view
+      requested = @params[:view].to_s
+      VIEWS.key?(requested) ? requested : DEFAULT_VIEW
+    end
+
+    def signal
+      requested = @params[:signal].to_s
+      SIGNAL_GROUPS.key?(requested) ? requested : nil
+    end
+
+    def signal_label = signal && SIGNAL_GROUPS.dig(signal, 0)
+
+    def rows
+      @rows ||= select_all(<<~SQL, limit: LIMIT).map { |row| build_row(row) }
+        SELECT l.a_user_id, l.b_user_id, l.score, l.label, l.signals, l.last_seen,
+               v.verdict, v.decided_by, v.decided_at, v.note,
+               coalesce(a.is_deleted, false) AS a_deleted, coalesce(b.is_deleted, false) AS b_deleted
+        FROM #{FROM}
+        WHERE #{CONDITIONS.fetch(view)} #{signal_condition}
+        ORDER BY #{view == "reviewed" ? "v.decided_at DESC," : ""} l.score DESC, l.a_user_id, l.b_user_id
+        LIMIT :limit
+      SQL
+    end
+
+    def view_counts
+      @view_counts ||= begin
+        columns = CONDITIONS.map { |key, condition| "count(*) FILTER (WHERE #{condition}) AS #{key}" }
+        row = select_all("SELECT #{columns.join(', ')} FROM #{FROM}").first || {}
+        VIEWS.keys.index_with { |key| row[key].to_i }
+      end
+    end
+
+    def signal_counts
+      @signal_counts ||= begin
+        columns = SIGNAL_GROUPS.keys.map do |group|
+          "count(*) FILTER (WHERE l.signals ?| ARRAY[:#{group}]::text[]) AS #{group}"
+        end
+        binds = SIGNAL_GROUPS.keys.to_h { |group| [group.to_sym, LinkList.signal_names(group).presence || [""]] }
+        row = select_all("SELECT #{columns.join(', ')} FROM #{FROM} WHERE #{CONDITIONS.fetch(view)}", binds).first || {}
+        SIGNAL_GROUPS.keys.index_with { |group| row[group].to_i }
+      end
+    end
+
+    def user_ids = rows.flat_map { |row| [row.a_user_id, row.b_user_id] }
+
+    def params_for(view: self.view, signal: self.signal)
+      { view: (view unless view == DEFAULT_VIEW), signal: signal }.compact
+    end
+
+    private
+
+    def signal_condition
+      signal ? "AND l.signals ?| ARRAY[:signal_names]::text[]" : ""
+    end
+
+    def select_all(sql, extra = {})
+      binds = { strong: MemberLink::STRONG, certain: MemberLink::CERTAIN,
+                signal_names: LinkList.signal_names(signal).presence || [""] }.merge(extra)
+      ApplicationRecord.connection.select_all(ApplicationRecord.sanitize_sql([sql, binds])).to_a
+    end
+
+    def build_row(row)
+      flag = ActiveModel::Type::Boolean.new
+      Row.new(a_user_id: row["a_user_id"], b_user_id: row["b_user_id"], score: row["score"].to_f,
+        label: row["label"], signals: MemberLink.parsed(row["signals"]), last_seen: row["last_seen"],
+        verdict: row["verdict"], decided_by: row["decided_by"], decided_at: row["decided_at"], note: row["note"],
+        a_deleted: flag.cast(row["a_deleted"]) || false, b_deleted: flag.cast(row["b_deleted"]) || false)
+    end
+  end
+end

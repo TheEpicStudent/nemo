@@ -1,0 +1,20 @@
+<% content_for :page_title, "Clusters" %>
+
+<% content_for :head_actions do %>
+  <span class="segmented">
+    <% Fd::ClusterList::FILTERS.each do |key, label| %>
+      <%= link_to label, fd_clusters_path(filter: (key unless key == "all")),
+            aria: { current: ("true" if @list.filter == key) } %>
+    <% end %>
+  </span>
+<% end %>
+
+<% if @list.cards.any? %>
+  <div class="ccard-grid">
+    <% @list.cards.each do |card| %>
+      <%= render "card", card: card %>
+    <% end %>
+  </div>
+<% else %>
+  <div class="card"><div class="empty"><p class="empty-title">No clusters</p></div></div>
+<% end %>

@@ -79,8 +79,12 @@ Rails.application.routes.draw do
          as: :configuration_unsub_shield
     resources :new_members, only: [:index, :show]
     resources :bulk_deactivations, only: [:create], path: "new_members/deactivate"
+    get "links/compare", to: "member_links#compare", as: :link_compare
     resources :links, only: [:index], controller: "member_links"
-    resources :clusters, only: [:show]
+    resources :clusters, only: [:index, :show] do
+      get "members/:user_id", to: "clusters#node", as: :node, on: :member
+      resource :split, only: [:create], controller: "cluster_splits"
+    end
     resources :link_verdicts, only: [:create], path: "links/verdicts"
     resources :members, only: [:index, :show] do
       resources :notes, only: [:create, :destroy], controller: "member_notes"

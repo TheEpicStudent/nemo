@@ -22,16 +22,11 @@ module Fd
         return "certain" if certain?
         return "strong" if strong?
 
-        "worth a look"
+        "weak"
       end
 
       def signal_names = (signals || {}).keys
 
-      def evidence = MemberLink.evidence_of(signals)
-    end
-
-    Pair = Struct.new(:active_id, :deactivated_id, :score, :top_signal, :signals, :last_seen,
-      keyword_init: true) do
       def evidence = MemberLink.evidence_of(signals)
     end
 
@@ -49,19 +44,6 @@ module Fd
 
     CLUSTER_SQL = <<~SQL.squish.freeze
       SELECT cluster_id, accounts, ring, conflict FROM fd.member_cluster WHERE user_id = :user_id
-    SQL
-
-    REVIEW_SQL = <<~SQL.squish.freeze
-      SELECT l.a_user_id, l.b_user_id, a.is_deleted AS a_gone, l.score, l.top_signal, l.signals,
-             l.last_seen
-      FROM fd.member_link l
-      JOIN fd.member a ON a.user_id = l.a_user_id
-      JOIN fd.member b ON b.user_id = l.b_user_id
-      WHERE l.score >= :strong AND a.is_deleted <> b.is_deleted
-        AND NOT EXISTS (SELECT 1 FROM fd.member_link_verdict v
-                        WHERE v.a_user_id = l.a_user_id AND v.b_user_id = l.b_user_id)
-      ORDER BY l.score DESC, l.a_user_id, l.b_user_id
-      LIMIT :limit
     SQL
 
     REVIEW_COUNT_SQL = <<~SQL.squish.freeze
@@ -86,15 +68,6 @@ module Fd
       LIMIT :limit
     SQL
 
-    CLUSTERS_SQL = <<~SQL.squish.freeze
-      SELECT cluster_id, max(accounts) AS accounts, count(*) FILTER (WHERE active) AS active,
-             bool_or(ring) AS ring, bool_or(conflict) AS conflict
-      FROM fd.member_cluster
-      GROUP BY cluster_id
-      ORDER BY bool_or(conflict) DESC, bool_or(ring) DESC, max(accounts) DESC, cluster_id
-      LIMIT :limit
-    SQL
-
     CLUSTER_MEMBERS_SQL = <<~SQL.squish.freeze
       SELECT mate.user_id, mate.active
       FROM fd.member_cluster mine
@@ -108,29 +81,6 @@ module Fd
         { "name" => name, "label" => label_for(name),
           "value" => signal["value"], "people" => signal["people"], "score" => signal["score"] }
       end.sort_by { |entry| -entry["score"].to_f }
-    end
-
-    def self.needs_review(limit: 100)
-      flag = ActiveModel::Type::Boolean.new
-      rows = connection.select_all(sanitize_sql([REVIEW_SQL, { strong: STRONG, limit: limit }]))
-      rows.map do |row|
-        a_deleted = flag.cast(row["a_gone"])
-        Pair.new(
-          active_id: a_deleted ? row["b_user_id"] : row["a_user_id"],
-          deactivated_id: a_deleted ? row["a_user_id"] : row["b_user_id"],
-          score: row["score"].to_f, top_signal: row["top_signal"],
-          signals: parsed(row["signals"]), last_seen: row["last_seen"]
-        )
-      end
-    end
-
-    def self.clusters(limit: 100)
-      flag = ActiveModel::Type::Boolean.new
-      connection.select_all(sanitize_sql([CLUSTERS_SQL, { limit: limit }])).map do |row|
-        Cluster.new(cluster_id: row["cluster_id"], accounts: row["accounts"].to_i,
-          active: row["active"].to_i, ring: flag.cast(row["ring"]),
-          conflict: flag.cast(row["conflict"]))
-      end
     end
 
     def self.review_count

@@ -17,9 +17,9 @@
     <% @query.to_params.except("q", "page").each do |key, value| %>
       <%= hidden_field_tag key, value, id: nil %>
     <% end %>
-    <%= search_field_tag :q, @query.term, placeholder: "Find a new member",
+    <%= search_field_tag :q, @query.term, placeholder: "Filter",
           class: "queue-search-input", autocomplete: "off",
-          aria: { label: "Find a new member" } %>
+          aria: { label: "Filter new members" } %>
   <% end %>
 <% end %>
 

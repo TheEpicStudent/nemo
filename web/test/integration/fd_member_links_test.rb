@@ -14,10 +14,10 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
   end
 
   test "the links page listens for changes and reloads its own list" do
-    get fd_links_path(over: "strong")
+    get fd_links_path(view: "strong")
 
     assert_select "turbo-cable-stream-source"
-    assert_select %(turbo-frame##{Fd::MemberLinkBroadcast::LIST_FRAME}[data-src="#{fd_links_path(over: "strong")}"])
+    assert_select %(turbo-frame##{Fd::MemberLinkBroadcast::LIST_FRAME}[data-src="#{fd_links_path(view: "strong")}"])
   end
 
   test "the linked accounts tab listens for changes to that member's links" do
@@ -59,7 +59,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     member!("UTWO")
     link!("UONE", "UTWO", score: 3.0, top: "ip_prefix")
 
-    assert_equal "worth a look", Fd::MemberLink.for_member("UONE").first.band
+    assert_equal "weak", Fd::MemberLink.for_member("UONE").first.band
   end
 
   test "somebody without member.links is handed nothing" do
@@ -89,29 +89,23 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     get fd_links_path
     assert_response :success
 
-    assert_select ".view[aria-current=true]", "Needs review"
+    assert_select ".view[aria-current=true]", /Unreviewed/
     rows = css_select("tbody tr")
     assert_equal 1, rows.size
     assert_match(/ugone/i, rows.first.text)
-    assert_match "Same mailbox, once dots and plus tags are removed", rows.first.text
+    assert_match "Same normalized mailbox", rows.first.text
     assert_match "kid@gmail.com", rows.first.text
   end
 
-  test "the clusters tab lists each cluster with its flags" do
-    cluster!("UOLD", "UOLD", accounts: 3, active: true, ring: true)
-    cluster!("UNEW", "UOLD", accounts: 3, active: false, ring: true)
-    cluster!("UMID", "UOLD", accounts: 3, active: true, ring: true, conflict: true)
-
+  test "the old clusters and pairs addresses move to their own pages" do
     get fd_links_path(view: "clusters")
-    assert_response :success
+    assert_redirected_to fd_clusters_path
 
-    row = css_select("tbody tr").find { |one| one.text.include?("UOLD") }
-    assert_match(/3\s+2/, row.text.squish)
-    assert_match "Ring", row.text
-    assert_match "Conflict", row.text
+    get fd_links_path(view: "pairs", over: "strong")
+    assert_redirected_to fd_links_path(view: "strong")
   end
 
-  test "all pairs keeps the band filter and shows the reasons" do
+  test "the certain view keeps only certain links and shows the reasons" do
     member!("UONE")
     member!("UTWO")
     member!("UTHREE")
@@ -119,10 +113,10 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
       signals: '{"ip_stable": {"value": "81.2.69.144", "people": 2, "score": 5.0}}')
     link!("UONE", "UTHREE", score: 3.5, top: "ip_prefix_stable")
 
-    get fd_links_path(view: "pairs", over: "certain")
+    get fd_links_path(view: "certain")
     assert_response :success
 
-    assert_select ".segmented a[aria-current=true]", "Certain"
+    assert_select ".view[aria-current=true]", /Certain/
     assert_equal 1, css_select("tbody tr").size
     assert_match "81.2.69.144", response.body
   end
@@ -136,7 +130,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     get fd_member_links_path("UONE")
     assert_response :success
 
-    assert_select ".link-mates-title", "Same cluster"
+    assert_select ".link-mates-title", "Cluster"
     assert_select ".link-mates-head", /2 other accounts, 1 deactivated/
     assert_select ".facepile a.facepile-face.is-gone[title*=deactivated]", 1
     assert_select ".link-mates-open", 1
@@ -176,7 +170,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
   end
 
   test "the queue and lane runs reload with the list" do
-    get fd_links_path(view: "pairs")
+    get fd_links_path(view: "certain")
 
     assert_select %(turbo-frame##{Fd::MemberLinkBroadcast::LIST_FRAME} dl.facts-strip)
   end
@@ -190,13 +184,16 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
   end
 
   test "the sidebar groups the alt pages and marks the one open" do
-    get fd_links_path(view: "clusters")
+    get fd_clusters_path
 
     assert_select "p.community-nav-label", text: "Alts"
     assert_select "p.community-nav-label", text: "Records"
     assert_select %(a[href="#{fd_links_path}"]), text: /Review/
-    assert_select %(a[href="#{fd_links_path(view: "pairs")}"]), text: /Links/
-    assert_select %(a[aria-current="page"][href="#{fd_links_path(view: "clusters")}"]), text: /Clusters/
+    assert_select %(a[href="#{fd_links_path(view: "certain")}"]), text: /Links/
+    assert_select %(a[aria-current="page"][href="#{fd_clusters_path}"]), text: /Clusters/
+
+    get fd_links_path(view: "weak")
+    assert_select %(a[aria-current="page"][href="#{fd_links_path(view: "certain")}"]), text: /Links/
   end
 
   private

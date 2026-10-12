@@ -1,31 +1,32 @@
 <section class="card card-flush">
-  <div class="card-head">
-    <h2 class="card-title">Accounts</h2>
-  </div>
   <div class="scroll">
     <table class="data-table">
       <thead>
-        <tr>
-          <th>Account</th>
-          <th>Joined</th>
-          <th>Status</th>
-          <th class="col-num">Links here</th>
-        </tr>
+        <tr><th>Account</th><th>Status</th><th>Joined</th><th class="col-num">Links</th><th>Top signal</th><th></th></tr>
       </thead>
       <tbody>
+        <% returned = cluster.returns.map(&:user_id) %>
         <% cluster.members.each do |member| %>
-          <% link_count = cluster.edges.count { |edge| edge.score && [edge.a_user_id, edge.b_user_id].include?(member.user_id) } %>
+          <% links = cluster.links_of(member.user_id) %>
           <tr>
             <td><%= member_face(member.user_id) %></td>
-            <td class="sub2"><%= member.joined_at ? on_day(member.joined_at) : "n/a" %></td>
             <td>
               <% if member.deactivated %>
-                <span class="state state-crit">Deactivated</span>
+                <span class="state">Deactivated</span>
+              <% elsif returned.include?(member.user_id) %>
+                <span class="state state-crit">Post-ban join</span>
               <% else %>
                 <span class="state state-good">Active</span>
               <% end %>
             </td>
-            <td class="col-num"><%= link_count %></td>
+            <td class="sub2"><%= member.joined_at ? on_day(member.joined_at) : "n/a" %></td>
+            <td class="col-num"><%= links.size %></td>
+            <td class="link-why"><%= link_signal_lines(links.first.evidence, limit: 1) if links.any? %></td>
+            <td class="col-actions">
+              <% unless member.user_id == cluster.cluster_id %>
+                <%= link_to "Compare", link_compare_path(cluster.cluster_id, member.user_id), class: "btn btn-sm" %>
+              <% end %>
+            </td>
           </tr>
         <% end %>
       </tbody>

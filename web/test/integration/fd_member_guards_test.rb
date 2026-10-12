@@ -133,7 +133,7 @@ class FdMemberGuardsTest < ActionDispatch::IntegrationTest
   test "a live guard is shown on the page with a way to lift it" do
     guard = guard!
     get fd_member_path("USUB")
-    assert_match(/In force now/, response.body)
+    assert_select ".standing-t", /Guards/
     assert_match(/guard-lift-#{guard.id}/, response.body)
     assert_match(/on no case/, response.body)
   end

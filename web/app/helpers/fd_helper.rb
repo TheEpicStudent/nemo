@@ -209,7 +209,7 @@ module FdHelper
   end
 
   AUDIT_SOURCE = { "fire_engine" => "Fire Engine", "slack" => "Slack",
-                   "read" => "Fire Engine", "api" => "Public API" }.freeze
+                   "read" => "Fire Engine", "api" => "API" }.freeze
 
   def audit_raw(row)
     JSON.pretty_generate(row.raw || row.detail || {})
@@ -296,7 +296,7 @@ module FdHelper
 
   def link_band_chip(side)
     tone = { "certain" => "state-crit", "strong" => "state-warn" }.fetch(side.band, "")
-    tag.span(side.band, class: "state #{tone}".strip)
+    tag.span(LinkHelper::BAND_LABELS.fetch(side.band), class: "state #{tone}".strip)
   end
 
   def may_judge? = current_account&.may?("link.verdict")
@@ -308,17 +308,9 @@ module FdHelper
     tag.span(verdict.label, class: "state #{verdict.one_person? ? 'state-crit' : 'state-good'}", title: title)
   end
 
-  def verdict_button(user_id, other_user_id, verdict = nil)
-    return "" unless may_judge?
-
-    tag.button(verdict ? "Change" : "Judge", type: "button", class: "btn btn-sm",
-      data: { modal_open: "link-verdict", verdict_a: user_id, verdict_b: other_user_id,
-              verdict_names: "#{names[user_id]} and #{names[other_user_id]}",
-              verdict_was: verdict&.verdict, verdict_note: verdict&.note })
-  end
-
-  def verdict_cell(user_id, other_user_id, verdict = nil)
-    tag.div(safe_join([verdict_chip(verdict), verdict_button(user_id, other_user_id, verdict)].compact_blank), class: "verdict-cell")
+  def verdict_cell(user_id, other_user_id, verdict = nil, back: request.fullpath)
+    tag.div(safe_join([verdict_chip(verdict), link_review_button(user_id, other_user_id, verdict&.verdict, back: back)]
+      .compact_blank), class: "verdict-cell")
   end
 
   REASON_LIMIT = 3
@@ -559,10 +551,10 @@ module FdHelper
                "fd/configuration" => "configuration",
                "fd/channel_purges" => "channels" }.freeze
 
-  LINK_VIEWS = { "clusters" => "clusters", "pairs" => "pairs" }.freeze
-
   def fd_current_nav_key
-    return LINK_VIEWS.fetch(params[:view].to_s, "review") if controller_path == "fd/member_links"
+    if controller_path == "fd/member_links"
+      return Fd::LinkList::VIEWS.key?(params[:view].to_s) && params[:view].to_s != Fd::LinkList::DEFAULT_VIEW ? "pairs" : "review"
+    end
 
     NAV_HOME.fetch(controller_path, "cases")
   end
@@ -585,8 +577,8 @@ module FdHelper
     fd_nav_mark([
       Stop.new(key: "review", label: "Review", icon: "inbox", path: fd_links_path,
         tally: Fd::MemberLink.review_count),
-      Stop.new(key: "clusters", label: "Clusters", icon: "network", path: fd_links_path(view: "clusters")),
-      Stop.new(key: "pairs", label: "Links", icon: "link", path: fd_links_path(view: "pairs"))
+      Stop.new(key: "clusters", label: "Clusters", icon: "network", path: fd_clusters_path),
+      Stop.new(key: "pairs", label: "Links", icon: "link", path: fd_links_path(view: "certain"))
     ])
   end
 

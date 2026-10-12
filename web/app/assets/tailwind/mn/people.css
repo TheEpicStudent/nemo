@@ -711,7 +711,7 @@
   .cluster-map.is-focus .node:not(.is-lit) { opacity: 0.3; }
   .cluster-map .edge-certain { stroke: var(--destructive); stroke-width: 3; }
   .cluster-map .edge-strong { stroke: var(--warning); stroke-width: 2.25; }
-  .cluster-map .edge-worth { stroke: var(--muted-foreground); stroke-opacity: 0.6; }
+  .cluster-map .edge-weak { stroke: var(--muted-foreground); stroke-opacity: 0.6; }
   .cluster-map .edge-together { stroke: var(--primary); stroke-dasharray: 5 4; }
   .cluster-map .edge-apart { stroke: var(--destructive); stroke-dasharray: 2 4; stroke-opacity: 0.8; }
   .cluster-map .node { cursor: pointer; transition: opacity 0.3s var(--ease); }

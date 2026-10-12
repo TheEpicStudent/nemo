@@ -1,0 +1,31 @@
+<% a, b = compare.ids %>
+<section class="card card-flush">
+  <div class="card-head">
+    <h2 class="card-title">Activity</h2>
+  </div>
+  <% if compare.activity.any? %>
+    <div class="cmp-log">
+      <div class="cmp-log-row cmp-log-heads">
+        <div class="cmp-log-side is-a"><%= person_label(a) %></div>
+        <div class="cmp-log-day"></div>
+        <div class="cmp-log-side"><%= person_label(b) %></div>
+      </div>
+      <% previous_day = nil %>
+      <% compare.activity.each do |event| %>
+        <% local = event.at.in_time_zone %>
+        <% new_day = local.to_date != previous_day %>
+        <% previous_day = local.to_date %>
+        <div class="cmp-log-row<%= " is-new-day" if new_day %>">
+          <div class="cmp-log-side is-a"><%= compare_event(compare, event) if event.user_id == a %></div>
+          <div class="cmp-log-day">
+            <% if new_day %><span><%= local.strftime("%-d %b %Y") %></span><% end %>
+            <span class="cmp-log-time"><%= local.strftime("%H:%M") %></span>
+          </div>
+          <div class="cmp-log-side"><%= compare_event(compare, event) if event.user_id == b %></div>
+        </div>
+      <% end %>
+    </div>
+  <% else %>
+    <div class="empty"><p class="empty-title">No activity</p></div>
+  <% end %>
+</section>

@@ -24,7 +24,7 @@
               </td>
               <td class="sub2"><%= link.last_seen ? on_day(link.last_seen) : "n/a" %></td>
               <% verdict = Fd::LinkVerdict.of(verdicts, user_id, link.other_id) %>
-              <td><%= verdict_cell(user_id, link.other_id, verdict) %></td>
+              <td><%= verdict_cell(user_id, link.other_id, verdict, back: fd_member_path(user_id, tab: "links")) %></td>
             </tr>
           <% end %>
         </tbody>
@@ -36,7 +36,7 @@
     <% deactivated_count = cluster_members.count { |_, active| !active } %>
     <section class="link-mates">
       <div class="link-mates-head">
-        <h3 class="link-mates-title">Same cluster</h3>
+        <h3 class="link-mates-title">Cluster</h3>
         <span class="sub2">
           <%= pluralize(number_with_delimiter(cluster_members.size), "other account") %><%= ", #{number_with_delimiter(deactivated_count)} deactivated" if deactivated_count.positive? %>
         </span>

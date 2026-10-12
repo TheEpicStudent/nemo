@@ -37,6 +37,12 @@ module Fd
         WHERE case_id IS NULL AND subject_user_id IS NOT NULL AND deleted_at IS NULL
         GROUP BY subject_user_id
       ),
+      linked AS (
+        SELECT user_id, count(*) AS links
+        FROM fd.member_link_side
+        WHERE score >= :strong
+        GROUP BY user_id
+      ),
       touched AS (
         SELECT p.user_id FROM fd.case_participants p
         JOIN fd.cases c ON c.id = p.case_id
@@ -58,12 +64,15 @@ module Fd
                coalesce(held.in_force, 0) AS in_force,
                coalesce(acted.priors, 0) AS priors,
                coalesce(noted.notes, 0) AS notes,
+               coalesce(linked.links, 0) AS links,
+               coalesce(m.is_deleted, false) AS deactivated,
                m.display_name, m.handle
         FROM people
         LEFT JOIN conduct ON conduct.user_id = people.user_id
         LEFT JOIN acted ON acted.user_id = people.user_id
         LEFT JOIN held ON held.user_id = people.user_id
         LEFT JOIN noted ON noted.user_id = people.user_id
+        LEFT JOIN linked ON linked.user_id = people.user_id
         LEFT JOIN fd.member m ON m.user_id = people.user_id
         CONTEXT_JOIN
       )
@@ -79,6 +88,7 @@ module Fd
     SQL
 
     TOUCHED = "SELECT user_id FROM touched".freeze
+    DEACTIVATED = "SELECT user_id FROM fd.member WHERE is_deleted AND NOT is_bot".freeze
 
     LISTED_AGGREGATES = <<~SQL
       hit AS (
@@ -119,6 +129,12 @@ module Fd
         WHERE case_id IS NULL AND subject_user_id IN (SELECT user_id FROM hit) AND deleted_at IS NULL
         GROUP BY subject_user_id
       ),
+      linked AS (
+        SELECT user_id, count(*) AS links
+        FROM fd.member_link_side
+        WHERE score >= :strong AND user_id IN (SELECT user_id FROM hit)
+        GROUP BY user_id
+      ),
       people AS (SELECT user_id, place FROM hit),
       roster AS (
         SELECT people.user_id, people.place,
@@ -131,12 +147,15 @@ module Fd
                coalesce(held.in_force, 0) AS in_force,
                coalesce(acted.priors, 0) AS priors,
                coalesce(noted.notes, 0) AS notes,
+               coalesce(linked.links, 0) AS links,
+               coalesce(m.is_deleted, false) AS deactivated,
                m.display_name, m.handle
         FROM people
         LEFT JOIN conduct ON conduct.user_id = people.user_id
         LEFT JOIN acted ON acted.user_id = people.user_id
         LEFT JOIN held ON held.user_id = people.user_id
         LEFT JOIN noted ON noted.user_id = people.user_id
+        LEFT JOIN linked ON linked.user_id = people.user_id
         LEFT JOIN fd.member m ON m.user_id = people.user_id
         LEFT JOIN analytics.dim_member_cohort dm ON dm.user_id = people.user_id
         LEFT JOIN fd.member_joins mj ON mj.user_id = people.user_id
@@ -181,7 +200,7 @@ module Fd
     def full_aggregates
       AGGREGATES.sub(NAMES, include_context? ? DISPLAY_COLUMNS + CONTEXT_COLUMNS : DISPLAY_COLUMNS)
         .sub("CONTEXT_JOIN", include_context? ? CONTEXT_JOIN : "")
-        .sub("PEOPLE_FROM", conduct_only? ? TOUCHED : EVERYONE)
+        .sub("PEOPLE_FROM", people_from)
     end
 
     def listed(ids)
@@ -195,6 +214,12 @@ module Fd
 
     def include_context?
       searching? || !default?("tenure") || !default?("active") || self["sort"] == "messages"
+    end
+
+    def people_from
+      return DEACTIVATED if self["state"] == "gone"
+
+      conduct_only? ? TOUCHED : EVERYONE
     end
 
     def conduct_only?
@@ -217,6 +242,8 @@ module Fd
       when "force" then "in_force > 0"
       when "noted" then "notes > 0"
       when "clean" then "subject_of = 0 AND logged_in = 0"
+      when "linked" then "links > 0"
+      when "gone" then "deactivated"
       end
     end
 
@@ -260,7 +287,7 @@ module Fd
     end
 
     def roster_binds
-      binds = { category: self["category"], prior_since: Case::PRIOR_WINDOW.ago }
+      binds = { category: self["category"], prior_since: Case::PRIOR_WINDOW.ago, strong: MemberLink::STRONG }
       searching? ? binds.merge(hits: hits) : binds
     end
 

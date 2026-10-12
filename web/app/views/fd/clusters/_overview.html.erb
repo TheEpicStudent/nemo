@@ -1,0 +1,110 @@
+<% conflict = cluster.conflicts.first %>
+<% if conflict %>
+  <div class="rv-alert crit" role="note">
+    <%= cluster_alert_icon("scissors") %>
+    <div class="rv-alert-title">Verdict conflict</div>
+    <% if may_judge? && @split.possible? %>
+      <div class="rv-alert-act">
+        <button type="button" class="btn btn-sm" data-modal-open="cluster-split" aria-haspopup="dialog">
+          <%= cluster_alert_icon("scissors") %><span>Split cluster</span>
+        </button>
+      </div>
+    <% end %>
+    <div class="rv-alert-desc">
+      <%= person_label(conflict.a_user_id) %> and <%= person_label(conflict.b_user_id) %> marked
+      <%= Fd::LinkVerdict::VERDICTS.fetch(conflict.verdict).downcase %> by <%= person_label(conflict.decided_by) %>
+      (<%= time_ago(conflict.decided_at) %>)<%= " · link #{number_with_precision(conflict.score, precision: 1)}" if conflict.score %>
+      · other links still hold them in one cluster
+      <% if cluster.conflicts.size > 1 %> · <%= pluralize(cluster.conflicts.size - 1, "more conflict") %><% end %>
+    </div>
+  </div>
+<% end %>
+
+<% returns = cluster.returns %>
+<% if returns.one? %>
+  <% back = returns.first %>
+  <div class="rv-alert crit" role="note">
+    <%= cluster_alert_icon("alert") %>
+    <div class="rv-alert-title">Post-ban join</div>
+    <div class="rv-alert-act">
+      <%= link_to link_compare_path(back.banned_id, back.user_id), class: "btn btn-sm" do %>
+        <span>Compare</span>
+      <% end %>
+    </div>
+    <div class="rv-alert-desc">
+      <%= person_label(back.user_id) %> joined <%= link_duration(back.after) %> after the ban of
+      <%= person_label(back.banned_id) %> · still active
+    </div>
+  </div>
+<% elsif returns.many? %>
+  <div class="rv-alert crit" role="note">
+    <%= cluster_alert_icon("alert") %>
+    <div class="rv-alert-title"><%= pluralize(returns.size, "post-ban join") %></div>
+    <div class="rv-alert-act">
+      <%= link_to "Accounts", fd_cluster_path(cluster.cluster_id, tab: "accounts"), class: "btn btn-sm" %>
+    </div>
+    <div class="rv-alert-desc">
+      <%= returns.first(4).map { |one| person_label(one.user_id) }.join(", ") %><%= " +#{returns.size - 4}" if returns.size > 4 %>
+      · still active
+    </div>
+  </div>
+<% end %>
+
+<section class="card card-flush">
+  <dl class="cluster-stats">
+    <div class="cluster-stat"><dt>Accounts</dt><dd><%= number_with_delimiter(cluster.members.size) %></dd></div>
+    <div class="cluster-stat"><dt>Active</dt><dd><%= number_with_delimiter(cluster.active.size) %></dd></div>
+    <div class="cluster-stat"><dt>Deactivated</dt><dd><%= number_with_delimiter(cluster.deactivated.size) %></dd></div>
+    <div class="cluster-stat"><dt>First join</dt><dd class="cluster-stat-date"><%= cluster.first_join ? on_day(cluster.first_join) : "n/a" %></dd></div>
+    <div class="cluster-stat"><dt>Last join</dt><dd class="cluster-stat-date"><%= cluster.last_join ? time_ago(cluster.last_join) : "n/a" %></dd></div>
+  </dl>
+  <% flags = cluster_flags(ring: cluster.ring?, conflict: cluster.conflict?, returns: returns.size, all_gone: cluster.active.empty?) %>
+  <% if flags.present? %><div class="ccard-foot"><%= flags %></div><% end %>
+</section>
+
+<%= render "map", cluster: cluster %>
+
+<div class="px-split">
+  <section class="card card-flush">
+    <div class="card-head"><h2 class="card-title">Shared attributes</h2></div>
+    <% if cluster.shared_values.any? %>
+      <div class="scroll">
+        <table class="data-table">
+          <thead><tr><th>Value</th><th>Signal</th><th>Accounts</th></tr></thead>
+          <tbody>
+            <% cluster.shared_values.each do |shared| %>
+              <tr>
+                <td><%= link_signal_value("name" => shared.name, "value" => shared.value) %></td>
+                <td class="sub2"><%= shared.label %></td>
+                <td>
+                  <span class="facepile">
+                    <% shared.user_ids.first(5).each do |user_id| %>
+                      <span class="facepile-face" title="<%= person_label(user_id) %>"><%= avatar(user_id, css: "facepile-img") %></span>
+                    <% end %>
+                    <% if shared.user_ids.size > 5 %><span class="facepile-more">+<%= shared.user_ids.size - 5 %></span><% end %>
+                  </span>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% else %>
+      <div class="empty"><p class="empty-title">No shared values</p></div>
+    <% end %>
+  </section>
+
+  <section class="card card-flush">
+    <div class="card-head"><h2 class="card-title">Timeline</h2></div>
+    <% timeline = cluster_join_timeline(cluster) %>
+    <% if timeline %>
+      <div class="px-chart cluster-timeline"><%= timeline %></div>
+      <div class="px-legend">
+        <span><i class="legend-active"></i>Active</span>
+        <span><i class="legend-gone"></i>Deactivated</span>
+      </div>
+    <% else %>
+      <div class="empty"><p class="empty-title">No join dates</p></div>
+    <% end %>
+  </section>
+</div>

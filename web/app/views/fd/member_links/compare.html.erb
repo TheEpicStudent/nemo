@@ -1,0 +1,43 @@
+<% a = @compare.a %>
+<% b = @compare.b %>
+<% content_for :page_title, "#{person_label(a)} and #{person_label(b)}" %>
+
+<% content_for :head_actions do %>
+  <% if @compare.cluster_id %>
+    <%= link_to fd_cluster_path(@compare.cluster_id), class: "btn" do %>
+      <%= nav_icon("network") %><span>Open cluster</span>
+    <% end %>
+  <% end %>
+  <% if current_account.may?("case.open") %>
+    <%= link_to fd_cases_path(subject_user_ids: @compare.ids, open: "1"), class: "btn btn-primary" do %>
+      <%= case_action_button("plus", "Open case") %>
+    <% end %>
+  <% end %>
+<% end %>
+
+<div class="stack cmp" data-controller="shared-values"
+     data-action="mouseover->shared-values#show mouseout->shared-values#clear">
+  <% if @back %>
+    <%= link_to @back, class: "px-backlink" do %>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+      Back
+    <% end %>
+  <% end %>
+
+  <%= render "compare_score", compare: @compare %>
+  <%= render "compare_grid", compare: @compare %>
+  <%= render "compare_signals", compare: @compare %>
+  <%= render "compare_activity", compare: @compare %>
+
+  <% if may_judge? %>
+    <%= render "verdict_bar", compare: @compare %>
+  <% end %>
+</div>
+
+<% target = @compare.alt_target %>
+<% if target && current_account.may?("member.deactivate") %>
+  <%= render "fd/members/deactivate", user_id: target.user_id, member: person_label(target.user_id),
+        handle: names.member(target.user_id)&.handle.presence || target.user_id,
+        reason: "Alt of #{person_label(@compare.other(target.user_id).user_id)}" %>
+<% end %>

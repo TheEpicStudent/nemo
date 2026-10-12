@@ -1,7 +1,4 @@
 <section class="card card-flush">
-  <div class="card-head">
-    <h2 class="card-title">Evidence at deactivation</h2>
-  </div>
   <% if cluster.snapshots.any? %>
     <div class="scroll">
       <table class="data-table">
@@ -11,7 +8,9 @@
             <th>Deactivated</th>
             <th>By</th>
             <th>Reason</th>
-            <th>Held then</th>
+            <th>Email</th>
+            <th>IPs</th>
+            <th>Clients</th>
           </tr>
         </thead>
         <tbody>
@@ -21,18 +20,14 @@
               <td class="sub2"><%= on_day(snap.deactivated_at) %></td>
               <td><%= snap.actor_id ? member_face(snap.actor_id) : (snap.source == "slack" ? "Slack admin" : "n/a") %></td>
               <td class="sub2"><%= snap.reason.presence || "n/a" %></td>
+              <td><% if snap.email.present? %><span class="mono"><%= snap.email %></span><% else %><span class="sub2">n/a</span><% end %></td>
               <td>
-                <details class="snapshot-detail">
-                  <summary><%= pluralize(snap.traits.size, "trait") %>, <%= pluralize(snap.links.size, "link") %></summary>
-                  <% snap.traits.each do |trait| %>
-                    <div class="sub2"><%= trait["kind"].tr("_", " ") %>
-                      <span class="mono"><%= (trait["agent"] || trait["value"]).to_s.truncate(60) %></span></div>
-                  <% end %>
-                  <% snap.links.each do |link| %>
-                    <div class="sub2"><%= member_face(link["other"]) %>
-                      <%= number_with_precision(link["score"], precision: 1) %></div>
-                  <% end %>
-                </details>
+                <% if snap.addresses.empty? %><span class="sub2">n/a</span><% end %>
+                <% snap.addresses.first(4).each do |address| %><div class="mono"><%= address %></div><% end %>
+              </td>
+              <td class="sub2">
+                <% if snap.clients.empty? %>n/a<% end %>
+                <% snap.clients.first(3).each do |client| %><div title="<%= client %>"><%= client.truncate(40) %></div><% end %>
               </td>
             </tr>
           <% end %>
@@ -40,8 +35,6 @@
       </table>
     </div>
   <% else %>
-    <div class="empty">
-      <p class="empty-title">No snapshots</p>
-    </div>
+    <div class="empty"><p class="empty-title">No deactivated accounts</p></div>
   <% end %>
 </section>

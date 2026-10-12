@@ -1,0 +1,38 @@
+<% link = compare.link %>
+<section class="card card-flush">
+  <div class="card-head">
+    <h2 class="card-title">Signals</h2>
+    <% if link %><div class="card-tools"><span class="cmp-total">Score <b><%= number_with_precision(link.score, precision: 1) %></b></span></div><% end %>
+  </div>
+  <% if link && compare.families.any? %>
+    <div class="cmp-signals">
+      <% compare.families.each do |family| %>
+        <div class="cmp-family">
+          <div class="cmp-family-head">
+            <span><%= family.label %></span>
+            <% if family.entries.many? || family.total != family.entries.sum { |entry| entry["score"].to_f } %>
+              <span class="cmp-weight"><%= number_with_precision(family.total, precision: 1) %></span>
+            <% end %>
+          </div>
+          <% family.entries.each do |entry| %>
+            <div class="cmp-signal">
+              <span class="cmp-signal-label"><%= entry["label"] %></span>
+              <span class="cmp-signal-value">
+                <%= link_signal_value(entry) if entry["value"].present? %>
+                <% if entry["people"].to_i.positive? %><span class="cmp-note"><%= pluralize(entry["people"], "account") %></span><% end %>
+              </span>
+              <span class="cmp-weight">+<%= number_with_precision(entry["score"].to_f, precision: 1) %></span>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+      <% if link.label %>
+        <div class="cmp-family">
+          <div class="cmp-family-head"><span>Label: <%= link_label_text(link.label) %></span></div>
+        </div>
+      <% end %>
+    </div>
+  <% else %>
+    <div class="empty"><p class="empty-title">No link</p></div>
+  <% end %>
+</section>

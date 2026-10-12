@@ -2,47 +2,33 @@ module Fd
   class MemberLinksController < BaseController
     permit "member.links"
 
-    LIMIT = 100
-    VIEWS = { "review" => "Needs review", "clusters" => "Clusters", "pairs" => "All pairs" }.freeze
-    DEFAULT_VIEW = "review".freeze
+    OLD_PAIR_VIEWS = { "certain" => "certain", "strong" => "strong" }.freeze
 
     def index
-      @view = VIEWS.keys.find { |key| key == params[:view] } || DEFAULT_VIEW
-      ids = case @view
-      when "clusters" then clusters_ids
-      when "pairs" then pairs_ids
-      else review_ids
-      end
-      @names = Names.for(ids + @verdicts.values.map(&:decided_by))
+      return redirect_to(fd_clusters_path) if params[:view] == "clusters"
+      return redirect_to(fd_links_path(view: OLD_PAIR_VIEWS.fetch(params[:over].to_s, "certain"))) if params[:view] == "pairs"
+
+      @list = LinkList.new(params)
+      @names = Names.for(@list.user_ids + @list.rows.filter_map(&:decided_by))
       @health = LinkHealth.load
+    end
+
+    def compare
+      @compare = LinkCompare.find(params[:a], params[:b], actor: current_account)
+      return head :not_found if @compare.nil?
+
+      @compare.record_reads!
+      @names = Names.for(@compare.user_ids_named)
+      @channels = ChannelNames.for(@compare.channel_ids)
+      @contexts = MemberContext.for(@compare.ids)
+      @back = back_path
     end
 
     private
 
-    def review_ids
-      @pairs = MemberLink.needs_review(limit: LIMIT)
-      @verdicts = {}
-      @pairs.flat_map { |pair| [pair.active_id, pair.deactivated_id] }
-    end
-
-    def clusters_ids
-      @clusters = MemberLink.clusters(limit: LIMIT)
-      @verdicts = {}
-      @clusters.map(&:cluster_id)
-    end
-
-    def pairs_ids
-      @links = MemberLink.strongest(limit: LIMIT, over: score_floor)
-      @verdicts = LinkVerdict.for_pairs(@links.map { |link| [link.a_user_id, link.b_user_id] })
-      @links.flat_map { |link| [link.a_user_id, link.b_user_id] }
-    end
-
-    def score_floor
-      requested = params[:over].to_s
-      return MemberLink::CERTAIN if requested == "certain"
-      return MemberLink::STRONG if requested == "strong"
-
-      nil
+    def back_path
+      requested_path = params[:back].to_s
+      requested_path.start_with?("/fd/") ? requested_path : nil
     end
   end
 end

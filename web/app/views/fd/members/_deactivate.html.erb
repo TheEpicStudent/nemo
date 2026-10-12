@@ -8,7 +8,7 @@
     <div class="modal-body">
       <label class="field-label">
         Why
-        <%= text_area_tag :reason, submitted_value(:reason), rows: 3, class: "textarea", id: nil %>
+        <%= text_area_tag :reason, submitted_value(:reason) || local_assigns[:reason], rows: 3, class: "textarea", id: nil %>
       </label>
       <%= field_wrong(:reason) %>
 

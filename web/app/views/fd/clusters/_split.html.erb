@@ -1,0 +1,23 @@
+<%= render layout: "fd/modal", locals: { id: "cluster-split", title: "Split cluster",
+      sub: person_label(cluster.cluster_id) } do %>
+  <%= form_with url: fd_cluster_split_path(cluster.cluster_id), method: :post do %>
+    <div class="modal-body">
+      <p class="modal-note">
+        These <%= pluralize(split.cuts.size, "link") %> get a Different people verdict, the fewest and weakest
+        that separate the accounts marked different people. The next cluster run splits them apart.
+      </p>
+      <div class="split-cuts">
+        <% split.cuts.each do |cut| %>
+          <div class="split-cut">
+            <%= link_pair(cut.a_user_id, cut.b_user_id) %>
+            <%= link_band_state(cut.score) if cut.score %>
+          </div>
+        <% end %>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
+      <%= submit_tag "Split cluster", class: "btn btn-danger" %>
+    </div>
+  <% end %>
+<% end %>

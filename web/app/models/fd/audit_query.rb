@@ -52,12 +52,12 @@ module Fd
     WORD = /\A[a-z0-9_.]{2,60}\z/i
 
     VIEWS = {
-      "everything" => "Everything",
+      "everything" => "All",
       "engine" => "Fire Engine",
       "slack" => "Slack",
-      "reads" => "Identity reads",
-      "api" => "Public API",
-      "refusals" => "Refusals"
+      "reads" => "PII access",
+      "api" => "API",
+      "refusals" => "Access denied"
     }.freeze
 
     TABS = VIEWS.keys.freeze
@@ -486,7 +486,7 @@ module Fd
       return "#{view_label} matching #{term}" if view && searching?
       return view_label if view
 
-      terms.any? ? "Everything #{terms.map(&:label).to_sentence}" : "Everything"
+      terms.any? ? "All #{terms.map(&:label).to_sentence}" : "All"
     end
 
     def summary
@@ -504,8 +504,8 @@ module Fd
       return "No events" if searching?
 
       case view
-      when "reads" then "No identity reads"
-      when "refusals" then "No refusals"
+      when "reads" then "No PII access"
+      when "refusals" then "No access denied"
       else "No events"
       end
     end

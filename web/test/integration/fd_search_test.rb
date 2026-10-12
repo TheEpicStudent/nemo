@@ -161,7 +161,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
 
     assert_equal "command", payload["scope"]
     titles = payload["groups"].sole["rows"].map { |row| row["title"] }
-    assert_includes titles, "Open a case"
+    assert_includes titles, "Open case"
   end
 
   test "commands filter as you keep typing" do

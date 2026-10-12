@@ -381,7 +381,7 @@ class FdAuditTest < ActionDispatch::IntegrationTest
     get fd_audit_path
     assert_select ".view", text: /Slack/
     assert_select ".view", text: /Fire Engine/, count: 0
-    assert_select ".view", text: /Refusals/, count: 0
+    assert_select ".view", text: /Access denied/, count: 0
   end
 
   test "asking for the fire engine tab by hand does not hand it over" do

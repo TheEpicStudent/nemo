@@ -2,7 +2,7 @@
       data: { src: fd_member_standing_path(user_id) } do %>
   <% if guards.any? %>
     <div class="standing">
-      <p class="standing-t">In force now <span class="standing-count"><%= guards.size %></span></p>
+      <p class="standing-t">Guards <span class="standing-count"><%= guards.size %></span></p>
       <% guards.each do |guard| %>
         <% may_lift = guard.deactivation? ? may_deactivate : may_guard %>
         <div class="standing-row<%= " is-enforced" if guard.deactivation? %>"
@@ -35,7 +35,7 @@
             <% if may_lift %>
               <button type="button" class="btn btn-sm" aria-haspopup="dialog"
                       data-modal-open="guard-lift-<%= guard.id %>">
-                <%= guard.deactivation? ? "Activate" : "Lift it" %>
+                <%= guard.deactivation? ? "Reactivate" : "Lift" %>
               </button>
             <% end %>
           </span>
@@ -44,7 +44,7 @@
         <% if may_lift %>
           <%= render layout: "fd/modal", locals: {
                 id: "guard-lift-#{guard.id}",
-                title: guard.deactivation? ? "Activate" : "Lift it",
+                title: guard.deactivation? ? "Reactivate" : "Lift",
                 sub: names[user_id], open: false } do %>
             <%= form_with url: fd_member_guard_path(user_id, guard), method: :delete,
                   html: { autocomplete: "off" } do %>
@@ -62,7 +62,7 @@
               <div class="modal-foot">
                 <button type="button" class="btn btn-ghost"
                         data-action="click->modal#close">Cancel</button>
-                <%= submit_tag guard.deactivation? ? "Activate" : "Lift it",
+                <%= submit_tag guard.deactivation? ? "Reactivate" : "Lift",
                       class: "btn btn-danger" %>
               </div>
             <% end %>

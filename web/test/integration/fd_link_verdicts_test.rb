@@ -23,10 +23,15 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
     post fd_link_verdicts_path, params: { a: DELETED, b: ACTIVE, verdict: verdict, note: note, back: back }
   end
 
-  test "a pair is judged from needs review and leaves it" do
+  def compare_href = fd_link_compare_path(a: [ACTIVE, DELETED].min, b: [ACTIVE, DELETED].max, back: fd_links_path)
+
+  test "a pair is judged from compare and leaves the unreviewed list" do
     get fd_links_path
-    assert_select "button[data-verdict-a='#{ACTIVE}'][data-verdict-b='#{DELETED}']", "Judge"
-    assert_select ".modal-host[data-modal-id-value='link-verdict'] input[name='verdict']", 4
+    assert_select "a.btn[href=?]", compare_href, text: "Review"
+
+    get compare_href
+    assert_select "form.px-verdictbar button[name=verdict]", 4
+    assert_select "form.px-verdictbar input[name=back]"
 
     assert_difference -> { Fd::LinkVerdict.count }, 1 do
       post_verdict("different_people", note: "cousins")
@@ -34,7 +39,7 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
     assert_redirected_to fd_links_path
     assert_equal "verdict recorded", flash[:notice]
     follow_redirect!
-    assert_select "button[data-verdict-a='#{ACTIVE}']", 0
+    assert_select "a.btn[href=?]", compare_href, count: 0
 
     row = Fd::LinkVerdict.find_by!(a_user_id: [ACTIVE, DELETED].min, b_user_id: [ACTIVE, DELETED].max)
     assert_equal ["different_people", "UME", "cousins"], [row.verdict, row.decided_by, row.note]
@@ -70,24 +75,24 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
     assert_match "verdict unchanged", flash[:notice]
   end
 
-  test "a judged pair shows its verdict and can be changed from all pairs" do
+  test "a judged pair shows its verdict under reviewed and can be changed" do
     post_verdict("household")
 
-    get fd_links_path(view: "pairs")
-    assert_select ".state", "Household"
-    assert_select "button[data-verdict-was='household']", "Change"
+    get fd_links_path(view: "reviewed")
+    assert_select ".link-table .state", "Household"
+    assert_select ".link-table a.btn", "Change"
   end
 
   test "the member pane and the cluster page judge pairs too" do
     get fd_member_links_path(ACTIVE)
-    assert_select "button[data-verdict-a='#{ACTIVE}'][data-verdict-b='#{DELETED}']", "Judge"
+    assert_select "a.btn[href=?]", fd_link_compare_path(a: ACTIVE, b: DELETED, back: fd_member_path(ACTIVE, tab: "links")),
+      text: "Review"
 
     as_pipeline("INSERT INTO fd.member_cluster (user_id, cluster_id, accounts, active) VALUES (?, ?, 2, true), (?, ?, 2, false)",
       ACTIVE, DELETED, DELETED, DELETED)
     seeded!("fd.member_cluster", "cluster_id", DELETED)
-    get fd_cluster_path(DELETED)
-    assert_select "h2", "Links"
-    assert_select "button[data-modal-open='link-verdict']", minimum: 1
+    get fd_cluster_path(DELETED, tab: "links")
+    assert_select ".link-table a.btn", "Review"
   end
 
   test "a judgement comes back to the page it was made on" do
@@ -111,8 +116,10 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
     sign_in_as(hold_role!("UFF", "firefighter"))
 
     get fd_links_path
-    assert_select "button[data-modal-open='link-verdict']", 0
-    assert_select ".modal-host[data-modal-id-value='link-verdict']", 0
+    assert_select ".link-table a.btn", "Compare"
+    get compare_href
+    assert_response :success
+    assert_select "form.px-verdictbar", 0
 
     assert_no_difference -> { Fd::LinkVerdict.count } do
       post_verdict("same_person")

@@ -53,7 +53,7 @@ network_signals:
 
 device_signals:
   device_agent:
-    label: Same browser or app build, word for word
+    label: Same browser or app build
     weight: 3.0
     crowd_ceiling: 5
     corroborating: true
@@ -78,7 +78,7 @@ identity_signals:
     corroborating: true
 
   mailbox_alias:
-    label: Same mailbox, once dots and plus tags are removed
+    label: Same normalized mailbox
     weight: 8.0
     crowd_ceiling: 100
 

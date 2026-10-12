@@ -57,7 +57,7 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
     assert_equal "Slack desktop · macOS", fact("Client")
     assert_equal "4242", fact("Session")
     assert_equal "Toolbox A0DRAWAPP", fact("App")
-    assert_select "details.audit-panel-rawbox:not([open]) > summary", "Raw event"
+    assert_select "details.audit-panel-rawbox:not([open]) > summary", "Raw JSON"
     assert_select "details.audit-panel-rawbox pre", /Kid Realname/
   end
 

@@ -1,0 +1,20 @@
+<% all_gone = card.active.zero? %>
+<article class="card ccard">
+  <div class="card-head">
+    <span class="member-face<%= " is-gone" if all_gone %>">
+      <%= avatar(card.cluster_id) %>
+      <%= link_to person_label(card.cluster_id), fd_cluster_path(card.cluster_id), class: "ccard-link" %>
+    </span>
+    <span class="sub2 ccard-count"><%= pluralize(number_with_delimiter(card.accounts), "account") %></span>
+  </div>
+  <%= cluster_mini_map(card) %>
+  <div class="ccard-foot">
+    <span><b><%= number_with_delimiter(card.active) %></b> active</span>
+    <span><b><%= number_with_delimiter(card.deactivated) %></b> deactivated</span>
+    <% if card.top_signal %><span class="ccard-signal">Top signal: <%= card.top_signal %></span><% end %>
+  </div>
+  <div class="ccard-foot ccard-flags">
+    <%= cluster_flags(ring: card.ring, conflict: card.conflict, returns: card.returns, all_gone: all_gone) %>
+    <% if card.last_join %><span class="ccard-last">Last join <%= time_ago(card.last_join) %></span><% end %>
+  </div>
+</article>

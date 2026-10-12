@@ -4,7 +4,6 @@
 <% may_note = current_account.may?("member.note") %>
 <% may_guard = current_account.may?("member.guard") %>
 <% may_deactivate = current_account.may?("member.deactivate") %>
-<% may_links = current_account.may?("member.links") %>
 <% standing_guard = @guards.find(&:deactivation?) %>
 
 <% member_title = names.unknown?(@user_id) ? person_name(@user_id) : member_handle %>
@@ -40,26 +39,26 @@
           <%= open_in_slack slack_member_url(@user_id), css: "btn btn-ghost" %>
           <% if may_note %>
             <button type="button" class="btn" data-modal-open="member-note" aria-haspopup="dialog">
-              <%= case_action_button("note", "Write a note") %>
+              <%= case_action_button("note", "Add note") %>
             </button>
           <% end %>
           <% if may_guard %>
             <button type="button" class="btn" data-modal-open="member-guard" aria-haspopup="dialog">
-              <%= case_action_button("gauge", "Take action") %>
+              <%= case_action_button("gauge", "Action") %>
             </button>
           <% end %>
           <%= render layout: "shared/dropdown", locals: {
                 label: "More actions", trigger: menu_dots } do %>
             <%= link_to menu_item("history", "Audit log"), fd_audit_path(q: "about:#{@user_id}"), class: "btn" %>
             <% if standing_guard %>
-              <%= opens_modal "member.deactivate", menu_item("hand", "Activate"),
+              <%= opens_modal "member.deactivate", menu_item("hand", "Reactivate"),
                     opens: "guard-lift-#{standing_guard.id}" %>
             <% else %>
               <%= opens_modal "member.deactivate", menu_item("deactivate", "Deactivate"),
                     opens: "member-deactivate" %>
             <% end %>
           <% end %>
-          <%= link_to case_action_button("plus", "Open a case"),
+          <%= link_to case_action_button("plus", "Open case"),
                 fd_cases_path(subject_user_id: @user_id, open: "1"), class: "btn btn-primary" %>
         </div>
       </div>
@@ -73,7 +72,7 @@
           <dd class="fact-one <%= "is-none" unless @identity&.email.present? && !@identity.refused? && !@identity.purged? %>"><%= identity_line(@identity) %></dd>
         </div>
         <div class="fact">
-          <dt>Here since</dt>
+          <dt>Joined</dt>
           <dd class="fact-one <%= "is-none" unless @context&.cohort_at %>"><%= member_since(@context) %></dd>
         </div>
         <div class="fact">
@@ -151,17 +150,13 @@
   <%= render "guards", user_id: @user_id, member: names[@user_id] %>
 <% end %>
 
-<% if may_links && may_judge? %>
-  <%= render "fd/member_links/verdict_modal", back: fd_member_path(@user_id, tab: "links") %>
-<% end %>
-
 <% if may_deactivate && standing_guard.nil? %>
   <%= render "deactivate", user_id: @user_id, member: names[@user_id],
         handle: member_handle %>
 <% end %>
 
 <% if may_note %>
-  <%= render layout: "fd/modal", locals: { id: "member-note", title: "Write a note",
+  <%= render layout: "fd/modal", locals: { id: "member-note", title: "Add note",
         sub: names[@user_id], open: submitted_value(:body).present? } do %>
     <%= form_with url: fd_member_notes_path(@user_id), method: :post, html: { autocomplete: "off" } do %>
       <div class="modal-body">

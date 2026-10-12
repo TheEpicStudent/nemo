@@ -34,7 +34,9 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     assert_select ".cluster-map svg.is-crowded", count: 0
     assert_select ".cluster-map a.node[data-user=?]", ROOT
     assert_select ".cluster-map a.node-gone", 1
-    assert_select "table.data-table tbody tr", minimum: 3
+
+    get fd_cluster_path(ROOT, tab: "accounts")
+    assert_select "table.data-table tbody tr", 3
   end
 
   test "a big ring spreads out, shrinks its faces and turns its names into spokes" do
@@ -70,11 +72,11 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     assert_select ".cluster-map a.node[data-name][data-x][data-y]", 73
   end
 
-  test "every account on the map shows its face and opens the member" do
+  test "every account on the map shows its face and opens beside the map" do
     get fd_cluster_path(ROOT)
 
     [ROOT, ALT, DELETED].each do |user_id|
-      assert_select ".cluster-map a.node[href='#{fd_member_path(user_id)}'][data-turbo-frame='person-drawer']" do
+      assert_select ".cluster-map a.node[href='#{node_fd_cluster_path(ROOT, user_id)}'][data-turbo-frame='cluster-node']" do
         assert_select "image[href$='/#{user_id}/r']"
         assert_select "text.node-name"
       end
@@ -82,7 +84,7 @@ class FdClustersTest < ActionDispatch::IntegrationTest
   end
 
   test "the sessions show which address the accounts shared" do
-    get fd_cluster_path(ROOT)
+    get fd_cluster_path(ROOT, tab: "sessions")
 
     assert_select ".cluster-cells i.shared", 2
     assert_select ".cluster-cells i.own", 1
@@ -93,11 +95,11 @@ class FdClustersTest < ActionDispatch::IntegrationTest
   end
 
   test "the evidence frozen at deactivation is shown" do
-    get fd_cluster_path(ROOT)
+    get fd_cluster_path(ROOT, tab: "snapshots")
 
-    assert_select "h2", "Evidence at deactivation"
+    assert_equal %w[Account Deactivated By Reason Email IPs Clients], css_select("thead th").map { |cell| cell.text.squish }
     assert_match "ban evasion", response.body
-    assert_match "1 trait, 1 link", response.body
+    assert_select "tbody td div.mono", "10.9.9.9"
   end
 
   test "reading a cluster is logged for every account in it" do
@@ -113,15 +115,17 @@ class FdClustersTest < ActionDispatch::IntegrationTest
 
     get fd_cluster_path(ROOT)
     assert_response :success
-    assert_select "h2", text: "Sessions", count: 0
-    assert_select "h2", text: "Evidence at deactivation", count: 0
+    assert_select "nav.views a.view", text: /Sessions|Snapshots/, count: 0
     assert_no_match "81.2.69.144", response.body
+
+    get fd_cluster_path(ROOT, tab: "sessions")
+    assert_select "h2", text: "Sign-ins per day", count: 0
   end
 
   test "a case can be opened about the whole cluster" do
     get fd_cluster_path(ROOT)
 
-    href = css_select("a.btn-primary").find { |one| one.text.include?("Open a case") }["href"]
+    href = css_select("a.btn-primary").find { |one| one.text.include?("Open case") }["href"]
     [ROOT, ALT, DELETED].each { |user_id| assert_includes CGI.unescape(href), "subject_user_ids[]=#{user_id}" }
   end
 
@@ -141,8 +145,8 @@ class FdClustersTest < ActionDispatch::IntegrationTest
   end
 
   test "the clusters tab and a member pane both lead to the cluster" do
-    get fd_links_path(view: "clusters")
-    assert_select "a[href='#{fd_cluster_path(ROOT)}']"
+    get fd_clusters_path
+    assert_select "a.ccard-link[href='#{fd_cluster_path(ROOT)}']"
 
     get fd_member_links_path(ALT)
     assert_select "a[href='#{fd_cluster_path(ROOT)}']", "Open cluster"

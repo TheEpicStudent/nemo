@@ -49,7 +49,7 @@ class FdAuditAccessTest < ActionDispatch::IntegrationTest
     get fd_audit_path
     assert_response :success
     assert_select ".view", text: /Slack/, count: 0
-    assert_select ".view[aria-current=true]", /Everything/
+    assert_select ".view[aria-current=true]", /All/
     assert_no_match(/user login/, response.body)
     assert_select ".audit-filters", text: /Category/, count: 0
     assert_select ".audit-filters", text: /High-volume/, count: 0

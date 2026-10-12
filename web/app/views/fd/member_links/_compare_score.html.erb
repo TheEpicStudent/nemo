@@ -1,0 +1,28 @@
+<% link = compare.link %>
+<% verdict = compare.verdict %>
+<section class="card cmp-score">
+  <div class="cmp-score-main">
+    <% if link %>
+      <span class="cmp-score-value"><%= number_with_precision(link.score, precision: 1) %></span>
+      <div class="cmp-score-meta">
+        <%= link_band_state(link.score, with_score: false) %>
+        <span class="cmp-families">
+          <%= safe_join(compare.families.map { |family| "#{family.label} #{number_with_precision(family.total, precision: 1)}" }, " · ") %>
+        </span>
+      </div>
+    <% else %>
+      <div class="cmp-score-meta"><span class="state">Not linked</span></div>
+    <% end %>
+  </div>
+  <div class="cmp-score-side">
+    <% if verdict %>
+      <span class="cmp-recorded">
+        <%= link_verdict_state(verdict.verdict) %>
+        <span class="cmp-recorded-by"><%= person_label(verdict.decided_by) %> · <%= time_ago(verdict.decided_at) %><%= " · #{verdict.note}" if verdict.note.present? %></span>
+      </span>
+    <% else %>
+      <span class="cmp-recorded-by">No verdict</span>
+    <% end %>
+    <span class="cmp-recorded-by"><%= pluralize(compare.shared_attributes, "shared attribute") %></span>
+  </div>
+</section>

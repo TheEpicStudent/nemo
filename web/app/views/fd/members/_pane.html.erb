@@ -15,9 +15,9 @@
       <% query.filter_params.each do |key, value| %>
         <%= hidden_field_tag key, value, id: nil %>
       <% end %>
-      <label class="visually-hidden" for="pane-member-filter">Find a member</label>
+      <label class="visually-hidden" for="pane-member-filter">Filter members</label>
       <%= search_field_tag :q, query.term, id: "pane-member-filter",
-            class: "input input-sm grow", autocomplete: "off", placeholder: "Find a member",
+            class: "input input-sm grow", autocomplete: "off", placeholder: "Filter",
             data: { pane_filter_target: "query", action: "input->pane-filter#filter" } %>
     <% end %>
   </div>

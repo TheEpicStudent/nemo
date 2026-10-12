@@ -1,36 +1,74 @@
-<% content_for :page_title, "Linked accounts" %>
-
-<% if @view == "pairs" %>
-  <% content_for :head_actions do %>
-    <span class="segmented">
-      <%= link_to "All", fd_links_path(view: "pairs"),
-            aria: { current: ("true" if params[:over].blank?) } %>
-      <%= link_to "Strong", fd_links_path(view: "pairs", over: "strong"),
-            aria: { current: ("true" if params[:over] == "strong") } %>
-      <%= link_to "Certain", fd_links_path(view: "pairs", over: "certain"),
-            aria: { current: ("true" if params[:over] == "certain") } %>
-    </span>
-  <% end %>
-<% end %>
+<% content_for :page_title, "Links" %>
 
 <% content_for :page_tabs do %>
-  <% Fd::MemberLinksController::VIEWS.each do |key, label| %>
-    <%= link_to label, fd_links_path(view: (key unless key == Fd::MemberLinksController::DEFAULT_VIEW)),
-          class: "view", aria: { current: ("true" if @view == key) } %>
+  <% Fd::LinkList::VIEWS.each do |key, label| %>
+    <%= link_to fd_links_path(@list.params_for(view: key, signal: nil)), class: "view",
+          aria: { current: ("true" if @list.view == key) } do %>
+      <%= label %><span class="view-count"><%= number_with_delimiter(@list.view_counts.fetch(key)) %></span>
+    <% end %>
   <% end %>
 <% end %>
 
 <%= turbo_stream_from Fd::MemberLinkBroadcast::LIST_STREAM %>
 
 <%= turbo_frame_tag Fd::MemberLinkBroadcast::LIST_FRAME, target: "_top",
-      data: { src: fd_links_path(view: (@view unless @view == Fd::MemberLinksController::DEFAULT_VIEW),
-                                 over: params[:over].presence) } do %>
+      data: { src: fd_links_path(@list.params_for) } do %>
   <div class="stack">
     <%= render "health", health: @health %>
-    <%= render @view %>
-  </div>
-<% end %>
 
-<% if may_judge? %>
-  <%= render "verdict_modal", back: request.fullpath %>
+    <div class="audit-filters">
+      <%= render layout: "shared/dropdown", locals: {
+            label: "Signal", trigger_css: "btn",
+            trigger: audit_filter_trigger("Signal", @list.signal_label) } do %>
+        <%= link_to "Any", fd_links_path(@list.params_for(signal: nil)), class: "btn",
+              aria: { current: ("true" if @list.signal.nil?) } %>
+        <div class="menu-sep"></div>
+        <% Fd::LinkList::SIGNAL_GROUPS.each do |key, (label, _section)| %>
+          <%= link_to fd_links_path(@list.params_for(signal: key)), class: "btn",
+                aria: { current: ("true" if @list.signal == key) } do %>
+            <span><%= label %></span><%= audit_count(@list.signal_counts.fetch(key)) %>
+          <% end %>
+        <% end %>
+      <% end %>
+    </div>
+
+    <div class="card card-flush">
+      <% if @list.rows.any? %>
+        <div class="scroll">
+          <table class="data-table link-table">
+            <thead>
+              <tr>
+                <th>Accounts</th>
+                <th>Score</th>
+                <th>Signals</th>
+                <th>Verdict</th>
+                <th>Last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% @list.rows.each do |row| %>
+                <tr class="link-row">
+                  <td><%= link_pair(row.a_user_id, row.b_user_id) %></td>
+                  <td>
+                    <%= link_band_state(row.score) %>
+                    <% if row.label %><span class="sub2"><%= link_label_text(row.label) %></span><% end %>
+                  </td>
+                  <td class="link-why"><%= link_signal_lines(row.evidence) %></td>
+                  <td>
+                    <div class="verdict-cell">
+                      <%= link_verdict_state(row.verdict, title: (["by #{names[row.decided_by]}", row.note].compact.join(", ") if row.verdict)) %>
+                      <%= link_review_button(row.a_user_id, row.b_user_id, row.verdict) %>
+                    </div>
+                  </td>
+                  <td class="sub2"><%= row.last_seen ? on_day(row.last_seen) : "n/a" %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      <% else %>
+        <div class="empty"><p class="empty-title">No links</p></div>
+      <% end %>
+    </div>
+  </div>
 <% end %>

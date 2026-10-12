@@ -3,8 +3,8 @@ import { Controller } from "@hotwired/stimulus"
 const STEP_INTERVAL_MS = 700
 
 export default class extends Controller {
-  static targets = ["button", "label"]
-  static values = { steps: Number }
+  static targets = ["button", "label", "range", "time"]
+  static values = { steps: Number, dates: Array }
 
   disconnect() {
     this.stop()
@@ -19,6 +19,12 @@ export default class extends Controller {
       if (step >= this.stepsValue) return this.stop()
       this.show(step)
     }, STEP_INTERVAL_MS)
+  }
+
+  scrub() {
+    if (this.timer) clearInterval(this.timer)
+    this.timer = null
+    this.show(Number(this.rangeTarget.value) - 1)
   }
 
   stop() {
@@ -58,5 +64,8 @@ export default class extends Controller {
     this.element.querySelectorAll("[data-step]").forEach((element) => {
       element.classList.toggle("is-later", Number(element.dataset.step) > step)
     })
+    const last = step >= this.stepsValue - 1
+    if (this.hasRangeTarget) this.rangeTarget.value = Math.min(step + 1, this.stepsValue)
+    if (this.hasTimeTarget) this.timeTarget.textContent = last ? "Now" : (this.datesValue[step] || "")
   }
 }

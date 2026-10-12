@@ -1,0 +1,54 @@
+<% heads = compare.accounts %>
+<section class="card card-flush cmp-grid">
+  <div class="cmp-row cmp-heads">
+    <div class="cmp-key"></div>
+    <% heads.each_with_index do |account, index| %>
+      <% if index == 1 %><div class="cmp-match"></div><% end %>
+      <% user_id = account.user_id %>
+      <% handle = names.member(user_id)&.handle %>
+      <% returned = compare.returned_after_ban(user_id) %>
+      <div class="cmp-side cmp-head<%= " is-gone" if account.deactivated %>">
+        <%= avatar(user_id, css: "avatar cmp-face") %>
+        <div class="cmp-who">
+          <%= link_to person_label(user_id), fd_member_path(user_id), class: "cmp-name" %>
+          <span class="cmp-id"><%= "@#{handle} · " if handle.present? %><span class="mono"><%= user_id %></span></span>
+          <span class="cmp-status">
+            <% if account.deactivated %>
+              <span class="state">Deactivated</span>
+              <% if account.deactivated_at %><span class="cmp-note"><%= on_day(account.deactivated_at) %><%= safe_join([" by ", person_label(account.deactivated_by)]) if account.deactivated_by %></span><% end %>
+            <% elsif returned %>
+              <span class="state state-crit">Post-ban join</span>
+              <span class="cmp-note"><%= link_duration(returned) %> after the ban</span>
+            <% else %>
+              <span class="state state-good">Active</span>
+            <% end %>
+          </span>
+          <% if account.deactivation_reason.present? %><span class="cmp-note"><%= account.deactivation_reason %></span><% end %>
+        </div>
+      </div>
+    <% end %>
+  </div>
+
+  <% a_account, b_account = heads %>
+  <%= compare_row("Joined",
+        a_account.joined_at ? on_day(a_account.joined_at) : tag.span("n/a", class: "cmp-none"),
+        (tag.span("#{link_duration(b_account.joined_at - a_account.joined_at)} apart", class: "cmp-part") if a_account.joined_at && b_account.joined_at),
+        b_account.joined_at ? on_day(b_account.joined_at) : tag.span("n/a", class: "cmp-none")) %>
+  <% contexts = compare.ids.map { |user_id| @contexts[user_id] } %>
+  <% if contexts.any? { |context| context&.last_active_at } %>
+    <%= compare_row("Last active",
+          contexts[0]&.last_active_at ? time_ago(contexts[0].last_active_at) : tag.span("n/a", class: "cmp-none"), "",
+          contexts[1]&.last_active_at ? time_ago(contexts[1].last_active_at) : tag.span("n/a", class: "cmp-none")) %>
+  <% end %>
+  <% if contexts.any? { |context| context&.messages_posted } %>
+    <%= compare_row("Messages", fact_number(contexts[0]&.messages_posted), "", fact_number(contexts[1]&.messages_posted)) %>
+  <% end %>
+  <%= compare_row("Cases", number_with_delimiter(a_account.cases), "", number_with_delimiter(b_account.cases)) %>
+  <% compare.attributes.each do |attribute| %>
+    <% next if attribute.a_values.empty? && attribute.b_values.empty? %>
+    <%= compare_row(attribute.label,
+          link_attribute_values(attribute, attribute.a_values, attribute.b_values),
+          link_match_cell(attribute),
+          link_attribute_values(attribute, attribute.b_values, attribute.a_values)) %>
+  <% end %>
+</section>

@@ -1,0 +1,22 @@
+<section class="card card-flush">
+  <% if cluster.verdict_edges.any? %>
+    <div class="scroll">
+      <table class="data-table">
+        <thead><tr><th>Pair</th><th>Verdict</th><th>By</th><th>Time</th><th>Note</th></tr></thead>
+        <tbody>
+          <% cluster.verdict_edges.each do |edge| %>
+            <tr>
+              <td><%= link_pair(edge.a_user_id, edge.b_user_id) %></td>
+              <td><%= link_verdict_state(edge.verdict) %></td>
+              <td><%= edge.decided_by ? member_face(edge.decided_by) : "n/a" %></td>
+              <td class="sub2"><%= edge.decided_at ? time_ago(edge.decided_at) : "n/a" %></td>
+              <td class="sub2"><%= edge.note %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% else %>
+    <div class="empty"><p class="empty-title">No verdicts</p></div>
+  <% end %>
+</section>

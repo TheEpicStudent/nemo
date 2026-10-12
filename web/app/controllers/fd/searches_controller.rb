@@ -128,7 +128,7 @@ module Fd
 
     def commands
       case_commands + [
-        { kind: "do", icon: "plus", title: "Open a case", sub: nil, key: "case.open",
+        { kind: "do", icon: "plus", title: "Open case", sub: nil, key: "case.open",
           url: fd_cases_path(open: "1") },
         { kind: "do", icon: "case", title: "Go to the cases", sub: nil, url: fd_cases_path },
         { kind: "do", icon: "person", title: "Go to the members", sub: nil, url: fd_members_path }
@@ -167,7 +167,7 @@ module Fd
       [
         { key: "waiting", label: "Waiting on you", total: 1, rows: waiting },
         { key: "do", label: "Do", total: 1, rows: gated([
-          { kind: "do", icon: "plus", title: "Open a case", sub: nil, key: "case.open",
+          { kind: "do", icon: "plus", title: "Open case", sub: nil, key: "case.open",
             url: fd_cases_path }
         ]) }
       ].reject { |group| group[:rows].empty? }

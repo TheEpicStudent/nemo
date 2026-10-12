@@ -1,0 +1,81 @@
+<% member = @cluster.member(@user_id) %>
+<% snapshot = @cluster.snapshot_of(@user_id) %>
+<% handle = names.member(@user_id)&.handle %>
+<turbo-frame id="cluster-node">
+  <div class="side-head" data-row-id="node:<%= @user_id %>">
+    <%= avatar(@user_id, css: "avatar side-face") %>
+    <div class="grow">
+      <h2 class="side-title"><%= person_label(@user_id) %></h2>
+      <div class="side-sub">
+        <%= "@#{handle} · " if handle.present? %>
+        <% if member.deactivated %><span class="state">Deactivated</span><% else %><span class="state state-good">Active</span><% end %>
+      </div>
+    </div>
+    <button type="button" class="btn btn-ghost btn-only btn-sm" aria-label="Close" data-action="side-pane#close">
+      <%= audit_icon("x", size: 16) %>
+    </button>
+  </div>
+
+  <div class="side-body">
+    <dl class="side-facts">
+      <dt>Joined</dt>
+      <dd>
+        <%= member.joined_at ? on_day(member.joined_at) : "n/a" %>
+        <% ago = member.joined_at && time_ago(member.joined_at) %>
+        <% if ago&.end_with?("ago") %><div class="side-dim"><%= ago %></div><% end %>
+      </dd>
+      <% if snapshot&.deactivated_at %>
+        <dt>Deactivated</dt>
+        <dd>
+          <%= snapshot.reason.presence || "n/a" %>
+          <div class="side-dim"><%= time_ago(snapshot.deactivated_at) %><%= " by #{person_label(snapshot.actor_id)}" if snapshot.actor_id %></div>
+        </dd>
+      <% end %>
+      <dt>Email</dt>
+      <dd>
+        <% emails = @traits.emails(@user_id) %>
+        <% if emails.empty? %>n/a<% elsif emails.first.text.nil? %><%= locked_note("Hidden") %><% else %><span class="mono"><%= emails.first.text %></span><% end %>
+      </dd>
+      <dt>IPs</dt>
+      <dd>
+        <% ips = @traits.ips(@user_id) %>
+        <% if ips.empty? %>n/a<% end %>
+        <% ips.each do |ip| %>
+          <div><% if ip.text %><span class="mono"><%= ip.text %></span><% else %><%= locked_note("Hidden") %><% end %>
+            <span class="side-dim"><%= ip.note %></span></div>
+        <% end %>
+      </dd>
+      <dt>Clients</dt>
+      <dd>
+        <% clients = @traits.clients(@user_id) %>
+        <%= clients.empty? ? "n/a" : safe_join(clients.map { |client| tag.div(client.text) }) %>
+      </dd>
+    </dl>
+
+    <% links = @cluster.links_of(@user_id) %>
+    <% if links.any? %>
+      <section>
+        <h3 class="side-h3">Links</h3>
+        <div class="side-related">
+          <% links.each do |edge| %>
+            <% other = edge.other(@user_id) %>
+            <%= link_to link_compare_path(@user_id, other, back: fd_cluster_path(@cluster.cluster_id)),
+                  class: "side-related-row", data: { turbo_frame: "_top" } do %>
+              <span class="side-related-time mono"><%= number_with_precision(edge.score, precision: 1) %></span>
+              <span><%= person_label(other) %> <span class="sub2"><%= edge.evidence.first&.dig("label") %></span></span>
+            <% end %>
+          <% end %>
+        </div>
+      </section>
+    <% end %>
+
+    <div class="side-pivots">
+      <%= link_to fd_member_path(@user_id), class: "btn btn-sm", data: { turbo_frame: "_top" } do %>
+        <%= nav_icon("people") %><span>Open member</span>
+      <% end %>
+      <%= link_to fd_audit_path(q: "about:#{@user_id}"), class: "btn btn-sm", data: { turbo_frame: "_top" } do %>
+        <%= nav_icon("history") %><span>Audit log</span>
+      <% end %>
+    </div>
+  </div>
+</turbo-frame>

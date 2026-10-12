@@ -1,10 +1,12 @@
 <% layout = cluster_layout(cluster) %>
 <% points = layout.points %>
 <% node = layout.node %>
-<section class="card cluster-map" data-controller="cluster-map"
-         data-cluster-map-steps-value="<%= cluster.members.size %>">
+<% dates = cluster.members.map { |member| member.joined_at ? member.joined_at.in_time_zone.strftime("%-d %b %Y") : "n/a" } %>
+<section class="card card-flush cluster-map" data-controller="cluster-map"
+         data-cluster-map-steps-value="<%= cluster.members.size %>"
+         data-cluster-map-dates-value="<%= dates.to_json %>">
   <div class="card-head">
-    <h2 class="card-title">Map</h2>
+    <h2 class="card-title">Link graph</h2>
     <div class="card-tools">
       <button type="button" class="btn btn-ghost btn-sm" data-action="cluster-map#play"
               data-cluster-map-target="button">Replay</button>
@@ -27,7 +29,7 @@
       </defs>
       <% cluster.members.each do |member| %>
         <% at = points[member.user_id] %>
-        <a href="<%= fd_member_path(member.user_id) %>" data-turbo-frame="person-drawer"
+        <a href="<%= node_fd_cluster_path(cluster.cluster_id, member.user_id) %>" data-turbo-frame="cluster-node"
            class="node <%= member.deactivated ? "node-gone" : "node-active" %> <%= "node-oldest" if member.user_id == cluster.cluster_id %>"
            data-step="<%= at[:step] %>" data-user="<%= member.user_id %>"
            data-name="<%= person_label(member.user_id) %>" data-x="<%= at[:lx].round(1) %>" data-y="<%= at[:ly].round(1) %>"
@@ -55,9 +57,14 @@
   <div class="cluster-map-key">
     <span><i class="key-edge edge-certain"></i>Certain</span>
     <span><i class="key-edge edge-strong"></i>Strong</span>
-    <span><i class="key-edge edge-worth"></i>Worth a look</span>
-    <span><i class="key-edge edge-together"></i>Same person, by verdict</span>
-    <span><i class="key-edge edge-apart"></i>Different people, by verdict</span>
+    <span><i class="key-edge edge-weak"></i>Weak</span>
+    <span><i class="key-edge edge-together"></i>Verdict: same person</span>
+    <span><i class="key-edge edge-apart"></i>Verdict: different people</span>
     <span><i class="key-node node-gone"></i>Deactivated</span>
+  </div>
+  <div class="px-maptools">
+    <span class="t" data-cluster-map-target="time">Now</span>
+    <input type="range" min="1" max="<%= [cluster.members.size, 1].max %>" value="<%= [cluster.members.size, 1].max %>"
+           aria-label="Joins shown" data-cluster-map-target="range" data-action="input->cluster-map#scrub">
   </div>
 </section>

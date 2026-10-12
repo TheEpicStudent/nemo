@@ -8,21 +8,25 @@ module Fd
       :notes, :priors, :last_case_at, :messages_posted, keyword_init: true)
 
     VIEWS = {
-      "everyone" => "Everyone",
+      "everyone" => "All",
+      "linked" => "Linked",
       "force" => "In force",
       "priors" => "With priors",
+      "deactivated" => "Deactivated",
       "history" => "Has a history",
       "open" => "Open case",
       "notes" => "Standing notes"
     }.freeze
 
-    TABS = %w[everyone force priors].freeze
+    TABS = %w[everyone linked force deactivated].freeze
 
     VIEW_FACETS = {
       "history" => { "who" => "history" },
       "force" => { "state" => "force" },
       "open" => { "state" => "open" },
       "priors" => { "priors" => "2" },
+      "linked" => { "state" => "linked" },
+      "deactivated" => { "state" => "gone" },
       "notes" => { "state" => "noted" },
       "everyone" => { "who" => "everyone" }
     }.freeze
@@ -33,7 +37,7 @@ module Fd
     ACTIVE = { "any" => "any", "week" => "past week", "month" => "past month",
                "dormant" => "not in 90 days" }.freeze
     STATE = { "any" => "any", "open" => "open case", "noted" => "standing notes",
-              "clean" => "nothing on record" }.freeze
+              "clean" => "nothing on record", "linked" => "linked accounts", "gone" => "deactivated" }.freeze
     WHO = { "history" => "with a history", "everyone" => "everyone" }.freeze
     SORT = { "messages" => "messages", "recent" => "last case", "subject" => "cases as subject",
              "logged" => "cases logged in", "actions" => "actions",
@@ -200,7 +204,7 @@ module Fd
 
       phrases = [priors_phrase, tenure_phrase, active_phrase, state_phrase,
                  category_phrase].compact
-      prefix = self["who"] == "everyone" ? "Everyone" : "With a history"
+      prefix = self["who"] == "everyone" ? "All" : "With a history"
       phrases.empty? ? prefix : "#{prefix}, #{phrases.to_sentence}"
     end
 
@@ -215,6 +219,8 @@ module Fd
       when "open" then "Nobody has an open case."
       when "priors" then "Nobody has two or more priors in 12 months."
       when "notes" then "No standing notes on anybody."
+      when "linked" then "No linked members"
+      when "deactivated" then "No deactivated members"
       else "No member matches this."
       end
     end
@@ -332,6 +338,7 @@ module Fd
         SELECT #{label.join(", ")} FROM roster
       SQL
       VIEWS.keys.index_with { |key| row[key].to_i }
+        .merge("deactivated" => Member.where(is_deleted: true, is_bot: false).count)
     end
 
     def view_clause(key)
@@ -341,6 +348,8 @@ module Fd
       when "open" then "open_cases > 0"
       when "priors" then "priors >= 2"
       when "notes" then "notes > 0"
+      when "linked" then "links > 0"
+      when "deactivated" then "deactivated"
       else "1 = 1"
       end
     end
@@ -374,6 +383,8 @@ module Fd
       when "open" then "with an open case"
       when "noted" then "with standing notes"
       when "clean" then "with nothing on record"
+      when "linked" then "with linked accounts"
+      when "gone" then "deactivated"
       end
     end
 

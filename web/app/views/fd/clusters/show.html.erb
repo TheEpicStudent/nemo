@@ -1,55 +1,49 @@
-<% content_for :page_title, "Cluster" %>
+<% root = @cluster.cluster_id %>
 <% may_deactivate = current_account.may?("member.deactivate") %>
+<% content_for :page_title, person_label(root) %>
+<% content_for :page_face do %><%= avatar(root, css: "avatar rtitle-face") %><% end %>
+<% content_for :head_context do %>
+  <span class="sub2">cluster · <%= pluralize(number_with_delimiter(@cluster.members.size), "account") %></span>
+<% end %>
 
 <% content_for :head_actions do %>
   <% if may_deactivate && @cluster.active.any? %>
     <button type="button" class="btn btn-danger" data-modal-open="cluster-deactivate" aria-haspopup="dialog">
-      Deactivate
+      Deactivate <%= @cluster.active.size %> remaining
     </button>
   <% end %>
   <% if current_account.may?("case.open") %>
-    <%= link_to "Open a case", fd_cases_path(subject_user_ids: @cluster.ids, open: "1"), class: "btn btn-primary" %>
+    <%= link_to fd_cases_path(subject_user_ids: @cluster.ids, open: "1"), class: "btn btn-primary" do %>
+      <%= case_action_button("plus", "Open case") %>
+    <% end %>
+  <% end %>
+<% end %>
+
+<% content_for :page_tabs do %>
+  <% @tabs.each do |key, label| %>
+    <%= link_to fd_cluster_path(root, tab: (key unless key == "overview")), class: "view",
+          aria: { current: ("true" if @tab == key) } do %>
+      <%= label %>
+      <% count = cluster_tab_count(@cluster, key) %>
+      <% if count %><span class="view-count"><%= number_with_delimiter(count) %></span><% end %>
+    <% end %>
   <% end %>
 <% end %>
 
 <div class="stack">
-  <section class="card">
-    <div class="card-head">
-      <h2 class="card-title"><%= member_face(@cluster.cluster_id) %></h2>
-    </div>
-    <dl class="fact-grid">
-      <div class="fact">
-        <dt>Accounts</dt>
-        <dd class="fact-one"><%= @cluster.members.size %></dd>
-      </div>
-      <div class="fact">
-        <dt>Active</dt>
-        <dd class="fact-one"><%= @cluster.active.size %></dd>
-      </div>
-      <div class="fact">
-        <dt>Flags</dt>
-        <dd class="fact-one <%= "is-none" unless @cluster.ring? || @cluster.conflict? %>">
-          <% if @cluster.conflict? %><span class="state state-crit">Conflict</span><% end %>
-          <% if @cluster.ring? %><span class="state state-warn">Ring</span><% end %>
-          <%= "None" unless @cluster.ring? || @cluster.conflict? %>
-        </dd>
-      </div>
-    </dl>
-  </section>
-
-  <%= render "map", cluster: @cluster %>
-  <%= render "accounts", cluster: @cluster %>
-  <%= render "links", cluster: @cluster %>
-  <% if @identity %>
-    <%= render "timeline", cluster: @cluster %>
-    <%= render "snapshots", cluster: @cluster %>
-  <% end %>
+  <%= render ClusterHelper::TAB_PARTIALS.fetch(@tab), cluster: @cluster %>
 </div>
+
+<% content_for :side do %>
+  <aside class="side-pane" aria-label="Account">
+    <turbo-frame id="cluster-node" target="_top" data-controller="side-pane"></turbo-frame>
+  </aside>
+<% end %>
 
 <% if may_deactivate && @cluster.active.any? %>
   <%= render "deactivate", cluster: @cluster %>
 <% end %>
 
-<% if may_judge? %>
-  <%= render "fd/member_links/verdict_modal", back: fd_cluster_path(@cluster.cluster_id) %>
+<% if may_judge? && @split.possible? %>
+  <%= render "split", cluster: @cluster, split: @split %>
 <% end %>

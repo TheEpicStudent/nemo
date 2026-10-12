@@ -16,7 +16,7 @@
 
     <span class="queue-subject trunc">
       <%= member_name %> &middot;
-      <%= member_context&.cohort_at ? "here since #{member_context.cohort_at.to_date.strftime('%b %Y')}" : "tenure unavailable" %>
+      <%= member_context&.cohort_at ? "joined #{member_context.cohort_at.to_date.strftime('%b %Y')}" : "tenure unavailable" %>
     </span>
 
     <span class="queue-meta">

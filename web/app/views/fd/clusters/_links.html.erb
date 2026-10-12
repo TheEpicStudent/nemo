@@ -1,36 +1,29 @@
 <section class="card card-flush">
-  <div class="card-head">
-    <h2 class="card-title">Links</h2>
-  </div>
-  <% if cluster.edges.any? %>
+  <% if cluster.links.any? %>
     <div class="scroll">
-      <table class="data-table">
+      <table class="data-table link-table">
         <thead>
-          <tr>
-            <th>One</th>
-            <th>The other</th>
-            <th>Score</th>
-            <th>Reasons</th>
-            <th>Verdict</th>
-          </tr>
+          <tr><th>Pair</th><th>Score</th><th>Signals</th><th>Verdict</th><th>Last seen</th></tr>
         </thead>
         <tbody>
-          <% cluster.edges.each do |edge| %>
-            <% verdict = Fd::LinkVerdict.of(@verdicts, edge.a_user_id, edge.b_user_id) %>
+          <% cluster.links.sort_by { |edge| -edge.score }.each do |edge| %>
             <tr>
-              <td><%= member_face(edge.a_user_id) %></td>
-              <td><%= member_face(edge.b_user_id) %></td>
-              <td><%= edge.score ? link_score_chip(edge.score) : "n/a" %></td>
-              <td class="link-why"><%= link_reasons(Fd::MemberLink.evidence_of(edge.signals)) %></td>
-              <td><%= verdict_cell(edge.a_user_id, edge.b_user_id, verdict) %></td>
+              <td><%= link_pair(edge.a_user_id, edge.b_user_id) %></td>
+              <td><%= link_band_state(edge.score) %></td>
+              <td class="link-why"><%= link_signal_lines(edge.evidence) %></td>
+              <td>
+                <div class="verdict-cell">
+                  <%= link_verdict_state(edge.verdict) %>
+                  <%= link_review_button(edge.a_user_id, edge.b_user_id, edge.verdict) %>
+                </div>
+              </td>
+              <td class="sub2"><%= edge.last_seen ? on_day(edge.last_seen) : "n/a" %></td>
             </tr>
           <% end %>
         </tbody>
       </table>
     </div>
   <% else %>
-    <div class="empty">
-      <p class="empty-title">No links</p>
-    </div>
+    <div class="empty"><p class="empty-title">No links</p></div>
   <% end %>
 </section>

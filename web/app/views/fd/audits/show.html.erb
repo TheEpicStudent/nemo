@@ -11,7 +11,7 @@
     <%= audit_icon("copy") %><span data-audit-csv-target="label">Copy CSV</span>
   </button>
   <button type="button" class="btn btn-only" data-modal-open="audit-help"
-          aria-haspopup="dialog" aria-label="Query syntax">?</button>
+          aria-haspopup="dialog" aria-label="Search help">?</button>
 <% end %>
 
 <% content_for :page_controls do %>
@@ -52,7 +52,7 @@
   </turbo-frame>
 </div>
 
-<%= render layout: "fd/modal", locals: { id: "audit-help", title: "Query syntax",
+<%= render layout: "fd/modal", locals: { id: "audit-help", title: "Search help",
       open: false } do %>
   <div class="modal-body">
     <dl class="audit-help-list">
