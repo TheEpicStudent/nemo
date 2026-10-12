@@ -9,6 +9,7 @@
         <span class="cmp-families">
           <%= safe_join(compare.families.map { |family| "#{family.label} #{number_with_precision(family.total, precision: 1)}" }, " · ") %>
         </span>
+        <% if compare.variant %><span class="cmp-variant">Variant <b class="mono"><%= compare.variant %></b></span><% end %>
       </div>
     <% else %>
       <div class="cmp-score-meta"><span class="state">Not linked</span></div>

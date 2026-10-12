@@ -28,6 +28,8 @@
   .cmp-score-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .cmp-score-meta .state { font-size: var(--text-sm); }
   .cmp-families { font-size: var(--text-sm); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .cmp-variant { font-size: var(--text-sm); color: var(--muted-foreground); }
+  .cmp-variant b { font-weight: 500; color: var(--foreground); }
   .cmp-score-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; }
   .cmp-recorded { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
   .cmp-recorded-by { font-size: var(--text-xs); color: var(--muted-foreground); }

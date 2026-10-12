@@ -14,7 +14,7 @@ module Fd
     end
 
     def compare
-      @compare = LinkCompare.find(params[:a], params[:b], actor: current_account)
+      @compare = LinkCompare.find(params[:a], params[:b], actor: current_account, variant: params[:variant])
       return head :not_found if @compare.nil?
 
       @compare.record_reads!

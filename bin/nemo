@@ -32,6 +32,8 @@ nemo <role> [args]
   provision      schemas, roles, grants and both migration sets
   prometheans    replace the appointment mirror from the Prometheus API
   verdict        record link verdicts between a main account and others
+  links          rebuild every link from a variant file into fd.member_link_shadow
+                 (--variant FILE), scored with check-links --variant NAME
   doctor <role>  report the env this role needs and what is missing
 
 the role may also come from NEMO_ROLE when no argument is given.
@@ -91,6 +93,9 @@ case "$ROLE" in
     ;;
   verdict)
     py -m jobs.link_verdicts "$@"
+    ;;
+  links)
+    py -m jobs.shadow_links "$@"
     ;;
   doctor)
     py -m lib.config "${1:-serve}"

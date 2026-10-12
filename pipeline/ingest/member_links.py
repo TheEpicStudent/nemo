@@ -625,6 +625,16 @@ WHERE l.computed_at < now()
                   WHERE p.a_user_id = l.a_user_id AND p.b_user_id = l.b_user_id)
 """
 
+SHADOW_CLEAR_SQL = "DELETE FROM fd.member_link_shadow WHERE variant = %(variant)s"
+
+SHADOW_INSERT_SQL = """
+INSERT INTO fd.member_link_shadow
+    (variant, a_user_id, b_user_id, score, top_signal, top_family, families, signals, first_seen, last_seen,
+     label, computed_at)
+SELECT %(variant)s, a_user_id, b_user_id, score, top_signal, top_family, families, signals, first_seen,
+       last_seen, label, now()
+FROM link_pass
+"""
 
 FULL = {
     "login": "fd.login_event",
@@ -654,13 +664,14 @@ def sightings_of(config):
     return int(shared(config).get("min_sightings", 1))
 
 
-def mark_shared(conn, config):
+def mark_shared(conn, config, save=True):
     settings = shared(config)
     conn.execute(SHARED_ISP, {"rotates": settings.get("rotates_above", 5.0),
                               "crowds": settings.get("crowds_above", 40)})
     conn.execute(SHARED_IP)
     conn.execute(SHARED_INDEX)
-    conn.execute(SAVE_SHARED_SQL)
+    if save:
+        conn.execute(SAVE_SHARED_SQL)
     row = conn.execute("SELECT count(*) FROM shared_ip").fetchone()
     return row[0] if row else 0
 
@@ -841,7 +852,7 @@ def gather(conn, config, wholes, sources=FULL):
     return counted
 
 
-def settle(conn, config, sources=FULL, sweep=SWEEP, lap=lambda _step: None):
+def settle(conn, config, sources=FULL, sweep=SWEEP, lap=lambda _step: None, write=UPSERT_SQL, write_params=None):
     thresholds = scoring(config)
     label_config = labels(config)
     labelled = {}
@@ -866,13 +877,29 @@ def settle(conn, config, sources=FULL, sweep=SWEEP, lap=lambda _step: None):
         labelled["household"] = cur.rowcount
         lap("labels")
         cur.execute(BELOW_FLOOR, {"floor": thresholds["floor"]})
-        cur.execute(UPSERT_SQL)
+        cur.execute(write, write_params)
         changed = cur.rowcount
-        cur.execute(sweep)
-        removed = cur.rowcount
+        removed = 0
+        if sweep:
+            cur.execute(sweep)
+            removed = cur.rowcount
         cur.execute("SELECT count(*) FROM link_pass")
         retained = cur.fetchone()[0]
     return retained, changed, removed, countered, labelled
+
+
+def build_shadow(conn, config, variant):
+    mark_shared(conn, config, save=False)
+    conn.execute("ANALYZE shared_ip")
+    prepare(conn, config)
+    wholes = measure(conn, config)
+    gather(conn, config, wholes)
+    conn.execute("ANALYZE link_part")
+    conn.execute(SHADOW_CLEAR_SQL, {"variant": variant})
+    retained, _written, _removed, _countered, _labelled = settle(
+        conn, config, sweep=None, write=SHADOW_INSERT_SQL, write_params={"variant": variant})
+    conn.commit()
+    return retained
 
 
 def run(conn):

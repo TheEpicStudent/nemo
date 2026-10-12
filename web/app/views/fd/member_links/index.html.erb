@@ -30,6 +30,17 @@
           <% end %>
         <% end %>
       <% end %>
+      <% if @list.view == "sampled" && @list.variants.size > 1 %>
+        <%= render layout: "shared/dropdown", locals: {
+              label: "Set", trigger_css: "btn",
+              trigger: audit_filter_trigger("Set", @list.variant_label) } do %>
+          <% @list.variants.each do |name| %>
+            <%= link_to (name == Fd::LinkList::LIVE_VARIANT ? "Live links" : name),
+                  fd_links_path(@list.params_for(variant: name)), class: "btn",
+                  aria: { current: ("true" if @list.variant == name) } %>
+          <% end %>
+        <% end %>
+      <% end %>
     </div>
 
     <div class="card card-flush">
@@ -57,7 +68,8 @@
                   <td>
                     <div class="verdict-cell">
                       <%= link_verdict_state(row.verdict, title: (["by #{names[row.decided_by]}", row.note].compact.join(", ") if row.verdict)) %>
-                      <%= link_review_button(row.a_user_id, row.b_user_id, row.verdict) %>
+                      <%= link_review_button(row.a_user_id, row.b_user_id, row.verdict,
+                            variant: (@list.variant unless @list.variant == Fd::LinkList::LIVE_VARIANT)) %>
                     </div>
                   </td>
                   <td class="sub2"><%= row.last_seen ? on_day(row.last_seen) : "n/a" %></td>

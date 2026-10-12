@@ -10,6 +10,7 @@ module Fd
       "sampled" => "Sampled"
     }.freeze
     DEFAULT_VIEW = "review".freeze
+    LIVE_VARIANT = "live".freeze
     LIMIT = 100
 
     SIGNAL_GROUPS = {
@@ -27,11 +28,12 @@ module Fd
       "weak" => "l.score < :strong AND l.label IS NULL",
       "labelled" => "l.label IS NOT NULL",
       "reviewed" => "v.a_user_id IS NOT NULL",
-      "sampled" => "EXISTS (SELECT 1 FROM fd.link_sample s WHERE s.variant = 'live' " \
+      "sampled" => "EXISTS (SELECT 1 FROM fd.link_sample s WHERE s.variant = :variant " \
                    "AND s.a_user_id = l.a_user_id AND s.b_user_id = l.b_user_id)"
     }.freeze
     ORDER_PREFIX = { "reviewed" => "v.decided_at DESC,", "sampled" => "(v.a_user_id IS NOT NULL)," }.freeze
 
+    SHADOW_LINKS = "(SELECT * FROM fd.member_link_shadow WHERE variant = :variant) l".freeze
     FROM = <<~SQL.squish.freeze
       fd.member_link l
       LEFT JOIN fd.member a ON a.user_id = l.a_user_id
@@ -76,12 +78,25 @@ module Fd
 
     def signal_label = signal && SIGNAL_GROUPS.dig(signal, 0)
 
+    def variants
+      @variants ||= ApplicationRecord.connection
+        .select_values("SELECT DISTINCT variant FROM fd.link_sample")
+        .sort_by { |name| [name == LIVE_VARIANT ? 0 : 1, name] }
+    end
+
+    def variant
+      requested = @params[:variant].to_s
+      view == "sampled" && variants.include?(requested) ? requested : LIVE_VARIANT
+    end
+
+    def variant_label = variant == LIVE_VARIANT ? "Live links" : variant
+
     def rows
       @rows ||= select_all(<<~SQL, limit: LIMIT).map { |row| build_row(row) }
         SELECT l.a_user_id, l.b_user_id, l.score, l.label, l.signals, l.last_seen,
                v.verdict, v.decided_by, v.decided_at, v.note,
                coalesce(a.is_deleted, false) AS a_deleted, coalesce(b.is_deleted, false) AS b_deleted
-        FROM #{FROM}
+        FROM #{from_sql}
         WHERE #{CONDITIONS.fetch(view)} #{signal_condition}
         ORDER BY #{ORDER_PREFIX[view]} l.score DESC, l.a_user_id, l.b_user_id
         LIMIT :limit
@@ -90,9 +105,10 @@ module Fd
 
     def view_counts
       @view_counts ||= begin
-        columns = CONDITIONS.map { |key, condition| "count(*) FILTER (WHERE #{condition}) AS #{key}" }
+        columns = CONDITIONS.except("sampled").map { |key, condition| "count(*) FILTER (WHERE #{condition}) AS #{key}" }
         row = select_all("SELECT #{columns.join(', ')} FROM #{FROM}").first || {}
-        VIEWS.keys.index_with { |key| row[key].to_i }
+        sampled = select_all("SELECT count(*) AS sampled FROM #{from_sql} WHERE #{CONDITIONS.fetch('sampled')}").first || {}
+        VIEWS.keys.index_with { |key| row.merge(sampled)[key].to_i }
       end
     end
 
@@ -102,25 +118,30 @@ module Fd
           "count(*) FILTER (WHERE l.signals ?| ARRAY[:#{group}]::text[]) AS #{group}"
         end
         binds = SIGNAL_GROUPS.keys.to_h { |group| [group.to_sym, LinkList.signal_names(group).presence || [""]] }
-        row = select_all("SELECT #{columns.join(', ')} FROM #{FROM} WHERE #{CONDITIONS.fetch(view)}", binds).first || {}
+        row = select_all("SELECT #{columns.join(', ')} FROM #{from_sql} WHERE #{CONDITIONS.fetch(view)}", binds).first || {}
         SIGNAL_GROUPS.keys.index_with { |group| row[group].to_i }
       end
     end
 
     def user_ids = rows.flat_map { |row| [row.a_user_id, row.b_user_id] }
 
-    def params_for(view: self.view, signal: self.signal)
-      { view: (view unless view == DEFAULT_VIEW), signal: signal }.compact
+    def params_for(view: self.view, signal: self.signal, variant: self.variant)
+      { view: (view unless view == DEFAULT_VIEW), signal: signal,
+        variant: (variant if view == "sampled" && variant != LIVE_VARIANT) }.compact
     end
 
     private
+
+    def from_sql
+      variant == LIVE_VARIANT ? FROM : FROM.sub("fd.member_link l", SHADOW_LINKS)
+    end
 
     def signal_condition
       signal ? "AND l.signals ?| ARRAY[:signal_names]::text[]" : ""
     end
 
     def select_all(sql, extra = {})
-      binds = { strong: MemberLink::STRONG, certain: MemberLink::CERTAIN,
+      binds = { strong: MemberLink::STRONG, certain: MemberLink::CERTAIN, variant: variant,
                 signal_names: LinkList.signal_names(signal).presence || [""] }.merge(extra)
       ApplicationRecord.connection.select_all(ApplicationRecord.sanitize_sql([sql, binds])).to_a
     end

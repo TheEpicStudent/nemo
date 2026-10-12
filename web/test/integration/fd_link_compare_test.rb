@@ -88,6 +88,26 @@ class FdLinkCompareTest < ActionDispatch::IntegrationTest
     assert_select ".cmp-signal .cmp-weight", "+8.0"
   end
 
+  test "a variant shows its own score and signals and keeps the variant through the verdict" do
+    a, b = [GONE, BACK].sort
+    as_pipeline("INSERT INTO fd.member_link_shadow (variant, a_user_id, b_user_id, score, top_signal, signals) " \
+                "VALUES ('flat_inbox', ?, ?, 4.0, 'device_agent', ?::jsonb)",
+      a, b, '{"device_agent": {"value": "Slack/4.41 Mac", "people": 2, "score": 4.0}}')
+    seeded!("fd.member_link_shadow", "a_user_id", a)
+
+    get fd_link_compare_path(a: GONE, b: BACK, variant: "flat_inbox")
+
+    assert_select ".cmp-score-value", "4.0"
+    assert_select ".cmp-variant b", "flat_inbox"
+    assert_select ".cmp-signal", 1
+    back = css_select("form.px-verdictbar input[name=back]").first["value"]
+    assert_includes back, "variant=flat_inbox"
+
+    get fd_link_compare_path(a: GONE, b: BACK, variant: "live")
+    assert_select ".cmp-score-value", "11.0"
+    assert_select ".cmp-variant", 0
+  end
+
   test "the floating bar records a verdict and comes back to compare" do
     get fd_link_compare_path(a: GONE, b: BACK, back: fd_links_path)
     assert_select "form.px-verdictbar button[name=verdict][data-key='1'][value=same_person]"

@@ -53,8 +53,8 @@ module LinkHelper
     end
   end
 
-  def link_compare_path(a, b, back: request.fullpath)
-    fd_link_compare_path(a: a, b: b, back: back)
+  def link_compare_path(a, b, back: request.fullpath, variant: nil)
+    fd_link_compare_path({ a: a, b: b, back: back, variant: variant }.compact)
   end
 
   def link_verdict_state(verdict_key, title: nil)
@@ -64,13 +64,13 @@ module LinkHelper
     tag.span(Fd::LinkVerdict::VERDICTS.fetch(verdict_key, verdict_key), class: "state #{tone}", title: title)
   end
 
-  def link_review_button(a, b, verdict_key, back: request.fullpath)
+  def link_review_button(a, b, verdict_key, back: request.fullpath, variant: nil)
     label = if may_judge?
       verdict_key ? "Change" : "Review"
     else
       "Compare"
     end
-    link_to label, link_compare_path(a, b, back: back), class: "btn btn-sm", data: { turbo_frame: "_top" }
+    link_to label, link_compare_path(a, b, back: back, variant: variant), class: "btn btn-sm", data: { turbo_frame: "_top" }
   end
 
   def link_match_cell(attribute)

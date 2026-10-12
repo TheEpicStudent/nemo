@@ -26,6 +26,10 @@ REBAN_WINDOW_DAYS = 30
 HOME_IP_MAX_USERS = 8
 VPN_IP_MAX_USERS = 10
 LIVE_VARIANT = "live"
+SHADOW_LINKS = "fd.member_link_shadow"
+VARIANT_NAME = re.compile(r"^[a-z0-9_]{1,40}$")
+BAND_DISPLAY = {"certain": "certain", "strong": "strong", "weak": "worth a look"}
+BAND_ORDER = {"weak": 1, "strong": 2, "certain": 3}
 SAMPLE_BANDS = ("certain", "strong", "weak")
 SAMPLE_TARGET_KEYS = {"certain": "certain", "strong": "strong", "weak": "floor"}
 
@@ -130,7 +134,7 @@ WITH banded AS (
            CASE WHEN l.score >= %(certain)s THEN 'certain'
                 WHEN l.score >= %(strong)s THEN 'strong'
                 ELSE 'weak' END AS band
-    FROM fd.member_link l
+    FROM {links} l
     WHERE NOT EXISTS (SELECT 1 FROM fd.link_sample s
                       WHERE s.variant = %(variant)s
                         AND s.a_user_id = l.a_user_id AND s.b_user_id = l.b_user_id)
@@ -161,6 +165,19 @@ FROM fd.link_sample s
 LEFT JOIN fd.member_link_verdict v ON v.a_user_id = s.a_user_id AND v.b_user_id = s.b_user_id
 WHERE s.variant = %(variant)s
 GROUP BY s.band
+"""
+
+BAND_SHIFT_SQL = """
+SELECT v.band AS variant_band, l.band AS live_band, count(*)
+FROM (SELECT a_user_id, b_user_id,
+             CASE WHEN score >= %(certain)s THEN 'certain' WHEN score >= %(strong)s THEN 'strong'
+                  ELSE 'weak' END AS band
+      FROM {links}) v
+FULL JOIN (SELECT a_user_id, b_user_id,
+                  CASE WHEN score >= %(certain)s THEN 'certain' WHEN score >= %(strong)s THEN 'strong'
+                       ELSE 'weak' END AS band
+           FROM {against}) l USING (a_user_id, b_user_id)
+GROUP BY 1, 2
 """
 
 MAILBOXES_SQL = """
@@ -251,11 +268,21 @@ def suggest_cutoffs(pairs, targets):
     return summary
 
 
-def draw_samples(conn, per_band, bands=SAMPLE_BANDS):
+def links_source(links_name=LINKS, variant=None):
+    if variant is None:
+        return links_table(links_name)
+    if not VARIANT_NAME.match(variant) or variant == LIVE_VARIANT:
+        raise ValueError(f"{variant!r} is not a variant name")
+    return sql.SQL("(SELECT * FROM {} WHERE variant = {})").format(
+        links_table(SHADOW_LINKS), sql.Literal(variant))
+
+
+def draw_samples(conn, per_band, bands=SAMPLE_BANDS, variant=None):
     thresholds = scoring()
-    rows = conn.execute(DRAW_SQL, {"certain": thresholds["certain"], "strong": thresholds["strong"],
-                                   "variant": LIVE_VARIANT, "bands": list(bands),
-                                   "per_band": per_band}).fetchall()
+    text = sql.SQL(DRAW_SQL).format(links=links_source(LINKS, variant))
+    rows = conn.execute(text, {"certain": thresholds["certain"], "strong": thresholds["strong"],
+                               "variant": variant or LIVE_VARIANT, "bands": list(bands),
+                               "per_band": per_band}).fetchall()
     conn.commit()
     return Counter(band for (band,) in rows)
 
@@ -268,15 +295,31 @@ def sample_precision(rows, targets):
             for band in SAMPLE_BANDS if band in counts}
 
 
-def measure(conn, links_name=LINKS):
+def band_shift(rows):
+    shift = {"added": Counter(), "dropped": Counter(), "up": 0, "down": 0, "same": 0}
+    for variant_band, live_band, count in rows:
+        if live_band is None:
+            shift["added"][BAND_DISPLAY[variant_band]] += count
+        elif variant_band is None:
+            shift["dropped"][BAND_DISPLAY[live_band]] += count
+        elif BAND_ORDER[variant_band] > BAND_ORDER[live_band]:
+            shift["up"] += count
+        elif BAND_ORDER[variant_band] < BAND_ORDER[live_band]:
+            shift["down"] += count
+        else:
+            shift["same"] += count
+    return shift
+
+
+def measure(conn, links_name=LINKS, variant=None, against=None):
     thresholds = scoring()
     config = catalogue()
     staff = config.get("staff_domains", [])
     targets = config.get("band_targets")
-    links = links_table(links_name)
+    links = links_source(links_name, variant)
 
-    def query(text, params=None):
-        return conn.execute(sql.SQL(text).format(links=links), params).fetchall()
+    def query(text, params=None, **parts):
+        return conn.execute(sql.SQL(text).format(links=links, **parts), params).fetchall()
 
     banded = query(BANDS_SQL, thresholds)[0]
     rows = query(VERDICTS_SQL)
@@ -312,13 +355,20 @@ def measure(conn, links_name=LINKS):
     same_person = [(score, top_signal, ()) for _a, _b, verdict, score, top_signal in rows
                    if verdict == "same_person"]
     samples = None
-    if links_name == LINKS:
+    sample_variant = variant or (LIVE_VARIANT if links_name == LINKS else None)
+    if sample_variant:
         sample_rows = conn.execute(SAMPLE_PRECISION_SQL, {"right": list(RIGHT), "wrong": list(WRONG),
-                                                          "variant": LIVE_VARIANT}).fetchall()
+                                                          "variant": sample_variant}).fetchall()
         samples = sample_precision(sample_rows, targets)
+    shift = None
+    if variant:
+        shift = band_shift(query(BAND_SHIFT_SQL, thresholds, against=links_source(LINKS, against)))
 
     return {
-        "links": links_name,
+        "links": f"{SHADOW_LINKS} ({variant})" if variant else links_name,
+        "variant": variant,
+        "against": f"{SHADOW_LINKS} ({against})" if against else LINKS,
+        "shift": shift,
         "bands": dict(zip(BAND_NAMES, banded, strict=True)),
         "recall": {
             "post-ban": recall([(score, top_signal, evidence)
@@ -347,14 +397,16 @@ def format_ratios(counts):
     return ", ".join(f"{name} {found:,} of {total:,}" for name, (found, total) in ordered)
 
 
-def recall_lines(recalls):
+def recall_lines(recalls, baseline=None, baseline_name="live"):
     lines = [f"recall at strong or above (post-ban: banned again within {REBAN_WINDOW_DAYS} days, "
              f"sharing an inbox, a home address held by {HOME_IP_MAX_USERS} or fewer, "
              f"or a VPN exit held by {VPN_IP_MAX_USERS} or fewer on one build)"]
     for name, one in recalls.items():
+        live = (baseline or {}).get(name)
+        live_text = f"  ({baseline_name} {live['found']:,} of {live['pairs']:,})" if live else ""
         lines.append(f"  {name:<17} {one['found']:>6,} of {one['pairs']:<6,} "
                      f"{share(one['found'], one['pairs']):>4}  {band_line(one['bands'])}, "
-                     f"{UNLINKED} {one['bands'].get(UNLINKED, 0):,}")
+                     f"{UNLINKED} {one['bands'].get(UNLINKED, 0):,}{live_text}")
         if one["evidence"]:
             lines.append(f"    by what they share  {format_ratios(one['evidence'])}")
         if one["signals"]:
@@ -363,9 +415,10 @@ def recall_lines(recalls):
     return lines
 
 
-def sample_lines(samples):
+def sample_lines(samples, variant=None):
     if not samples:
-        return ["sampled links: none drawn yet (check-links --draw 50)", ""]
+        draw = f"check-links --draw 50 --variant {variant}" if variant else "check-links --draw 50"
+        return [f"sampled links: none drawn yet ({draw})", ""]
     lines = ["sampled links, labelled on Compare (Links > Sampled)"]
     for band, one in samples.items():
         labelled_count = one["right"] + one["wrong"]
@@ -376,14 +429,24 @@ def sample_lines(samples):
     return lines
 
 
+def shift_lines(shift, against=LINKS):
+    added = sum(shift["added"].values())
+    dropped = sum(shift["dropped"].values())
+    return [f"against {against}: {added:,} added ({band_line(shift['added'])}), "
+            f"{dropped:,} dropped ({band_line(shift['dropped'])}), "
+            f"{shift['up']:,} moved up a band, {shift['down']:,} moved down, {shift['same']:,} unchanged", ""]
+
+
 def render(result):
     bands = result["bands"]
     lines = [f"links in {result['links']}: {sum(bands.values()):,} ({band_line(bands)})", ""]
 
+    if result.get("shift"):
+        lines.extend(shift_lines(result["shift"], result.get("against", LINKS)))
     if result.get("recall"):
-        lines.extend(recall_lines(result["recall"]))
-    if "samples" in result and result["links"] == LINKS:
-        lines.extend(sample_lines(result["samples"]))
+        lines.extend(recall_lines(result["recall"], result.get("baseline"), result.get("baseline_name", "live")))
+    if result.get("samples") is not None:
+        lines.extend(sample_lines(result["samples"], result.get("variant")))
 
     lines.append("verdict pairs the finder links")
     for verdict, one in result["verdicts"].items():
@@ -436,29 +499,45 @@ def main(argv=None):
     parser.add_argument("--links", default=LINKS,
                         help="schema.table holding a_user_id < b_user_id, score and top_signal, like fd.member_link")
     parser.add_argument("--dsn", help="Postgres DSN to use instead of the environment configuration")
+    parser.add_argument("--variant", metavar="NAME",
+                        help="score the links nemo links --variant built under NAME in fd.member_link_shadow")
+    parser.add_argument("--against", metavar="NAME",
+                        help="compare the --variant with another variant instead of fd.member_link, "
+                             "such as one built from an empty file")
     parser.add_argument("--draw", type=int, metavar="N",
-                        help="add N links per band from fd.member_link to fd.link_sample, spread across top signals")
+                        help="add N links per band to fd.link_sample, spread across top signals; "
+                             "from fd.member_link, or from the --variant set")
     parser.add_argument("--band", choices=SAMPLE_BANDS, action="append",
                         help="draw only from this band; repeat for more than one")
     args = parser.parse_args(argv)
     load_dotenv(ENV_FILE)
     try:
-        links_table(args.links)
+        links_source(args.links, args.variant)
+        links_source(LINKS, args.against)
     except ValueError as error:
         print(f"check-links: {error}", file=sys.stderr)
         return 2
+    if args.variant and args.links != LINKS:
+        print("check-links: --variant reads fd.member_link_shadow, so it takes no --links", file=sys.stderr)
+        return 2
+    if args.against and not args.variant:
+        print("check-links: --against compares a --variant, so it needs one", file=sys.stderr)
+        return 2
     if args.draw is not None and (args.draw < 1 or args.links != LINKS):
-        print(f"check-links: --draw takes a positive count and samples {LINKS} only", file=sys.stderr)
+        print(f"check-links: --draw takes a positive count and samples {LINKS} or a --variant", file=sys.stderr)
         return 2
     try:
         with connect(args.dsn) as conn:
             if args.draw is not None:
-                drawn = draw_samples(conn, args.draw, args.band or SAMPLE_BANDS)
+                drawn = draw_samples(conn, args.draw, args.band or SAMPLE_BANDS, args.variant)
                 print("check-links: drew " + ", ".join(f"{drawn.get(band, 0):,} {band}" for band in SAMPLE_BANDS)
-                      + " into fd.link_sample")
+                      + f" into fd.link_sample as {args.variant or LIVE_VARIANT}")
                 return 0
             conn.read_only = True
-            result = measure(conn, args.links)
+            result = measure(conn, args.links, args.variant, args.against)
+            if args.variant:
+                result["baseline"] = measure(conn, variant=args.against)["recall"]
+                result["baseline_name"] = args.against or "live"
     except (errors.UndefinedTable, errors.UndefinedColumn) as error:
         print(f"check-links: {str(error).splitlines()[0]}", file=sys.stderr)
         return 2

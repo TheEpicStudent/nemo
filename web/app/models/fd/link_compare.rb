@@ -47,28 +47,33 @@ module Fd
       ORDER BY recent.first_at
     SQL
 
-    def self.find(a, b, actor:)
+    def self.find(a, b, actor:, variant: nil)
       ids = [a, b].map { |user_id| user_id.to_s.strip.upcase }
       return nil unless ids.all? { |user_id| user_id.match?(AuditQuery::MEMBER_ID) } && ids.uniq.size == 2
 
-      new(*ids, actor: actor)
+      new(*ids, actor: actor, variant: MemberLinkShadow.variant_name(variant))
     end
 
-    def initialize(a, b, actor:)
+    def initialize(a, b, actor:, variant: nil)
       @a = a
       @b = b
       @actor = actor
+      @variant = variant
       @traits = MemberTraits.new([a, b], actor: actor)
     end
 
-    attr_reader :a, :b
+    attr_reader :a, :b, :variant
 
     def ids = [a, b]
 
     def identity? = @traits.identity?
 
     def link
-      @link ||= MemberLink.find_by(a_user_id: ids.min, b_user_id: ids.max)
+      @link ||= if variant
+        MemberLinkShadow.find_by(variant: variant, a_user_id: ids.min, b_user_id: ids.max)
+      else
+        MemberLink.find_by(a_user_id: ids.min, b_user_id: ids.max)
+      end
     end
 
     def verdict

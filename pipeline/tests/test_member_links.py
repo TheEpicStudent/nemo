@@ -480,3 +480,56 @@ def test_ties_break_by_name_so_a_rebuild_does_not_rewrite_unchanged_links():
     assert "ORDER BY score DESC, family" in links.PASS
     assert "ORDER BY a_user_id, b_user_id, signal, score DESC, value" in links.PASS
     assert "ORDER BY a_user_id, b_user_id, score DESC, value" in links.COLLAPSED_PART
+
+
+def test_a_shadow_build_writes_only_its_variant_and_leaves_live_tables_alone(monkeypatch):
+    executed = []
+
+    class Cursor:
+        rowcount = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, sql, params=None):
+            executed.append((sql, params))
+
+        def fetchone(self):
+            return (7,)
+
+    class Conn:
+        def cursor(self):
+            return Cursor()
+
+        def execute(self, sql, params=None):
+            executed.append((sql, params))
+            return self
+
+        def fetchone(self):
+            return (0,)
+
+        def commit(self):
+            executed.append(("commit", None))
+
+    monkeypatch.setattr(links, "prepare", lambda _conn, _config: None)
+    monkeypatch.setattr(links, "measure", lambda _conn, _config: {"ip_stable": 40})
+    monkeypatch.setattr(links, "gather", lambda _conn, _config, _totals: {})
+
+    assert links.build_shadow(Conn(), links.catalogue(), "flat_inbox") == 7
+    statements = [sql for sql, _params in executed]
+    for live_write in (links.SAVE_SHARED_SQL, links.SAVE_WHOLES_SQL, links.UPSERT_SQL, links.SWEEP, links.QUIET):
+        assert live_write not in statements
+    clear = statements.index(links.SHADOW_CLEAR_SQL)
+    insert = statements.index(links.SHADOW_INSERT_SQL)
+    assert clear < insert < statements.index("commit")
+    assert executed[clear][1] == executed[insert][1] == {"variant": "flat_inbox"}
+
+
+def test_the_shadow_insert_copies_every_column_the_live_upsert_writes():
+    for column in ("score", "top_signal", "top_family", "families", "signals", "first_seen", "last_seen", "label"):
+        assert column in links.SHADOW_INSERT_SQL
+    assert "INSERT INTO fd.member_link_shadow" in links.SHADOW_INSERT_SQL
+    assert "FROM link_pass" in links.SHADOW_INSERT_SQL

@@ -346,7 +346,7 @@ def test_a_draw_needs_a_positive_count_and_the_live_links(monkeypatch, capsys):
 
     assert links.main(["--draw", "0"]) == 2
     assert links.main(["--draw", "50", "--links", "fd.member_link_shadow"]) == 2
-    assert "--draw takes a positive count and samples fd.member_link only" in capsys.readouterr().err
+    assert "--draw takes a positive count and samples fd.member_link or a --variant" in capsys.readouterr().err
 
 
 def test_a_draw_prints_how_many_links_each_band_got(monkeypatch, capsys):
@@ -359,7 +359,81 @@ def test_a_draw_prints_how_many_links_each_band_got(monkeypatch, capsys):
 
     monkeypatch.setattr(links, "load_dotenv", lambda *_args: None)
     monkeypatch.setattr(links, "connect", lambda *_args: Writable())
-    monkeypatch.setattr(links, "draw_samples", lambda _conn, per_band, bands: {"strong": per_band} if bands == ["strong"] else {})
+    monkeypatch.setattr(links, "draw_samples",
+                        lambda _conn, per_band, bands, variant: {"strong": per_band} if bands == ["strong"] else {})
 
     assert links.main(["--draw", "50", "--band", "strong"]) == 0
-    assert capsys.readouterr().out == "check-links: drew 0 certain, 50 strong, 0 weak into fd.link_sample\n"
+    assert capsys.readouterr().out == "check-links: drew 0 certain, 50 strong, 0 weak into fd.link_sample as live\n"
+    assert links.main(["--draw", "50", "--band", "strong", "--variant", "flat_inbox"]) == 0
+    assert capsys.readouterr().out.endswith("into fd.link_sample as flat_inbox\n")
+
+
+def test_a_variant_reads_its_own_rows_of_the_shadow_table():
+    source = links.links_source(variant="flat_inbox").as_string(None)
+
+    assert source == '(SELECT * FROM "fd"."member_link_shadow" WHERE variant = \'flat_inbox\')'
+    assert links.links_source().as_string(None) == '"fd"."member_link"'
+    for name in ("live", "Flat", "a;drop", ""):
+        with pytest.raises(ValueError):
+            links.links_source(variant=name)
+
+
+def test_a_variant_draw_samples_the_shadow_rows_under_its_name(monkeypatch):
+    monkeypatch.setattr(links, "scoring", lambda: THRESHOLDS)
+    asked = {}
+
+    class DrawConn(Conn):
+        def commit(self):
+            pass
+
+    conn = DrawConn({"member_link_shadow": lambda params: asked.update(params) or []})
+
+    links.draw_samples(conn, 10, ["strong"], "flat_inbox")
+
+    assert asked["variant"] == "flat_inbox"
+
+
+def test_band_shift_counts_added_dropped_and_moved_links():
+    rows = [("certain", None, 3), (None, "weak", 5), ("certain", "strong", 2), ("weak", "strong", 1),
+            ("strong", "strong", 9)]
+
+    shift = links.band_shift(rows)
+
+    assert shift["added"] == {"certain": 3}
+    assert shift["dropped"] == {"worth a look": 5}
+    assert (shift["up"], shift["down"], shift["same"]) == (2, 1, 9)
+
+
+def test_a_variant_prints_its_shift_and_the_live_recall_beside_its_own():
+    one = {"pairs": 4, "found": 3, "bands": {"certain": 3, "not linked": 1}, "signals": {}, "evidence": {}}
+    live = {**one, "found": 2}
+    result = {
+        "links": "fd.member_link_shadow (flat_inbox)",
+        "variant": "flat_inbox",
+        "bands": {"certain": 3, "strong": 0, "worth a look": 0},
+        "shift": {"added": {"certain": 3}, "dropped": {"worth a look": 5}, "up": 2, "down": 1, "same": 9},
+        "recall": {"post-ban": one},
+        "baseline": {"post-ban": live},
+        "samples": {},
+        "verdicts": {},
+        "people": [],
+        "aliases": {"pairs": 0, "linked": 0, "bands": {}},
+    }
+
+    text = "\n".join(links.render(result))
+
+    assert ("against fd.member_link: 3 added (certain 3, strong 0, worth a look 0), 5 dropped "
+            "(certain 0, strong 0, worth a look 5), 2 moved up a band, 1 moved down, 9 unchanged") in text
+    assert "not linked 1  (live 2 of 4)" in text
+    assert "none drawn yet (check-links --draw 50 --variant flat_inbox)" in text
+
+
+def test_a_variant_takes_no_other_links_table(monkeypatch, capsys):
+    monkeypatch.setattr(links, "load_dotenv", lambda *_args: None)
+    monkeypatch.setattr(links, "connect", lambda *_args: pytest.fail("connected"))
+
+    assert links.main(["--variant", "flat_inbox", "--links", "fd.other"]) == 2
+    assert links.main(["--variant", "live"]) == 2
+    err = capsys.readouterr().err
+    assert "--variant reads fd.member_link_shadow, so it takes no --links" in err
+    assert "'live' is not a variant name" in err

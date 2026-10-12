@@ -22,10 +22,19 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     seeded!("fd.member_link", "a_user_id", a)
   end
 
-  def sample!(one, two, band)
+  def sample!(one, two, band, variant: "live")
     a, b = [one, two].sort
-    as_pipeline("INSERT INTO fd.link_sample (a_user_id, b_user_id, band, top_signal, score) VALUES (?, ?, ?, 'x', 1)", a, b, band)
+    as_pipeline("INSERT INTO fd.link_sample (variant, a_user_id, b_user_id, band, top_signal, score) VALUES (?, ?, ?, ?, 'x', 1)",
+      variant, a, b, band)
     seeded!("fd.link_sample", "a_user_id", a)
+  end
+
+  def shadow_link!(variant, one, two, score)
+    a, b = [one, two].sort
+    as_pipeline("INSERT INTO fd.member_link_shadow (variant, a_user_id, b_user_id, score, top_signal, signals) " \
+                "VALUES (?, ?, ?, ?, 'mailbox_alias', '{\"mailbox_alias\": {\"value\": \"a@b.example\", \"score\": 8.0}}'::jsonb)",
+      variant, a, b, score)
+    seeded!("fd.member_link_shadow", "a_user_id", a)
   end
 
   def pairs
@@ -58,6 +67,34 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     assert_equal [%w[ulista ulistd], %w[ulista ulistc]], pairs.map { |pair| pair.map { |face| face.delete_prefix("@") } }
     counts = css_select("nav.views a.view").to_h { |tab| [tab.children.first.text.squish, tab.at_css(".view-count").text.to_i] }
     assert_equal 2, counts["Sampled"]
+  end
+
+  test "a variant's samples list its shadow links under the Set filter" do
+    sample!("ULISTA", "ULISTC", "strong")
+    shadow_link!("flat_inbox", "ULISTC", "ULISTD", 8.0)
+    sample!("ULISTC", "ULISTD", "certain", variant: "flat_inbox")
+
+    get fd_links_path(view: "sampled")
+    assert_select ".filter-key", text: "Set"
+    assert_equal [%w[ulista ulistc]], pairs.map { |pair| pair.map { |face| face.delete_prefix("@") } }
+
+    get fd_links_path(view: "sampled", variant: "flat_inbox")
+    assert_equal [%w[ulistc ulistd]], pairs.map { |pair| pair.map { |face| face.delete_prefix("@") } }
+    assert_select ".filter-val", text: "flat_inbox"
+    counts = css_select("nav.views a.view").to_h { |tab| [tab.children.first.text.squish, tab.at_css(".view-count").text.to_i] }
+    assert_equal 1, counts["Sampled"]
+    assert_equal 1, counts["Certain"]
+
+    get fd_links_path(view: "sampled", variant: "nope")
+    assert_equal [%w[ulista ulistc]], pairs.map { |pair| pair.map { |face| face.delete_prefix("@") } }
+  end
+
+  test "the Set filter stays hidden while only live links are sampled" do
+    sample!("ULISTA", "ULISTC", "strong")
+
+    get fd_links_path(view: "sampled")
+
+    assert_select ".filter-key", text: "Set", count: 0
   end
 
   test "the signal filter keeps the links that carry that kind of signal" do

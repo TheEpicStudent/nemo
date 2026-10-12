@@ -4,7 +4,7 @@
       html: { autocomplete: "off" }, data: { controller: "verdict-keys" } do %>
   <%= hidden_field_tag :a, compare.a, id: nil %>
   <%= hidden_field_tag :b, compare.b, id: nil %>
-  <%= hidden_field_tag :back, fd_link_compare_path(a: compare.a, b: compare.b, back: @back), id: nil %>
+  <%= hidden_field_tag :back, fd_link_compare_path({ a: compare.a, b: compare.b, back: @back, variant: compare.variant }.compact), id: nil %>
   <% Fd::LinkVerdict::VERDICTS.each_with_index do |(key, label), index| %>
     <button type="submit" name="verdict" value="<%= key %>" class="btn btn-sm"
             aria-pressed="<%= current == key %>" data-verdict-keys-target="choice" data-key="<%= index + 1 %>">
