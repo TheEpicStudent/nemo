@@ -7,15 +7,27 @@ def test_a_value_held_by_more_than_any_ceiling_is_never_loaded():
     assert live.CAP > max(ceilings)
 
 
-def test_every_touched_member_brings_the_co_holders_whose_pairs_it_can_change():
-    assert "WHERE v.people <= %(cap)s" in live.RESCORED
-    assert "FROM touched_session s" in live.RESCORED
-    assert "kind = 'inviter'" in live.RESCORED
+def test_only_pairs_with_a_touched_member_are_rescored_and_the_nightly_rebuild_settles_the_rest():
+    assert "SELECT user_id FROM touched" in live.RESCORED
+    assert "WHERE v.people <= %(cap)s" in live.SCOPE_USER
+    assert "SELECT value FROM scope_value WHERE kind = 'inviter'" in live.SCOPE_USER
 
 
-def test_network_evidence_reads_whole_ranges_so_every_crowd_is_exact():
+def test_home_ranges_load_whole_and_exits_load_whole_addresses_so_every_crowd_is_exact():
+    assert "WHERE n.class IS NULL OR n.class NOT IN ('rotating', 'vpn', 'hosting', 'tor')" in live.SCOPE_PREFIX
+    assert "n.class IN ('rotating', 'vpn', 'hosting', 'tor')" in live.SCOPE_EXIT
+    assert "WHERE e.user_id IN (SELECT user_id FROM rescored) AND e.ip IS NOT NULL" in live.SCOPE_EXIT
     assert "e.ip_prefix IN (SELECT ip_prefix FROM scope_prefix)" in live.SCOPE_LOGIN
+    assert "WHERE e.ip IN (SELECT ip FROM scope_exit)" in live.SCOPE_LOGIN
     assert "e.ip_prefix NOT IN (SELECT ip_prefix FROM scope_prefix)" in live.SCOPE_LOGIN
+    assert "e.ip NOT IN (SELECT ip FROM scope_exit)" in live.SCOPE_LOGIN
+
+
+def test_the_scope_knows_the_exits_before_it_loads_sign_ins():
+    order = list(live.SCOPE)
+
+    assert order.index(live.RESCORED) < order.index(live.SCOPE_EXIT) < order.index(live.SCOPE_LOGIN)
+    assert order.index(live.SCOPE_PREFIX) < order.index(live.SCOPE_LOGIN)
 
 
 def test_the_live_lane_reads_the_stored_shared_networks_and_whole_counts():

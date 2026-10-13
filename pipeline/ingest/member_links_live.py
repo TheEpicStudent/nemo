@@ -57,39 +57,9 @@ JOIN fd.member_joins j2
 WHERE j1.user_id IN (SELECT user_id FROM {members}) AND j1.joined_at IS NOT NULL
 """
 
-TOUCHED_VALUE = f"""
-CREATE TEMP TABLE touched_value ON COMMIT DROP AS
-SELECT v.kind, v.value, ({HOLDERS}) AS people
-FROM (SELECT DISTINCT kind, value FROM fd.member_trait
-      WHERE user_id IN (SELECT user_id FROM touched)
-      UNION
-      SELECT 'inviter', user_id FROM touched) v
-"""
-
-TOUCHED_SESSION = f"""
-CREATE TEMP TABLE touched_session ON COMMIT DROP AS
-SELECT s.app, s.os, ({SESSION_HOLDERS}) AS people
-FROM (SELECT DISTINCT a.app, a.os FROM slack.user_agent a
-      WHERE a.app IS NOT NULL AND a.os IS NOT NULL
-        AND a.id::text IN (SELECT value FROM touched_value WHERE kind = 'ua_id')) s
-"""
-
-RESCORED = f"""
+RESCORED = """
 CREATE TEMP TABLE rescored ON COMMIT DROP AS
 SELECT user_id FROM touched
-UNION
-SELECT h.user_id FROM touched_value v
-JOIN fd.member_trait h ON h.kind = v.kind AND h.value = v.value
-WHERE v.people <= %(cap)s
-UNION
-SELECT value FROM touched_value WHERE kind = 'inviter' AND value NOT IN (SELECT user_id FROM touched)
-UNION
-SELECT h.user_id FROM touched_session s
-JOIN slack.user_agent a ON a.app = s.app AND a.os = s.os
-JOIN fd.member_trait h ON h.kind = 'ua_id' AND h.value = a.id::text
-WHERE s.people <= %(cap)s
-UNION
-SELECT user_id FROM ({BUCKET.format(members="touched")}) bucket
 """
 
 SCOPE_VALUE = f"""
@@ -109,12 +79,25 @@ FROM (SELECT DISTINCT a.app, a.os FROM slack.user_agent a
         AND a.id::text IN (SELECT value FROM scope_value WHERE kind = 'ua_id')) s
 """
 
-SCOPE_PREFIX = """
+ANONYMIZED = "('rotating', 'vpn', 'hosting', 'tor')"
+
+SCOPE_PREFIX = f"""
 CREATE TEMP TABLE scope_prefix ON COMMIT DROP AS
-SELECT DISTINCT network(set_masklen(value::inet,
-                CASE WHEN family(value::inet) = 4 THEN 24 ELSE 64 END)) AS ip_prefix
-FROM fd.member_trait
-WHERE kind = 'ip_prefix' AND user_id IN (SELECT user_id FROM rescored)
+SELECT used.ip_prefix
+FROM (SELECT DISTINCT network(set_masklen(value::inet,
+                      CASE WHEN family(value::inet) = 4 THEN 24 ELSE 64 END)) AS ip_prefix
+      FROM fd.member_trait
+      WHERE kind = 'ip_prefix' AND user_id IN (SELECT user_id FROM rescored)) used
+LEFT JOIN fd.ip_network n ON n.ip_prefix = used.ip_prefix
+WHERE n.class IS NULL OR n.class NOT IN {ANONYMIZED}
+"""
+
+SCOPE_EXIT = f"""
+CREATE TEMP TABLE scope_exit ON COMMIT DROP AS
+SELECT DISTINCT e.ip
+FROM fd.login_event e
+JOIN fd.ip_network n ON n.ip_prefix = e.ip_prefix AND n.class IN {ANONYMIZED}
+WHERE e.user_id IN (SELECT user_id FROM rescored) AND e.ip IS NOT NULL
 """
 
 SCOPE_AGENT = """
@@ -140,9 +123,13 @@ SELECT e.* FROM fd.login_event e
 WHERE e.ip_prefix IN (SELECT ip_prefix FROM scope_prefix)
 UNION ALL
 SELECT e.* FROM fd.login_event e
+WHERE e.ip IN (SELECT ip FROM scope_exit)
+UNION ALL
+SELECT e.* FROM fd.login_event e
 WHERE e.user_id IN (SELECT user_id FROM device_holder)
   AND e.ua_id IN (SELECT ua_id FROM scope_agent)
   AND (e.ip_prefix IS NULL OR e.ip_prefix NOT IN (SELECT ip_prefix FROM scope_prefix))
+  AND (e.ip IS NULL OR e.ip NOT IN (SELECT ip FROM scope_exit))
 """
 
 SCOPE_USER = f"""
@@ -233,7 +220,7 @@ LIVE = {
 
 MEASURE_SOURCES = {**links.FULL, "shared_ip": "fd.shared_ip"}
 
-SCOPE = (TOUCHED, TOUCHED_VALUE, TOUCHED_SESSION, RESCORED, SCOPE_VALUE, SCOPE_SESSION, SCOPE_PREFIX,
+SCOPE = (TOUCHED, RESCORED, SCOPE_VALUE, SCOPE_SESSION, SCOPE_PREFIX, SCOPE_EXIT,
          SCOPE_AGENT, DEVICE_HOLDER, SCOPE_LOGIN, SCOPE_USER, *SCOPE_TABLES, CROWDED)
 
 
