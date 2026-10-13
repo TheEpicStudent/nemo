@@ -7,9 +7,10 @@ module Fd
     }.freeze
 
     QUEUE_SQL = "SELECT count(*) AS queued, min(touched_at) AS oldest_touched_at FROM fd.member_touch".freeze
-    RUNS_SQL = "SELECT source, started_at, finished_at, status FROM fd.link_lane_run".freeze
+    RUNS_SQL = "SELECT source, started_at, finished_at, status, steps FROM fd.link_lane_run".freeze
 
-    Run = Struct.new(:started_at, :finished_at, :status, keyword_init: true) do
+    Step = Struct.new(:name, :seconds, keyword_init: true)
+    Run = Struct.new(:started_at, :finished_at, :status, :steps, keyword_init: true) do
       def never? = started_at.nil?
 
       def running? = !never? && finished_at.nil?
@@ -26,9 +27,14 @@ module Fd
       queue = connection.select_one(QUEUE_SQL) || {}
       runs = connection.select_all(RUNS_SQL).to_h do |row|
         [row["source"], Run.new(started_at: row["started_at"]&.to_time,
-          finished_at: row["finished_at"]&.to_time, status: row["status"])]
+          finished_at: row["finished_at"]&.to_time, status: row["status"], steps: steps_of(row["steps"]))]
       end
       new(queued: queue["queued"].to_i, oldest_touched_at: queue["oldest_touched_at"]&.to_time, runs: runs)
+    end
+
+    def self.steps_of(value)
+      MemberLink.parsed(value).then { |rows| rows.is_a?(Array) ? rows : [] }
+        .map { |step| Step.new(name: step["name"], seconds: step["seconds"].to_f) }
     end
 
     def initialize(queued:, oldest_touched_at:, runs:)

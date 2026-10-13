@@ -14,7 +14,6 @@
 <%= turbo_frame_tag Fd::MemberLinkBroadcast::LIST_FRAME, target: "_top",
       data: { src: fd_links_path(@list.params_for) } do %>
   <div class="stack">
-    <%= render "health", health: @health %>
 
     <div class="audit-filters">
       <%= render layout: "shared/dropdown", locals: {

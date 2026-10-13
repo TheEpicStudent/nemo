@@ -10,7 +10,6 @@ module Fd
 
       @list = LinkList.new(params)
       @names = Names.for(@list.user_ids + @list.rows.filter_map(&:decided_by))
-      @health = LinkHealth.load
     end
 
     def compare

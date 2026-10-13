@@ -119,6 +119,7 @@
   <%= render "coverage", day_coverage: @day_coverage, consecutive_days: @consecutive_days %>
 
 <% elsif @tab == "queues" %>
+  <%= render "link_lanes", health: @link_health %>
   <%= render "queues", queues: @queues %>
 
 <% elsif @tab == "faults" %>

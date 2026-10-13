@@ -93,19 +93,18 @@ class Queue:
 def test_accounts_that_joined_this_week_are_rescored_first():
     conn = Queue(recent=[("U1", "t1")], queued=[("U9", "t0")])
 
-    assert live.next_batch(conn, live.BATCH) == [("U1", "t1")]
-    assert conn.executed == [(live.RECENT_JOINS_SQL, (live.RECENT_JOIN_DAYS, live.RECENT_JOIN_BATCH))]
+    assert live.next_batch(conn, 40) == [("U1", "t1")]
+    assert conn.executed == [(live.RECENT_JOINS_SQL, (live.RECENT_JOIN_DAYS, 40))]
 
 
 def test_the_rest_of_the_queue_follows_when_no_new_account_waits():
     conn = Queue(recent=[], queued=[("U9", "t0")])
 
-    assert live.next_batch(conn, live.BATCH) == [("U9", "t0")]
-    assert conn.executed[-1] == (live.TOUCHED_SQL, (live.BATCH,))
+    assert live.next_batch(conn, 40) == [("U9", "t0")]
+    assert conn.executed[-1] == (live.TOUCHED_SQL, (40,))
 
 
-def test_new_accounts_come_in_small_batches_by_join_age():
-    assert live.RECENT_JOIN_BATCH < live.BATCH
+def test_new_accounts_come_first_by_join_age():
     assert live.RECENT_JOIN_DAYS == 7
     assert "j.joined_at > now() - make_interval(days => %s)" in live.RECENT_JOINS_SQL
     assert "ORDER BY t.touched_at" in live.RECENT_JOINS_SQL
@@ -182,3 +181,78 @@ def test_a_join_whose_scoring_fails_is_left_to_the_live_lane(monkeypatch, caplog
 
     assert join_watch.score_links("U1") is None
     assert "the live lane will" in caplog.text
+
+
+def test_the_first_pass_takes_fifty_and_later_passes_fit_the_budget():
+    pace = live.Pace()
+    assert pace.batch(60) == live.FIRST_BATCH
+
+    pace.record(50, 50, 30.0)
+    assert pace.batch(60) == 75
+
+    pace.record(75, 75, 450.0)
+    assert pace.batch(60) == live.SMALLEST_BATCH
+
+
+def test_a_quick_pass_at_most_doubles_the_next_batch():
+    pace = live.Pace()
+    pace.record(50, 2, 0.2)
+
+    assert pace.batch(60) == 100
+    pace.record(200, 200, 1.0)
+    assert pace.batch(60) == live.LARGEST_BATCH
+
+
+def test_a_pass_records_its_steps_under_its_run_and_feeds_the_pace(monkeypatch):
+    import contextlib
+
+    recorded = {}
+
+    class Conn:
+        def execute(self, sql, params=None):
+            return self
+
+        def fetchall(self):
+            return [("U1", "t1"), ("U2", "t2")]
+
+        def commit(self):
+            pass
+
+    @contextlib.contextmanager
+    def fake_ingest_run(*_args, **_kwargs):
+        yield type("Counts", (), {"rows_in": 0, "run_id": 77})()
+
+    def fake_rescore(_conn, _catalogue, _wholes, touched, steps):
+        for name in ("scope", "prepare", "gather", "settle"):
+            with live.timed(steps, name):
+                pass
+        return len(touched), 3, 2, 1, {}
+
+    monkeypatch.setattr(live, "ensure_wholes", lambda _conn, _catalogue, wholes: wholes)
+    monkeypatch.setattr(live.links, "load_wholes", lambda _conn: {})
+    monkeypatch.setattr(live, "ingest_run", fake_ingest_run)
+    monkeypatch.setattr(live, "rescore", fake_rescore)
+    monkeypatch.setattr(live, "record_steps", lambda _conn, run_id, steps: recorded.update(run_id=run_id, steps=steps))
+    pace = live.Pace()
+
+    assert live.run(Conn(), pace) == 2
+    assert recorded["run_id"] == 77
+    assert [source for source, _started, _finished in recorded["steps"]] == [
+        "member_links_live:scope", "member_links_live:prepare", "member_links_live:gather", "member_links_live:settle"]
+    assert pace.seconds_per_member is not None and pace.last_batch == live.FIRST_BATCH
+
+
+def test_steps_are_child_runs_of_the_pass_with_their_own_source():
+    from lib import db
+
+    sql = db.STEPS_SQL
+    assert "parent.id, step.step_index, %(total)s" in sql
+    assert "SELECT step.source, step.source, parent.logical_date, parent.worker, parent.worker_boot" in sql
+    assert "WITH ORDINALITY AS step (source, started_at, finished_at, step_index)" in sql
+
+    class Conn:
+        def execute(self, *_args):
+            raise AssertionError("nothing to record")
+
+    db.record_steps(Conn(), None, [("x", 1, 2)])
+    db.record_steps(Conn(), 5, [])

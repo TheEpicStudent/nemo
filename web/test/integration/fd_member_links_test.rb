@@ -151,28 +151,11 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_select "a", text: "Open cluster", count: 1
   end
 
-  test "the links page shows the rescoring queue and the last run of each lane" do
-    touched!("UQUEUEDOLD", 3.days.ago)
-    touched!("UQUEUEDNEW", 1.minute.ago)
-    run!("member_links_live", 30.seconds.ago, 27.seconds.ago, "ok")
-    run!("member_clusters", 20.seconds.ago, nil, "running")
-    run!("member_links", 10.seconds.ago, 5.seconds.ago, "failed")
-
-    get fd_links_path
-
-    assert_select "dl.facts-strip" do
-      assert_select "dt", text: "Queued for rescoring"
-      assert_select "dd", text: "3d ago"
-      assert_select "dd", text: /just now\s+took 3s/
-      assert_select "dd", text: /running\s+started just now/
-      assert_select "dd", text: /just now\s+failed/
-    end
-  end
-
-  test "the queue and lane runs reload with the list" do
+  test "the links page leaves the pipeline lanes to the engine" do
     get fd_links_path(view: "certain")
 
-    assert_select %(turbo-frame##{Fd::MemberLinkBroadcast::LIST_FRAME} dl.facts-strip)
+    assert_select "dl.facts-strip", 0
+    assert_no_match "Queued for rescoring", response.body
   end
 
   test "a lane that never ran reads as n/a" do
@@ -222,19 +205,6 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
       VALUES (?, ?, ?, ?, ?::jsonb)
     SQL
     seeded!("fd.member_link", "a_user_id", a)
-  end
-
-  def touched!(user_id, at)
-    as_pipeline("INSERT INTO fd.member_touch (user_id, touched_at) VALUES (?, ?) " \
-                "ON CONFLICT (user_id) DO UPDATE SET touched_at = EXCLUDED.touched_at", user_id, at)
-    seeded!("fd.member_touch", "user_id", user_id)
-  end
-
-  def run!(source, started_at, finished_at, status)
-    id = as_pipeline("INSERT INTO raw.ingest_run (source, source_key, status, started_at, finished_at) " \
-                     "VALUES (?, ?, ?, ?, ?) RETURNING id", source, source, status, started_at,
-      finished_at).first["id"]
-    seeded!("raw.ingest_run", "id", id)
   end
 
   test "the linked accounts pane lists at most the member link limit" do

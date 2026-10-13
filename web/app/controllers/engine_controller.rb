@@ -60,6 +60,7 @@ class EngineController < ApplicationController
 
   def queue_facts
     @queues = Analytics::FctWorkQueue.busiest_first.to_a
+    @link_health = Fd::LinkHealth.load
   end
 
   def fault_facts

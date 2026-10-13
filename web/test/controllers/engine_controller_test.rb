@@ -23,6 +23,39 @@ class EngineControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  def lane_run!(source, started_at, finished_at, status, parent: nil, step: nil)
+    id = as_pipeline("INSERT INTO raw.ingest_run (source, source_key, status, started_at, finished_at, parent_run_id, step_index) " \
+                     "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id", source, source, status, started_at, finished_at,
+      parent, step).first["id"]
+    seeded!("raw.ingest_run", "id", id)
+    id
+  end
+
+  test "the queues tab shows the alt finder lanes with the last live pass and its steps" do
+    sign_in_as(hold_role!("UTESTCM1", "community_manager"))
+    as_pipeline("INSERT INTO fd.member_touch (user_id, touched_at) VALUES ('ULANEOLD', now() - interval '3 days')")
+    seeded!("fd.member_touch", "user_id", "ULANEOLD")
+    live = lane_run!("member_links_live", 30.seconds.ago, 27.seconds.ago, "ok")
+    { "scope" => 1.3, "prepare" => 0.5, "gather" => 1.0, "settle" => 0.2 }.each_with_index do |(name, seconds), index|
+      lane_run!("member_links_live:#{name}", 30.seconds.ago, 30.seconds.ago + seconds, "ok", parent: live, step: index + 1)
+    end
+    lane_run!("member_clusters", 20.seconds.ago, nil, "running")
+    lane_run!("member_links", 10.seconds.ago, 5.seconds.ago, "failed")
+
+    get engine_path(tab: "queues")
+    assert_response :success
+
+    assert_select ".link-lanes .card-title", "Alt finder lanes"
+    assert_select ".link-lanes dl.facts-strip" do
+      assert_select "dt", text: "Queued for rescoring"
+      assert_select "dd", text: "3d ago"
+      assert_select "dd", text: /just now\s+took 3s/
+      assert_select "dd .lane-steps", text: "scope 1.3s, prepare 0.5s, gather 1.0s, settle 0.2s"
+      assert_select "dd", text: /running\s+started just now/
+      assert_select "dd", text: /just now\s+failed/
+    end
+  end
+
   test "storage lists every table by size and marks one that grew past twice its median" do
     sign_in_as(hold_role!("UTESTCM1", "community_manager"))
     as_pipeline(<<~SQL.squish)

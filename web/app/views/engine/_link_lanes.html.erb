@@ -1,0 +1,22 @@
+<section class="card card-flush link-lanes">
+  <div class="card-head">
+    <h2 class="card-title">Alt finder lanes</h2>
+  </div>
+  <dl class="facts-strip">
+    <div class="fact">
+      <dt>Queued for rescoring</dt>
+      <dd><%= number_with_delimiter(health.queued) %></dd>
+    </div>
+    <div class="fact">
+      <dt>Oldest queued</dt>
+      <dd><%= time_ago(health.oldest_touched_at) || "n/a" %></dd>
+    </div>
+    <% Fd::LinkHealth::LANES.each do |source, label| %>
+      <div class="fact">
+        <dt><%= label %></dt>
+        <dd><%= lane_run_label(health.run(source)) %></dd>
+        <% if (steps = lane_steps_label(health.run(source))) %><dd><%= steps %></dd><% end %>
+      </div>
+    <% end %>
+  </dl>
+</section>

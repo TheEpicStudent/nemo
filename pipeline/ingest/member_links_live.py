@@ -1,13 +1,19 @@
 import time
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from ingest import member_links as links
-from lib.db import ingest_run
+from lib import sources
+from lib.db import ingest_run, record_steps
 
 SOURCE = "member_links_live"
-BATCH = 300
-RECENT_JOIN_BATCH = 50
 RECENT_JOIN_DAYS = 7
 CAP = 101
+FIRST_BATCH = 50
+SMALLEST_BATCH = 10
+LARGEST_BATCH = 300
+BUDGET_SHARE = 0.75
 
 TOUCHED_SQL = "SELECT user_id, touched_at FROM fd.member_touch ORDER BY touched_at LIMIT %s"
 
@@ -252,13 +258,44 @@ def ensure_wholes(conn, catalogue, wholes):
     return {**wholes, **measured_wholes}
 
 
-def rescore(conn, catalogue, wholes, touched):
-    rescored_count = scope(conn, touched)
-    links.prepare(conn, catalogue, LIVE)
-    signal_counts = links.gather(conn, catalogue, wholes, LIVE)
-    conn.execute(ONLY_RESCORED)
-    conn.execute("ANALYZE link_part")
-    retained, changed, removed, _countered, _labelled = links.settle(conn, catalogue, LIVE, SWEEP)
+@dataclass
+class Pace:
+    seconds_per_member: float | None = None
+    last_batch: int = FIRST_BATCH
+
+    def batch(self, budget_seconds):
+        if not self.seconds_per_member:
+            return FIRST_BATCH
+        fitted = int(budget_seconds * BUDGET_SHARE / self.seconds_per_member)
+        return max(SMALLEST_BATCH, min(LARGEST_BATCH, 2 * self.last_batch, fitted))
+
+    def record(self, batch, members, seconds):
+        self.last_batch = batch
+        self.seconds_per_member = seconds / max(members, 1)
+
+
+PACE = Pace()
+
+
+@contextmanager
+def timed(steps, name):
+    started = datetime.now(UTC)
+    yield
+    steps.append((f"{SOURCE}:{name}", started, datetime.now(UTC)))
+
+
+def rescore(conn, catalogue, wholes, touched, steps=None):
+    steps = [] if steps is None else steps
+    with timed(steps, "scope"):
+        rescored_count = scope(conn, touched)
+    with timed(steps, "prepare"):
+        links.prepare(conn, catalogue, LIVE)
+    with timed(steps, "gather"):
+        signal_counts = links.gather(conn, catalogue, wholes, LIVE)
+        conn.execute(ONLY_RESCORED)
+        conn.execute("ANALYZE link_part")
+    with timed(steps, "settle"):
+        retained, changed, removed, _countered, _labelled = links.settle(conn, catalogue, LIVE, SWEEP)
     return rescored_count, retained, changed, removed, signal_counts
 
 
@@ -276,13 +313,14 @@ def score(conn, user_ids):
 
 
 def next_batch(conn, batch):
-    recent = conn.execute(RECENT_JOINS_SQL, (RECENT_JOIN_DAYS, RECENT_JOIN_BATCH)).fetchall()
+    recent = conn.execute(RECENT_JOINS_SQL, (RECENT_JOIN_DAYS, batch)).fetchall()
     return recent or conn.execute(TOUCHED_SQL, (batch,)).fetchall()
 
 
-def run(conn, batch=BATCH):
+def run(conn, pace=PACE):
     catalogue = links.catalogue()
     wholes = ensure_wholes(conn, catalogue, links.load_wholes(conn))
+    batch = pace.batch(sources.unit_budget_seconds(SOURCE))
     queued = next_batch(conn, batch)
     conn.commit()
     if not queued:
@@ -290,12 +328,18 @@ def run(conn, batch=BATCH):
 
     started = time.monotonic()
     touched = [user_id for user_id, _ in queued]
+    steps = []
     with ingest_run(conn, SOURCE) as counts:
-        rescored_count, retained, changed, removed, _signal_counts = rescore(conn, catalogue, wholes, touched)
+        rescored_count, retained, changed, removed, _signal_counts = rescore(conn, catalogue, wholes, touched, steps)
         conn.execute(DONE_SQL, (touched, [at for _, at in queued]))
+        record_steps(conn, counts.run_id, steps)
         conn.commit()
         counts.rows_in = changed
 
-    print(f"{SOURCE}: {len(touched)} touched, {rescored_count} rescored, {retained} link(s) kept, "
-          f"{changed} written, {removed} dropped in {time.monotonic() - started:.2f}s")
+    seconds = time.monotonic() - started
+    pace.record(batch, len(touched), seconds)
+    print(f"{SOURCE}: {len(touched)} touched of a batch of {batch}, {rescored_count} rescored, {retained} link(s) kept, "
+          f"{changed} written, {removed} dropped in {seconds:.2f}s ("
+          + ", ".join(f"{source.split(':')[1]} {(finished - begun).total_seconds():.1f}s" for source, begun, finished in steps)
+          + ")")
     return len(touched)

@@ -356,6 +356,28 @@ def ingest_run(
     conn.commit()
 
 
+STEPS_SQL = """
+INSERT INTO raw.ingest_run
+    (source, source_key, logical_date, worker, worker_boot, started_at, finished_at, status,
+     parent_run_id, step_index, step_total)
+SELECT step.source, step.source, parent.logical_date, parent.worker, parent.worker_boot,
+       step.started_at, step.finished_at, 'ok', parent.id, step.step_index, %(total)s
+FROM raw.ingest_run parent
+CROSS JOIN unnest(%(sources)s::text[], %(started)s::timestamptz[], %(finished)s::timestamptz[])
+    WITH ORDINALITY AS step (source, started_at, finished_at, step_index)
+WHERE parent.id = %(parent)s
+"""
+
+
+def record_steps(conn: psycopg.Connection, parent_run_id: int | None, steps) -> None:
+    if parent_run_id is None or not steps:
+        return
+    conn.execute(STEPS_SQL, {"parent": parent_run_id, "total": len(steps),
+                             "sources": [source for source, _started, _finished in steps],
+                             "started": [started for _source, started, _finished in steps],
+                             "finished": [finished for _source, _started, finished in steps]})
+
+
 SUSPECT_SQL = """
 UPDATE raw.ingest_run r
 SET suspected_dead_at = now()

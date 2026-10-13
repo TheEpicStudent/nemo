@@ -467,6 +467,12 @@ module FdHelper
     safe_join([time_ago(run.finished_at), tag.span(note, class: "fact-note")], " ")
   end
 
+  def lane_steps_label(run)
+    return nil if run.steps.blank?
+
+    tag.span(run.steps.map { |step| "#{step.name} #{format('%.1f', step.seconds)}s" }.join(", "), class: "fact-note lane-steps")
+  end
+
   def last_case_label(time)
     ago_label(time)
   end
