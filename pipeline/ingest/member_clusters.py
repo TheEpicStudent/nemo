@@ -6,8 +6,8 @@ from lib.graph import components
 
 SOURCE = "member_clusters"
 UNCLUSTERED_LABELS = ("household", "classroom")
-TOGETHER = ("same_person", "staff_test")
-APART = ("different_people", "household")
+TOGETHER = ("same_person", "allowed_alt")
+APART = ("different_people",)
 SIGNAL_FAMILIES = (links.NETWORK, links.DEVICE, links.IDENTITY, links.NAME, links.ARRIVAL)
 STRONG_EDGE_FAMILIES = 2
 

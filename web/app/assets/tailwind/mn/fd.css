@@ -270,6 +270,7 @@
   .audit-saved-row { display: flex; align-items: center; gap: 2px; }
   .audit-saved-row > .btn:first-child { flex: 1; min-width: 0; }
   .audit-saved-row > .btn:first-child > span:first-child { white-space: nowrap; }
+  .audit-saved-row .btn-only { flex: none; width: 1.75rem; }
   .audit-saved-row .menu-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .audit-saved-form { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px; }
   .audit-saved-form .input { flex: 1; min-width: 0; height: 30px; }

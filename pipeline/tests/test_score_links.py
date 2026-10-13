@@ -109,7 +109,7 @@ def test_measure_scores_verdicts_people_and_aliases(monkeypatch):
     same = result["verdicts"]["same_person"]
     assert (same["pairs"], same["linked"]) == (3, 2)
     assert same["bands"] == {"certain": 1, "worth a look": 1}
-    assert result["verdicts"]["household"]["pairs"] == 0
+    assert result["verdicts"]["allowed_alt"]["pairs"] == 0
     assert result["people"] == [
         {"hub": "U2", "accounts": 4, "together": 3, "strong_together": 2}]
     assert (result["aliases"]["pairs"], result["aliases"]["linked"]) == (1, 1)
@@ -231,9 +231,9 @@ def test_a_missing_links_table_exits_2_with_the_database_message(monkeypatch, ca
 TARGETS = {"least_verdicts": 2, "precision": {"floor": 0.5, "strong": 0.9, "certain": 0.98}}
 
 
-def test_only_same_person_counts_as_right_and_staff_tests_are_left_out():
-    rows = [("U1", "U2", "same_person", 9), ("U1", "U3", "household", 4),
-            ("U1", "U4", "staff_test", 8), ("U1", "U5", "different_people", None)]
+def test_only_same_person_counts_as_right_and_allowed_alts_are_left_out():
+    rows = [("U1", "U2", "same_person", 9), ("U1", "U3", "different_people", 4),
+            ("U1", "U4", "allowed_alt", 8), ("U1", "U5", "different_people", None)]
 
     assert links.labelled(rows) == [(9.0, True), (4.0, False), (None, False)]
 
@@ -272,7 +272,7 @@ def test_render_prints_the_current_and_the_suggested_cut():
 
     text = "\n".join(links.render(result))
 
-    assert "bands from verdicts: 5 same person, 4 different people or household" in text
+    assert "bands from verdicts: 5 same person, 4 different people" in text
     assert "strong   now 5, suggested 8.5 (precision 100%, recall 40%)" in text
     assert "floor    now 3, no score reaches the precision asked for" in text
 

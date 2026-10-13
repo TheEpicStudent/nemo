@@ -9,8 +9,8 @@ from lib.db import connect
 from lib.paths import ENV_FILE
 
 USER_ID = re.compile(r"^[UW][A-Z0-9]{2,}$")
-VERDICTS = ("same_person", "different_people", "household", "staff_test")
-ONE_PERSON = ("same_person", "staff_test")
+VERDICTS = ("same_person", "different_people", "allowed_alt")
+ONE_PERSON = ("same_person", "allowed_alt")
 ENTITY_TYPE = "member_link_verdict"
 
 KNOWN_SQL = "SELECT user_id FROM fd.member WHERE user_id = ANY(%s)"

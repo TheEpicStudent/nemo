@@ -70,7 +70,7 @@
     container-type: inline-size;
   }
 
-  .rhead:not(:has(> .views)) {
+  .rhead:not(:has(> .views, > .views-row)) {
     @apply pb-1;
   }
 
@@ -93,6 +93,18 @@
 
   .rhead > .views {
     @apply -mx-6 mt-3 px-[18px];
+  }
+
+  .rhead > .views-row {
+    @apply -mx-6 mt-3 flex min-w-0 items-center gap-3 border-b border-border pr-6 pl-[18px];
+  }
+
+  .views-row > .views {
+    @apply min-w-0 flex-1 border-b-0;
+  }
+
+  .views-tools {
+    @apply flex flex-none items-center gap-2 pt-1 pb-2;
   }
 
   .backbtn { flex: none; }
@@ -218,7 +230,8 @@
 
     .rhead > .row-top { display: none; }
     .rhead > .views { @apply -mx-4 mt-0 px-2.5; }
-    .rhead:not(:has(> .views, > .toolbar, > .intro)) { display: none; }
+    .rhead > .views-row { @apply -mx-4 mt-0 pr-4 pl-2.5; }
+    .rhead:not(:has(> .views, > .views-row, > .toolbar, > .intro)) { display: none; }
 
     .body { @apply gap-4 p-4 pb-10; }
     .body.flush { @apply px-4 pb-4; }

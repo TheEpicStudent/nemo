@@ -3,7 +3,7 @@ require "test_helper"
 class Fd::ClusterLayoutTest < ActiveSupport::TestCase
   Member = Struct.new(:user_id, keyword_init: true)
   Edge = Struct.new(:a_user_id, :b_user_id, :score, :verdict, keyword_init: true) do
-    def apart? = %w[different_people household].include?(verdict)
+    def apart? = verdict == "different_people"
   end
   Cluster = Struct.new(:members, :edges, keyword_init: true)
 

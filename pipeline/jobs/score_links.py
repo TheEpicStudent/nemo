@@ -20,7 +20,7 @@ BAND_NAMES = ("certain", "strong", "worth a look")
 RECALLED_BANDS = ("certain", "strong")
 UNLINKED = "not linked"
 RIGHT = ("same_person",)
-WRONG = ("different_people", "household")
+WRONG = ("different_people",)
 REBAN_WINDOW_DAYS = 30
 HOME_IP_MAX_USERS = 8
 VPN_IP_MAX_USERS = 10
@@ -478,7 +478,7 @@ def render(result):
         return lines
     lines.append("")
     lines.append(f"bands from verdicts: {cutoffs['right']:,} same person, "
-                 f"{cutoffs['wrong']:,} different people or household")
+                 f"{cutoffs['wrong']:,} different people")
     if not cutoffs["enough"]:
         lines.append("  not enough verdicts to suggest cutoffs yet")
         return lines

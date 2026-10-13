@@ -115,8 +115,8 @@ def test_a_same_person_verdict_joins_clusters_and_a_different_people_verdict_cut
 
     assert "UNION\nSELECT a_user_id, b_user_id FROM fd.member_link_verdict WHERE verdict = ANY(%(together)s)" in sql
     assert "v.verdict = ANY(%(apart)s)" in sql
-    assert set(clusters.TOGETHER) == {"same_person", "staff_test"}
-    assert set(clusters.APART) == {"different_people", "household"}
+    assert set(clusters.TOGETHER) == {"same_person", "allowed_alt"}
+    assert set(clusters.APART) == {"different_people"}
 
 
 def test_two_clusters_bridged_by_a_verdict_become_one():

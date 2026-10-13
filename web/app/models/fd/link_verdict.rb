@@ -5,10 +5,9 @@ module Fd
     VERDICTS = {
       "same_person" => "Same person",
       "different_people" => "Different people",
-      "household" => "Household",
-      "staff_test" => "Staff test"
+      "allowed_alt" => "Allowed alt"
     }.freeze
-    ONE_PERSON = %w[same_person staff_test].freeze
+    ONE_PERSON = %w[same_person allowed_alt].freeze
 
     def self.pair(user_id, other_user_id) = [user_id.to_s, other_user_id.to_s].minmax
 

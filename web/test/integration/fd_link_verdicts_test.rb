@@ -30,7 +30,7 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
     assert_select "a.btn[href=?]", compare_href, text: "Review"
 
     get compare_href
-    assert_select "form.px-verdictbar button[name=verdict]", 4
+    assert_select "form.px-verdictbar button[name=verdict]", 3
     assert_select "form.px-verdictbar input[name=back]"
 
     assert_difference -> { Fd::LinkVerdict.count }, 1 do
@@ -58,7 +58,7 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
 
   test "a changed verdict keeps what it said before" do
     post_verdict("same_person", note: "dm")
-    post_verdict("household")
+    post_verdict("different_people")
 
     entry = Fd::AuditEntry.where(entity_type: "member_link_verdict").order(:id).last
     assert_equal "unlinked", entry.verb
@@ -68,18 +68,18 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
   end
 
   test "saying the same thing twice writes nothing" do
-    post_verdict("staff_test")
+    post_verdict("allowed_alt")
     assert_no_difference -> { Fd::AuditEntry.where(entity_type: "member_link_verdict").count } do
-      post_verdict("staff_test")
+      post_verdict("allowed_alt")
     end
     assert_match "verdict unchanged", flash[:notice]
   end
 
   test "a judged pair shows its verdict under reviewed and can be changed" do
-    post_verdict("household")
+    post_verdict("allowed_alt")
 
     get fd_links_path(view: "reviewed")
-    assert_select ".link-table .state", "Household"
+    assert_select ".link-table .state", "Allowed alt"
     assert_select ".link-table a.btn", "Change"
   end
 
@@ -99,11 +99,11 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
     post_verdict("same_person", back: fd_member_path(ACTIVE, do: "links"))
     assert_redirected_to fd_member_path(ACTIVE, do: "links")
 
-    post_verdict("household", back: "https://elsewhere.example/steal")
+    post_verdict("different_people", back: "https://elsewhere.example/steal")
     assert_redirected_to fd_links_path
   end
 
-  test "a verdict needs two accounts and one of the four answers" do
+  test "a verdict needs two accounts and one of the three answers" do
     post fd_link_verdicts_path, params: { a: ACTIVE, b: ACTIVE, verdict: "same_person" }
     assert_equal "pick two accounts", flash[:alert]
 

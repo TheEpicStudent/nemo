@@ -1,6 +1,6 @@
 module ClusterHelper
   SERIES = 6
-  SEPARATE_VERDICTS = %w[different_people household].freeze
+  SEPARATE_VERDICTS = %w[different_people].freeze
 
   TAB_PARTIALS = { "overview" => "overview", "accounts" => "accounts", "links" => "links",
                    "sessions" => "timeline", "snapshots" => "snapshots", "verdicts" => "verdicts" }.freeze

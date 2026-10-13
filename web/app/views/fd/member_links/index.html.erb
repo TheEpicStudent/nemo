@@ -9,39 +9,38 @@
   <% end %>
 <% end %>
 
+<% content_for :tab_tools do %>
+  <%= render layout: "shared/dropdown", locals: {
+        label: "Signal", trigger_css: "btn",
+        trigger: audit_filter_trigger("Signal", @list.signal_label) } do %>
+    <%= link_to "Any", fd_links_path(@list.params_for(signal: nil)), class: "btn",
+          aria: { current: ("true" if @list.signal.nil?) } %>
+    <div class="menu-sep"></div>
+    <% Fd::LinkList::SIGNAL_GROUPS.each do |key, (label, _section)| %>
+      <%= link_to fd_links_path(@list.params_for(signal: key)), class: "btn",
+            aria: { current: ("true" if @list.signal == key) } do %>
+        <span><%= label %></span><%= audit_count(@list.signal_counts.fetch(key)) %>
+      <% end %>
+    <% end %>
+  <% end %>
+  <% if @list.view == "sampled" && @list.variants.size > 1 %>
+    <%= render layout: "shared/dropdown", locals: {
+          label: "Set", trigger_css: "btn",
+          trigger: audit_filter_trigger("Set", @list.variant_label) } do %>
+      <% @list.variants.each do |name| %>
+        <%= link_to (name == Fd::LinkList::LIVE_VARIANT ? "Live links" : name),
+              fd_links_path(@list.params_for(variant: name)), class: "btn",
+              aria: { current: ("true" if @list.variant == name) } %>
+      <% end %>
+    <% end %>
+  <% end %>
+<% end %>
+
 <%= turbo_stream_from Fd::MemberLinkBroadcast::LIST_STREAM %>
 
 <%= turbo_frame_tag Fd::MemberLinkBroadcast::LIST_FRAME, target: "_top",
       data: { src: fd_links_path(@list.params_for) } do %>
   <div class="stack">
-
-    <div class="audit-filters">
-      <%= render layout: "shared/dropdown", locals: {
-            label: "Signal", trigger_css: "btn",
-            trigger: audit_filter_trigger("Signal", @list.signal_label) } do %>
-        <%= link_to "Any", fd_links_path(@list.params_for(signal: nil)), class: "btn",
-              aria: { current: ("true" if @list.signal.nil?) } %>
-        <div class="menu-sep"></div>
-        <% Fd::LinkList::SIGNAL_GROUPS.each do |key, (label, _section)| %>
-          <%= link_to fd_links_path(@list.params_for(signal: key)), class: "btn",
-                aria: { current: ("true" if @list.signal == key) } do %>
-            <span><%= label %></span><%= audit_count(@list.signal_counts.fetch(key)) %>
-          <% end %>
-        <% end %>
-      <% end %>
-      <% if @list.view == "sampled" && @list.variants.size > 1 %>
-        <%= render layout: "shared/dropdown", locals: {
-              label: "Set", trigger_css: "btn",
-              trigger: audit_filter_trigger("Set", @list.variant_label) } do %>
-          <% @list.variants.each do |name| %>
-            <%= link_to (name == Fd::LinkList::LIVE_VARIANT ? "Live links" : name),
-                  fd_links_path(@list.params_for(variant: name)), class: "btn",
-                  aria: { current: ("true" if @list.variant == name) } %>
-          <% end %>
-        <% end %>
-      <% end %>
-    </div>
-
     <div class="card card-flush">
       <% if @list.rows.any? %>
         <div class="scroll">

@@ -75,7 +75,12 @@
                 <div class="toolbar"><%= content_for(:page_controls) %></div>
               <% end %>
 
-              <% if content_for?(:page_tabs) %>
+              <% if content_for?(:page_tabs) && content_for?(:tab_tools) %>
+                <div class="views-row">
+                  <nav class="views" aria-label="Sections"><%= content_for(:page_tabs) %></nav>
+                  <div class="views-tools"><%= content_for(:tab_tools) %></div>
+                </div>
+              <% elsif content_for?(:page_tabs) %>
                 <nav class="views" aria-label="Sections"><%= content_for(:page_tabs) %></nav>
               <% end %>
             </div>

@@ -11,7 +11,7 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     link!("ULISTA", "ULISTD", 3.5, '{"device_agent": {"value": "agent", "score": 3.0}}')
     link!("ULISTA", "ULISTE", 4.0, '{"ip_stable": {"value": "81.2.69.145", "score": 5.0}}', label: "household")
     a, b = %w[ULISTA ULISTC]
-    as_pipeline("INSERT INTO fd.member_link_verdict (a_user_id, b_user_id, verdict, decided_by) VALUES (?, ?, 'household', 'ULISTBOSS')", a, b)
+    as_pipeline("INSERT INTO fd.member_link_verdict (a_user_id, b_user_id, verdict, decided_by) VALUES (?, ?, 'different_people', 'ULISTBOSS')", a, b)
     seeded!("fd.member_link_verdict", "a_user_id", a)
   end
 

@@ -84,7 +84,7 @@ class FdClusterPageTest < ActionDispatch::IntegrationTest
   test "pairs held together only by same person verdicts cannot be split" do
     verdict!("UPGA", "UPGB", "same_person")
     verdict!("UPGB", "UPGC", "same_person")
-    verdict!("UPGC", "UPGD", "staff_test")
+    verdict!("UPGC", "UPGD", "allowed_alt")
 
     assert_not Fd::ClusterSplit.new(Fd::ClusterView.find(ROOT)).possible?
   end

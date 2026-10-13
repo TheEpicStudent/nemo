@@ -16,7 +16,7 @@ module Fd
     Return = Struct.new(:user_id, :banned_id, :after, keyword_init: true)
     SharedValue = Struct.new(:name, :label, :value, :user_ids, :score, keyword_init: true)
 
-    APART = %w[different_people household].freeze
+    APART = %w[different_people].freeze
     SHARED_VALUES = 8
     Sighting = Struct.new(:user_id, :hour, :ip, :hits, keyword_init: true)
     Snapshot = Struct.new(:id, :user_id, :deactivated_at, :source, :actor_id, :reason, :identity, :traits,

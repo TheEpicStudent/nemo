@@ -49,28 +49,27 @@ def test_a_pair_is_stored_lowest_id_first():
 
 def test_one_person_verdicts_are_linked_and_the_rest_unlinked():
     assert verdicts.verb_for("same_person") == "linked"
-    assert verdicts.verb_for("staff_test") == "linked"
+    assert verdicts.verb_for("allowed_alt") == "linked"
     assert verdicts.verb_for("different_people") == "unlinked"
-    assert verdicts.verb_for("household") == "unlinked"
 
 
 def test_the_verdicts_match_the_table_check():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
-           / "0181_member_link_verdicts.sql").read_text()
+           / "0223_link_verdict_drop_household.sql").read_text()
     for verdict in verdicts.VERDICTS:
         assert f"'{verdict}'" in sql
 
 
 def test_ids_split_on_commas_and_spaces():
-    planned = verdicts.planned("U09", "U01", {"same_person": ["U02,U03", " U04 "], "household": ["U05"]})
+    planned = verdicts.planned("U09", "U01", {"same_person": ["U02,U03", " U04 "], "different_people": ["U05"]})
 
     assert planned == {"U02": "same_person", "U03": "same_person", "U04": "same_person",
-                       "U05": "household"}
+                       "U05": "different_people"}
 
 
 def test_an_account_under_two_verdicts_is_refused():
     with pytest.raises(VerdictError, match="U02 is listed under both"):
-        verdicts.planned("U09", "U01", {"same_person": ["U02"], "household": ["U02"]})
+        verdicts.planned("U09", "U01", {"same_person": ["U02"], "different_people": ["U02"]})
 
 
 def test_the_main_account_cannot_be_paired_with_itself():
@@ -114,13 +113,13 @@ def test_the_same_verdict_again_writes_nothing():
 def test_a_changed_verdict_keeps_the_note_and_audits_the_old_verdict():
     conn = Conn(existing={("U02", "U05"): (7, "same_person", "U08", "shared a laptop")})
 
-    assert verdicts.record(conn, "U09", "U05", "U02", "household") == "changed"
+    assert verdicts.record(conn, "U09", "U05", "U02", "different_people") == "changed"
 
-    assert conn.args_for("UPDATE fd.member_link_verdict") == [("household", "U09", "shared a laptop", 7)]
+    assert conn.args_for("UPDATE fd.member_link_verdict") == [("different_people", "U09", "shared a laptop", 7)]
     [row] = conn.args_for("INSERT INTO fd.audit")
     assert row[4] == "unlinked"
     assert row[5].obj == {"verdict": "same_person", "decided_by": "U08", "note": "shared a laptop"}
-    assert row[6].obj["verdict"] == "household"
+    assert row[6].obj["verdict"] == "different_people"
 
 
 def test_unknown_accounts_stop_the_run_before_anything_is_written():
@@ -136,7 +135,7 @@ def test_unknown_accounts_stop_the_run_before_anything_is_written():
 def test_a_run_commits_after_every_pair():
     conn = Conn(members={"U09", "U05", "U02", "U03"})
 
-    counts = verdicts.run(conn, "U09", "U05", {"U02": "same_person", "U03": "staff_test"})
+    counts = verdicts.run(conn, "U09", "U05", {"U02": "same_person", "U03": "allowed_alt"})
 
     assert counts == {"recorded": 2}
     assert conn.committed
