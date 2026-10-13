@@ -56,22 +56,35 @@ def test_wanted_lanes_runs_every_lane_when_every_switch_is_on(monkeypatch):
     assert names == lane_names(audit_worker.LANES)
 
 
-def test_the_cluster_lane_wakes_on_link_changes():
-    assert audit_worker.LANE_WAKE_CHANNELS == {"clusters": "fd_member_link"}
+def test_clusters_wake_on_link_changes_and_the_live_lane_on_touches():
+    assert audit_worker.LANE_WAKE_CHANNELS == {"clusters": "fd_member_link", "links_live": "fd_member_touch"}
     assert audit_worker.WAKE_DEBOUNCE_SECONDS == 2
 
 
-def test_link_notifications_wake_only_the_cluster_lane(monkeypatch):
+def test_each_notification_wakes_only_its_own_lane(monkeypatch):
     listen_args = {}
     monkeypatch.setattr(audit_worker.loops, "watching",
                         lambda _name, channels, on_notify, _stopping: listen_args.update(channels=channels, on_notify=on_notify))
 
     events = audit_worker.lane_wake_events(audit_worker.LANES, threading.Event())
 
-    assert list(events) == ["clusters"]
-    assert listen_args["channels"] == ("fd_member_link",)
+    assert sorted(events) == ["clusters", "links_live"]
+    assert listen_args["channels"] == ("fd_member_link", "fd_member_touch")
     listen_args["on_notify"]("fd_member_link", "*")
-    assert events["clusters"].is_set()
+    assert events["clusters"].is_set() and not events["links_live"].is_set()
+    events["clusters"].clear()
+    listen_args["on_notify"]("fd_member_touch", "*")
+    assert events["links_live"].is_set() and not events["clusters"].is_set()
+
+
+def test_a_touch_notifies_once_per_statement_and_the_lane_clearing_its_queue_stays_quiet():
+    import pathlib
+
+    sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations" / "0221_member_touch_notify.sql").read_text()
+    assert "PERFORM pg_notify('fd_member_touch', '*')" in sql
+    assert "AFTER INSERT OR UPDATE ON fd.member_touch" in sql
+    assert "FOR EACH STATEMENT" in sql
+    assert "DELETE" not in sql.split("CREATE TRIGGER")[1]
 
 
 def test_a_woken_lane_runs_again_after_the_settle(monkeypatch):

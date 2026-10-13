@@ -44,7 +44,7 @@ JOIN_TIMEOUT = 10
 BUSY_POLL_SECONDS = 2
 REFUSED_BACKOFF_SECONDS = 900
 WAKE_DEBOUNCE_SECONDS = 2
-LANE_WAKE_CHANNELS = {"clusters": "fd_member_link"}
+LANE_WAKE_CHANNELS = {"clusters": "fd_member_link", "links_live": "fd_member_touch"}
 
 REFUSALS = ("invalid_auth", "auditlogs:read", "not_allowed_token_type", "audit 403", "audit 401")
 
