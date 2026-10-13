@@ -5,7 +5,7 @@ from slack_sdk.scim import SCIMClient
 from slack_client import admin_token
 
 UPSTREAM_TIMEOUT = 30
-DEFAULT_BASE_URL = "https://api.slack.com/scim/v2/"
+DEFAULT_BASE_URL = "https://api.slack.com/scim/v1/"
 
 DEACTIVATE = "scim.users.deactivate"
 ACTIVATE = "scim.users.activate"
