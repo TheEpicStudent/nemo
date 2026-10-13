@@ -1,0 +1,39 @@
+{
+  "ignored_warnings": [
+    {
+      "warning_type": "Dynamic Render Path",
+      "warning_code": 15,
+      "fingerprint": "ecb9549b25b4ddd046ae42d8262345973a7fd7e77a74cb5bbfeff78c7ed70248",
+      "check_name": "Render",
+      "message": "Render path contains parameter value",
+      "file": "app/views/fd/audits/facet.html.erb",
+      "line": 2,
+      "link": "https://brakemanscanner.org/docs/warning_types/dynamic_render_path/",
+      "code": "render(action => \"facet_#{params[:facet].to_s}\", { :counts => AuditQuery.new(params, :actor => current_account).facet(params[:facet].to_s) })",
+      "render_path": [
+        {
+          "type": "controller",
+          "class": "Fd::AuditsController",
+          "method": "facet",
+          "line": 40,
+          "file": "app/controllers/fd/audits_controller.rb",
+          "rendered": {
+            "name": "fd/audits/facet",
+            "file": "app/views/fd/audits/facet.html.erb"
+          }
+        }
+      ],
+      "location": {
+        "type": "template",
+        "template": "fd/audits/facet"
+      },
+      "user_input": "params[:facet].to_s",
+      "confidence": "Medium",
+      "cwe_id": [
+        22
+      ],
+      "note": "Fd::AuditsController#facet checks params[:facet] against AuditQuery::FACETS (a fixed 4-entry allow-list: category, action, network, is) and returns 404 before this render runs, so only those four partials can ever be rendered. Brakeman can't see a guard enforced in the controller before the view renders, so it flags the interpolation itself."
+    }
+  ],
+  "brakeman_version": "8.0.5"
+}
