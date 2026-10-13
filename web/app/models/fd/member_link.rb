@@ -9,7 +9,7 @@ module Fd
 
     STRONG = BANDS.fetch("strong")
     CERTAIN = BANDS.fetch("certain")
-    MOST = BANDS.fetch("most_per_member", 25)
+    MEMBER_LINK_LIMIT = 25
     CLUSTER_MEMBER_LIMIT = 16
 
     Side = Struct.new(:user_id, :other_id, :score, :top_signal, :signals,
@@ -135,7 +135,7 @@ module Fd
       (CATALOGUE[name] || {})["label"] || name.to_s.tr("_", " ")
     end
 
-    def self.for_member(user_id, limit: MOST)
+    def self.for_member(user_id, limit: MEMBER_LINK_LIMIT)
       return [] if user_id.blank?
 
       rows = connection.select_all(sanitize_sql([<<~SQL.squish, user_id, limit]))

@@ -236,4 +236,9 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
       finished_at).first["id"]
     seeded!("raw.ingest_run", "id", id)
   end
+
+  test "the linked accounts pane lists at most the member link limit" do
+    assert_equal 25, Fd::MemberLink::MEMBER_LINK_LIMIT
+    assert_not Fd::MemberLink::BANDS.key?("most_per_member")
+  end
 end
