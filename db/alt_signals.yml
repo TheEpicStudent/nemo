@@ -1,6 +1,5 @@
 shared_networks:
   rotates_above: 5.0
-  crowds_above: 40
   min_sightings: 2
 
 staff_domains:

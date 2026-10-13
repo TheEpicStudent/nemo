@@ -67,14 +67,13 @@ def test_neither_side_of_the_join_reads_the_unpruned_evidence():
 def test_a_network_many_people_share_is_not_evidence_of_anything():
     shared_config = links.shared()
     assert shared_config["rotates_above"] > 1, "a carrier hands each person a fresh address every time"
-    assert shared_config["crowds_above"] > 1, "a vpn exit is one address behind which anybody can stand"
     assert shared_config["min_sightings"] >= 2, "one sighting on an address is a coincidence, not a home"
 
 
 def test_the_shared_networks_are_worked_out_rather_than_listed_by_hand():
     assert "count(DISTINCT ip)" in links.SHARED_ISP
     assert "count(DISTINCT user_id)" in links.SHARED_ISP
-    assert "rotates" in links.SHARED_ISP and "crowds" in links.SHARED_ISP
+    assert "rotates" in links.SHARED_ISP
     for named in ("T-Mobile", "ProtonVPN", "Jio"):
         assert named not in links.SHARED_ISP, "no isp is named in the code"
 
@@ -625,3 +624,11 @@ def test_other_arrival_signals_keep_their_window_in_seconds():
     _sql, args = links.evidence("created_same_address", links.signals()["created_same_address"], 2)
 
     assert args["window"] == links.signals()["created_same_address"]["window_seconds"]
+
+
+def test_a_home_address_is_judged_by_its_own_crowd_not_by_how_big_its_isp_is():
+    assert "crowds" not in links.SHARED_ISP
+    assert "count(DISTINCT user_id) >=" not in links.SHARED_ISP
+    assert "crowds_above" not in links.shared()
+    signal = links.signals()["ip_stable"]
+    assert (signal["crowd_ceiling"], signal["range_ceiling"]) == (8, 20)

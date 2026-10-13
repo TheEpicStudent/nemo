@@ -115,7 +115,6 @@ FROM fd.login_event
 WHERE isp IS NOT NULL
 GROUP BY isp
 HAVING count(DISTINCT ip)::numeric / greatest(count(DISTINCT user_id), 1) >= %(rotates)s
-    OR count(DISTINCT user_id) >= %(crowds)s
 """
 
 SHARED_IP = """
@@ -731,8 +730,7 @@ def sightings_of(config):
 
 def mark_shared(conn, config, save=True):
     settings = shared(config)
-    conn.execute(SHARED_ISP, {"rotates": settings.get("rotates_above", 5.0),
-                              "crowds": settings.get("crowds_above", 40)})
+    conn.execute(SHARED_ISP, {"rotates": settings.get("rotates_above", 5.0)})
     conn.execute(SHARED_IP)
     conn.execute(SHARED_INDEX)
     if save:
