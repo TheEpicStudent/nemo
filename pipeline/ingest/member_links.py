@@ -181,6 +181,7 @@ IP_BURST = "ip_burst"
 REPEATED = ((IP_MANY, IP_STABLE),)
 COLLAPSED = (IP_SAME_HOUR, IP_HOURLY, IP_BURST)
 TWO_COUNTRIES = "two_countries"
+BOT_USER_IDS = ("USLACKBOT", "U09ULFV88KU")
 
 SIGHTING_SELECT = """
 SELECT e.user_id, e.ip, e.ip_prefix, e.hour, sum(e.hits) AS seen,
@@ -326,6 +327,21 @@ held AS (
     WHERE banned_at IS NOT NULL AND banned_at > coalesce(back_at, '-infinity'::timestamptz)
 )"""
 
+STAFF_BANNED = """
+WITH deactivation AS (
+    SELECT DISTINCT ON (entity_id) entity_id AS user_id, at AS banned_at, actor_id
+    FROM {audit}
+    WHERE action = 'user_deactivated' AND entity_id IS NOT NULL
+    ORDER BY entity_id, at DESC
+),
+held AS (
+    SELECT d.user_id, d.banned_at
+    FROM deactivation d
+    WHERE d.actor_id IS DISTINCT FROM d.user_id AND d.actor_id <> ALL(%(bot_user_ids)s)
+      AND NOT EXISTS (SELECT 1 FROM {audit} r
+                      WHERE r.action = 'user_reactivated' AND r.entity_id = d.user_id AND r.at > d.banned_at)
+)"""
+
 INVITES = """
     SELECT actor_id, entity_id, min(at) AS at
     FROM {audit}
@@ -401,6 +417,36 @@ ARRIVAL_EVIDENCE = {
         FROM used u
         JOIN crowd c ON c.ip = u.ip AND c.people <= %(ceiling)s
         JOIN arrived a ON a.ip = u.ip AND a.user_id <> u.user_id AND a.first_at > u.banned_at
+    """,
+    "after_ban_exit": STAFF_BANNED + """,
+        person AS (
+            SELECT user_id FROM {member} WHERE NOT is_bot
+        ),
+        exit_use AS (
+            SELECT e.user_id, e.ip, e.ua_id, min(e.first_at) AS first_at
+            FROM {login} e
+            JOIN fd.ip_network n ON n.ip_prefix = e.ip_prefix AND n.class IN ('vpn', 'hosting')
+            WHERE e.ip IS NOT NULL AND e.ua_id IS NOT NULL AND e.user_id IN (SELECT user_id FROM person)
+            GROUP BY 1, 2, 3
+        ),
+        crowd AS (
+            SELECT ip, count(DISTINCT user_id) AS people FROM exit_use GROUP BY 1
+        ),
+        banned_use AS (
+            SELECT x.user_id, x.ip, x.ua_id, h.banned_at
+            FROM exit_use x
+            JOIN held h ON h.user_id = x.user_id
+            WHERE x.first_at <= h.banned_at
+        )
+        SELECT least(u.user_id, x.user_id) AS a_user_id,
+               greatest(u.user_id, x.user_id) AS b_user_id,
+               host(u.ip) AS value, c.people, %(weight)s::numeric AS score,
+               u.banned_at AS first_seen, x.first_at AS last_seen
+        FROM banned_use u
+        JOIN crowd c ON c.ip = u.ip AND c.people <= %(ceiling)s
+        JOIN exit_use x ON x.ip = u.ip AND x.ua_id = u.ua_id AND x.user_id <> u.user_id
+                       AND x.first_at > u.banned_at
+                       AND x.first_at <= u.banned_at + make_interval(days => %(window)s)
     """,
     "after_ban_device": BANNED + """,
         agent AS (
@@ -762,7 +808,9 @@ def evidence(name, settings, sightings, sources=FULL):
     if name == IP_BURST:
         return BURST.format(**names), {**args, "window": settings["window_days"]}
     if name in ARRIVAL_EVIDENCE:
-        return ARRIVAL_EVIDENCE[name].format(**names), {**args, "window": settings.get("window_seconds", 1800)}
+        window = settings["window_days"] if "window_days" in settings else settings.get("window_seconds", 1800)
+        return ARRIVAL_EVIDENCE[name].format(**names), {**args, "window": window,
+                                                        "bot_user_ids": list(BOT_USER_IDS)}
     if name == JOINED_TOGETHER:
         return TOGETHER_SQL.format(**names), {**args, "window": settings.get("window_seconds", 300)}
     source = source_of(name)

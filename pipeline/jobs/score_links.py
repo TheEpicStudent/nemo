@@ -7,7 +7,7 @@ from itertools import combinations
 from dotenv import load_dotenv
 from psycopg import errors, sql
 
-from ingest.member_links import catalogue, scoring
+from ingest.member_links import BOT_USER_IDS, catalogue, scoring
 from jobs.link_verdicts import VERDICTS
 from lib.db import connect
 from lib.graph import components
@@ -21,7 +21,6 @@ RECALLED_BANDS = ("certain", "strong")
 UNLINKED = "not linked"
 RIGHT = ("same_person",)
 WRONG = ("different_people", "household")
-BOT_USER_IDS = ["USLACKBOT", "U09ULFV88KU"]
 REBAN_WINDOW_DAYS = 30
 HOME_IP_MAX_USERS = 8
 VPN_IP_MAX_USERS = 10
@@ -349,7 +348,7 @@ def measure(conn, links_name=LINKS, variant=None, against=None):
     alias_links = query(AMONG_SQL, {"ids": alias_ids}) if alias_ids else []
     alias_scores = {(a, b): float(score) for a, b, score in alias_links if (a, b) in aliases}
 
-    post_ban = query(POST_BAN_SQL, {"bot_user_ids": BOT_USER_IDS, "reban_window_days": REBAN_WINDOW_DAYS,
+    post_ban = query(POST_BAN_SQL, {"bot_user_ids": list(BOT_USER_IDS), "reban_window_days": REBAN_WINDOW_DAYS,
                                     "home_ip_max_users": HOME_IP_MAX_USERS,
                                     "vpn_ip_max_users": VPN_IP_MAX_USERS})
     same_person = [(score, top_signal, ()) for _a, _b, verdict, score, top_signal in rows

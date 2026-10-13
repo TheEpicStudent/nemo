@@ -143,6 +143,12 @@ arrival_signals:
     weight: 2.0
     crowd_ceiling: 25
 
+  after_ban_exit:
+    label: First seen on a banned member's VPN exit with the same browser build within 30 days of the ban
+    weight: 5.0
+    crowd_ceiling: 10
+    window_days: 30
+
 against:
   two_countries:
     label: Active from two countries in the same hour, neither on a VPN
@@ -172,7 +178,7 @@ families:
   device:
     cap: 4.0
   arrival:
-    cap: 4.0
+    cap: 5.0
 
 clusters:
   edge_score: 5.0

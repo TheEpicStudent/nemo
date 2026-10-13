@@ -290,10 +290,15 @@ def test_the_harness_and_the_finder_share_one_mailbox_rule():
     assert links.mailbox is rule.mailbox
 
 
-def test_arrival_evidence_stays_below_strong_on_its_own():
-    assert links.families()["arrival"]["cap"] < links.scoring()["strong"]
+def test_only_a_post_ban_vpn_exit_makes_a_strong_link_from_arrival_evidence_alone():
+    strong = links.scoring()["strong"]
     for name in ("created_same_address", "invited_by", "after_ban_address", "after_ban_device"):
         assert links.signals()[name]["family"] == "arrival"
+        assert links.signals()[name]["weight"] < strong
+    exit_signal = links.signals()["after_ban_exit"]
+    assert exit_signal["family"] == "arrival"
+    assert exit_signal["weight"] >= strong
+    assert links.families()["arrival"]["cap"] == exit_signal["weight"]
 
 
 def test_a_ban_counts_only_while_the_account_stays_deactivated():
@@ -415,7 +420,7 @@ def test_only_precise_evidence_can_make_a_link_on_its_own():
     primary = {name for name, one in links.signals().items() if not one.get("corroborating")}
 
     assert primary == {"ip_stable", "ip_many", "ip_hourly", "ip_burst", "mailbox_alias", "local_part",
-                       "created_same_address", "invited_by",
+                       "created_same_address", "invited_by", "after_ban_exit",
                        "after_ban_address", "after_ban_device"}
 
 
@@ -581,3 +586,33 @@ def test_a_pair_needs_one_signal_that_is_not_corroborating():
     table = links.family_table({**links.catalogue(), "name_signals": {
         **links.catalogue()["name_signals"], "handle_stem_long": {"weight": 4.0, "corroborating": True}}})
     assert table["corroborating"][table["signals"].index("handle_stem_long")] is True
+
+
+def test_a_post_ban_vpn_exit_needs_a_staff_ban_a_small_exit_the_same_build_and_thirty_days():
+    signal = links.signals()["after_ban_exit"]
+    sql, args = links.evidence("after_ban_exit", signal, 2)
+
+    assert (signal["crowd_ceiling"], signal["window_days"], args["window"]) == (10, 30, 30)
+    assert args["bot_user_ids"] == ["USLACKBOT", "U09ULFV88KU"]
+    assert "d.actor_id IS DISTINCT FROM d.user_id AND d.actor_id <> ALL(%(bot_user_ids)s)" in sql
+    assert "r.action = 'user_reactivated' AND r.entity_id = d.user_id AND r.at > d.banned_at" in sql
+    assert "n.class IN ('vpn', 'hosting')" in sql
+    assert "SELECT user_id FROM fd.member WHERE NOT is_bot" in sql
+    assert "c.people <= %(ceiling)s" in sql
+    assert "x.ua_id = u.ua_id" in sql
+    assert "x.first_at > u.banned_at" in sql
+    assert "x.first_at <= u.banned_at + make_interval(days => %(window)s)" in sql
+
+
+def test_the_live_lane_reads_post_ban_exits_from_its_scope():
+    sql, _args = links.evidence("after_ban_exit", links.signals()["after_ban_exit"], 2, live.LIVE)
+
+    assert "FROM scope_login e" in sql
+    assert "FROM scope_audit" in sql
+    assert "FROM scope_member WHERE NOT is_bot" in sql
+
+
+def test_other_arrival_signals_keep_their_window_in_seconds():
+    _sql, args = links.evidence("created_same_address", links.signals()["created_same_address"], 2)
+
+    assert args["window"] == links.signals()["created_same_address"]["window_seconds"]
