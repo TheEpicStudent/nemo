@@ -29,6 +29,7 @@ module Fd
       @cluster = ClusterView.find(params[:id])
       @user_id = params[:user_id].to_s.upcase
       return head :not_found if @cluster.nil? || @cluster.member(@user_id).nil?
+      return redirect_to(fd_cluster_path(@cluster.cluster_id, node: @user_id)) unless turbo_frame_request?
 
       @traits = MemberTraits.new([@user_id], actor: current_account)
       AccessLog.record!(actor: current_account, subject_user_id: @user_id, field_class: "login") if @traits.identity?

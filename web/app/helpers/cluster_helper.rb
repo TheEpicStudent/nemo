@@ -1,19 +1,4 @@
 module ClusterHelper
-  MAP_RADIUS = 140
-  NODE_RADIUS = 18
-  LABEL_GAP = 34
-  MARGIN = 60
-  CROWDED = 16
-  PACKED = 30
-  NODE_GAP = 10
-  SPOKE_GAP = 6
-  SPOKE_ROOM = 125
-  PULL = 0.2
-  DISC = 60
-  DISC_NODE = 12
-  DISC_GAP = 5
-  DISC_MARGIN = 24
-  GOLDEN = Math::PI * (3 - Math.sqrt(5))
   SERIES = 6
   SEPARATE_VERDICTS = %w[different_people household].freeze
 
@@ -24,60 +9,14 @@ module ClusterHelper
     "scissors" => ["M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M20 4 8.1 15.9",
                    "M14.5 14.5 20 20", "M8.1 8.1 12 12"]
   }.freeze
-  TIMELINE_ROWS = 60
-  TIMELINE_LEFT = 170
   TIMELINE_WIDTH = 1000
-
-  MapLayout = Struct.new(:size, :centre, :node, :crowded, :packed, :pull, :points, keyword_init: true)
-
-  def cluster_layout(cluster)
-    count = [cluster.members.size, 1].max
-    return disc_layout(cluster, count) if count > DISC
-
-    crowded = count > CROWDED
-    node = node_radius(count)
-    radius = [MAP_RADIUS, count * ((2 * node) + NODE_GAP) / (2 * Math::PI)].max
-    half = crowded ? radius + node + SPOKE_GAP + SPOKE_ROOM : radius + MARGIN
-    points = cluster.members.each_with_index.to_h do |member, index|
-      angle = (-Math::PI / 2) + (2 * Math::PI * index / count)
-      [member.user_id, map_point(angle, radius, half, node, crowded).merge(step: index)]
-    end
-    MapLayout.new(size: (2 * half).round, centre: half, node: node, crowded: crowded, packed: false,
-      pull: PULL, points: points)
-  end
-
-  def disc_layout(cluster, count)
-    step = ((2 * DISC_NODE) + DISC_GAP) / Math.sqrt(Math::PI)
-    half = (step * Math.sqrt(count)) + DISC_NODE + DISC_MARGIN
-    points = cluster.members.each_with_index.to_h do |member, index|
-      distance = step * Math.sqrt(index + 0.5)
-      x = half + (distance * Math.cos(index * GOLDEN))
-      y = half + (distance * Math.sin(index * GOLDEN))
-      [member.user_id, { x: x, y: y, lx: x, ly: y - DISC_NODE - 6, anchor: "middle", turn: 0, step: index }]
-    end
-    MapLayout.new(size: (2 * half).round, centre: half, node: DISC_NODE, crowded: true, packed: true,
-      pull: 1.0, points: points)
-  end
-
-  def node_radius(count)
-    return 11 if count > PACKED
-    return 14 if count > CROWDED
-
-    NODE_RADIUS
-  end
-
-  def map_point(angle, radius, half, node, crowded)
-    cos = Math.cos(angle)
-    sin = Math.sin(angle)
-    point = { x: half + (radius * cos), y: half + (radius * sin) }
-    return point.merge(lx: half + ((radius + LABEL_GAP) * cos), ly: half + ((radius + LABEL_GAP) * sin),
-      anchor: label_anchor(cos), turn: 0) unless crowded
-
-    label_radius = radius + node + SPOKE_GAP
-    degrees = angle * 180 / Math::PI
-    point.merge(lx: half + (label_radius * cos), ly: half + (label_radius * sin),
-      anchor: cos.negative? ? "end" : "start", turn: cos.negative? ? degrees + 180 : degrees)
-  end
+  TIMELINE_SIDE = 12
+  TIMELINE_TOP = 10
+  TIMELINE_BOTTOM = 26
+  TIMELINE_STACK = 150
+  TIMELINE_BINS_MAX = 160
+  TIMELINE_DOT_MIN = 2.2
+  TIMELINE_DOT_MAX = 7
 
   MINI_WIDTH = 320
   MINI_HEIGHT = 150
@@ -144,32 +83,51 @@ module ClusterHelper
   end
 
   def cluster_join_timeline(cluster)
-    members = cluster.members.select(&:joined_at).first(TIMELINE_ROWS)
+    members = cluster.members.select(&:joined_at)
     return nil if members.empty?
 
-    from = members.map(&:joined_at).min
+    from = members.map(&:joined_at).min.beginning_of_day
     upto = Time.current
-    row_height = members.size > 12 ? 14 : 24
-    x = ->(time) { TIMELINE_LEFT + ((time - from) / [upto - from, 1].max * (TIMELINE_WIDTH - TIMELINE_LEFT - 20)) }
-    rows = members.each_with_index.map do |member, index|
-      y = 20 + (index * row_height)
-      ended = cluster.snapshot_of(member.user_id)&.deactivated_at if member.deactivated
-      finish = [x.call(ended || upto), x.call(member.joined_at) + 2].max
-      title = "#{person_label(member.user_id)}, joined #{on_day(member.joined_at)}#{", deactivated #{on_day(ended)}" if ended}"
-      safe_join([
-        tag.text(person_label(member.user_id).to_s.truncate(22), x: 0, y: y + 4, class: "timeline-name"),
-        tag.line(tag.title(title), x1: x.call(member.joined_at).round(1), x2: finish.round(1), y1: y, y2: y,
-          class: ["timeline-bar", (member.deactivated ? "is-gone" : "is-active")].join(" "),
-          "stroke-width": row_height < 20 ? 4 : 6)
-      ])
+    span = timeline_span(upto - from)
+    bins = ((upto - from) / span).ceil.clamp(1, TIMELINE_BINS_MAX)
+    columns = members.group_by { |member| (((member.joined_at - from) / span).floor).clamp(0, bins - 1) }
+    tallest = columns.values.map(&:size).max
+    column_width = (TIMELINE_WIDTH - (2 * TIMELINE_SIDE)).to_f / bins
+    radius = [column_width / 2.4, TIMELINE_STACK / (2.2 * tallest), TIMELINE_DOT_MAX].min.clamp(TIMELINE_DOT_MIN, TIMELINE_DOT_MAX)
+    height = (TIMELINE_TOP + (tallest * radius * 2.2) + TIMELINE_BOTTOM).ceil
+    base = height - TIMELINE_BOTTOM
+    dots = columns.flat_map do |column, column_members|
+      x = TIMELINE_SIDE + ((column + 0.5) * column_width)
+      column_members.sort_by(&:joined_at).each_with_index.map do |member, index|
+        timeline_dot(cluster, member, x, base - radius - (index * radius * 2.2), radius)
+      end
     end
-    height = 20 + (members.size * row_height) + 24
-    ticks = [[from, "start", on_day(from)], [from + ((upto - from) / 2), "middle", on_day(from + ((upto - from) / 2))],
-             [upto, "end", "now"]].map do |at, anchor, text|
-      tag.text(text, x: x.call(at).round(1), y: height - 4, "text-anchor": anchor, class: "timeline-tick")
+    axis = tag.line(x1: TIMELINE_SIDE, x2: TIMELINE_WIDTH - TIMELINE_SIDE, y1: base + 2, y2: base + 2, class: "timeline-axis")
+    middle = from + ((upto - from) / 2)
+    ticks = [[TIMELINE_SIDE, "start", on_day(from)], [TIMELINE_WIDTH / 2, "middle", on_day(middle)],
+             [TIMELINE_WIDTH - TIMELINE_SIDE, "end", "now"]].map do |x, anchor, text|
+      tag.text(text, x: x, y: height - 6, "text-anchor": anchor, class: "timeline-tick")
     end
-    tag.svg(safe_join(rows + ticks), viewBox: "0 0 #{TIMELINE_WIDTH} #{height}", role: "img",
-      aria: { label: "Join and deactivation timeline" })
+    tag.svg(safe_join(dots + [axis] + ticks), viewBox: "0 0 #{TIMELINE_WIDTH} #{height}", role: "img",
+      aria: { label: "When each account joined, one dot per account" })
+  end
+
+  def timeline_span(seconds)
+    return 1.day if seconds <= 120.days
+    return 1.week if seconds <= 2.years
+
+    30.days
+  end
+
+  def timeline_dot(cluster, member, x, y, radius)
+    ended = cluster.snapshot_of(member.user_id)&.deactivated_at if member.deactivated
+    title = "#{person_label(member.user_id)}, joined #{on_day(member.joined_at)}" \
+            "#{member.deactivated ? ", deactivated#{" #{on_day(ended)}" if ended}" : ""}"
+    tag.a(href: fd_member_path(member.user_id), class: "timeline-dot-link") do
+      tag.circle(tag.title(title), cx: x.round(1), cy: y.round(1), r: radius.round(1),
+        class: ["timeline-dot", (member.deactivated ? "is-gone" : "is-active"),
+                ("is-oldest" if member.user_id == cluster.cluster_id)].compact.join(" "))
+    end
   end
 
   def cluster_flags(ring:, conflict:, returns:, all_gone:)
@@ -179,20 +137,6 @@ module ClusterHelper
     flags << tag.span(safe_join([tag.i, pluralize(returns, "post-ban join")]), class: "flagx crit") if returns.to_i.positive?
     flags << tag.span(safe_join([tag.i, "All deactivated"]), class: "flagx") if all_gone
     safe_join(flags)
-  end
-
-  def cluster_edge_path(layout, a, b)
-    centre = layout.centre
-    cx = centre + ((((a[:x] + b[:x]) / 2) - centre) * layout.pull)
-    cy = centre + ((((a[:y] + b[:y]) / 2) - centre) * layout.pull)
-    format("M%<ax>.1f %<ay>.1f Q%<cx>.1f %<cy>.1f %<bx>.1f %<by>.1f",
-      ax: a[:x], ay: a[:y], cx: cx, cy: cy, bx: b[:x], by: b[:y])
-  end
-
-  def label_anchor(cos)
-    return "middle" if cos.abs < 0.3
-
-    cos.positive? ? "start" : "end"
   end
 
   def cluster_edge_class(edge)

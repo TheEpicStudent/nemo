@@ -47,13 +47,14 @@ class FdClusterPageTest < ActionDispatch::IntegrationTest
     assert_select ".cluster-stat dd", "4"
     assert_select ".cluster-map svg"
     assert_select ".px-maptools input[type=range][max='4'][data-action='input->cluster-map#scrub']"
-    assert_select ".cluster-timeline svg line.timeline-bar", 4
+    assert_select "details.foldcard.cluster-timeline-fold:not([open]) > summary", "Timeline"
+    assert_select ".cluster-timeline svg circle.timeline-dot", 4
   end
 
   test "values shared across the cluster are listed with who shares them" do
     get fd_cluster_path(ROOT)
 
-    row = css_select(".px-split table tbody tr").first
+    row = css_select(".card table.data-table tbody tr").first
     assert_match "81.2.69.144", row.text
     assert_equal 4, row.css(".facepile-face").size
   end
@@ -95,7 +96,7 @@ class FdClusterPageTest < ActionDispatch::IntegrationTest
   end
 
   test "an account opens in the side pane with its links and ways out" do
-    get node_fd_cluster_path(ROOT, "UPGB")
+    get node_fd_cluster_path(ROOT, "UPGB"), headers: { "Turbo-Frame" => "cluster-node" }
     assert_response :success
 
     assert_select "turbo-frame#cluster-node .side-title"
@@ -104,6 +105,16 @@ class FdClusterPageTest < ActionDispatch::IntegrationTest
     assert_select ".side-pivots a[href=?]", fd_audit_path(q: "about:UPGB")
     get fd_cluster_path(ROOT)
     assert_select "aside.side-pane > turbo-frame#cluster-node[data-controller=side-pane]"
+  end
+
+  test "an account opened outside the pane lands on the cluster with its pane open" do
+    get node_fd_cluster_path(ROOT, "upgb")
+    assert_redirected_to fd_cluster_path(ROOT, node: "UPGB")
+
+    follow_redirect!
+    assert_select "aside.side-pane > turbo-frame#cluster-node[src=?]", node_fd_cluster_path(ROOT, "UPGB")
+    get fd_cluster_path(ROOT, node: "UNOTHERE")
+    assert_select "aside.side-pane > turbo-frame#cluster-node:not([src])"
   end
 
   test "the verdicts tab lists who decided what" do

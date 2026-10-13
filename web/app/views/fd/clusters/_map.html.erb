@@ -1,4 +1,4 @@
-<% layout = cluster_layout(cluster) %>
+<% layout = Fd::ClusterLayout.new(cluster) %>
 <% points = layout.points %>
 <% node = layout.node %>
 <% dates = cluster.members.map { |member| member.joined_at ? member.joined_at.in_time_zone.strftime("%-d %b %Y") : "n/a" } %>
@@ -13,16 +13,16 @@
     </div>
   </div>
   <div class="cluster-map-body">
-    <svg viewBox="0 0 <%= layout.size %> <%= layout.size %>" role="img"
-         class="<%= "is-crowded" if layout.crowded %> <%= "is-packed" if layout.packed %>"
-         style="max-width: <%= [layout.size, 544].max %>px"
+    <svg viewBox="0 0 <%= layout.width %> <%= layout.height %>" role="img"
+         class="<%= "is-crowded" if node < Fd::ClusterLayout::NODE_RADII.first.last %> <%= "is-packed" if layout.packed? %>"
+         style="max-width: <%= layout.width %>px"
          aria-label="Accounts in this cluster and the links between them">
       <% cluster.edges.each do |edge| %>
         <% a, b = points[edge.a_user_id], points[edge.b_user_id] %>
         <% next if a.nil? || b.nil? %>
-        <path class="<%= cluster_edge_class(edge) %>" d="<%= cluster_edge_path(layout, a, b) %>"
+        <path class="<%= cluster_edge_class(edge) %>" d="<%= layout.edge_path(edge.a_user_id, edge.b_user_id) %>"
               data-a="<%= edge.a_user_id %>" data-b="<%= edge.b_user_id %>"
-              data-step="<%= [a[:step], b[:step]].max %>"><title><%= cluster_edge_title(edge) %></title></path>
+              data-step="<%= [a.step, b.step].max %>"><title><%= cluster_edge_title(edge) %></title></path>
       <% end %>
       <defs>
         <clipPath id="cluster-face"><circle r="<%= node %>"></circle></clipPath>
@@ -30,12 +30,12 @@
       <% cluster.members.each do |member| %>
         <% at = points[member.user_id] %>
         <a href="<%= node_fd_cluster_path(cluster.cluster_id, member.user_id) %>" data-turbo-frame="cluster-node"
-           class="node <%= member.deactivated ? "node-gone" : "node-active" %> <%= "node-oldest" if member.user_id == cluster.cluster_id %>"
-           data-step="<%= at[:step] %>" data-user="<%= member.user_id %>"
-           data-name="<%= person_label(member.user_id) %>" data-x="<%= at[:lx].round(1) %>" data-y="<%= at[:ly].round(1) %>"
+           class="node <%= member.deactivated ? "node-gone" : "node-active" %> <%= "node-oldest" if member.user_id == cluster.cluster_id %> <%= "node-hub" if at.hub && layout.groups.size > 1 %>"
+           data-step="<%= at.step %>" data-user="<%= member.user_id %>"
+           data-name="<%= person_label(member.user_id) %>" data-x="<%= at.lx.round(1) %>" data-y="<%= at.ly.round(1) %>"
            data-action="mouseenter->cluster-map#focus mouseleave->cluster-map#blur focusin->cluster-map#focus focusout->cluster-map#blur">
           <title><%= person_label(member.user_id) %>, <%= member.joined_at ? "joined #{on_day(member.joined_at)}" : "join date n/a" %></title>
-          <g transform="translate(<%= at[:x].round(1) %> <%= at[:y].round(1) %>)">
+          <g transform="translate(<%= at.x.round(1) %> <%= at.y.round(1) %>)">
             <circle class="face-bg" r="<%= node %>"></circle>
             <text class="face-initial" text-anchor="middle" dominant-baseline="central"><%= names.initial(member.user_id) %></text>
             <image href="<%= cachet_face_url(member.user_id) %>" x="-<%= node %>" y="-<%= node %>"
@@ -43,13 +43,13 @@
                    clip-path="url(#cluster-face)" preserveAspectRatio="xMidYMid slice"></image>
             <circle class="face-ring" r="<%= node %>"></circle>
           </g>
-          <% unless layout.packed %>
-            <text class="node-name" text-anchor="<%= at[:anchor] %>" dominant-baseline="middle"
-                  transform="translate(<%= at[:lx].round(1) %> <%= at[:ly].round(1) %>)<%= " rotate(#{at[:turn].round(1)})" if at[:turn].nonzero? %>"><%= person_label(member.user_id).to_s.truncate(18) %></text>
+          <% if at.labeled %>
+            <text class="node-name" text-anchor="<%= at.anchor %>" dominant-baseline="middle"
+                  x="<%= at.lx.round(1) %>" y="<%= at.ly.round(1) %>"><%= person_label(member.user_id).to_s.truncate(18) %></text>
           <% end %>
         </a>
       <% end %>
-      <% if layout.packed %>
+      <% if layout.packed? %>
         <text class="map-hover" text-anchor="middle" data-cluster-map-target="label"></text>
       <% end %>
     </svg>

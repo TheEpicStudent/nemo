@@ -39,7 +39,7 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     assert_select "table.data-table tbody tr", 3
   end
 
-  test "a big ring spreads out, shrinks its faces and turns its names into spokes" do
+  test "accounts with no link between them share one ring and keep their names" do
     20.times do |n|
       user_id = "UCBIG#{n.to_s.rjust(2, '0')}"
       member!(user_id)
@@ -48,14 +48,14 @@ class FdClustersTest < ActionDispatch::IntegrationTest
 
     get fd_cluster_path(ROOT)
     svg = css_select(".cluster-map svg").first
-    assert_includes svg["class"], "is-crowded"
-    assert_operator svg["viewBox"].split.last.to_i, :>, 544
+    assert_not_includes svg["class"], "is-packed"
     assert_select ".cluster-map a.node", 23
-    assert_select ".cluster-map .node-name[transform*=rotate]", minimum: 20
-    assert_select ".cluster-map circle.face-ring[r='14']", 23
+    assert_select ".cluster-map .node-name", 23
+    assert_select ".cluster-map .node-name[transform]", count: 0
+    assert_select ".cluster-map circle.face-ring[r='18']", 23
   end
 
-  test "a cluster past sixty packs into a disc, faces kept, names on hover" do
+  test "a cluster past twenty four shrinks its faces and names only the hub of each group" do
     70.times do |n|
       user_id = "UCDISC#{n.to_s.rjust(2, '0')}"
       member!(user_id)
@@ -67,7 +67,8 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     assert_includes svg["class"], "is-packed"
     assert_select ".cluster-map a.node", 73
     assert_select ".cluster-map a.node image", 73
-    assert_select ".cluster-map .node-name", count: 0
+    assert_select ".cluster-map circle.face-ring[r='11']", 73
+    assert_equal [ALT], css_select(".cluster-map .node-name").map { |name| name.parent["data-user"] }
     assert_select ".cluster-map text.map-hover[data-cluster-map-target=label]", 1
     assert_select ".cluster-map a.node[data-name][data-x][data-y]", 73
   end

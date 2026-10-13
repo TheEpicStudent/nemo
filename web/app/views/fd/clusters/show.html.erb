@@ -36,7 +36,9 @@
 
 <% content_for :side do %>
   <aside class="side-pane" aria-label="Account">
-    <turbo-frame id="cluster-node" target="_top" data-controller="side-pane"></turbo-frame>
+    <% opened = params[:node].to_s.upcase %>
+    <%= tag.turbo_frame(id: "cluster-node", target: "_top", data: { controller: "side-pane" },
+          src: (node_fd_cluster_path(@cluster.cluster_id, opened) if @cluster.member(opened))) %>
   </aside>
 <% end %>
 

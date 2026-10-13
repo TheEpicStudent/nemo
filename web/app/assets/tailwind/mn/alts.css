@@ -197,11 +197,14 @@
   .px-maptools input[type="range"] { flex: 1; min-width: 160px; accent-color: var(--primary); }
   .px-maptools .t { min-width: 120px; font-size: var(--text-xs); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
 
-  .cluster-timeline .timeline-name { font-size: 12px; fill: var(--foreground); }
+  .cluster-timeline svg { min-width: 30rem; }
+  .cluster-timeline { overflow-x: auto; }
   .cluster-timeline .timeline-tick { font-size: 11px; fill: var(--muted-foreground); }
-  .cluster-timeline .timeline-bar { stroke-linecap: round; stroke-opacity: 0.8; }
-  .cluster-timeline .timeline-bar.is-active { stroke: var(--success); }
-  .cluster-timeline .timeline-bar.is-gone { stroke: var(--muted-foreground); }
+  .cluster-timeline .timeline-axis { stroke: var(--border); stroke-width: 1; }
+  .cluster-timeline .timeline-dot.is-active { fill: var(--success); }
+  .cluster-timeline .timeline-dot.is-gone { fill: var(--muted-foreground); fill-opacity: 0.6; }
+  .cluster-timeline .timeline-dot.is-oldest { stroke: var(--foreground); stroke-width: 1.5; }
+  .cluster-timeline .timeline-dot-link:hover .timeline-dot { stroke: var(--primary); stroke-width: 2; }
   .px-legend .legend-active { background: var(--success); }
   .px-legend .legend-gone { background: var(--muted-foreground); }
 

@@ -64,47 +64,46 @@
 
 <%= render "map", cluster: cluster %>
 
-<div class="px-split">
-  <section class="card card-flush">
-    <div class="card-head"><h2 class="card-title">Shared attributes</h2></div>
-    <% if cluster.shared_values.any? %>
-      <div class="scroll">
-        <table class="data-table">
-          <thead><tr><th>Value</th><th>Signal</th><th>Accounts</th></tr></thead>
-          <tbody>
-            <% cluster.shared_values.each do |shared| %>
-              <tr>
-                <td><%= link_signal_value("name" => shared.name, "value" => shared.value) %></td>
-                <td class="sub2"><%= shared.label %></td>
-                <td>
-                  <span class="facepile">
-                    <% shared.user_ids.first(5).each do |user_id| %>
-                      <span class="facepile-face" title="<%= person_label(user_id) %>"><%= avatar(user_id, css: "facepile-img") %></span>
-                    <% end %>
-                    <% if shared.user_ids.size > 5 %><span class="facepile-more">+<%= shared.user_ids.size - 5 %></span><% end %>
-                  </span>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
-    <% else %>
-      <div class="empty"><p class="empty-title">No shared values</p></div>
-    <% end %>
-  </section>
+<details class="foldcard cluster-timeline-fold">
+  <summary>Timeline</summary>
+  <% timeline = cluster_join_timeline(cluster) %>
+  <% if timeline %>
+    <div class="px-chart cluster-timeline"><%= timeline %></div>
+    <div class="px-legend">
+      <span><i class="legend-active"></i>Active</span>
+      <span><i class="legend-gone"></i>Deactivated</span>
+    </div>
+  <% else %>
+    <div class="empty"><p class="empty-title">No join dates</p></div>
+  <% end %>
+</details>
 
-  <section class="card card-flush">
-    <div class="card-head"><h2 class="card-title">Timeline</h2></div>
-    <% timeline = cluster_join_timeline(cluster) %>
-    <% if timeline %>
-      <div class="px-chart cluster-timeline"><%= timeline %></div>
-      <div class="px-legend">
-        <span><i class="legend-active"></i>Active</span>
-        <span><i class="legend-gone"></i>Deactivated</span>
-      </div>
-    <% else %>
-      <div class="empty"><p class="empty-title">No join dates</p></div>
-    <% end %>
-  </section>
-</div>
+<section class="card card-flush">
+  <div class="card-head"><h2 class="card-title">Shared attributes</h2></div>
+  <% if cluster.shared_values.any? %>
+    <div class="scroll">
+      <table class="data-table">
+        <thead><tr><th>Value</th><th>Signal</th><th>Accounts</th></tr></thead>
+        <tbody>
+          <% cluster.shared_values.each do |shared| %>
+            <tr>
+              <td><%= link_signal_value("name" => shared.name, "value" => shared.value) %></td>
+              <td class="sub2"><%= shared.label %></td>
+              <td>
+                <span class="facepile">
+                  <% shared.user_ids.first(5).each do |user_id| %>
+                    <span class="facepile-face" title="<%= person_label(user_id) %>"><%= avatar(user_id, css: "facepile-img") %></span>
+                  <% end %>
+                  <% if shared.user_ids.size > 5 %><span class="facepile-more">+<%= shared.user_ids.size - 5 %></span><% end %>
+                </span>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% else %>
+    <div class="empty"><p class="empty-title">No shared values</p></div>
+  <% end %>
+</section>
+

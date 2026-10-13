@@ -732,7 +732,13 @@
   .cluster-map .node-name {
     @apply text-[11px] font-medium;
     fill: var(--foreground);
+    paint-order: stroke;
+    stroke: var(--card);
+    stroke-width: 4px;
+    stroke-linejoin: round;
   }
+  .cluster-map .is-packed .node-name { @apply text-[12px] font-semibold; }
+  .cluster-map .node-hub .face-ring { stroke-width: 3.5; }
   .cluster-map .node:hover .node-name, .cluster-map .node:focus-visible .node-name {
     fill: var(--primary);
     text-decoration: underline;
