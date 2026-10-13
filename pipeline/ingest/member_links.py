@@ -1,4 +1,3 @@
-import re
 import time
 
 import yaml
@@ -648,35 +647,6 @@ WHERE p.label IS NULL
   AND EXISTS (SELECT 1 FROM staff_member s WHERE s.user_id = p.b_user_id)
 """
 
-CLASSROOM = """
-UPDATE link_pass p
-SET label = 'classroom',
-    score = round(p.score + %(weight)s::numeric, 3),
-    families = p.families || jsonb_build_object('classroom', %(weight)s::numeric)
-WHERE p.label IS NULL
-  AND (EXISTS (
-          SELECT 1 FROM fd.ip_network n
-          WHERE p.signals ? 'ip_stable'
-            AND n.ip_prefix = network(set_masklen((p.signals->'ip_stable'->>'value')::inet,
-                CASE WHEN family((p.signals->'ip_stable'->>'value')::inet) = 4 THEN 24 ELSE 64 END))
-            AND n.network ~* %(networks)s)
-       OR coalesce(p.signals->'device_agent'->>'value', '') ~ %(devices)s)
-"""
-
-HOUSEHOLD = """
-UPDATE link_pass p
-SET label = 'household',
-    score = round(p.score + %(weight)s::numeric, 3),
-    families = p.families || jsonb_build_object('household', %(weight)s::numeric)
-FROM fd.member_identity a, fd.member_identity b
-WHERE p.label IS NULL
-  AND p.signals ? 'ip_stable'
-  AND a.user_id = p.a_user_id AND b.user_id = p.b_user_id
-  AND position(' ' IN btrim(a.real_name)) > 0 AND position(' ' IN btrim(b.real_name)) > 0
-  AND regexp_replace(lower(btrim(a.real_name)), '^.*[[:space:]]', '')
-      = regexp_replace(lower(btrim(b.real_name)), '^.*[[:space:]]', '')
-  AND split_part(lower(btrim(a.real_name)), ' ', 1) <> split_part(lower(btrim(b.real_name)), ' ', 1)
-"""
 
 BELOW_FLOOR = "DELETE FROM link_pass WHERE score < %(floor)s"
 
@@ -783,12 +753,6 @@ def against(config=None):
 
 def labels(config=None):
     return (config or catalogue())["labels"]
-
-
-def pattern(words):
-    if not words:
-        return "a^"
-    return "(" + "|".join(re.escape(word) for word in words) + ")"
 
 
 def staff_members(identities, staff):
@@ -952,7 +916,6 @@ def gather(conn, config, wholes, sources=FULL):
 
 def settle(conn, config, sources=FULL, sweep=SWEEP, lap=lambda _step: None, write=UPSERT_SQL, write_params=None):
     thresholds = scoring(config)
-    label_config = labels(config)
     labelled = {}
     with conn.cursor() as cur:
         cur.execute(PASS, {**family_table(config), "floor": thresholds["floor"]})
@@ -967,12 +930,6 @@ def settle(conn, config, sources=FULL, sweep=SWEEP, lap=lambda _step: None, writ
         lap("countries")
         cur.execute(STAFF_TEST)
         labelled["staff_test"] = cur.rowcount
-        cur.execute(CLASSROOM, {"weight": label_config["classroom"]["weight"],
-                                "networks": pattern(label_config["classroom"].get("networks")),
-                                "devices": pattern(label_config["classroom"].get("devices"))})
-        labelled["classroom"] = cur.rowcount
-        cur.execute(HOUSEHOLD, {"weight": label_config["household"]["weight"]})
-        labelled["household"] = cur.rowcount
         lap("labels")
         cur.execute(BELOW_FLOOR, {"floor": thresholds["floor"]})
         cur.execute(write, write_params)

@@ -5,7 +5,7 @@ module Fd
       "certain" => "Certain",
       "strong" => "Strong",
       "weak" => "Weak",
-      "labelled" => "Household / school",
+      "labelled" => "Staff test",
       "reviewed" => "Reviewed",
       "sampled" => "Sampled"
     }.freeze

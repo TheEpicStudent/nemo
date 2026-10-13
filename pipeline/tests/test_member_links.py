@@ -168,9 +168,9 @@ def test_a_pass_gathers_once_then_lands_sweeps_and_counts(monkeypatch, capsys):
     assert links.run(Conn()) == 4
     executed[:] = [one for one in executed if one not in ("ANALYZE shared_ip", "ANALYZE link_part", links.SAVE_WHOLES_SQL,
                                                           links.QUIET)]
-    assert executed[:13] == [links.PASS, links.PASS_INDEX, "ANALYZE link_pass", links.PRESENCE.format(**links.FULL),
+    assert executed[:11] == [links.PASS, links.PASS_INDEX, "ANALYZE link_pass", links.PRESENCE.format(**links.FULL),
                              links.PRESENCE_INDEX,
-                             "ANALYZE presence", links.AGAINST, links.STAFF_TEST, links.CLASSROOM, links.HOUSEHOLD,
+                             "ANALYZE presence", links.AGAINST, links.STAFF_TEST,
                              links.BELOW_FLOOR, links.UPSERT_SQL, links.SWEEP]
     assert executed[-1] == "commit"
     assert "9 link(s) kept, 4 written, 1 dropped" in capsys.readouterr().out
@@ -335,30 +335,17 @@ def test_the_labels_match_the_table_check():
         assert f"'{name}'" in sql
 
 
-def test_household_and_classroom_lower_the_score_and_staff_test_only_labels():
+def test_staff_test_only_labels_and_never_touches_the_score():
     labels = links.labels()
 
-    assert labels["household"]["weight"] < 0
-    assert labels["classroom"]["weight"] < 0
     assert "weight" not in labels["staff_test"]
     assert "score" not in links.STAFF_TEST
-
-
-def test_a_word_list_becomes_one_pattern_and_an_empty_one_matches_nothing():
-    assert links.pattern(["school", "k12"]) == "(school|k12)"
-    assert links.pattern([]) == "a^"
 
 
 def test_staff_members_are_the_accounts_with_a_staff_mailbox():
     rows = list(links.staff_members([("U1", "x+test@mail.hackclub.com"), ("U2", "y@gmail.com"),
                                   ("U3", None)], ["hackclub.com"]))
     assert rows == [("U1",)]
-
-
-def test_a_household_needs_one_home_line_a_shared_surname_and_two_first_names():
-    assert "p.signals ? 'ip_stable'" in links.HOUSEHOLD
-    assert "'^.*[[:space:]]'" in links.HOUSEHOLD
-    assert "split_part(lower(btrim(a.real_name)), ' ', 1) <>" in links.HOUSEHOLD
 
 
 def test_a_label_change_is_written_like_any_other_change():

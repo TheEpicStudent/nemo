@@ -51,11 +51,6 @@ def test_accounts_spread_over_days_are_a_cluster_but_not_a_ring():
     assert not any(row[3] for row in rows)
 
 
-def test_household_and_classroom_links_never_join_a_cluster():
-    assert "NOT (l.label = ANY(%(unclustered)s))" in clusters.EDGES_SQL
-    assert set(clusters.UNCLUSTERED_LABELS) == {"household", "classroom"}
-
-
 def test_clusters_build_on_certain_links_and_strong_links_from_two_families():
     sql = clusters.EDGES_SQL
 

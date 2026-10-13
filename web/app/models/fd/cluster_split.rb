@@ -1,7 +1,6 @@
 module Fd
   class ClusterSplit
     EDGE_SCORE = MemberLink::SIGNALS.dig("clusters", "edge_score")
-    UNCLUSTERED_LABELS = %w[household classroom].freeze
     TOGETHER = LinkVerdict::ONE_PERSON
     BOUND = Float::INFINITY
 
@@ -33,7 +32,7 @@ module Fd
       return false if edge.apart?
       return true if TOGETHER.include?(edge.verdict)
 
-      edge.score >= EDGE_SCORE && !UNCLUSTERED_LABELS.include?(edge.label)
+      edge.score >= EDGE_SCORE
     end
 
     def capacities

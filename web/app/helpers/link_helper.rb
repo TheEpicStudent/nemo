@@ -12,7 +12,7 @@ module LinkHelper
   LANE_RIGHT = 16
   LANE_ROWS = [40, 92].freeze
   LANE_TICKS = 7
-  LINK_LABELS = { "household" => "household", "classroom" => "school", "staff_test" => "staff test" }.freeze
+  LINK_LABELS = { "staff_test" => "staff test" }.freeze
 
   def link_label_text(label) = LINK_LABELS.fetch(label, label.to_s.tr("_", " "))
 
