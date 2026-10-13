@@ -535,7 +535,8 @@ module Fd
     EXPORT_LIMIT = 1000
 
     def export_rows
-      select_rows("#{union_sql} ORDER BY at DESC, id DESC LIMIT #{EXPORT_LIMIT}").map { |row| build_row(row) }
+      select_rows("#{ordered_union_sql(limit: EXPORT_LIMIT)} ORDER BY at DESC, id DESC LIMIT #{EXPORT_LIMIT}")
+        .map { |row| build_row(row) }
     end
 
     SUGGESTED = 12
@@ -938,6 +939,14 @@ module Fd
       "WITH events AS (\n#{selects.join("\nUNION ALL\n")}\n) SELECT * FROM events WHERE #{where}"
     end
 
+    def ordered_union_sql(where = "true", order: "DESC", limit: LIMIT)
+      selects = (branches.presence || [EMPTY_BRANCH]).map do |branch|
+        "(SELECT * FROM (#{branch}) branch WHERE #{where} ORDER BY at #{order}, id #{order} LIMIT #{limit})"
+      end
+
+      "SELECT * FROM (\n#{selects.join("\nUNION ALL\n")}\n) events"
+    end
+
     def keyset
       return "true" if before_at.nil?
 
@@ -949,11 +958,12 @@ module Fd
     def paged_rows
       return select_rows(page_sql).map { |row| build_row(row) } if after_at.nil?
 
-      result = select_rows("#{union_sql(AFTER_KEYSET)} ORDER BY at, id LIMIT #{LIMIT + 1}").map { |row| build_row(row) }
+      result = select_rows("#{ordered_union_sql(AFTER_KEYSET, order: 'ASC', limit: LIMIT + 1)} " \
+        "ORDER BY at, id LIMIT #{LIMIT + 1}").map { |row| build_row(row) }
       return result.first(LIMIT).reverse if result.size > LIMIT
 
       @top = true
-      select_rows("#{union_sql} ORDER BY at DESC, id DESC LIMIT #{LIMIT}").map { |row| build_row(row) }
+      select_rows("#{ordered_union_sql(limit: LIMIT)} ORDER BY at DESC, id DESC LIMIT #{LIMIT}").map { |row| build_row(row) }
     end
 
     def first_page?
@@ -985,7 +995,7 @@ module Fd
     def before_id = @params["before_id"].to_s.presence
 
     def page_sql
-      "#{union_sql(keyset)} ORDER BY at DESC, id DESC LIMIT #{LIMIT}"
+      "#{ordered_union_sql(keyset, limit: LIMIT)} ORDER BY at DESC, id DESC LIMIT #{LIMIT}"
     end
 
     def fetch_groups
