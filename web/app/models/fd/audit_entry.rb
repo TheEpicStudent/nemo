@@ -1,6 +1,7 @@
 module Fd
   class AuditEntry < ApplicationRecord
     self.table_name = "fd.audit"
+    self.primary_key = "id"
 
     scope :recent_first, -> { order(occurred_at: :desc, id: :desc) }
     scope :oldest_first, -> { order(:occurred_at, :id) }
