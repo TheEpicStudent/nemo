@@ -115,7 +115,7 @@ module LinkHelper
       locked_note("Hidden")
     elsif attribute.key == "channels"
       channel_label(value.key)
-    elsif %w[ip ja4 email].include?(attribute.key)
+    elsif %w[ip ja4 ja3 email].include?(attribute.key)
       tag.span(value.text, class: "mono")
     else
       value.text

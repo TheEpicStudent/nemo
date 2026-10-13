@@ -73,6 +73,12 @@ device_signals:
     crowd_ceiling: 25
     corroborating: true
 
+  device_ja3:
+    label: Same TLS client fingerprint (JA3)
+    weight: 1.0
+    crowd_ceiling: 25
+    corroborating: true
+
 identity_signals:
   email_domain:
     label: Share an email domain

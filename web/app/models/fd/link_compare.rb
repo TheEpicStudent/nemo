@@ -27,7 +27,7 @@ module Fd
     MARKS_PER_ACCOUNT = 300
 
     ATTRIBUTES = { "email" => ["Email", :emails], "ip" => ["IP", :ips], "client" => ["Client", :clients],
-                   "ja4" => ["JA4", :ja4], "channels" => ["Channels", :channels],
+                   "ja4" => ["JA4", :ja4], "ja3" => ["JA3", :ja3], "channels" => ["Channels", :channels],
                    "tz" => ["Time zone", :zones] }.freeze
 
     SNAPSHOTS_SQL = <<~SQL.squish.freeze

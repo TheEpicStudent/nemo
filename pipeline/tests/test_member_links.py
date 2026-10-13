@@ -688,3 +688,33 @@ def test_prepare_builds_the_banned_members_from_its_own_audit_source():
     banned = [(sql, params) for sql, params in executed if "banned_member ON COMMIT DROP" in sql]
     assert len(banned) == 1 and "FROM scope_audit" in banned[0][0]
     assert banned[0][1] == {"bot_user_ids": ["USLACKBOT", "U09ULFV88KU"]}
+
+
+def test_a_shared_ja3_supports_a_link_but_never_makes_one():
+    signal = links.signals()["device_ja3"]
+    sql, args = links.evidence("device_ja3", signal, 2)
+
+    assert signal["family"] == "device" and signal["corroborating"] is True
+    assert (signal["weight"], signal["crowd_ceiling"]) == (1.0, 25)
+    assert "payload->'details'->>'client_ja3_fingerprint' AS value" in sql
+    assert "FROM slack.audit_event" in sql and "action = 'anomaly'" in sql
+    assert args["ceiling"] == 25
+
+
+def test_the_live_lane_keeps_crowded_ja3_values_out():
+    assert "('ja3', 'device_ja3')" in live.CROWDED
+    sql, _args = links.evidence("device_ja3", links.signals()["device_ja3"], 2, live.LIVE)
+    assert "FROM scope_audit" in sql
+    assert "value NOT IN (SELECT value FROM crowded WHERE signal = %(name)s)" in sql
+
+
+def test_ja3_traits_come_from_every_anomaly_and_the_backfill_queues_nobody():
+    sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations" / "0219_member_trait_ja3.sql").read_text()
+
+    assert "'ip', 'ip_prefix', 'ua_id', 'ja4', 'ja3'," in sql
+    assert "('ja3', CASE WHEN NEW.action = 'anomaly' THEN NEW.payload->'details'->>'client_ja3_fingerprint' END)" in sql
+    assert "('ja4', CASE WHEN NEW.action = 'anomaly'" in sql and "('inviter', CASE WHEN NEW.action <> 'anomaly'" in sql
+    disable = sql.index("DISABLE TRIGGER member_trait_touches")
+    backfill = sql.index("SELECT actor_id, 'ja3'")
+    enable = sql.index("ENABLE TRIGGER member_trait_touches")
+    assert disable < backfill < enable

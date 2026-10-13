@@ -180,6 +180,7 @@ SHORTEST_NAME = 3
 SHORTEST_LONG_STEM = 8
 DEVICE_AGENT = "device_agent"
 DEVICE_JA4 = "device_ja4"
+DEVICE_JA3 = "device_ja3"
 SHORTEST_AGENT = 20
 IP_STABLE = "ip_stable"
 IP_SAME_HOUR = "ip_same_hour"
@@ -259,6 +260,14 @@ DEVICE_EVIDENCE = {
         FROM {audit}
         WHERE action = 'anomaly' AND actor_id IS NOT NULL
           AND payload->'details'->>'client_ja4_fingerprint' IS NOT NULL
+        GROUP BY 1, 2
+    """,
+    DEVICE_JA3: """
+        SELECT actor_id AS user_id, payload->'details'->>'client_ja3_fingerprint' AS value,
+               min(at) AS first_seen, max(at) AS last_seen
+        FROM {audit}
+        WHERE action = 'anomaly' AND actor_id IS NOT NULL
+          AND payload->'details'->>'client_ja3_fingerprint' IS NOT NULL
         GROUP BY 1, 2
     """,
 }

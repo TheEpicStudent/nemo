@@ -194,7 +194,7 @@ SELECT signal, value FROM (
     JOIN (VALUES ('email_domain', 'email_domain'), ('mailbox', 'mailbox_alias'), ('local_part', 'local_part'),
                  ('full_name', 'full_name'), ('display_name', 'display_name'),
                  ('handle_stem', 'handle_stem'), ('handle_stem', 'handle_stem_long'),
-                 ('ua_id', 'device_agent'), ('ua_id', 'after_ban_device'), ('ja4', 'device_ja4'),
+                 ('ua_id', 'device_agent'), ('ua_id', 'after_ban_device'), ('ja4', 'device_ja4'), ('ja3', 'device_ja3'),
                  ('inviter', 'invited_by')) AS signals (kind, signal)
       ON signals.kind = v.kind
     LEFT JOIN slack.user_agent a ON v.kind = 'ua_id' AND a.id::text = v.value

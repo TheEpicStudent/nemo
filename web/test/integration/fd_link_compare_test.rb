@@ -77,6 +77,23 @@ class FdLinkCompareTest < ActionDispatch::IntegrationTest
     assert_match "18 d apart", attribute("Joined").text
   end
 
+  test "a TLS fingerprint from anomaly events becomes a shared JA3 row" do
+    [GONE, BACK].each do |user_id|
+      as_pipeline(<<~SQL.squish, SecureRandom.uuid, 2.days.ago, user_id, { details: { client_ja3_fingerprint: "e7d705a3286e19ea42f587b344ee6865", client_ja4_fingerprint: nil } }.to_json)
+        INSERT INTO slack.audit_event (id, at, action, actor_kind, actor_id, ours, payload)
+        VALUES (?, ?, 'anomaly', 'user', ?, false, ?::jsonb)
+      SQL
+      seeded!("slack.audit_event", "actor_id", user_id)
+    end
+
+    get fd_link_compare_path(a: GONE, b: BACK)
+
+    ja3 = attribute("JA3")
+    assert_match "e7d705a3286e19ea42f587b344ee6865", ja3.text
+    assert_equal 2, ja3.css(".cmp-value.is-shared").size
+    assert_nil attribute("JA4"), "the anomaly carried no JA4, so no row"
+  end
+
   test "the score shows its band and the families behind it, and the signals add up by family" do
     get fd_link_compare_path(a: GONE, b: BACK)
 

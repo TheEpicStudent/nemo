@@ -7,7 +7,7 @@ module Fd
     PREFIX = "network(set_masklen(%<ip>s, CASE WHEN family(%<ip>s) = 4 THEN 24 ELSE 64 END))".freeze
     TRAITS_SQL = <<~SQL.squish.freeze
       SELECT user_id, kind, value FROM fd.member_trait
-      WHERE user_id IN (:ids) AND kind IN ('ip', 'ua_id', 'ja4', 'mailbox')
+      WHERE user_id IN (:ids) AND kind IN ('ip', 'ua_id', 'ja4', 'ja3', 'mailbox')
       ORDER BY last_seen DESC NULLS LAST, value
     SQL
     IP_SQL = format(<<~SQL.squish, prefix: format(PREFIX, ip: "a.ip")).freeze
@@ -74,6 +74,10 @@ module Fd
 
     def ja4(user_id)
       traits(user_id, "ja4").first(VALUES_SHOWN).map { |value| Value.new(key: value, text: value) }
+    end
+
+    def ja3(user_id)
+      traits(user_id, "ja3").first(VALUES_SHOWN).map { |value| Value.new(key: value, text: value) }
     end
 
     def channels(user_id)
