@@ -163,7 +163,7 @@
   .ccard:has(.ccard-link:focus-visible) { box-shadow: 0 0 0 2px var(--ring); }
   .ccard-count { margin-left: auto; white-space: nowrap; }
   .ccard-map {
-    display: block; width: 100%; height: 150px; border-bottom: 1px solid var(--border);
+    display: block; width: 100%; height: 150px; margin-top: 10px; border-bottom: 1px solid var(--border);
     background: color-mix(in oklab, var(--muted) 45%, transparent);
   }
   .ccard-map path { fill: none; stroke-linecap: round; }
