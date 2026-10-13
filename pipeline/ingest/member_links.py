@@ -33,10 +33,17 @@ EVIDENCE = {
 PAIRS_SQL = """
 WITH ev AS ({evidence}),
 crowd AS (
-    SELECT value, count(DISTINCT user_id) AS people FROM ev GROUP BY 1
+    SELECT value, count(DISTINCT user_id) AS people,
+           count(DISTINCT user_id) FILTER (WHERE user_id IN (SELECT user_id FROM banned_member)) AS banned
+    FROM ev GROUP BY 1
+),
+counted AS (
+    SELECT value, people, greatest(2, least(people, people - banned + 1)) AS counted
+    FROM crowd WHERE people >= 2
 ),
 keep AS (
-    SELECT value, people FROM crowd WHERE people BETWEEN 2 AND %(ceiling)s {not_crowded_value}
+    SELECT value, people, counted, people > %(ceiling)s AS ring_only
+    FROM counted WHERE counted BETWEEN 2 AND %(ceiling)s {not_crowded_value}
 ),
 small AS (
     SELECT e.user_id, e.value, e.first_seen, e.last_seen
@@ -51,10 +58,13 @@ SELECT least(a.user_id, b.user_id) AS a_user_id,
        greatest(a.last_seen, b.last_seen) AS last_seen
 FROM small a
 JOIN small b ON b.value = a.value AND b.user_id > a.user_id
-JOIN keep k ON k.value = a.value{star}
+JOIN keep k ON k.value = a.value
+           AND (NOT k.ring_only
+                OR a.user_id IN (SELECT user_id FROM banned_member)
+                OR b.user_id IN (SELECT user_id FROM banned_member)){star}
 """
 
-RARITY_SCORE = "%(weight)s::numeric * rarity(%(whole)s::numeric, k.people)"
+RARITY_SCORE = "%(weight)s::numeric * rarity(%(whole)s::numeric, k.counted)"
 FLAT_SCORE = "%(weight)s::numeric"
 
 OLDEST_HOLDER = """,
@@ -340,6 +350,11 @@ held AS (
       AND NOT EXISTS (SELECT 1 FROM {audit} r
                       WHERE r.action = 'user_reactivated' AND r.entity_id = d.user_id AND r.at > d.banned_at)
 )"""
+
+BANNED_MEMBER = """
+CREATE TEMP TABLE banned_member ON COMMIT DROP AS""" + STAFF_BANNED + """
+SELECT user_id FROM held
+"""
 
 INVITES = """
     SELECT actor_id, entity_id, min(at) AS at
@@ -892,6 +907,8 @@ def load_mailboxes(conn, config, sources=FULL):
 def prepare(conn, config, sources=FULL):
     conn.execute(RARITY)
     conn.execute(STAGE)
+    conn.execute(BANNED_MEMBER.format(**sources), {"bot_user_ids": list(BOT_USER_IDS)})
+    conn.execute("ANALYZE banned_member")
     conn.execute(SIGHTING.format(**sources))
     conn.execute("ANALYZE sighting")
     load_mailboxes(conn, config, sources)

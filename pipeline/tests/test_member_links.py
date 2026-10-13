@@ -477,7 +477,7 @@ def test_the_full_rebuild_keeps_what_the_live_lane_needs():
     passed = inspect.getsource(links.run)
     assert "save_wholes(conn, wholes)" in passed
     assert "SAVE_SHARED_SQL" in inspect.getsource(links.mark_shared)
-    assert "rarity(%(whole)s::numeric, k.people)" in links.RARITY_SCORE
+    assert "rarity(%(whole)s::numeric, k.counted)" in links.RARITY_SCORE
     assert "rarity(%(whole)s::numeric, k.people)" in links.TOGETHER_SQL
 
 
@@ -632,3 +632,59 @@ def test_a_home_address_is_judged_by_its_own_crowd_not_by_how_big_its_isp_is():
     assert "crowds_above" not in links.shared()
     signal = links.signals()["ip_stable"]
     assert (signal["crowd_ceiling"], signal["range_ceiling"]) == (8, 20)
+
+
+def test_a_ring_of_banned_accounts_counts_as_one_holder():
+    sql = links.PAIRS_SQL
+
+    assert "count(DISTINCT user_id) FILTER (WHERE user_id IN (SELECT user_id FROM banned_member)) AS banned" in sql
+    assert "greatest(2, least(people, people - banned + 1)) AS counted" in sql
+    assert "FROM counted WHERE counted BETWEEN 2 AND %(ceiling)s" in sql
+    assert "k.counted" in links.RARITY_SCORE
+
+
+def test_a_value_under_its_ceiling_only_through_its_ring_links_pairs_with_a_banned_side():
+    sql = links.PAIRS_SQL
+
+    assert "people > %(ceiling)s AS ring_only" in sql
+    assert "AND (NOT k.ring_only" in sql
+    assert "OR a.user_id IN (SELECT user_id FROM banned_member)" in sql
+    assert "OR b.user_id IN (SELECT user_id FROM banned_member)" in sql
+
+
+def test_banned_members_are_the_staff_bans_still_in_force():
+    assert links.BANNED_MEMBER.startswith("\nCREATE TEMP TABLE banned_member ON COMMIT DROP AS")
+    assert "d.actor_id IS DISTINCT FROM d.user_id AND d.actor_id <> ALL(%(bot_user_ids)s)" in links.BANNED_MEMBER
+    assert links.BANNED_MEMBER.rstrip().endswith("SELECT user_id FROM held")
+
+
+def test_prepare_builds_the_banned_members_from_its_own_audit_source():
+    executed = []
+
+    class Conn:
+        def execute(self, sql, params=None):
+            executed.append((sql, params))
+            return self
+
+        def fetchall(self):
+            return []
+
+        def cursor(self):
+            return self
+
+        def copy(self, *_args):
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def write_row(self, _row):
+            pass
+
+    links.prepare(Conn(), links.catalogue(), live.LIVE)
+    banned = [(sql, params) for sql, params in executed if "banned_member ON COMMIT DROP" in sql]
+    assert len(banned) == 1 and "FROM scope_audit" in banned[0][0]
+    assert banned[0][1] == {"bot_user_ids": ["USLACKBOT", "U09ULFV88KU"]}
