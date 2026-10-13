@@ -70,6 +70,7 @@
         <div class="fact">
           <dt>Email</dt>
           <dd class="fact-one <%= "is-none" unless @identity&.email.present? && !@identity.refused? && !@identity.purged? %>"><%= identity_line(@identity) %></dd>
+          <% if throwaway_email?(@identity) %><dd class="fact-flag"><span class="state state-warn">Throwaway domain</span></dd><% end %>
         </div>
         <div class="fact">
           <dt>Joined</dt>

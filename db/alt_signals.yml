@@ -5,6 +5,9 @@ shared_networks:
 staff_domains:
   - hackclub.com
 
+throwaway_domains:
+  - e.izie.top
+
 network_classes:
   vpn:
     names: [Proton AG, M247, Datacamp, WorldStream, tzulo, Clouvider, Cloudflare]

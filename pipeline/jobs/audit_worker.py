@@ -13,6 +13,7 @@ from ingest.audit_logs_pull import tail as walk_tail
 from ingest.ip_networks import run as classify_networks
 from ingest.member_links_live import run as rescore_links
 from ingest.member_clusters import run as refresh_clusters
+from ingest.throwaway_domains import run as refresh_throwaway_domains
 from ingest.useragent_reparse import run as reread_agents
 from lib.db import (
     AlreadyRunningError,
@@ -38,6 +39,7 @@ DEFAULT_NETWORK_SECONDS = 900
 DEFAULT_LINK_LIVE_SECONDS = 15
 DEFAULT_CLUSTER_SECONDS = 3600
 DEFAULT_AGENT_SECONDS = 3600
+DEFAULT_THROWAWAY_SECONDS = 86400
 JOIN_TIMEOUT = 10
 BUSY_POLL_SECONDS = 2
 REFUSED_BACKOFF_SECONDS = 900
@@ -83,6 +85,7 @@ LANES = (
     ("links_live", rescore_links, "AUDIT_LINK_LIVE_SECONDS", DEFAULT_LINK_LIVE_SECONDS, True),
     ("clusters", refresh_clusters, "AUDIT_CLUSTER_SECONDS", DEFAULT_CLUSTER_SECONDS, False),
     ("agents", reread_agents, "AUDIT_AGENT_SECONDS", DEFAULT_AGENT_SECONDS, True),
+    ("throwaway_domains", refresh_throwaway_domains, "AUDIT_THROWAWAY_SECONDS", DEFAULT_THROWAWAY_SECONDS, False),
 )
 
 

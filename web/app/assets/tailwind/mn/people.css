@@ -90,6 +90,7 @@
   }
   .member-facts dd .locked { color: inherit; }
   .member-facts dd.fact-one { @apply truncate whitespace-nowrap; overflow-wrap: normal; }
+  .member-facts dd.fact-flag { @apply m-0 leading-none; }
   .member-facts dd.mono { @apply text-sm; }
 
   .member-record-content {

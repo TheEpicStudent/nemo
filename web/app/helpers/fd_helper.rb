@@ -76,6 +76,12 @@ module FdHelper
     tag.span(class: "locked") { plain_email(identity.email, css: nil) }
   end
 
+  def throwaway_email?(identity)
+    return false if identity.nil? || identity.refused? || identity.purged? || identity.email.blank?
+
+    Fd::ThrowawayDomain.listed?(identity.email)
+  end
+
   def locked_note(text)
     tag.span(class: "locked") do
       concat tag.svg(width: 11, height: 11, viewBox: "0 0 24 24", fill: "none",
