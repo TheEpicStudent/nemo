@@ -80,5 +80,11 @@
         <div class="empty"><p class="empty-title">No links</p></div>
       <% end %>
     </div>
+
+    <% if @list.total_pages > 1 %>
+      <%= render "shared/pager", page: @list.page, pages: @list.total_pages, frame: Fd::MemberLinkBroadcast::LIST_FRAME,
+            back_href: (fd_links_path(@list.params_for(page: @list.page - 1)) if @list.page > 1),
+            next_href: (fd_links_path(@list.params_for(page: @list.page + 1)) if @list.page < @list.total_pages) %>
+    <% end %>
   </div>
 <% end %>

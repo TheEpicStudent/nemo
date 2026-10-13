@@ -23,10 +23,10 @@ module Fd
 
     CONDITIONS = {
       "review" => "l.score >= :strong AND a.is_deleted <> b.is_deleted AND v.a_user_id IS NULL",
-      "certain" => "l.score >= :certain",
-      "strong" => "l.score >= :strong AND l.score < :certain",
-      "weak" => "l.score < :strong AND l.label IS NULL",
-      "labelled" => "l.label IS NOT NULL",
+      "certain" => "l.score >= :certain AND v.a_user_id IS NULL",
+      "strong" => "l.score >= :strong AND l.score < :certain AND v.a_user_id IS NULL",
+      "weak" => "l.score < :strong AND l.label IS NULL AND v.a_user_id IS NULL",
+      "labelled" => "l.label IS NOT NULL AND v.a_user_id IS NULL",
       "reviewed" => "v.a_user_id IS NOT NULL",
       "sampled" => "EXISTS (SELECT 1 FROM fd.link_sample s WHERE s.variant = :variant " \
                    "AND s.a_user_id = l.a_user_id AND s.b_user_id = l.b_user_id)"
@@ -91,15 +91,21 @@ module Fd
 
     def variant_label = variant == LIVE_VARIANT ? "Live links" : variant
 
+    def page
+      @page ||= [@params[:page].to_i, 1].max
+    end
+
+    def total_pages = (view_counts.fetch(view).to_f / LIMIT).ceil.clamp(1, Float::INFINITY).to_i
+
     def rows
-      @rows ||= select_all(<<~SQL, limit: LIMIT).map { |row| build_row(row) }
+      @rows ||= select_all(<<~SQL, limit: LIMIT, offset: (page - 1) * LIMIT).map { |row| build_row(row) }
         SELECT l.a_user_id, l.b_user_id, l.score, l.label, l.signals, l.last_seen,
                v.verdict, v.decided_by, v.decided_at, v.note,
                coalesce(a.is_deleted, false) AS a_deleted, coalesce(b.is_deleted, false) AS b_deleted
         FROM #{from_sql}
         WHERE #{CONDITIONS.fetch(view)} #{signal_condition}
         ORDER BY #{ORDER_PREFIX[view]} l.score DESC, l.a_user_id, l.b_user_id
-        LIMIT :limit
+        LIMIT :limit OFFSET :offset
       SQL
     end
 
@@ -125,9 +131,10 @@ module Fd
 
     def user_ids = rows.flat_map { |row| [row.a_user_id, row.b_user_id] }
 
-    def params_for(view: self.view, signal: self.signal, variant: self.variant)
+    def params_for(view: self.view, signal: self.signal, variant: self.variant, page: 1)
       { view: (view unless view == DEFAULT_VIEW), signal: signal,
-        variant: (variant if view == "sampled" && variant != LIVE_VARIANT) }.compact
+        variant: (variant if view == "sampled" && variant != LIVE_VARIANT),
+        page: (page if page > 1) }.compact
     end
 
     private

@@ -5,11 +5,12 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
 
   setup do
     sign_in_as(hold_role!("ULISTBOSS", "community_manager"))
-    %w[ULISTA ULISTB ULISTC ULISTD ULISTE].each { |user_id| member!(user_id) }
+    %w[ULISTA ULISTB ULISTC ULISTD ULISTE ULISTF].each { |user_id| member!(user_id) }
     link!("ULISTA", "ULISTB", 9.0, '{"mailbox_alias": {"value": "a@b.example", "score": 8.0}}')
     link!("ULISTA", "ULISTC", 6.0, '{"ip_stable": {"value": "81.2.69.144", "score": 5.0}}')
     link!("ULISTA", "ULISTD", 3.5, '{"device_agent": {"value": "agent", "score": 3.0}}')
     link!("ULISTA", "ULISTE", 4.0, '{"ip_stable": {"value": "81.2.69.145", "score": 5.0}}', label: "staff_test")
+    link!("ULISTA", "ULISTF", 6.5, '{"ip_stable": {"value": "81.2.69.146", "score": 5.0}}')
     a, b = %w[ULISTA ULISTC]
     as_pipeline("INSERT INTO fd.member_link_verdict (a_user_id, b_user_id, verdict, decided_by) VALUES (?, ?, 'different_people', 'ULISTBOSS')", a, b)
     seeded!("fd.member_link_verdict", "a_user_id", a)
@@ -42,11 +43,35 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
   end
 
   test "each band and the labelled and reviewed links have their own view" do
-    { "certain" => [%w[ulista ulistb]], "strong" => [%w[ulista ulistc]], "weak" => [%w[ulista ulistd]],
+    { "certain" => [%w[ulista ulistb]], "strong" => [%w[ulista ulistf]], "weak" => [%w[ulista ulistd]],
       "labelled" => [%w[ulista uliste]], "reviewed" => [%w[ulista ulistc]] }.each do |view, expected|
       get fd_links_path(view: view)
       assert_equal expected, pairs.map { |pair| pair.map { |face| face.delete_prefix("@") } }, view
     end
+  end
+
+  test "a reviewed pair drops out of its score band but stays visible in reviewed" do
+    get fd_links_path(view: "strong")
+    refute_includes pairs.flatten, "ulistc"
+
+    get fd_links_path(view: "reviewed")
+    assert_includes pairs.flatten, "ulistc"
+  end
+
+  test "a band past the page size pages through the rest" do
+    105.times do |n|
+      user_id = "UPAGE#{n.to_s.rjust(3, '0')}"
+      member!(user_id)
+      link!("ULISTA", user_id, 10.0, '{"ip_stable": {"value": "81.2.69.200", "score": 5.0}}')
+    end
+
+    get fd_links_path(view: "certain")
+    assert_equal 100, pairs.size
+    assert_select ".pager-at", "Page 1 of 2"
+
+    get fd_links_path(view: "certain", page: 2)
+    assert_equal 6, pairs.size
+    assert_select ".pager-at", "Page 2 of 2"
   end
 
   test "the tabs count each view" do
