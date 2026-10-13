@@ -72,9 +72,12 @@ def test_curated_classes_match_on_number_or_on_part_of_the_name():
 def test_tor_beats_every_other_class():
     prefix = net("5.6.7.0/24")
 
-    row = networks.classify(prefix, {prefix}, range_lists(vpn=["5.6.7.0/24"]), CLASSES, asn_lookup(9009, "M247"))
+    row = networks.classify(prefix, {prefix: "anomaly"}, range_lists(vpn=["5.6.7.0/24"]), CLASSES,
+                            asn_lookup(9009, "M247"))
+    listed = networks.classify(prefix, {prefix: "tor_list"}, range_lists(), CLASSES, asn_lookup(7922, "Comcast"))
 
     assert row[4:] == ("tor", "anomaly")
+    assert listed[4:] == ("tor", "tor_list")
 
 
 def test_a_vpn_comes_from_the_curated_list_or_lists_vpn():
@@ -127,3 +130,91 @@ def test_nothing_runs_until_the_ipinfo_token_is_set(monkeypatch, capsys):
 
     assert networks.run(object()) == 0
     assert "IPINFO_TOKEN is not set" in capsys.readouterr().out
+
+
+class Rows:
+    def __init__(self, answers):
+        self.answers = answers
+        self.asked = []
+
+    def execute(self, sql, params=None):
+        self.asked.append((sql, params))
+        self.rows = self.answers.get(sql, [])
+        return self
+
+    def fetchall(self):
+        return self.rows
+
+
+def test_the_tor_project_list_comes_first_and_a_mirror_stands_in(tmp_path, monkeypatch):
+    tried = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, *_args):
+            return b""
+
+    def urlopen(url, timeout):
+        tried.append(url)
+        if "torproject" in url:
+            raise OSError("blocked")
+        return Response()
+
+    monkeypatch.setattr(networks.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(networks.shutil, "copyfileobj", lambda _source, out: out.write(b"1.2.3.4\n"))
+
+    path = networks.download_cached("tor.txt", networks.TOR_EXIT_LISTS, cache_dir=tmp_path)
+
+    assert tried == list(networks.TOR_EXIT_LISTS)
+    assert path.read_text() == "1.2.3.4\n"
+    assert networks.TOR_EXIT_LISTS[0] == "https://check.torproject.org/torbulkexitlist"
+
+
+def test_exit_addresses_read_the_bulk_list_and_the_mirror_alike(tmp_path, monkeypatch):
+    listed = tmp_path / "tor.txt"
+    listed.write_text("# tor_exits\n# Source File Date: today\n185.220.101.5\n2a0b:f4c2::5\n10.0.0.0/8\nnot an ip\n")
+    monkeypatch.setattr(networks, "download_cached", lambda *_args, **_kwargs: listed)
+
+    assert networks.tor_exit_addresses() == ["185.220.101.5", "2a0b:f4c2::5"]
+
+
+def test_without_any_tor_list_the_slack_anomalies_still_count(monkeypatch, capsys):
+    def offline(*_args, **_kwargs):
+        raise OSError("blocked")
+
+    monkeypatch.setattr(networks, "download_cached", offline)
+
+    assert networks.tor_exit_addresses() == []
+    assert "Tor comes from Slack anomalies only" in capsys.readouterr().out
+
+
+def test_a_range_is_tor_only_when_someone_signed_in_from_one_of_its_exits():
+    conn = Rows({networks.USED_EXITS_SQL: [("185.220.101.5",)], networks.TOR_SQL: [("45.84.107.9",)]})
+
+    prefixes = networks.tor_prefixes(conn, ["185.220.101.5", "86.54.28.7"])
+
+    assert prefixes == {net("185.220.101.0/24"): "tor_list", net("45.84.107.0/24"): "anomaly"}
+    assert conn.asked[0] == (networks.USED_EXITS_SQL, (["185.220.101.5", "86.54.28.7"],))
+    assert "fd.login_event WHERE ip = ANY(%s::inet[])" in networks.USED_EXITS_SQL
+
+
+def test_a_range_that_turns_out_to_be_tor_is_classified_again_at_once():
+    tor = {net("185.220.101.0/24"): "tor_list", net("45.84.107.0/24"): "anomaly"}
+    conn = Rows({networks.RETAG_SQL: [("185.220.101.0/24",), ("45.84.107.0/24",)]})
+
+    again = networks.retagged(conn, tor, {net("45.84.107.0/24")})
+
+    assert again == [net("185.220.101.0/24")]
+    assert "class <> 'tor'" in networks.RETAG_SQL
+    assert networks.retagged(Rows({}), {}, set()) == []
+
+
+def test_the_table_accepts_the_tor_list_as_a_source():
+    sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations" / "0217_ip_network_tor_list.sql").read_text()
+
+    assert "'anomaly', 'tor_list', 'curated', 'lists_vpn', 'ipinfo', 'default'" in sql

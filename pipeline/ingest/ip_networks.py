@@ -21,6 +21,11 @@ LISTS_VPN = {
     "hosting": "https://raw.githubusercontent.com/X4BNet/lists_vpn/main/output/datacenter/ipv4.txt",
 }
 IPINFO_LITE = "https://ipinfo.io/data/ipinfo_lite.mmdb?token={token}"
+TOR_EXIT_LISTS = (
+    "https://check.torproject.org/torbulkexitlist",
+    "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/tor_exits.ipset",
+)
+TOR_EXIT_FILE = "tor_exits.txt"
 IPINFO_FILE = "ipinfo_lite.mmdb"
 REFRESH_SECONDS = 24 * 3600
 DOWNLOAD_TIMEOUT = 120
@@ -53,6 +58,10 @@ WHERE action = 'anomaly'
   AND payload->'details'->'reason' ? 'tor'
   AND ip IS NOT NULL
 """
+
+USED_EXITS_SQL = "SELECT DISTINCT host(ip) FROM fd.login_event WHERE ip = ANY(%s::inet[])"
+
+RETAG_SQL = "SELECT ip_prefix FROM fd.ip_network WHERE ip_prefix = ANY(%s::inet[]) AND class <> 'tor'"
 
 UPSERT_SQL = """
 INSERT INTO fd.ip_network (ip_prefix, asn, network, country, class, source, classified_at)
@@ -121,23 +130,27 @@ def read_ranges(text):
     return networks
 
 
-def download_cached(name, url, cache_dir=CACHE_DIR, max_age=REFRESH_SECONDS):
+def download_cached(name, urls, cache_dir=CACHE_DIR, max_age=REFRESH_SECONDS):
     path = cache_dir / name
     if path.exists() and time.time() - path.stat().st_mtime < max_age:
         return path
     cache_dir.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(f"{name}.partial")
-    try:
-        with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response, open(partial, "wb") as out:
-            shutil.copyfileobj(response, out)
-    except OSError as failure:
-        if path.exists():
-            print(f"{SOURCE}: could not refresh {name}, using the copy from "
-                  f"{time.strftime('%Y-%m-%d', time.gmtime(path.stat().st_mtime))}: {failure}")
-            return path
-        raise
-    partial.replace(path)
-    return path
+    failure = None
+    for url in (urls,) if isinstance(urls, str) else urls:
+        try:
+            with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response, open(partial, "wb") as out:
+                shutil.copyfileobj(response, out)
+        except OSError as error:
+            failure = error
+            continue
+        partial.replace(path)
+        return path
+    if path.exists():
+        print(f"{SOURCE}: could not refresh {name}, using the copy from "
+              f"{time.strftime('%Y-%m-%d', time.gmtime(path.stat().st_mtime))}: {failure}")
+        return path
+    raise failure
 
 
 def asn_number(value):
@@ -171,7 +184,7 @@ def classify(network, tor, lists, classes, lookup):
     asn, name, country = info.get("asn"), info.get("network"), info.get("country")
     curated = curated_class(asn, name, classes)
     if network in tor:
-        classification = ("tor", "anomaly")
+        classification = ("tor", tor[network])
     elif curated == "vpn":
         classification = ("vpn", "curated")
     elif lists["vpn"].overlaps(network):
@@ -187,14 +200,33 @@ def classify(network, tor, lists, classes, lookup):
     return (str(network), asn, name, country, *classification)
 
 
-def tor_prefixes(conn):
-    prefixes = set()
-    for (address,) in conn.execute(TOR_SQL).fetchall():
+def tor_exit_addresses():
+    try:
+        path = download_cached(TOR_EXIT_FILE, TOR_EXIT_LISTS)
+    except OSError as failure:
+        print(f"{SOURCE}: could not fetch the Tor exit list, Tor comes from Slack anomalies only: {failure}")
+        return []
+    return [str(one.network_address) for one in read_ranges(path.read_text()) if one.num_addresses == 1]
+
+
+def tor_prefixes(conn, exit_addresses=()):
+    found = [(address, "tor_list") for (address,) in
+             (conn.execute(USED_EXITS_SQL, (list(exit_addresses),)).fetchall() if exit_addresses else [])]
+    found += [(address, "anomaly") for (address,) in conn.execute(TOR_SQL).fetchall()]
+    prefixes = {}
+    for address, source in found:
         try:
-            prefixes.add(prefix_of(address))
+            prefixes[prefix_of(address)] = source
         except ValueError:
             continue
     return prefixes
+
+
+def retagged(conn, tor, already):
+    if not tor:
+        return []
+    rows = conn.execute(RETAG_SQL, ([str(one) for one in tor],)).fetchall()
+    return [as_network(row[0]) for row in rows if as_network(row[0]) not in already]
 
 
 def pending(conn):
@@ -214,12 +246,13 @@ def run(conn):
 
     classes = network_classes()
     with ingest_run(conn, SOURCE) as counts:
+        tor = tor_prefixes(conn, tor_exit_addresses())
         networks = pending(conn)
+        networks += retagged(conn, tor, set(networks))
         if not networks:
             return 0
         lists = {name: Ranges(read_ranges(download_cached(f"lists_vpn_{name}.txt", url).read_text()))
                  for name, url in LISTS_VPN.items()}
-        tor = tor_prefixes(conn)
         reader = maxminddb.open_database(str(download_cached(IPINFO_FILE, IPINFO_LITE.format(token=token))))
         try:
             lookup = ipinfo_lookup(reader)
