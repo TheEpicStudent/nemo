@@ -72,6 +72,7 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     get fd_links_path(view: "certain", page: 2)
     assert_equal 6, pairs.size
     assert_select ".pager-at", "Page 2 of 2"
+    assert_select "turbo-frame#member-links-list[data-src=?]", fd_links_path(view: "certain", page: 2)
   end
 
   test "the tabs count each view" do

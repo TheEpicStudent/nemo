@@ -39,7 +39,7 @@
 <%= turbo_stream_from Fd::MemberLinkBroadcast::LIST_STREAM %>
 
 <%= turbo_frame_tag Fd::MemberLinkBroadcast::LIST_FRAME, target: "_top",
-      data: { src: fd_links_path(@list.params_for) } do %>
+      data: { src: fd_links_path(@list.params_for(page: @list.page)) } do %>
   <div class="stack">
     <div class="card card-flush">
       <% if @list.rows.any? %>
