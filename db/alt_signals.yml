@@ -48,6 +48,7 @@ network_signals:
   ip_burst:
     label: Joined the same week and shared a mobile, VPN or hosting address in the same hour with the same browser
     weight: 3.0
+    vpn_weight: 5.0
     crowd_ceiling: 8
     window_days: 7
 

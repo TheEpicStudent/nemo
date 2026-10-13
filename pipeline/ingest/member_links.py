@@ -482,7 +482,8 @@ WITH ev AS (
     SELECT e.user_id,
            host(e.ip) || ' ' || to_char(e.hour, 'YYYY-MM-DD HH24')
                || ' ' || left(md5(u.ua), 12) AS value,
-           min(e.first_at) AS seen
+           min(e.first_at) AS seen,
+           bool_or(n.class IN ('vpn', 'tor')) AS anonymized
     FROM {login} e
     JOIN slack.user_agent u ON u.id = e.ua_id
     LEFT JOIN fd.ip_network n ON n.ip_prefix = e.ip_prefix
@@ -498,14 +499,15 @@ keep AS (
     SELECT value, people FROM crowd WHERE people BETWEEN 2 AND %(ceiling)s
 ),
 small AS (
-    SELECT e.user_id, e.value, e.seen, j.joined_at
+    SELECT e.user_id, e.value, e.seen, e.anonymized, j.joined_at
     FROM ev e
     JOIN keep k ON k.value = e.value
     JOIN {joins} j ON j.user_id = e.user_id
 )
 SELECT least(a.user_id, b.user_id) AS a_user_id,
        greatest(a.user_id, b.user_id) AS b_user_id,
-       a.value, k.people, %(weight)s::numeric AS score,
+       a.value, k.people,
+       CASE WHEN a.anonymized THEN %(vpn_weight)s ELSE %(weight)s END::numeric AS score,
        least(a.seen, b.seen) AS first_seen, greatest(a.seen, b.seen) AS last_seen
 FROM small a
 JOIN small b ON b.value = a.value AND b.user_id > a.user_id
@@ -806,7 +808,8 @@ def evidence(name, settings, sightings, sources=FULL):
     names = names_for(sources, settings, sightings)
     args = {"weight": settings["weight"], "ceiling": settings.get("crowd_ceiling")}
     if name == IP_BURST:
-        return BURST.format(**names), {**args, "window": settings["window_days"]}
+        return BURST.format(**names), {**args, "window": settings["window_days"],
+                                       "vpn_weight": settings.get("vpn_weight", settings["weight"])}
     if name in ARRIVAL_EVIDENCE:
         window = settings["window_days"] if "window_days" in settings else settings.get("window_seconds", 1800)
         return ARRIVAL_EVIDENCE[name].format(**names), {**args, "window": window,

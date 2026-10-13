@@ -439,10 +439,19 @@ def test_a_burst_needs_the_same_exit_hour_and_browser_and_joins_in_the_same_week
     assert "JOIN fd.member_joins j" in sql
     assert "make_interval(days => %(window)s)" in sql
     assert "md5(u.ua)" in sql and "'rotating', 'vpn', 'hosting', 'tor'" in sql
-    assert args == {"weight": signal["weight"], "ceiling": 8, "window": 7}
+    assert args == {"weight": signal["weight"], "vpn_weight": signal["vpn_weight"], "ceiling": 8, "window": 7}
     assert "{" not in sql
     assert signal["weight"] >= links.scoring()["floor"]
     assert "ip_burst" in links.COLLAPSED
+
+
+def test_a_burst_on_a_vpn_or_tor_exit_is_strong_and_elsewhere_stays_weak():
+    signal = links.signals()["ip_burst"]
+    sql, _args = links.evidence("ip_burst", signal, 2)
+
+    assert "bool_or(n.class IN ('vpn', 'tor')) AS anonymized" in sql
+    assert "CASE WHEN a.anonymized THEN %(vpn_weight)s ELSE %(weight)s END::numeric AS score" in sql
+    assert signal["vpn_weight"] >= links.scoring()["strong"] > signal["weight"]
 
 
 def test_only_home_addresses_earn_the_repeat_bonus():
