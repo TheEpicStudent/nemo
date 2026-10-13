@@ -28,7 +28,8 @@ module LinkHelper
   def link_signal_value(entry)
     return locked_note("Hidden") if link_signal_hidden?(entry["name"])
 
-    tag.span(entry["value"].to_s.truncate(SIGNAL_VALUE), class: "mono", title: entry["value"].to_s)
+    value = tag.span(entry["value"].to_s.truncate(SIGNAL_VALUE), class: "mono", title: entry["value"].to_s)
+    safe_join([FdHelper::CF_EMAIL_OFF, value, FdHelper::CF_EMAIL_ON])
   end
 
   def link_signal_lines(evidence, limit: 2)
@@ -116,7 +117,7 @@ module LinkHelper
     elsif attribute.key == "channels"
       channel_label(value.key)
     elsif %w[ip ja4 ja3 email].include?(attribute.key)
-      tag.span(value.text, class: "mono")
+      safe_join([FdHelper::CF_EMAIL_OFF, tag.span(value.text, class: "mono"), FdHelper::CF_EMAIL_ON])
     else
       value.text
     end
