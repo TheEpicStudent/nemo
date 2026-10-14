@@ -116,8 +116,12 @@
   .subjfaces-many .face-name:focus-within .face-sub { opacity: 1; }
 
   .tagbar { @apply flex min-w-0 flex-1 flex-wrap items-center gap-x-3.5 gap-y-1.5; }
-  .tagbar-mark { @apply size-3.5 flex-none text-muted-foreground; }
+  .tag-mark { @apply size-3.5 flex-none text-muted-foreground; }
+  .queue-tags { @apply flex min-w-0 items-center gap-1 text-xs text-muted-foreground; flex: 0 4 auto; }
+  .queue-tags .tag-mark { @apply size-3; }
+  .queue-tags-more { @apply flex-none tabular-nums; }
   .tagbar .pill { gap: 2px; }
+  .tag-link { @apply text-foreground no-underline underline-offset-4 hover:underline; }
   .tag-x {
     @apply inline-grid size-4 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground hover:bg-muted hover:text-foreground;
   }

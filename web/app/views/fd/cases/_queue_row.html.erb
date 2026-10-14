@@ -27,8 +27,17 @@
   <span class="queue-subject"><%= case_words(kase) %></span>
 <% end %>
 
+<% tag_names = kase.case_tags.map { |link| link.tag.name } %>
 <span class="queue-meta">
   <span class="queue-violation trunc"><%= label || "no violation set" %></span>
+  <% if tag_names.any? %>
+    <span class="queue-tags" title="<%= tag_names.join(", ") %>">
+      <%= render "fd/cases/tag_mark", css: "tag-mark" %>
+      <span class="visually-hidden">Tags</span>
+      <span class="trunc"><%= tag_names.first %></span>
+      <% if tag_names.size > 1 %><span class="queue-tags-more">+<%= tag_names.size - 1 %></span><% end %>
+    </span>
+  <% end %>
   <% if kase.assigned? %>
     <span class="avatar-stack">
       <%= safe_join(kase.assignee_user_ids.map { |id| avatar(id) }) %>

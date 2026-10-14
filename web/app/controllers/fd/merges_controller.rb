@@ -80,7 +80,7 @@ module Fd
 
     def read_reports(cases)
       ActiveRecord::Associations::Preloader.new(records: cases,
-        associations: [:reports, :assignees]).call
+        associations: [:reports, :assignees, { case_tags: :tag }]).call
       ids = cases.map(&:id)
       @attachment_counts = IntakeFile.counts_for_cases(ids)
       @cited_words = IntakeShare.first_shares_for(ids)

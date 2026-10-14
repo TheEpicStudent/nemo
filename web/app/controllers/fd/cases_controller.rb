@@ -245,7 +245,7 @@ module Fd
       @pane_views = @pane_query.views
       @pane_params = @pane_query.to_params
       @pane_cases = @pane_query.relation
-        .includes(:subjects, :assignees, :reports, :actions)
+        .includes(:subjects, :assignees, :reports, :actions, case_tags: :tag)
         .limit(PANE_LIMIT).to_a
       @pane_priors = Case.prior_counts_for(@pane_cases.flat_map(&:subject_user_ids))
       @pane_violations = Case.violations_for(@pane_cases.map(&:id))

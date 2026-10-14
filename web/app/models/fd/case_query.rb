@@ -53,7 +53,7 @@ module Fd
     }.freeze
 
     DEFAULTS = {
-      "status" => "any", "age" => "any", "assignee" => "anyone", "category" => "any",
+      "status" => "any", "age" => "any", "assignee" => "anyone", "category" => "any", "tag" => "any",
       "subject" => "anyone", "actions" => "any", "opened" => "any", "resolved" => "any",
       "sort" => "opened", "dir" => "asc"
     }.freeze
@@ -168,6 +168,7 @@ module Fd
       scope = apply_age(scope)
       scope = apply_assignee(scope)
       scope = apply_category(scope)
+      scope = apply_tag(scope)
       scope = apply_subject(scope)
       scope = apply_actions(scope)
       apply_resolved(apply_opened(scope))
@@ -176,7 +177,7 @@ module Fd
     def title
       return view_label if view
 
-      phrases = [age_phrase, assignee_phrase, category_phrase, subject_phrase,
+      phrases = [age_phrase, assignee_phrase, category_phrase, tag_phrase, subject_phrase,
                  actions_phrase, opened_phrase, resolved_phrase].compact
       return status_lead if phrases.empty?
 
@@ -270,6 +271,7 @@ module Fd
       when "sort" then SORT.key?(raw)
       when "dir" then DIRS.include?(raw)
       when "category" then raw == "any" || Case::CATEGORIES.include?(raw)
+      when "tag" then raw == "any" || (raw.length <= Tag::NAME_LENGTH && raw.match?(Tag::NAME_SHAPE))
       when "assignee" then ASSIGNEE.key?(raw) || raw.match?(MEMBER_ID)
       when "subject" then raw == "anyone" || raw.match?(MEMBER_ID)
       else false
@@ -328,6 +330,13 @@ module Fd
       return scope if default?("category")
 
       scope.where(LIVE_ACTION_CATEGORY, key: self["category"])
+    end
+
+    def apply_tag(scope)
+      return scope if default?("tag")
+
+      tagged = CaseTag.where(tag_id: Tag.where(name: self["tag"]).select(:id)).select(:case_id)
+      scope.where(id: tagged)
     end
 
     def apply_subject(scope)
@@ -400,6 +409,10 @@ module Fd
 
     def category_phrase
       default?("category") ? nil : Case.category_label(self["category"]).downcase
+    end
+
+    def tag_phrase
+      default?("tag") ? nil : "tagged #{self['tag']}"
     end
 
     def subject_phrase
