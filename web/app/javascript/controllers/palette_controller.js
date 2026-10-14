@@ -9,6 +9,7 @@ export default class extends Controller {
     case: "cases", cases: "cases",
     note: "notes", notes: "notes",
     report: "reports", reports: "reports",
+    tag: "tags", tags: "tags",
   }
 
   connect() {
@@ -116,7 +117,7 @@ export default class extends Controller {
   applyScope(scope) {
     if (!scope || scope === this.only || scope === "command") return
 
-    const prefixes = { "@": "member", "#": "case", "n:": "note", "r:": "report" }
+    const prefixes = { "@": "member", "#": "case", "n:": "note", "r:": "report", "tag:": "tag" }
     const inputValue = this.inputTarget.value.toLowerCase()
     const prefix = Object.keys(prefixes).find((candidate) => inputValue.startsWith(candidate) && prefixes[candidate] === scope)
     if (!prefix) return
@@ -259,6 +260,7 @@ export default class extends Controller {
       case: '<path d="M12 3 4 6v6c0 4 3.4 7.4 8 8 4.6-.6 8-4 8-8V6z"/>',
       note: '<path d="M5 4h14v12H8l-3 3z"/>',
       report: '<path d="M4 5h16v14H4zM4 7l8 6 8-6"/>',
+      tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
       plus: '<path d="M12 5v14M5 12h14"/>',
       resolve: '<circle cx="12" cy="12" r="9"/><path d="m8.2 12.2 2.6 2.6 5-5.4"/>',
       action: '<path d="M20 14a8 8 0 1 0-16 0M15 10l-3.4 3.4"/>',

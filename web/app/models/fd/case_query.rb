@@ -180,6 +180,7 @@ module Fd
       phrases = [age_phrase, assignee_phrase, category_phrase, tag_phrase, subject_phrase,
                  actions_phrase, opened_phrase, resolved_phrase].compact
       return status_lead if phrases.empty?
+      return tag_phrase if phrases == [tag_phrase] && default?("status")
 
       "#{status_lead}, #{phrases.to_sentence}"
     end
@@ -412,7 +413,7 @@ module Fd
     end
 
     def tag_phrase
-      default?("tag") ? nil : "tagged #{self['tag']}"
+      default?("tag") ? nil : "tag:#{self['tag']}"
     end
 
     def subject_phrase

@@ -2,7 +2,7 @@ module Fd
   class SearchesController < BaseController
     permit "case.read"
     ICONS = { "member" => "person", "case" => "case", "note" => "note",
-              "report" => "report" }.freeze
+              "report" => "report", "tag" => "tag" }.freeze
 
     PAGE_LIMIT = 20
     CLUSTER_LIMIT = 3
@@ -226,6 +226,7 @@ module Fd
       when Case then "case #{record.id}"
       when Note then record.case_id ? "case #{record.case_id}" : @names[record.subject_user_id]
       when CaseReport then "case #{record.case_id}"
+      when Tag then record.name
       end
     end
 
@@ -235,6 +236,7 @@ module Fd
       when Case then case_sub(record)
       when Note then "#{@names[record.author]} · #{record.created_at.strftime('%-d %b')}"
       when CaseReport then report_sub(record)
+      when Tag then helpers.pluralize(record.uses, "case")
       end
     end
 
@@ -274,6 +276,7 @@ module Fd
       when Case then fd_case_path(record)
       when Note then record.case_id ? fd_case_path(record.case_id) : fd_member_path(record.subject_user_id)
       when CaseReport then fd_case_path(record.case_id)
+      when Tag then fd_cases_path(tag: record.name)
       end
     end
   end

@@ -7,8 +7,8 @@ module Fd
     LEAD_IN = 30
 
     PREFIXES = { "@" => "member", "#" => "case",
-                 "n:" => "note", "r:" => "report" }.freeze
-    SCOPES = %w[member case note report].freeze
+                 "n:" => "note", "r:" => "report", "tag:" => "tag" }.freeze
+    SCOPES = %w[member case note report tag].freeze
 
     Row = Struct.new(:kind, :record, :snippet, keyword_init: true)
     Group = Struct.new(:key, :label, :rows, :total, keyword_init: true)
@@ -17,7 +17,8 @@ module Fd
       "member" => "Members",
       "case" => "Cases",
       "note" => "Notes",
-      "report" => "Reports"
+      "report" => "Reports",
+      "tag" => "Tags"
     }.freeze
 
     def initialize(term, scope: nil, limit: nil, actor: nil)
@@ -67,14 +68,20 @@ module Fd
 
     def build_groups
       return thread_groups if thread
+      return tag_groups if scope == "tag"
 
       all = [
         group("member", members, total: (member_matches.total if has_search_input?)),
         group("case", cases),
+        group("tag", tags, total: tag_matches.count),
         group("note", notes) { |note| note.body },
         group("report", reports) { |report| report.body }
       ]
       scope ? all.select { |search_group| search_group.key == scope } : all
+    end
+
+    def tag_groups
+      [group("case", tagged_cases), group("tag", tags, total: tag_matches.count)]
     end
 
     def thread_groups
@@ -147,6 +154,28 @@ module Fd
         member_note IS NOT NULL AND to_tsvector('simple', coalesce(member_note, ''))
           @@ websearch_to_tsquery('simple', :q)
       SQL
+    end
+
+    def tag_name = Tag.normalise(term)
+
+    def tag_matches
+      return Tag.none unless has_search_input? || scope == "tag"
+      return Tag.all if tag_name.blank?
+
+      Tag.where("fd.tags.name LIKE ?", "%#{Tag.sanitize_sql_like(tag_name)}%")
+    end
+
+    def tags
+      Tag.with_uses.where(id: tag_matches.select(:id))
+        .reorder(Arel.sql("COUNT(fd.case_tags.tag_id) DESC, fd.tags.name"))
+    end
+
+    def tagged_cases
+      tag = Tag.find_by(name: tag_name) if tag_name.present?
+      return Case.none if tag.nil?
+
+      Case.where(id: CaseTag.where(tag_id: tag.id).select(:case_id))
+        .reorder(Arel.sql("(resolved_at IS NOT NULL), opened_at DESC"))
     end
 
     def notes
