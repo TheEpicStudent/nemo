@@ -14,10 +14,10 @@ MAX_PASSES = 12
 PAGE = 200
 
 WARNING = {
-    DESTROY: ":rotating_light: *This thread is being destroyed.* "
-             "Posting here now signs you out of Slack on every device.",
-    LOCK: ":lock: *This thread is locked.* Replies are removed. "
-          "Keep posting and you are signed out of Slack on every device.",
+    DESTROY: "*This thread is being deleted.* "
+             "Posting here signs you out of Slack on every device.",
+    LOCK: "*This thread is locked.* New replies are deleted. "
+          "Repeated replies sign you out of Slack on every device.",
 }
 
 OPEN = """

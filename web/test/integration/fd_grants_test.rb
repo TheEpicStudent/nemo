@@ -115,6 +115,13 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
     assert_redirected_to root_path, "the admin section is managers only"
   end
 
+  test "the give access picker is not inside a label" do
+    get admin_people_path
+
+    assert_select %(#give-access-form .combo[data-combobox-name-value="user_id"])
+    assert_select "#give-access-form label .combo", count: 0
+  end
+
   test "a reason is kept on the grant when one is given" do
     post_grant(reason: "covering the weekend")
 

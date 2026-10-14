@@ -45,13 +45,13 @@ def option(text, value):
 
 def choices(case):
     if case.get("resolved_at"):
-        return [option("Reopen", REOPEN), option("Leave a note", NOTE), option("More…", MORE)]
+        return [option("Reopen", REOPEN), option("Add a note", NOTE), option("More…", MORE)]
 
-    out = [] if case.get("assignees") else [option("Claim it", CLAIM)]
+    out = [] if case.get("assignees") else [option("Claim", CLAIM)]
     return out + [
         option("Log an action", LOG_ACTION),
         option("Resolve", RESOLVE),
-        option("Leave a note", NOTE),
+        option("Add a note", NOTE),
         option("More…", MORE),
     ]
 
@@ -70,7 +70,7 @@ def menu(case):
 def more_options(open_, category_key, live):
     options = [("People", PEOPLE)]
     if open_ and not category_key:
-        options.append(("Set the violation", CATEGORY))
+        options.append(("Set violation", CATEGORY))
     if live:
         options.append(("Reverse an action", REVERSE))
     if open_:
@@ -123,13 +123,12 @@ def reopen_view(case_id):
         "private_metadata": str(case_id),
         "title": {"type": "plain_text", "text": f"Reopen case {case_id}"[:TITLE_LIMIT]},
         "submit": {"type": "plain_text", "text": "Reopen"},
-        "close": {"type": "plain_text", "text": "Leave it closed"},
+        "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": [{
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "This drops the resolution and takes everybody off it. "
-                "The case comes back unclaimed.",
+                "text": "This clears the resolution and unassigns everyone.",
             },
         }],
     }
@@ -146,7 +145,7 @@ def category_view(case_id):
         "callback_id": CATEGORY,
         "private_metadata": str(case_id),
         "title": {"type": "plain_text", "text": f"Violation · case {case_id}"[:TITLE_LIMIT]},
-        "submit": {"type": "plain_text", "text": "Set it"},
+        "submit": {"type": "plain_text", "text": "Save"},
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": [
             {
@@ -171,7 +170,7 @@ def note_view(case_id):
         "callback_id": NOTE,
         "private_metadata": str(case_id),
         "title": {"type": "plain_text", "text": f"Note · case {case_id}"[:TITLE_LIMIT]},
-        "submit": {"type": "plain_text", "text": "Keep it"},
+        "submit": {"type": "plain_text", "text": "Save"},
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": [
             {
@@ -204,7 +203,7 @@ def submitted_values(view_state):
 
 def note_objection(values):
     if not values:
-        return {NOTE_BODY: "Write something first."}
+        return {NOTE_BODY: "Write a note."}
     return None
 
 

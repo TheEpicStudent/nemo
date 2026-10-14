@@ -47,7 +47,7 @@ def remove(client, channel_id, ts, max_retries=2):
         log.info("nemo: the admin account is not in %s, inviting it", channel_id)
 
     if not invite_the_admin(client, channel_id):
-        raise RuntimeError(f"the admin account is not in {channel_id} and could not be invited")
+        raise RuntimeError(f"the admin account could not join {channel_id}")
 
     privileged.delete_message(channel_id, ts, max_retries=max_retries)
     return True
@@ -58,10 +58,10 @@ def archive_url(channel_id, thread_ts):
 
 
 def post_destroy_notice(client, conn, channel_id, thread_ts, by):
-    notice = f"A thread has been destroyed by <@{by}> in <#{channel_id}>."
+    notice = f"<@{by}> destroyed a thread in <#{channel_id}>."
     url = archive_url(channel_id, thread_ts)
     if url:
-        notice += f"\narchive: {url}"
+        notice += f"\nArchive: {url}"
 
     try:
         client.chat_postMessage(

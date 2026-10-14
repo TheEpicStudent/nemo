@@ -89,14 +89,14 @@ class MessageRelay:
 
     def deliver_message(self, conn, queued):
         if queued.closed_at:
-            outbox.mark_error(conn, queued.id, "the conversation is closed", True)
+            outbox.mark_error(conn, queued.id, "the reporter's conversation is closed", True)
             log.info("relay: outbox %s is for a closed conversation", queued.id)
             return False
 
         words = (queued.body or "").strip()
         files = queued.files or []
         if not words and not files:
-            outbox.mark_error(conn, queued.id, "there was nothing to send", True)
+            outbox.mark_error(conn, queued.id, "the message was empty", True)
             log.warning("relay: outbox %s had neither words nor a file", queued.id)
             return False
 
@@ -109,7 +109,7 @@ class MessageRelay:
             return False
 
         if words and message_ts is None:
-            outbox.mark_error(conn, queued.id, "slack took the words but named no message", True)
+            outbox.mark_error(conn, queued.id, "Slack returned no message ID", True)
             return False
 
         ts = message_ts or next((one["ts"] for one in uploaded if one.get("ts")), None)

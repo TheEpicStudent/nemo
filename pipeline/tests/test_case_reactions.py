@@ -266,7 +266,7 @@ def test_resolve_with_nothing_left_to_do_says_so_privately(thread, monkeypatch):
     message_handler().fn(ctx)
 
     assert ctx.client.calls_to("chat_postEphemeral")[0]["text"] == (
-        "Case 23 is already resolved and has no open report")
+        "Case 23 is already resolved.")
     assert thread["deleted"] == ["2.0"], "a command that did nothing is taken down"
     assert ctx.client.calls_to("reactions_add") == []
 
@@ -282,5 +282,5 @@ def test_resolve_needs_both_answering_and_resolving(thread, monkeypatch):
     message_handler().fn(ctx)
 
     assert command_calls == []
-    assert ctx.client.calls_to("chat_postEphemeral")[0]["text"] == "Not permitted: no"
+    assert ctx.client.calls_to("chat_postEphemeral")[0]["text"] == "no"
     assert thread["deleted"] == ["2.0"]

@@ -46,7 +46,7 @@ NO_GUARD = "none"
 GUARD_HELD = "held"
 GUARD_PENDING = "pending"
 GUARD_LIFTED = "lifted"
-DEACTIVATION_LIFTED = "the deactivation was lifted, so nothing was purged"
+DEACTIVATION_LIFTED = "the deactivation was lifted"
 
 STRANDED = """
 UPDATE fd.purges
@@ -321,7 +321,7 @@ def sweep_thread(client, purge, parent):
             return
         for message in thread_replies:
             if held(purge.id) >= CAP:
-                raise PurgeLimitExceeded(f"more than {CAP} messages to delete")
+                raise PurgeLimitExceeded(f"more than {CAP:,} messages")
             state, error = delete_one(client, parent.channel_id, message["ts"])
             keep(purge.id, parent.channel_id, message, parent.ts, state, error)
 
@@ -341,7 +341,7 @@ def purge_queued(client, purge):
                 conn.execute(MARK, (state, error, purge.id, item.channel_id, item.ts))
             in_a_row = in_a_row + 1 if state == FAILED else 0
             if in_a_row >= FAILURES_IN_A_ROW:
-                raise RuntimeError(f"{in_a_row} deletes failed in a row, the last: {error}")
+                raise RuntimeError(f"{in_a_row} deletes failed in a row, last error: {error}")
         with session() as conn:
             conn.execute(PROGRESS, (purge.id, purge.id))
 
@@ -393,14 +393,15 @@ def check(client, purge):
 def summary(purge, purged, left, failure, unchecked=None):
     whose = f" from <@{purge.member_id}>" if purge.member_id else ""
     where = f"in <#{purge.channel_id}>" if purge.channel_id else "in every channel"
-    head = f"Purge {purge.id}: {purged} message{'' if purged == 1 else 's'} deleted{whose} {where}"
+    text = (f"{purged} message{'' if purged == 1 else 's'}{whose} deleted {where} "
+            f"by <@{purge.asked_by}>")
     if failure:
-        text = f"{head}, then it stopped: {failure}."
+        text += f", stopped: {failure}"
     elif unchecked:
-        text = f"{head}, the check could not run: {unchecked}."
-    else:
-        text = f"{head}, {left} left after the check."
-    text += f" Asked by <@{purge.asked_by}>."
+        text += f", check failed: {unchecked}"
+    elif left:
+        text += f", {left} left after the check"
+    text += "."
     url = (channel.app_url(f"/fd/channels/{purge.channel_id}/purges/{purge.id}") if purge.channel_id
            else channel.app_url(f"/fd/members/{purge.member_id}/purges/{purge.id}"))
     return f"{text}\n{url}" if url else text
@@ -416,9 +417,9 @@ def report(client, purge, purged, left, failure, unchecked=None):
 
 
 def still_allowed(conn, purge):
-    allowed, refusal = access.may(conn, purge.asked_by,
-                                  "member.purge" if purge.member_id else "channel.purge")
-    return None if allowed else f"<@{purge.asked_by}> may no longer purge: {refusal}"
+    allowed, _ = access.may(conn, purge.asked_by,
+                            "member.purge" if purge.member_id else "channel.purge")
+    return None if allowed else f"<@{purge.asked_by}> no longer has purge access"
 
 
 def run(client, purge_id):
@@ -451,7 +452,7 @@ def run(client, purge_id):
             unchecked = str(error)[:500]
             log.warning("nemo: purge %s could not be checked: %s", purge.id, unchecked)
 
-    error = failure or (f"the check could not run: {unchecked}" if unchecked else None)
+    error = failure or (f"check failed: {unchecked}" if unchecked else None)
     with session() as conn:
         row = conn.execute(FINISH, (FAILED if failure else "done", error, left,
                                     left is not None, purge.id, purge.id)).fetchone()

@@ -38,9 +38,9 @@ def marketplace_url(app_id):
 
 def footer(channel_id, link=None, app_id=None):
     links = (
-        (link, "message link"),
-        (marketplace_url(app_id), "marketplace"),
-        (channel.channel_url(channel_id), "open in fire engine"),
+        (link, "Message"),
+        (marketplace_url(app_id), "Marketplace"),
+        (channel.channel_url(channel_id), "Fire Engine"),
     )
     parts = [f"<{url}|{name}>" for url, name in links if url]
     return "\n" + "  ·  ".join(parts) if parts else ""
@@ -59,21 +59,27 @@ def summary(name, channel_id, deleted, kicked):
     return " ".join(parts)
 
 
+def kick_detail(detail):
+    if detail == "away":
+        return "the admin account is not in the channel"
+    return (detail or "").removeprefix("failed: ")
+
+
 def detail_of(event):
     name = naming(event["subject_id"], event["label"])
     room = event["channel_id"]
     if event["verb"] == "deleted":
-        return (f"Deleted a message from {name}, which is not on the allow list for <#{room}>."
+        return (f"Deleted a message from {name} in <#{room}>, not on the allow list."
                 + quoted(event["message_text"]) + footer(room, event["permalink"], event["app_id"]))
     if event["verb"] == "kicked":
-        return (f"Put {name} out of <#{room}>, which is not on its allow list."
+        return (f"Removed {name} from <#{room}>, not on the allow list."
                 + footer(room, app_id=event["app_id"]))
     if event["message_ts"]:
-        return (f":warning: Could not delete a message from {name} in <#{room}> "
+        return (f"Could not delete a message from {name} in <#{room}> "
                 f"({event['detail']})."
                 + quoted(event["message_text"]) + footer(room, event["permalink"], event["app_id"]))
-    return (f":warning: {name} joined <#{room}> off the allow list, and we could not put "
-            f"them out ({event['detail']})." + footer(room, app_id=event["app_id"]))
+    return (f"{name} joined <#{room}> without being on the allow list and could not be removed "
+            f"({kick_detail(event['detail'])})." + footer(room, app_id=event["app_id"]))
 
 
 def counts(events):

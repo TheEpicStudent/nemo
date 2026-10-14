@@ -53,7 +53,7 @@ def register(app, on_reply=None):
             if not allowed:
                 return refusal
             if not conn.execute(STILL_OPEN, (case_id,)).fetchone()[0]:
-                return f"case {case_id} is already resolved"
+                return f"Case {case_id} is already resolved."
             assignees = [row[0] for row in conn.execute(CASE_ASSIGNEES, (case_id,)).fetchall()]
             if user_id in assignees:
                 return views.lines.already_claimed(case_id)
@@ -116,7 +116,7 @@ def register(app, on_reply=None):
             if verb == views.edit.REVERSE:
                 live = live_actions(conn, case_id)
                 if not live:
-                    return None, f"nothing live to reverse on *case {case_id}*"
+                    return None, f"No active actions to reverse on *case {case_id}*."
                 return views.reverse.build_view(case_id, live), None
             if verb == views.edit.MERGE:
                 return views.merge.build_view(mergeable(conn, [case_id]), target=case_id), None
@@ -179,7 +179,7 @@ def register(app, on_reply=None):
         with session() as conn:
             allowed, refusal = access.may(conn, user_id, "case.act", case_id)
             if not allowed:
-                return post_ephemeral(client, body, views.lines.not_permitted(refusal))
+                return post_ephemeral(client, body, refusal)
             subjects = [row[0] for row in conn.execute(SUBJECTS, (case_id,)).fetchall()]
             category_row = conn.execute(CASE_CATEGORY, (case_id,)).fetchone()
         if target:
@@ -293,7 +293,7 @@ def register(app, on_reply=None):
         if not done:
             return ack(
                 response_action="errors",
-                errors={views.reverse.WHICH: "That action is not live on this case anymore."},
+                errors={views.reverse.WHICH: "That action is no longer active on this case."},
             )
 
         ack()
@@ -357,7 +357,7 @@ def register(app, on_reply=None):
                 if not conn.execute(STILL_OPEN, (case_id,)).fetchone()[0]:
                     return ack(
                         response_action="errors",
-                        errors={views.people.ASSIGN: f"case {case_id} is already resolved"},
+                        errors={views.people.ASSIGN: f"Case {case_id} is already resolved."},
                     )
             added = add_participants(
                 conn, case_id, values["subjects"], views.people.SUBJECT, user_id
@@ -389,7 +389,7 @@ def register(app, on_reply=None):
         if not updated:
             return ack(
                 response_action="errors",
-                errors={views.edit.WHAT: f"Case {case_id} already has a category."},
+                errors={views.edit.WHAT: f"Case {case_id} already has a violation."},
             )
 
         ack()
@@ -430,7 +430,7 @@ def register(app, on_reply=None):
             reopened = reopen(conn, case_id, user_id)
 
         if not reopened:
-            return f"case {case_id} is already open"
+            return f"Case {case_id} is already open."
 
         with session() as conn:
             refresh_card(client, conn, case_id)
@@ -520,7 +520,7 @@ def register(app, on_reply=None):
                     values["member_note"], user_id, actions)
         log.info("nemo: case %s resolved by %s, %s notified", case_id, user_id, notified)
 
-    def post_refusal(event, thread_ts, client, what, refusal):
+    def post_refusal(event, thread_ts, client, refusal):
         try:
             client.reactions_add(
                 channel=event["channel"], timestamp=event["ts"], name=answer.STUCK
@@ -529,7 +529,7 @@ def register(app, on_reply=None):
                 channel=event["channel"],
                 user=event["user"],
                 thread_ts=thread_ts,
-                text=f"{what}. {refusal}",
+                text=refusal,
             )
         except Exception as failure:
             log.warning("nemo: could not say why it was refused: %s", failure)
@@ -541,7 +541,7 @@ def register(app, on_reply=None):
         if allowed:
             return True
 
-        post_refusal(event, thread_ts, client, "nothing was sent", refusal)
+        post_refusal(event, thread_ts, client, refusal)
         log.info("nemo: refused an answer from %s on case %s", event.get("user"), case_id)
         return False
 
@@ -586,7 +586,7 @@ def register(app, on_reply=None):
 
         if not allowed:
             thread_commands.reply(client, event, thread_ts,
-                                  thread_commands.refused(views.lines.not_permitted(refusal)))
+                                  thread_commands.refused(refusal))
             return None
 
         with session() as conn:
@@ -638,7 +638,7 @@ def register(app, on_reply=None):
             allowed, refusal = access.may(conn, event.get("user"), "case.chat", case_id)
 
         if not allowed:
-            post_refusal(event, thread_ts, client, "nothing was kept", refusal)
+            post_refusal(event, thread_ts, client, refusal)
             log.info("nemo: refused chat from %s on case %s", event.get("user"), case_id)
             return
 

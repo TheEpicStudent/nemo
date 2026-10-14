@@ -14,7 +14,7 @@ SHORTCUT = "lock_thread"
 @on_shortcut(SHORTCUT, needs="thread.guard")
 def open_lock_modal(ctx):
     if not ctx.thread_ts:
-        return ctx.post_ephemeral("that is not a thread")
+        return ctx.post_ephemeral("That message is not a thread.")
 
     ctx.client.views_open(
         trigger_id=ctx.trigger_id,
@@ -31,7 +31,7 @@ def confirmed(ctx):
 
     lock_until = dt.datetime.fromtimestamp(values["until"], dt.UTC)
     if lock_until <= dt.datetime.now(dt.UTC):
-        return ctx.ack(response_action="errors", errors={card.UNTIL: "That is in the past."})
+        return ctx.ack(response_action="errors", errors={card.UNTIL: "Pick a date in the future."})
 
     ctx.ack()
     channel_id, thread_ts = card.opened(ctx.view)
@@ -45,7 +45,7 @@ def confirmed(ctx):
         )
 
     if guard_id is None:
-        return ctx.post_ephemeral("that thread is already held", channel_id, thread_ts)
+        return ctx.post_ephemeral("That thread is already locked or being destroyed.", channel_id, thread_ts)
 
     ctx.join(channel_id)
     with session() as conn:

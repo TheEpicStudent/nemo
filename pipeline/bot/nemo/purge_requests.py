@@ -17,18 +17,17 @@ COUNT = re.compile(r"\A\d{1,6}\Z")
 
 USAGE = (
     "Say what to purge: */nemo purge 50* for this channel, */nemo purge #channel 50*, "
-    "*/nemo purge @them* or */nemo purge @them #channel*. "
-    "A member with no number means every message they posted."
+    "*/nemo purge @member* or */nemo purge @member #channel*."
 )
 NAME_A_CHANNEL = "Name the channel: */nemo purge #channel 50*"
 NEED_A_NUMBER = (
     "Say how many: */nemo purge #channel 50*. "
-    "To purge everything one member posted there: */nemo purge @them #channel*"
+    "For one member's messages: */nemo purge @member #channel*"
 )
 OUT_OF_RANGE = f"Say a number from 1 to {purge.CAP:,}."
 TOO_LONG = f"Keep the reason under {LONGEST_REASON} characters."
 GONE = "This purge was already confirmed or cancelled."
-EXPIRED = f"This confirm ran out after {EXPIRES_MINUTES} minutes. Run the command again."
+EXPIRED = f"This confirmation expired after {EXPIRES_MINUTES} minutes. Run the command again."
 ALREADY_RUNNING = "A purge for the same channel and member is already running."
 
 Request = namedtuple("Request", "channel_id member_id wanted reason")
@@ -124,7 +123,7 @@ def prompt(purge_id, request, estimate):
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     if request.reason:
         blocks.append({"type": "context",
-                       "elements": [{"type": "mrkdwn", "text": f"Why: {request.reason}"}]})
+                       "elements": [{"type": "mrkdwn", "text": f"Reason: {request.reason}"}]})
     blocks.append({
         "type": "actions",
         "elements": [
@@ -153,7 +152,7 @@ def log_channel_mention():
 
 
 def started(request):
-    return f"Purging {described(request)}. Nemo posts how it went in {log_channel_mention()}."
+    return f"Purging {described(request)}. Nemo posts the result in {log_channel_mention()}."
 
 
 def confirm(purge_id, user_id):

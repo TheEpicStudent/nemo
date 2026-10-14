@@ -92,12 +92,12 @@ def test_an_every_account_capability_needs_no_fire_department_grant():
     assert not any("effective_role" in sql for sql, _ in conn.executed), "no role lookup was needed"
 
 
-def test_a_capability_that_is_not_every_account_still_wants_a_grant():
+def test_a_capability_that_is_not_every_account_still_needs_access():
     conn = Conn(rows={"FROM app.capability": ("Read every case", None, False),
                       "holds_capability": (False,)})
     allowed, reason = access.may(conn, USER_ID, "case.read")
     assert allowed is False
-    assert "grant" in reason
+    assert reason == "You have no Fire Department access."
 
 
 def test_the_card_quotes_the_post_and_says_who_where_when():
@@ -109,7 +109,7 @@ def test_the_card_quotes_the_post_and_says_who_where_when():
     assert f"<#{CHANNEL_ID}>" in blocks[1]["elements"][0]["text"]
     fields = [one["text"] for one in blocks[3]["fields"]]
     assert fields[0] == "*Viewers*\n224 · 37% of the channel"
-    assert fields[4] == "*Replies*\nnot landed yet"
+    assert fields[4] == "*Replies*\nnot available yet"
     assert blocks[4]["elements"][0]["text"] == "55% browser · 33% desktop · 12% mobile"
     assert blocks[5]["elements"][0]["text"] == "3 viewers in the first hour, 37 in the first day"
     buttons = next(one for one in blocks if one["type"] == "actions")["elements"]

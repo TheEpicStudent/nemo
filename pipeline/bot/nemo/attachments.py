@@ -146,7 +146,7 @@ def post_text(client, channel_id, thread_ts, text, author_fields, unfurl=True):
 
 def named(alongside):
     names = ", ".join(one[1] for one in alongside)
-    return {"type": "section", "text": {"type": "mrkdwn", "text": f":paperclip: {names}"}}
+    return {"type": "section", "text": {"type": "mrkdwn", "text": f"Files: {names}"}}
 
 
 def attachment_summary(files):

@@ -4,15 +4,9 @@ GOT_IT = "white_check_mark"
 
 NEMO_QUIET_AFTER = "5 minutes"
 
-CATCHING_UP = (
-    "Delivery is delayed, so this may take longer than usual to reach them. "
-    "It is saved — there is no need to send it again."
-)
+CATCHING_UP = "Delivery is delayed. Your report is saved, so there is no need to send it again."
 
-HANDOFF_FAILED = (
-    ":warning: That did not go through, so the Fire Department has not got it. "
-    "Please try again in a few minutes."
-)
+HANDOFF_FAILED = "Your report was not sent. Try again in a few minutes."
 
 NEMO_HEARTBEAT = """
 SELECT bool_or(beat_at > now() - %s::interval)
@@ -29,10 +23,7 @@ def nemo_is_behind(conn):
     return row is None or not row[0]
 
 
-SUBMITTED = (
-    "This report has been submitted. We've received your report and should get "
-    "back to you within a couple hours."
-)
+SUBMITTED = "Report sent. We usually reply within a couple of hours."
 
 
 def receipt_text(case_id):

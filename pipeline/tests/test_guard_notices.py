@@ -227,19 +227,19 @@ def test_drain_asks_for_another_pass_when_the_group_limit_is_hit(monkeypatch):
     assert run_drain(monkeypatch, conn, Slack()) is True
 
 
-def test_details_read_like_the_old_notices():
+def test_details_name_the_member_channel_and_reason():
     deleted = as_dict(event(1))
     kicked = {**deleted, "verb": "kicked", "message_ts": None}
     away_event = {**deleted, "verb": "let_past", "detail": "away", "message_ts": None}
 
     assert guard_notices.detail_of(deleted).startswith(
-        f"Deleted a message from <@{BOT}>, which is not on the allow list for <#{CHANNEL_ID}>.\n> buy now")
-    assert "<https://link/1|message link>" in guard_notices.detail_of(deleted)
+        f"Deleted a message from <@{BOT}> in <#{CHANNEL_ID}>, not on the allow list.\n> buy now")
+    assert "<https://link/1|Message>" in guard_notices.detail_of(deleted)
     assert guard_notices.detail_of(kicked).startswith(
-        f"Put <@{BOT}> out of <#{CHANNEL_ID}>, which is not on its allow list.")
+        f"Removed <@{BOT}> from <#{CHANNEL_ID}>, not on the allow list.")
     assert guard_notices.detail_of(away_event).startswith(
-        f":warning: <@{BOT}> joined <#{CHANNEL_ID}> off the allow list, and we could not put them "
-        "out (away).")
+        f"<@{BOT}> joined <#{CHANNEL_ID}> without being on the allow list and could not be removed "
+        "(the admin account is not in the channel).")
 
 
 def test_a_delete_that_was_given_up_says_so():
@@ -247,9 +247,9 @@ def test_a_delete_that_was_given_up_says_so():
 
     text = guard_notices.detail_of(let_past_event)
     assert text.startswith(
-        f":warning: Could not delete a message from <@{BOT}> in <#{CHANNEL_ID}> (cant_delete_message).")
+        f"Could not delete a message from <@{BOT}> in <#{CHANNEL_ID}> (cant_delete_message).")
     assert "> buy now" in text
-    assert "<https://link/1|message link>" in text
+    assert "<https://link/1|Message>" in text
 
 
 def test_notices_wait_for_a_queued_delete():

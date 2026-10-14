@@ -117,13 +117,13 @@ def test_a_permanent_ban_has_no_end_date_to_name():
 def test_echo_blocks_adds_a_resolution_note_only_when_given():
     without = action.echo_blocks(submission(), MOD)
     assert all(
-        "How it was solved" not in element.get("text", "")
+        "Outcome" not in element.get("text", "")
         for block in without for element in block.get("elements", [])
     )
 
     blocks = action.echo_blocks(submission(resolution_note="walked them through the rules in a DM"), MOD)
     footer = blocks[-1]["elements"][0]["text"]
-    assert footer == "*How it was solved:* walked them through the rules in a DM"
+    assert footer == "*Outcome:* walked them through the rules in a DM"
 
 
 def test_the_modal_always_offers_a_resolution_note():
@@ -150,19 +150,19 @@ def test_submitted_values_reads_and_strips_the_resolution_note():
     assert action.submitted_values(state)["resolution_note"] == "talked it through"
 
 
-def test_an_orphaned_guard_says_it_sits_on_no_case():
+def test_an_orphaned_guard_says_it_has_no_case():
     built = action.build_blocks(412, {"type_key": "shush"}, standing(guard()))
     assert action.GUARD_STATUS in ids(built)
     text = words(built)
-    assert f"<@{USER_ID}> is already shush on no case" in text
-    assert f"opened by <@{MOD}>" in text
+    assert f"<@{USER_ID}> already has an active shush with no case" in text
+    assert f"set by <@{MOD}>" in text
     assert "since 3 Mar" in text
     assert "until 10 Mar" in text
 
 
 def test_a_guard_on_another_case_names_that_case():
     built = action.build_blocks(412, {"type_key": "shush"}, standing(guard(case_id=318)))
-    assert "under *case 318*" in words(built)
+    assert "on *case 318*" in words(built)
 
 
 def test_a_guard_on_this_case_says_so():
@@ -178,25 +178,25 @@ def test_a_channel_guard_names_its_channel():
 
 def test_a_guard_with_no_end_date_says_that_instead():
     built = action.build_blocks(412, {"type_key": "shush"}, standing(guard(expires_at=None)))
-    assert "with no end date" in words(built)
+    assert "no end date" in words(built)
     assert "until" not in words(built)
 
 
-def test_a_guard_nemo_has_not_carried_admits_it():
+def test_a_pending_guard_says_pending():
     built = action.build_blocks(412, {"type_key": "shush"}, standing(guard(enforcement_status="pending")))
-    assert "nemo has not carried it yet" in words(built)
+    assert "pending" in words(built)
 
 
-def test_a_guard_nemo_has_dropped_admits_it():
+def test_a_failed_guard_says_not_enforced():
     built = action.build_blocks(412, {"type_key": "shush"}, standing(guard(enforcement_status="failed")))
-    assert "nemo is not holding it" in words(built)
+    assert "not enforced" in words(built)
 
 
-def test_a_guard_done_by_hand_is_not_blamed_on_nemo():
+def test_a_manual_guard_says_manual():
     guard_row = guard(enforced_by="by_hand", enforcement_status="held")
     text = words(action.build_blocks(412, {"type_key": "shush"}, standing(guard_row)))
-    assert "done by hand" in text
-    assert "nemo" not in text
+    assert "manual" in text
+    assert "not enforced" not in text
 
 
 def test_the_warning_sits_above_the_date_it_is_about():

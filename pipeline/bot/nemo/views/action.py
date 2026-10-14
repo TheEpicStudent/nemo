@@ -133,25 +133,25 @@ def existing_action_text(guard):
 def case_attribution_text(guard, case_id):
     guard_case_id = guard.get("case_id")
     if guard_case_id is None:
-        return "on no case"
+        return "with no case"
     if case_id is not None and guard_case_id == case_id:
         return "on this case"
-    return f"under *case {guard_case_id}*"
+    return f"on *case {guard_case_id}*"
 
 
 def footnote(guard):
-    parts = [f"opened by <@{guard['opened_by']}>"]
+    parts = [f"set by <@{guard['opened_by']}>"]
     since = format_date(guard.get("opened_at"))
     if since:
         parts.append(f"since {since}")
     until = format_date(guard.get("expires_at"))
-    parts.append(f"until {until}" if until else "with no end date")
+    parts.append(f"until {until}" if until else "no end date")
     if guard.get("enforced_by") == "by_hand":
-        parts.append("done by hand")
+        parts.append("manual")
     elif guard.get("enforcement_status") == "failed":
-        parts.append("nemo is not holding it")
+        parts.append("not enforced")
     elif guard.get("enforcement_status") == "pending":
-        parts.append("nemo has not carried it yet")
+        parts.append("pending")
     return "  ·  ".join(parts)
 
 
@@ -165,7 +165,7 @@ def existing_guard_blocks(guard_status):
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": ":warning: <@{}> is already {} {}.".format(
+                "text": "<@{}> already has an active {} {}.".format(
                     guard["subject_id"], existing_action_text(guard), case_attribution_text(guard, guard_status.get("case_id"))
                 ),
             },
@@ -189,13 +189,13 @@ def settle_options(values, guard_status):
     if reads == ORPHANED:
         return [
             (ADOPT, "Attach it to this case"),
-            (RECORD, "Leave it where it is, just record this"),
+            (RECORD, "Leave it, only log this action"),
         ]
 
     built = []
     if needs_expiry(values.get("type_key")):
-        built.append((EXTEND, "Change it to the date above"))
-    built.append((RECORD, "Just record this"))
+        built.append((EXTEND, "Change its end date to the date above"))
+    built.append((RECORD, "Only log this action"))
     return built if len(built) > 1 else []
 
 
@@ -247,7 +247,7 @@ def build_blocks(case_id, values, guard_status=None):
             "type": "input",
             "block_id": TARGET,
             "dispatch_action": True,
-            "label": {"type": "plain_text", "text": "Logging record on individual"},
+            "label": {"type": "plain_text", "text": "Member"},
             "element": {
                 "type": "users_select",
                 "action_id": TARGET,
@@ -276,7 +276,7 @@ def build_blocks(case_id, values, guard_status=None):
             "type": "input",
             "block_id": RESOLUTION_NOTE,
             "optional": True,
-            "label": {"type": "plain_text", "text": "How was this solved? (optional)"},
+            "label": {"type": "plain_text", "text": "Outcome"},
             "element": {
                 "type": "plain_text_input",
                 "action_id": RESOLUTION_NOTE,
@@ -319,7 +319,7 @@ def build_blocks(case_id, values, guard_status=None):
                 "block_id": WHERE,
                 "dispatch_action": True,
                 "optional": not needs_channel(key),
-                "label": {"type": "plain_text", "text": "Which channel"},
+                "label": {"type": "plain_text", "text": "Channel"},
                 "element": {
                     "type": "conversations_select",
                     "action_id": WHERE,
@@ -340,7 +340,7 @@ def build_blocks(case_id, values, guard_status=None):
             "type": "input",
             "block_id": CATEGORY,
             "optional": True,
-            "label": {"type": "plain_text", "text": "The violation"},
+            "label": {"type": "plain_text", "text": "Violation"},
             "element": {
                 "type": "static_select",
                 "action_id": CATEGORY,
@@ -352,7 +352,7 @@ def build_blocks(case_id, values, guard_status=None):
         {
             "type": "input",
             "block_id": REASON,
-            "label": {"type": "plain_text", "text": "What did they do?"},
+            "label": {"type": "plain_text", "text": "Reason"},
             "element": {
                 "type": "plain_text_input",
                 "action_id": REASON,
@@ -372,7 +372,7 @@ def build_view(case_id, subjects=(), category=None, values=None, guard_status=No
         "callback_id": CALLBACK,
         "private_metadata": str(case_id),
         "title": {"type": "plain_text", "text": "Log an action"},
-        "submit": {"type": "plain_text", "text": "Log it"},
+        "submit": {"type": "plain_text", "text": "Log"},
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": build_blocks(case_id, values or initial_values(subjects, category), guard_status),
     }
@@ -406,7 +406,7 @@ def echo_blocks(values, by, channel_name=None):
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": f"*How it was solved:* {values['resolution_note']}",
+                "text": f"*Outcome:* {values['resolution_note']}",
             }],
         })
     return built
@@ -451,15 +451,15 @@ def validation_errors(values):
     if not key:
         return {KIND: "Pick an action."}
     if not values.get("target_user_id"):
-        return {TARGET: "Say who this is about."}
+        return {TARGET: "Pick a member."}
     if needs_expiry(key) and not values.get("expires_on"):
-        return {UNTIL: f"A {label(key).lower()} needs a date it runs until."}
+        return {UNTIL: f"A {label(key).lower()} needs an end date."}
     if needs_channel(key) and not values.get("channel_id"):
         return {WHERE: f"A {label(key).lower()} needs a channel."}
     if values.get("settle") == EXTEND and not values.get("expires_on"):
-        return {UNTIL: f"Say the date the {label(key).lower()} should run until."}
+        return {UNTIL: "Pick the new end date."}
     if not values.get("reason"):
-        return {REASON: "Say why this was the answer."}
+        return {REASON: "Add a reason."}
     return None
 
 

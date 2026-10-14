@@ -308,7 +308,7 @@ def test_a_forwarded_document_is_named_inside_its_forward():
 
     blocks = linked.reply_blocks(items, {"F2": {"id": None, "name": "notes.pdf", "image": False}})
 
-    assert blocks[1]["elements"][0]["text"] == ":paperclip: notes.pdf"
+    assert blocks[1]["elements"][0]["text"] == "Files: notes.pdf"
 
 
 def test_a_picture_not_downloaded_yet_leaves_no_gap():

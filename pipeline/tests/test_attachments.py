@@ -114,7 +114,7 @@ def test_a_file_slack_will_not_render_is_named_then_uploaded(monkeypatch):
 
     assert ts == "9.9", "the thread still needs a message to hang the case on"
     assert slack.posted[0]["username"] == "Anonymous"
-    assert ":paperclip: notes.pdf" in slack.posted[0]["blocks"][0]["text"]["text"]
+    assert "Files: notes.pdf" in slack.posted[0]["blocks"][0]["text"]["text"]
     assert slack.uploads[0]["channel"] == CHANNEL_ID, "a file slack cannot block goes up on its own"
 
 
@@ -310,7 +310,7 @@ def test_the_card_menu_never_outgrows_the_three_dot_menu():
 
 def test_more_holds_what_the_card_menu_has_no_room_for():
     labels = [label for label, _ in edit.more_options(True, None, [{"id": 1}])]
-    assert labels == ["People", "Set the violation", "Reverse an action", "Merge"]
+    assert labels == ["People", "Set violation", "Reverse an action", "Merge"]
     assert [label for label, _ in edit.more_options(False, "spam", [])] == ["People"]
 
 

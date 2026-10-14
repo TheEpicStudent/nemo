@@ -13,10 +13,10 @@ log = logging.getLogger("bot.nemo")
 
 SHORTCUT = "message_activity"
 
-NOT_A_POST = "That is a reply. Activity is counted on top-level posts only."
-NOT_ENABLED = "This channel does not show how posts did."
-NOT_YOURS = "That post is not yours."
-NOT_NOW = "Slack would not say how that post did just now. Try again in a minute."
+NOT_A_POST = "Activity is only available for top-level messages."
+NOT_ENABLED = "Activity is not available in this channel."
+NOT_YOURS = "You can only see activity for your own messages."
+NOT_NOW = "Could not load activity. Try again in a minute."
 
 NO_FILE = "slack_file"
 FILE_SETTLES = 0.8

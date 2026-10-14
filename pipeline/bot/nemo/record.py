@@ -105,9 +105,9 @@ def format_date(at):
 
 def counted(counts):
     parts = [
-        f"subject of {counts['subject_of']}",
-        f"logged in {counts['logged_in']}",
-        f"{counts['live']} in force",
+        f"{counts['subject_of']} as subject",
+        f"{counts['logged_in']} case{'' if counts['logged_in'] == 1 else 's'}",
+        f"{counts['live']} active",
     ]
     if counts["reversed"]:
         parts.append(f"{counts['reversed']} reversed")
@@ -115,14 +115,14 @@ def counted(counts):
 
 
 ENFORCEMENT_STATUS_LABELS = {
-    "pending": "nemo has not carried it yet",
-    "failed": "nemo is not holding it",
+    "pending": "pending",
+    "failed": "not enforced",
 }
 
 
 def in_force_line(guard):
     if guard is None:
-        return "nothing standing"
+        return "nothing active"
 
     text = action.label(guard["kind"]).lower()
     where = guard.get("channel_id")
@@ -134,7 +134,7 @@ def in_force_line(guard):
         text += ", no end date"
 
     if guard.get("enforced_by") == "by_hand":
-        return f"{text}, done by hand"
+        return f"{text}, manual"
     caveat = ENFORCEMENT_STATUS_LABELS.get(guard.get("enforcement_status"))
     return f"{text}, {caveat}" if caveat else text
 

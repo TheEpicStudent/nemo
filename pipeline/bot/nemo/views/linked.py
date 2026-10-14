@@ -180,7 +180,7 @@ def file_blocks(share, files_by_id):
         for one in files if one["image"]
     ]
     named = [one["name"] for one in files if not one["image"]]
-    return pictures + ([context(":paperclip: " + ", ".join(named))] if named else [])
+    return pictures + ([context("Files: " + ", ".join(named))] if named else [])
 
 
 def item_blocks(item, files_by_id=None):

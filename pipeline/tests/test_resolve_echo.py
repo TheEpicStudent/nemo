@@ -75,4 +75,4 @@ def test_action_taken_lists_every_action_with_its_reason():
 def test_action_taken_with_a_summary_calls_it_out_separately_from_the_reasons():
     built = resolve.echo_blocks("action_taken", "both stopped after the ban", MOD, [action()])
     footer = built[-1]["elements"][0]["text"]
-    assert footer == "*How it was solved:* both stopped after the ban"
+    assert footer == "*Outcome:* both stopped after the ban"

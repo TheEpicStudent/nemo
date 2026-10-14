@@ -48,7 +48,7 @@ def reopened(actor, case_id):
 
 
 def reopened_by_reporter(case_id, was_label):
-    return f"Case {case_id} reopened by a reporter reply (was: {was_label})"
+    return f"Case {case_id} reopened after the reporter replied (was {was_label})"
 
 
 def note_added(actor, body):
@@ -70,13 +70,9 @@ def not_assigned(case_id, user_ids):
 
 
 def already_resolved(case_id):
-    return f"Case {case_id} is already resolved and has no open report"
-
-
-def not_permitted(reason):
-    return f"Not permitted: {reason}"
+    return f"Case {case_id} is already resolved."
 
 
 ASSIGN_USAGE = "Usage: `!assign @user`"
 UNASSIGN_USAGE = "Usage: `!unassign @user`"
-NOTE_USAGE = "Usage: `!note <text>` or `!note @user <text>`"
+NOTE_USAGE = "Usage: `!note text` or `!note @member text`"

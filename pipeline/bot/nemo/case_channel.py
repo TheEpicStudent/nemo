@@ -89,9 +89,7 @@ class CaseChannel:
         conversation_id, _channel_id, _member_thread_ts, closed_at, report_id = row
         if closed_at:
             log.info("nemo: conversation %s is closed, not queueing", conversation_id)
-            return self.refuse(
-                at, sent_by, f"conversation {conversation_id} is closed, so nothing was sent"
-            )
+            return self.refuse(at, sent_by, "Not sent. The reporter's conversation is closed.")
 
         with session() as conn:
             stored_files = self.store_outgoing_files(conn, files)
@@ -215,7 +213,7 @@ class CaseChannel:
             self.client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=ts,
-                text=f":x: that did not reach them: {error or 'relay could not send it'}",
+                text=f"Not delivered: {error or 'Shroud could not send it'}",
                 unfurl_links=False,
             )
         except Exception as failure:

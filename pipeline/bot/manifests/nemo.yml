@@ -1,6 +1,6 @@
 display_information:
   name: Nemo
-  description: Fire Engine in Slack. Cases, actions and the records.
+  description: "Fire Engine in Slack: cases, actions and member records."
   background_color: "#1c1917"
 
 features:
@@ -11,19 +11,19 @@ features:
     - name: Destroy thread
       type: message
       callback_id: destroy_thread
-      description: Keep the thread on the record, then remove it from Slack
+      description: Save the thread to the case record, then delete it from Slack
     - name: Lock thread
       type: message
       callback_id: lock_thread
-      description: Stop new replies until the lock lifts
+      description: Delete new replies until a set date
     - name: View message activity
       type: message
       callback_id: message_activity
       description: Viewers, reactions and clicks on your own post
   slash_commands:
     - command: /nemo
-      description: Look somebody up, note something, open a case, or pull one up
-      usage_hint: help | lookup @somebody | note @somebody | open @somebody | shush @somebody 3d | channelban @somebody #channel 3d | purge @somebody #channel 50 | 3864
+      description: Look up members, add notes, open cases, purge messages
+      usage_hint: help | lookup @member | note @member | open @member | shush @member 3d | channelban @member #channel 3d | purge #channel 50 | 3864
       should_escape: true
 
 oauth_config:

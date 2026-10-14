@@ -210,7 +210,7 @@ def test_a_purge_whose_asker_lost_the_right_deletes_nothing(world):
     assert purge.run(Slack(), PURGE_ID) == 0
     assert world.removed == []
     assert world.db.purge["state"] == "failed"
-    assert "<@UASK> may no longer purge" in world.db.purge["error"]
+    assert world.db.purge["error"] == "<@UASK> no longer has purge access"
 
 
 def test_each_kind_of_purge_asks_for_its_own_right(world):
@@ -400,7 +400,7 @@ def test_a_search_failure_leaves_the_archive_to_carry_on(world):
     assert world.removed == [("C1", "5.0")]
     assert world.db.purge["state"] == "done"
     assert world.db.purge["left"] is None
-    assert world.db.purge["error"] == "the check could not run: search is down"
+    assert world.db.purge["error"] == "check failed: search is down"
 
 
 def test_a_restart_carries_on_without_collecting_again(world):
@@ -426,8 +426,7 @@ def test_how_it_went_is_posted_and_audited(world):
 
     [post] = slack.posts
     assert post["channel"] == "CLOG"
-    assert "Purge 7: 2 messages deleted in <#C1>, 0 left after the check." in post["text"]
-    assert "Asked by <@UASK>" in post["text"]
+    assert post["text"].startswith("2 messages deleted in <#C1> by <@UASK>.")
     assert "https://fd.test/fd/channels/C1/purges/7" in post["text"]
     [row] = world.db.audits
     assert (row[2], row[3], row[4]) == ("channel_purge", PURGE_ID, "performed")
@@ -440,8 +439,21 @@ def test_a_member_purge_is_audited_against_the_member(world):
 
     [row] = world.db.audits
     assert (row[2], row[4], row[8]) == ("member_purge", "performed", MEMBER)
-    assert "from <@U9> in every channel" in slack.posts[0]["text"]
+    assert slack.posts[0]["text"].startswith("1 message from <@U9> deleted in every channel by <@UASK>.")
     assert "https://fd.test/fd/members/U9/purges/7" in slack.posts[0]["text"]
+
+
+def test_the_summary_mentions_only_what_needs_attention():
+    channel_purge = purge.Purge(7, "C1", None, 50, "UASK")
+
+    assert purge.summary(channel_purge, 17, 0, None).startswith(
+        "17 messages deleted in <#C1> by <@UASK>.")
+    assert purge.summary(channel_purge, 17, 2, None).startswith(
+        "17 messages deleted in <#C1> by <@UASK>, 2 left after the check.")
+    assert purge.summary(channel_purge, 3, None, "slack is down").startswith(
+        "3 messages deleted in <#C1> by <@UASK>, stopped: slack is down.")
+    assert purge.summary(channel_purge, 3, None, None, "search is down").startswith(
+        "3 messages deleted in <#C1> by <@UASK>, check failed: search is down.")
 
 
 def deactivation_purge(guard):

@@ -30,9 +30,8 @@ def test_the_rest_of_the_wording():
         "<@UME> resolved case 39 · Not a conduct matter")
     assert lines.reopened("UME", 39) == "<@UME> reopened case 39"
     assert lines.reopened_by_reporter(39, "No action needed") == (
-        "Case 39 reopened by a reporter reply (was: No action needed)")
+        "Case 39 reopened after the reporter replied (was No action needed)")
     assert lines.note_added("UME", "spoke to them") == "<@UME> added a note: spoke to them"
     assert lines.already_claimed(39) == "You are already assigned to case 39"
     assert lines.already_assigned(39, ["UA"]) == "<@UA> is already assigned to case 39"
     assert lines.not_assigned(39, ["UA", "UB"]) == "<@UA> and <@UB> are not assigned to case 39"
-    assert lines.not_permitted("no") == "Not permitted: no"

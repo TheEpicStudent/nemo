@@ -42,10 +42,10 @@ def test_nemo_carries_every_scope_the_catalogue_declares():
         assert scope in access.SUPPORTED_SCOPES, f"nemo does not weigh the {scope} scope"
 
 
-def test_nemo_refuses_a_scope_it_cannot_weigh():
+def test_nemo_refuses_an_unsupported_scope():
     allowed, refusal = access.in_scope({"label": "Do a thing", "record_scope": "assigned"})
     assert allowed is False
-    assert "assigned" in refusal
+    assert refusal == "You do not have permission to do a thing."
 
 
 def test_nemo_allows_an_unscoped_capability():

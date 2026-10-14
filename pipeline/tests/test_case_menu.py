@@ -108,7 +108,7 @@ def test_more_opens_the_rest_of_the_case_actions(app):
 
     view = slack.calls_to("views_open")[0]["view"]
     labels = [one["text"]["text"] for one in view["blocks"][-1]["elements"]]
-    assert labels == ["People", "Set the violation", "Merge"]
+    assert labels == ["People", "Set violation", "Merge"]
 
 
 def test_a_pick_inside_more_stacks_its_modal_on_top(app, monkeypatch):
@@ -188,7 +188,7 @@ def test_a_case_cannot_merge_into_itself(app):
 
     app.views[merge.CALLBACK](ack, {"user": {"id": "UME"}}, merge_view_state(23, 23), Slack())
 
-    assert ack.responses[0]["errors"] == {merge.DUPLICATES: "The case you keep cannot close into itself."}
+    assert ack.responses[0]["errors"] == {merge.DUPLICATES: "A case cannot be merged into itself."}
 
 
 def test_case_numbers_after_merge_are_kept_then_folded():

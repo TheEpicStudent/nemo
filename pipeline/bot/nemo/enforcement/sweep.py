@@ -27,7 +27,7 @@ def notifies_member(conn):
     return channels.setting(conn, channels.SWEEP_TELLS_MEMBER) != "off"
 
 HEADING = "*Ending soon*"
-LINE = "• <@{who}> — {what}{where}, until {when}{case}"
+LINE = "• <@{who}> · {what}{where}, until {when}{case}"
 
 
 def enforcement_for(guard):
@@ -110,7 +110,7 @@ def sweep_dropped(client):
 
 def line_about(guard):
     where = f" in <#{guard['channel_id']}>" if guard.get("channel_id") else ""
-    case = f" (case {guard['case_id']})" if guard.get("case_id") else ", on no case"
+    case = f" (case {guard['case_id']})" if guard.get("case_id") else ", no case"
     return LINE.format(
         who=guard["subject_id"], what=guard["kind"].replace("_", " "), where=where,
         when=guard["expires_at"].strftime("%-d %b"), case=case,

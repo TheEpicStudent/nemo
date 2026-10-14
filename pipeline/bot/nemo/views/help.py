@@ -5,87 +5,74 @@ SELECT user_id FROM app.effective_capability WHERE capability = 'access.grant'
 ORDER BY user_id
 """
 
-OPENING = (
-    "*Nemo* keeps the Fire Department's cases, and this is all of it from Slack. "
-    "Only what you hold is listed."
-)
+HEADER = "Commands you have access to."
 
-NOTHING = (
-    "You hold nothing in the Fire Department yet, so there is nothing here to run. "
-    "Ask {who} for a grant."
-)
+NO_ACCESS = "You have no Fire Department access. Ask {who}."
 
-NOBODY = (
-    "You hold nothing in the Fire Department yet, so there is nothing here to run. "
-    "Ask a community manager for a grant."
-)
+NO_ACCESS_NO_GRANTERS = "You have no Fire Department access. Ask a community manager."
 
-LOOKING = (
-    "Looking things up",
+LOOKUP = (
+    "Lookup",
     (
-        ("case.read", "/nemo lookup @somebody", "their record: standing, counts, history"),
-        ("case.read", "/nemo 3864", "pull that case up here"),
+        ("case.read", "/nemo lookup @member", "their record"),
+        ("case.read", "/nemo 3864", "show case 3864"),
     ),
 )
 
-WRITING = (
-    "Writing things down",
+NOTES = (
+    "Notes and cases",
     (
-        ("member.note", "/nemo note @somebody what you found",
-         "a standing note that follows them to every case"),
-        ("case.open", "/nemo open @somebody what happened",
-         "open a case, naming somebody is optional"),
+        ("member.note", "/nemo note @member text", "member note, shown on every case"),
+        ("case.open", "/nemo open @member summary", "open a case, @member optional"),
         ("case.resolve", "/nemo merge 23 25", "close 25 as a duplicate of 23"),
     ),
 )
 
 GUARDS = (
-    "Holding somebody",
+    "Shush and channel ban",
     (
-        ("member.guard", "/nemo shush @somebody 3d why",
-         "a shush with no case behind it, until that date"),
-        ("member.guard", "/nemo channelban @somebody #channel 3d why",
-         "a channel ban with no case behind it, until that date"),
+        ("member.guard", "/nemo shush @member 3d reason", "shush for 3 days, no case"),
+        ("member.guard", "/nemo channelban @member #channel 3d reason",
+         "channel ban for 3 days, no case"),
     ),
 )
 
-PURGING = (
-    "Taking messages down",
+PURGE = (
+    "Purge",
     (
-        ("channel.purge", "/nemo purge 50", "the last 50 messages here, with their thread replies"),
-        ("channel.purge", "/nemo purge #channel 50", "the last 50 messages in that channel"),
-        ("member.purge", "/nemo purge @somebody", "every message they posted, in every channel"),
-        ("member.purge", "/nemo purge @somebody #channel",
-         "every message they posted in that channel"),
+        ("channel.purge", "/nemo purge 50", "last 50 messages in this channel, with thread replies"),
+        ("channel.purge", "/nemo purge #channel 50", "last 50 messages in that channel"),
+        ("member.purge", "/nemo purge @member", "all their messages in every channel"),
+        ("member.purge", "/nemo purge @member #channel", "all their messages in that channel"),
     ),
 )
 
 THREAD = (
     "In a case thread",
     (
-        ("case.reply", "?we are looking at it", "goes to the reporter, with your name on it"),
-        ("case.reply", "~?we are looking at it", "goes to the reporter, without your name"),
-        ("case.read", "!case", "Case link"),
-        ("case.open", "!claim", "Assign yourself"),
-        ("case.open", "!assign @user", "Assign a user"),
-        ("case.open", "!unassign @user", "Unassign a user"),
-        ("case.note", "!note <text>", "Case note"),
-        ("member.note", "!note @user <text>", "Member note"),
-        ("case.resolve", "!resolve", "Resolve and notify the reporter"),
-        ("case.chat", "anything else", "stays with the team as case chat"),
+        ("case.reply", "?text", "reply to the reporter with your name"),
+        ("case.reply", "~?text", "reply to the reporter without your name"),
+        ("case.read", "!case", "case link"),
+        ("case.open", "!claim", "assign yourself"),
+        ("case.open", "!assign @user", "assign someone"),
+        ("case.open", "!unassign @user", "unassign someone"),
+        ("case.note", "!note text", "case note"),
+        ("member.note", "!note @member text", "member note"),
+        ("case.resolve", "!resolve", "resolve and notify the reporter"),
+        ("case.chat", "anything else", "case chat, not sent to the reporter"),
     ),
 )
 
 CARD = (
     "On a case card",
     (
-        ("case.resolve", ":white_check_mark:", "Resolve"),
-        ("case.resolve", ":x:", "Resolve as not a conduct matter"),
-        ("case.act", ":ban:", "Log action"),
+        ("case.resolve", ":white_check_mark:", "resolve"),
+        ("case.resolve", ":x:", "resolve as not a conduct matter"),
+        ("case.act", ":ban:", "log an action"),
     ),
 )
 
-SECTIONS = (LOOKING, WRITING, GUARDS, PURGING, THREAD, CARD)
+SECTIONS = (LOOKUP, NOTES, GUARDS, PURGE, THREAD, CARD)
 
 
 def line(command, note):
@@ -106,12 +93,12 @@ def words(title, rows, capabilities):
 
 def grant_prompt(granters):
     if not granters:
-        return NOBODY
-    return NOTHING.format(who=", ".join(f"<@{one}>" for one in granters))
+        return NO_ACCESS_NO_GRANTERS
+    return NO_ACCESS.format(who=", ".join(f"<@{one}>" for one in granters))
 
 
 def build_blocks(capabilities, granters=()):
-    built = [{"type": "section", "text": {"type": "mrkdwn", "text": OPENING}}]
+    built = [{"type": "section", "text": {"type": "mrkdwn", "text": HEADER}}]
     visible_sections = [words(title, rows, capabilities) for title, rows in SECTIONS]
     visible_sections = [one for one in visible_sections if one]
 
@@ -131,7 +118,7 @@ def build_blocks(capabilities, granters=()):
 
 def flat(capabilities):
     parts = [section(title, rows, capabilities) for title, rows in SECTIONS]
-    return "\n\n".join(one for one in parts if one) or OPENING
+    return "\n\n".join(one for one in parts if one) or HEADER
 
 
 def build_view(capabilities, granters=()):

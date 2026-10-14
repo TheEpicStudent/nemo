@@ -13,11 +13,11 @@
       <% if person %>
         <%= hidden_field_tag :user_id, person, id: nil %>
       <% else %>
-        <label class="field-label">
+        <div class="field-label">
           <span>Who</span>
           <%= render "shared/combobox", name: "user_id", single: true,
                 label: "search for who to give it to", url: search_admin_people_path %>
-        </label>
+        </div>
       <% end %>
 
       <div class="field-label">

@@ -136,7 +136,7 @@ def test_a_refused_command_is_taken_down_and_explained(harness, monkeypatch):
     commands.reply(slack, event, THREAD, commands.run("!claim", "", 39, "UME"))
 
     assert harness["deleted"] == ["2.0"]
-    assert slack.calls_to("chat_postEphemeral")[0]["text"] == "Not permitted: no"
+    assert slack.calls_to("chat_postEphemeral")[0]["text"] == "no"
     assert slack.calls_to("chat_postMessage") == []
 
 

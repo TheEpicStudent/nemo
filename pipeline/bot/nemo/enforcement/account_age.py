@@ -12,8 +12,8 @@ KIND = channelguards.ACCOUNT_AGE
 DELETED = "deleted"
 
 IN_CHANNEL = (
-    "This channel asks for an account {days} day{plural} old. Yours has {left} to go."
-    "\n\nYour message was:\n{body}"
+    "Your account must be {days} day{plural} old to post here. You can post in {left}."
+    "\n\nYour message:\n{body}"
 )
 
 DAYS_REMAINING = """

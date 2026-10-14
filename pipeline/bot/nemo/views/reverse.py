@@ -28,13 +28,13 @@ def build_view(case_id, live):
         "callback_id": CALLBACK,
         "private_metadata": str(case_id),
         "title": {"type": "plain_text", "text": f"Reverse · case {case_id}"[:TITLE_LIMIT]},
-        "submit": {"type": "plain_text", "text": "Reverse it"},
+        "submit": {"type": "plain_text", "text": "Reverse"},
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": [
             {
                 "type": "input",
                 "block_id": WHICH,
-                "label": {"type": "plain_text", "text": "Which action"},
+                "label": {"type": "plain_text", "text": "Action"},
                 "element": {
                     "type": "static_select",
                     "action_id": WHICH,
@@ -45,7 +45,7 @@ def build_view(case_id, live):
             {
                 "type": "input",
                 "block_id": REASON,
-                "label": {"type": "plain_text", "text": "Why it is being reversed"},
+                "label": {"type": "plain_text", "text": "Reason"},
                 "element": {
                     "type": "plain_text_input",
                     "action_id": REASON,
@@ -70,5 +70,5 @@ def validation_errors(values):
     if not values.get("action_id"):
         return {WHICH: "Pick the action to reverse."}
     if not values.get("reason"):
-        return {REASON: "Say why it is being reversed. It goes on the record."}
+        return {REASON: "Add a reason."}
     return None

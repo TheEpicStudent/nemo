@@ -9,8 +9,7 @@ log = logging.getLogger("bot.nemo")
 KEYWORD = "UNSUBSCRIBE"
 
 EXPLANATION = (
-    "To stop notifications for a thread, use 'Turn off notifications for replies' "
-    "on the thread instead."
+    "To stop notifications from a thread, use *Turn off notifications for replies* on it."
 )
 
 WITH_LINK = "{text} <{link}|See how>"

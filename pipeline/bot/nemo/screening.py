@@ -24,10 +24,10 @@ OUTCOME_FOR_EFFECT = {FLAG: FLAGGED, HOLD: SHUSHED, DEACTIVATE: DEACTIVATED}
 SHUSH_DAYS = 7
 
 OUTCOME_NOTICES = {
-    FLAGGED: "joined on {domain}, which is flagged",
-    SHUSHED: "joined on {domain} and is shushed",
-    DEACTIVATED: "joined on {domain} and is deactivated",
-    FAILED: "joined on {domain} but nemo could not hold them",
+    FLAGGED: "joined with an email on {domain}, which is flagged",
+    SHUSHED: "joined with an email on {domain} and was shushed",
+    DEACTIVATED: "joined with an email on {domain} and was deactivated",
+    FAILED: "joined with an email on {domain}. The shush or deactivation failed",
 }
 
 LIVE = """
@@ -166,7 +166,7 @@ def open_screening_guard(conn, user_id, rule, by):
     from bot.nemo import memberguards
 
     kind = memberguards.DEACTIVATION if rule.effect == DEACTIVATE else memberguards.SHUSH
-    reason = f"joined on {rule.domain}, which the domain list holds"
+    reason = f"signing up with an email address on {rule.domain}"
     expires = None if kind == memberguards.DEACTIVATION else shush_expiry(conn)
 
     try:

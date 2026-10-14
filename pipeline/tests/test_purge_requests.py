@@ -100,7 +100,7 @@ def test_the_prompt_carries_a_danger_button_and_a_cancel():
     buttons = built["blocks"][-1]["elements"]
 
     assert built["text"].startswith("Confirm purging the last 50 messages")
-    assert built["blocks"][1]["elements"][0]["text"] == "Why: spam wave"
+    assert built["blocks"][1]["elements"][0]["text"] == "Reason: spam wave"
     assert [(one["action_id"], one["value"], one.get("style")) for one in buttons] == [
         (purge_requests.CONFIRM, "12", "danger"), (purge_requests.CANCEL, "12", None)]
 
@@ -151,7 +151,7 @@ def test_confirming_queues_it_and_says_where_the_result_goes(stub):
 
     answer = purge_requests.confirm(12, "UME")
     assert answer == (f"Purging the last 50 messages in <#{HERE}>, with their thread replies. "
-                      "Nemo posts how it went in <#CLOG>.")
+                      "Nemo posts the result in <#CLOG>.")
     assert purge_requests.QUEUED in stub["conn"].executed
     assert audit.RECORD in stub["conn"].executed
 

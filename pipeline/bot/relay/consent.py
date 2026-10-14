@@ -10,20 +10,19 @@ CANCEL = "intake_cancel"
 SUBTYPE = "consent"
 DONE = "consent_done"
 
-FALLBACK = "Submit this report to FD"
+FALLBACK = "Send this report to the Fire Department?"
 
 
 READY = (
-    "Ready to send this report to FD with your username. Check the box below "
-    "to send it anonymously."
+    "This report goes to the Fire Department with your name. Tick the box to send it "
+    "anonymously."
 )
 
 IDENTITY_OPTION = {
-    "text": {"type": "plain_text", "text": "Send it anonymously"},
+    "text": {"type": "plain_text", "text": "Send anonymously"},
     "description": {
         "type": "plain_text",
-        "text": "FD will not see who filed this report. Leave unchecked to send it "
-                "with your username.",
+        "text": "The Fire Department will not see who sent it.",
     },
     "value": ANONYMOUSLY,
 }
@@ -48,10 +47,10 @@ def build_blocks(bodies=None, files=0, channels=(), saved_choice=None):
     summary_parts = []
     shared = forwarded(list(channels))
     if shared:
-        summary_parts.append(f"↪️ {shared}")
+        summary_parts.append(shared)
     if files:
         plural = "s" if files != 1 else ""
-        summary_parts.append(f"📎 {files} file{plural}")
+        summary_parts.append(f"{files} file{plural}")
 
     if summary_parts:
         built.append(
@@ -79,7 +78,7 @@ def build_blocks(bodies=None, files=0, channels=(), saved_choice=None):
                     "type": "button",
                     "action_id": CONFIRM,
                     "style": "primary",
-                    "text": {"type": "plain_text", "text": "Submit"},
+                    "text": {"type": "plain_text", "text": "Send"},
                 },
                 {
                     "type": "button",
@@ -106,5 +105,5 @@ def resolve_choice(state, saved_choice=None):
     return submitted_values(state) or saved_choice or NAMED
 
 
-DROPPED = "Nothing was sent. Say more here whenever you want, and I will ask again."
-ALREADY = "This one is already with the Fire Department."
+DROPPED = "Cancelled, nothing was sent. Send a new message here to start a new report."
+ALREADY = "This report was already sent."

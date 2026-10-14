@@ -13,7 +13,7 @@ SHORTCUT = "destroy_thread"
 @on_shortcut(SHORTCUT, needs="thread.guard")
 def open_destroy_modal(ctx):
     if not ctx.thread_ts:
-        return ctx.post_ephemeral("that is not a thread")
+        return ctx.post_ephemeral("That message is not a thread.")
 
     ctx.client.views_open(
         trigger_id=ctx.trigger_id,
@@ -60,7 +60,7 @@ def confirmed(ctx):
             guards.set_note(conn, guard_id, values["note_body"], card.note_text(values))
 
     if guard_id is None:
-        return ctx.post_ephemeral("that thread is already held", channel_id, thread_ts)
+        return ctx.post_ephemeral("That thread is already locked or being destroyed.", channel_id, thread_ts)
 
     ctx.join(channel_id)
     with session() as conn:

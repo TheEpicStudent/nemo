@@ -1,6 +1,6 @@
 display_information:
   name: Shroud
-  description: Tell the Fire Department something, anonymously or not.
+  description: Report something to the Fire Department, with your name or anonymously.
   background_color: "#1c1917"
 
 features:

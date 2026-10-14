@@ -4,6 +4,7 @@ LINK = re.compile(r"(<https?://[^\s<>]+?(?:\|[^>]*)?>)")
 
 QUOTE_LIMIT = 2400
 CUT = "\n[truncated; the full text is on the case page]"
+REPORTER_CUT = "\n[truncated]"
 
 
 def escape(text):
@@ -17,14 +18,14 @@ def escape_but_links(text):
     )
 
 
-def quote_text(body):
+def quote_text(body, cut=CUT):
     text = (body or "").strip()
     if not text:
         return ""
     if len(text) > QUOTE_LIMIT:
-        text = text[:QUOTE_LIMIT].rstrip() + CUT
+        text = text[:QUOTE_LIMIT].rstrip() + cut
     return text
 
 
 def to_member(body):
-    return escape_but_links(quote_text(body))
+    return escape_but_links(quote_text(body, REPORTER_CUT))

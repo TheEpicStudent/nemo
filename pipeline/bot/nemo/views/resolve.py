@@ -73,7 +73,7 @@ def reason_input_block(live_actions):
     return {
         "type": "input",
         "block_id": WHY,
-        "label": {"type": "plain_text", "text": "Why it is closing"},
+        "label": {"type": "plain_text", "text": "Resolution"},
         "element": {
             "type": "static_select",
             "action_id": WHY,
@@ -92,7 +92,7 @@ def build_view(case_id, live_actions=(), open_reports=0):
             "type": "input",
             "block_id": NOTE,
             "optional": True,
-            "label": {"type": "plain_text", "text": "For the record"},
+            "label": {"type": "plain_text", "text": "Note"},
             "element": {
                 "type": "rich_text_input",
                 "action_id": NOTE,
@@ -111,19 +111,19 @@ def build_view(case_id, live_actions=(), open_reports=0):
                 "type": "input",
                 "block_id": NOTIFY,
                 "optional": True,
-                "label": {"type": "plain_text", "text": "The reporter"},
+                "label": {"type": "plain_text", "text": "Reporter"},
                 "element": {
                     "type": "checkboxes",
                     "action_id": NOTIFY,
                     "options": [
                         {
-                            "text": {"type": "plain_text", "text": "Tell them it is closed"},
+                            "text": {"type": "plain_text", "text": "Notify the reporter"},
                             "value": NOTIFY_REPORTER,
                         }
                     ],
                     "initial_options": [
                         {
-                            "text": {"type": "plain_text", "text": "Tell them it is closed"},
+                            "text": {"type": "plain_text", "text": "Notify the reporter"},
                             "value": NOTIFY_REPORTER,
                         }
                     ],
@@ -133,7 +133,7 @@ def build_view(case_id, live_actions=(), open_reports=0):
                 "type": "input",
                 "block_id": MESSAGE,
                 "optional": True,
-                "label": {"type": "plain_text", "text": "What they are told"},
+                "label": {"type": "plain_text", "text": "Message to the reporter"},
                 "element": {
                     "type": "plain_text_input",
                     "action_id": MESSAGE,
@@ -172,9 +172,9 @@ def submitted_values(view_state, live_actions=()):
 
 def validation_errors(values):
     if not values.get("resolution"):
-        return {WHY: "Say why this case is closing."}
+        return {WHY: "Pick a resolution."}
     if values.get("notify_reporter") and richtext.mentions(values.get("message")):
-        return {MESSAGE: "The reporter cannot be sent a mention. Say it in words."}
+        return {MESSAGE: "Mentions cannot be sent to the reporter. Write the name instead."}
     return None
 
 
@@ -217,7 +217,7 @@ def echo_blocks(resolution, member_note, by, actions=(), case_id=None):
                 "type": "context",
                 "elements": [{
                     "type": "mrkdwn",
-                    "text": f"*How it was solved:* {member_note}",
+                    "text": f"*Outcome:* {member_note}",
                 }],
             })
     elif member_note:

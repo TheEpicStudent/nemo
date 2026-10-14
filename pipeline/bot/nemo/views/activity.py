@@ -1,6 +1,6 @@
 """Modal for the 'View message activity' shortcut: post metrics and chart entry point."""
 
-TITLE = "View message activity"
+TITLE = "Message activity"
 OPEN_ACTIVITY = "open_message_activity"
 OPEN_TOP_REPLY = "open_top_reply"
 
@@ -44,7 +44,7 @@ def crowd_line(viewers, crowd):
 
 def replies_line(archived_message):
     if archived_message is None:
-        return "not landed yet"
+        return "not available yet"
     count = archived_message.get("reply_count") or 0
     people = archived_message.get("reply_users_count") or 0
     if not count:
@@ -90,9 +90,9 @@ def build_view(channel_id, ts, author_id, text, stats, archived_message=None, cr
          chart=None, activity_url=None):
     fields = [
         f"*Viewers*\n{n(stats['viewers'])}{crowd_line(stats['viewers'], crowd)}",
-        f"*Reacted*\n{n(stats['reacted'])}",
-        f"*Clicked a link*\n{n(stats['clicked'])}",
-        f"*Shared*\n{n(stats['shared'])}",
+        f"*Reactions*\n{n(stats['reacted'])}",
+        f"*Link clicks*\n{n(stats['clicked'])}",
+        f"*Shares*\n{n(stats['shared'])}",
         f"*Replies*\n{replies_line(archived_message)}",
     ]
     blocks = [

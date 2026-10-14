@@ -11,12 +11,12 @@ NOTE = "guard_note"
 NOTE_TEXT = "guard_note_text"
 
 REASON_LIMIT = 500
-NOTE_LABEL = "Leave an FD note"
+NOTE_LABEL = "Post a note in the thread"
 TITLE_LIMIT = 24
 
-DESTROY_WARNING = "Kept on the case record, then deleted from Slack. Cannot be undone."
+DESTROY_WARNING = "Saved to the case record, then deleted from Slack. Cannot be undone."
 
-LOCK_WARNING = "Replies are removed until the lock lifts."
+LOCK_WARNING = "New replies are deleted until the lock ends."
 
 ASIDE = "Anyone who keeps posting is signed out of Slack."
 
@@ -45,7 +45,7 @@ def reason_block(value=None):
     return {
         "type": "input",
         "block_id": REASON,
-        "label": {"type": "plain_text", "text": "Why"},
+        "label": {"type": "plain_text", "text": "Reason"},
         "element": element,
     }
 
@@ -80,7 +80,7 @@ def note_text_block(value=None):
     return {
         "type": "input",
         "block_id": NOTE_TEXT,
-        "label": {"type": "plain_text", "text": "What it says"},
+        "label": {"type": "plain_text", "text": "Note text"},
         "element": element,
     }
 
@@ -109,7 +109,7 @@ def destroy_view(channel_id, thread_ts, values=None):
         "callback_id": DESTROY_CALLBACK,
         "private_metadata": metadata(channel_id, thread_ts),
         "title": {"type": "plain_text", "text": "Destroy thread"[:TITLE_LIMIT]},
-        "submit": {"type": "plain_text", "text": "Destroy it"},
+        "submit": {"type": "plain_text", "text": "Destroy"},
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": blocks,
     }
@@ -121,7 +121,7 @@ def lock_view(channel_id, thread_ts):
         "callback_id": LOCK_CALLBACK,
         "private_metadata": metadata(channel_id, thread_ts),
         "title": {"type": "plain_text", "text": "Lock thread"[:TITLE_LIMIT]},
-        "submit": {"type": "plain_text", "text": "Lock it"},
+        "submit": {"type": "plain_text", "text": "Lock"},
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": [
             section_block(LOCK_WARNING),
@@ -154,9 +154,9 @@ def note_text(values):
 
 def validation_errors(values, needs_until=False):
     if not values.get("reason"):
-        return {REASON: "Say why. It goes on the record."}
+        return {REASON: "Add a reason."}
     if needs_until and not values.get("until"):
-        return {UNTIL: "Say when the lock lifts."}
+        return {UNTIL: "Pick when the lock ends."}
     if values.get("note") and not note_text(values):
         return {NOTE_TEXT: "Write the note or untick it."}
     return None

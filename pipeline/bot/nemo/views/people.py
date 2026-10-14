@@ -52,7 +52,7 @@ def build_view(case_id, participants=(), assignees=(), can_people=True, can_assi
     if can_people:
         blocks.append(picker(WHO, "Subject", "who the case is about"))
     if can_assign:
-        blocks.append(picker(ASSIGN, "Assign", "who to put on it"))
+        blocks.append(picker(ASSIGN, "Assign", "who to assign"))
 
     view = {
         "type": "modal",

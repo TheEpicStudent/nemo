@@ -12,8 +12,8 @@ KIND = channelguards.READONLY
 DELETED = "deleted"
 
 IN_CHANNEL = (
-    "This channel is read-only. Reply in a thread if you are answering somebody."
-    "\n\nYour message was:\n{body}"
+    "This channel is read-only. Reply in a thread instead."
+    "\n\nYour message:\n{body}"
 )
 
 

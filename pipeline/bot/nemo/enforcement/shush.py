@@ -13,10 +13,7 @@ DELETED = "deleted"
 
 APPLIED_DM = "Hey <@{who}>, you've been shushed for {why}, {until}."
 
-IN_CHANNEL = (
-    "Your message was removed. You are shushed for {why}, {until}. "
-    "Replying here will not reach anybody."
-)
+IN_CHANNEL = "Your message was removed. You are shushed for {why}, {until}."
 
 OVER = "Your shush has ended. You can post again."
 

@@ -41,7 +41,7 @@ def cap_per_guard():
 def proxy():
     token = os.environ.get("PROXY_TOKEN_NEMO", "")
     if not token:
-        raise ProxyError("PROXY_TOKEN_NEMO must be set for the Fire Department to act in Slack")
+        raise ProxyError("PROXY_TOKEN_NEMO is not set")
     return ProxyClient(token=token, keep_alive=True)
 
 

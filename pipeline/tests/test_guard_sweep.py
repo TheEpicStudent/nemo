@@ -170,7 +170,7 @@ def test_a_ban_in_the_nudge_names_its_channel():
 
 
 def test_one_on_no_case_is_called_out_in_the_nudge():
-    assert "on no case" in sweep.line_about(guard(case_id=None))
+    assert sweep.line_about(guard(case_id=None)).endswith(", no case")
 
 
 def test_the_nudge_goes_out_once_and_is_written_down(monkeypatch):

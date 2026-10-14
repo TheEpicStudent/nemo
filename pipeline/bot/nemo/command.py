@@ -33,30 +33,30 @@ ON_A_DATE = re.compile(r"\A(\d{4})-(\d{2})-(\d{2})\Z")
 LONGEST_DAYS = 365
 
 SUBJECT_USAGE = {
-    LOOKUP: "Name somebody: */nemo lookup @them*",
-    NOTE: "Name somebody: */nemo note @them what you found*",
-    SHUSH: "Name somebody: */nemo shush @them 3d why*",
-    CHANNEL_BAN: "Name somebody: */nemo channelban @them #channel 3d why*",
+    LOOKUP: "Name the member: */nemo lookup @member*",
+    NOTE: "Name the member: */nemo note @member text*",
+    SHUSH: "Name the member: */nemo shush @member 3d reason*",
+    CHANNEL_BAN: "Name the member: */nemo channelban @member #channel 3d reason*",
 }
 
 TEXT_USAGE = {
-    NOTE: "Say what you found: */nemo note @them what you found*",
-    OPEN: "Say what happened: */nemo open what happened*",
-    SHUSH: "Say how long and why: */nemo shush @them 3d why*",
-    CHANNEL_BAN: "Say how long and why: */nemo channelban @them #channel 3d why*",
+    NOTE: "Add the note: */nemo note @member text*",
+    OPEN: "Add a summary: */nemo open @member summary*",
+    SHUSH: "Add a duration and reason: */nemo shush @member 3d reason*",
+    CHANNEL_BAN: "Add a duration and reason: */nemo channelban @member #channel 3d reason*",
 }
 
 HOW_LONG = (
-    "Say how long it runs first: *{example}*. "
-    f"Days or weeks, up to {LONGEST_DAYS} days, or a date like 2026-10-15."
+    "Put the duration first: *{example}*. "
+    f"Use days (3d), weeks (2w) or a date (2026-10-15), up to {LONGEST_DAYS} days."
 )
 
 DURATION_USAGE = {
-    SHUSH: HOW_LONG.format(example="/nemo shush @them 3d why"),
-    CHANNEL_BAN: HOW_LONG.format(example="/nemo channelban @them #channel 3d why"),
+    SHUSH: HOW_LONG.format(example="/nemo shush @member 3d reason"),
+    CHANNEL_BAN: HOW_LONG.format(example="/nemo channelban @member #channel 3d reason"),
 }
 
-CHANNEL_USAGE = "Name the channel: */nemo channelban @them #channel 3d why*"
+CHANNEL_USAGE = "Name the channel: */nemo channelban @member #channel 3d reason*"
 
 
 def parse_command(text):
@@ -173,7 +173,7 @@ def looked_up(member_record, names=None):
         blocks.append(
             {
                 "type": "context",
-                "elements": [{"type": "mrkdwn", "text": "Nothing on their record at all."}],
+                "elements": [{"type": "mrkdwn", "text": "No record"}],
             }
         )
 
@@ -186,7 +186,7 @@ def looked_up(member_record, names=None):
                     {
                         "type": "button",
                         "action_id": OPEN_RECORD,
-                        "text": {"type": "plain_text", "text": "Their whole record"},
+                        "text": {"type": "plain_text", "text": "Open in Fire Engine"},
                         "url": where,
                     }
                 ],
@@ -209,30 +209,24 @@ NEEDED = {
 
 def already_open(user_id, numbers):
     text = ", ".join(f"*case {one}*" for one in numbers)
-    return (
-        f"<@{user_id}> already has an open case, {text}. "
-        "Add what you found to that one instead."
-    )
+    return f"<@{user_id}> already has an open case: {text}. Add to that one instead."
 
 
 def shushed(user_id, on):
     return (
-        f"shush held on <@{user_id}> until {on.strftime('%-d %b')}, on no case. "
+        f"<@{user_id}> is shushed until {on.strftime('%-d %b')}, with no case. "
         "Log it on a case if there is one."
     )
 
 
 def already_shushed(user_id):
-    return (
-        f"<@{user_id}> is already under a shush. "
-        "Lift it or run it longer in Fire Engine."
-    )
+    return f"<@{user_id}> is already shushed. Lift or extend it in Fire Engine."
 
 
 def banned(user_id, channel_id, on):
     return (
-        f"channel ban held on <@{user_id}> in <#{channel_id}> "
-        f"until {on.strftime('%-d %b')}, on no case. "
+        f"<@{user_id}> is banned from <#{channel_id}> "
+        f"until {on.strftime('%-d %b')}, with no case. "
         "Log it on a case if there is one."
     )
 
@@ -240,7 +234,7 @@ def banned(user_id, channel_id, on):
 def already_banned(user_id, channel_id):
     return (
         f"<@{user_id}> is already banned from <#{channel_id}>. "
-        "Lift it or run it longer in Fire Engine."
+        "Lift or extend it in Fire Engine."
     )
 
 
@@ -314,9 +308,7 @@ def register(app):
                              after={"user_id": target_id})
             elif verb == NOTE:
                 case_actions.member_note(conn, target_id, body, user_id)
-                answer = message_only(
-                    f"noted about <@{target_id}>, and it follows them to every case"
-                )
+                answer = message_only(f"Note added to <@{target_id}>.")
             elif verb == SHUSH:
                 on, why = for_how_long(body)
                 if on is None:

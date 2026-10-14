@@ -12,8 +12,8 @@ KIND = channelguards.SLOWMODE
 DELETED = "deleted"
 
 IN_CHANNEL = (
-    "Slow mode is on here, {left} to go."
-    "\n\nYour message was:\n{body}"
+    "Slow mode is on. You can post again in {left}."
+    "\n\nYour message:\n{body}"
 )
 
 TICK = """

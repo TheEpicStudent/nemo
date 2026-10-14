@@ -110,7 +110,7 @@ def run(verb, args, case_id, user_id):
     with session() as conn:
         allowed, refusal = access.may(conn, user_id, needed(verb, args), case_id)
         if not allowed:
-            return refused(lines.not_permitted(refusal))
+            return refused(refusal)
         return RUN[verb](conn, case_id, user_id, args)
 
 

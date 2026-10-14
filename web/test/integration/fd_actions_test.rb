@@ -36,7 +36,7 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_equal "walked them through the rules in a DM", action.resolution_note
 
     echo = Fd::CaseChat.where(case_id: @kase.id).sole
-    assert_match(/How it was solved: walked them through the rules in a DM/, echo.body)
+    assert_match(/Outcome: walked them through the rules in a DM/, echo.body)
   end
 
   test "logging an action with no resolution note leaves it unset" do
@@ -46,7 +46,7 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_nil actions.sole.resolution_note
 
     echo = Fd::CaseChat.where(case_id: @kase.id).sole
-    assert_no_match(/How it was solved/, echo.body)
+    assert_no_match(/Outcome/, echo.body)
   end
 
   test "the action form offers a resolution note under the action type" do
