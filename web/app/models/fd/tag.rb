@@ -17,11 +17,22 @@ module Fd
       uniqueness: { message: "That tag already exists." }
 
     scope :with_uses, -> {
-      left_joins(:case_tags).group(:id).select("fd.tags.*", "COUNT(fd.case_tags.tag_id) AS uses")
+      left_joins(:case_tags).group(:id).select(
+        "fd.tags.*", "COUNT(fd.case_tags.tag_id) AS uses", "MAX(fd.case_tags.added_at) AS last_used_at"
+      )
     }
 
     def self.normalise(value)
       value.to_s.downcase.gsub(/[^a-z0-9]+/, "-").gsub(/\A-+|-+\z/, "")
+    end
+
+    def merge_into!(target)
+      transaction do
+        held = CaseTag.where(tag_id: target.id).select(:case_id)
+        CaseTag.where(tag_id: id).where.not(case_id: held).update_all(tag_id: target.id)
+        CaseTag.where(tag_id: id).delete_all
+        destroy!
+      end
     end
 
     def self.find_or_add!(name, by:)

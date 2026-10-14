@@ -121,6 +121,7 @@
   .queue-tags .tag-mark { @apply size-3; }
   .queue-tags-more { @apply flex-none tabular-nums; }
   .tagbar .pill { gap: 2px; }
+  .tag-actions { @apply flex items-center justify-end gap-2; }
   .tag-link { @apply text-foreground no-underline underline-offset-4 hover:underline; }
   .tag-x {
     @apply inline-grid size-4 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground hover:bg-muted hover:text-foreground;

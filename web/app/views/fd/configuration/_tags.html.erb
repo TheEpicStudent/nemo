@@ -1,0 +1,57 @@
+<div class="stack">
+  <div class="card card-flush">
+    <div class="card-head">
+      <h2 class="card-title">Tags</h2>
+    </div>
+
+    <% if tags.any? %>
+      <div class="scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Tag</th>
+              <th class="col-num">Cases</th>
+              <th>Last used</th>
+              <th>Created by</th>
+              <th class="col-num"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% tags.each do |tag| %>
+              <tr>
+                <td><%= link_to tag.name, fd_cases_path(tag: tag.name) %></td>
+                <td class="col-num"><%= tag.uses %></td>
+                <td><%= on_day(tag.last_used_at, none: "never") %></td>
+                <td>
+                  <%= member_face(tag.created_by, small: true) %>
+                  <span class="sub2"><%= on_day(tag.created_at) %></span>
+                </td>
+                <td class="col-num">
+                  <div class="tag-actions">
+                    <%= opens_modal "app.configure", "Rename", opens: "rename-tag-#{tag.id}", css: "btn btn-sm" %>
+                    <%= opens_modal "app.configure", "Merge", opens: "merge-tag-#{tag.id}", css: "btn btn-sm" %>
+                    <% if tag.uses.zero? %>
+                      <%= button_to "Remove", fd_tag_path(tag), method: :delete,
+                            class: "btn btn-sm btn-danger", form: { class: "contents" } %>
+                    <% end %>
+                  </div>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+      <% if total > tags.size %>
+        <p class="card-note">Showing the <%= tags.size %> most recently used of <%= total %></p>
+      <% end %>
+    <% else %>
+      <div class="empty">
+        <p class="empty-title">No tags</p>
+      </div>
+    <% end %>
+  </div>
+</div>
+
+<% tags.each do |tag| %>
+  <%= render "tag_modals", tag: tag %>
+<% end %>

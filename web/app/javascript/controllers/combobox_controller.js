@@ -178,7 +178,7 @@ export default class extends Controller {
     const displayName = this.kindValue === "channel" ? `#${name}` : name
     const label = span("token-label", displayName)
 
-    if (this.kindValue === "channel") {
+    if (this.kindValue === "channel" || this.kindValue === "tag") {
       token.classList.add("token-plain")
     } else {
       token.append(avatarImage(id, initial))

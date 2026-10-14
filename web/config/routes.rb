@@ -74,6 +74,9 @@ Rails.application.routes.draw do
     resource :configuration, only: [:show], controller: "configuration"
     resources :automod_words, only: [:create, :destroy], path: "configuration/automod"
     resources :blocked_domains, only: [:create, :destroy], path: "configuration/domains"
+    resources :tags, only: [:update, :destroy], path: "configuration/tags" do
+      post :merge, on: :member
+    end
     post "configuration/responses/autoresponse", to: "responses#autoresponse",
          as: :configuration_autoresponse
     post "configuration/responses/unsub_shield", to: "responses#unsub_shield",

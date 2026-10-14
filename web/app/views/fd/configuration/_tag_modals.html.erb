@@ -1,0 +1,37 @@
+<%= render layout: "fd/modal", locals: { id: "rename-tag-#{tag.id}", title: "Rename tag",
+      sub: tag.name } do %>
+  <%= form_with url: fd_tag_path(tag), method: :patch, html: { autocomplete: "off" } do %>
+    <div class="modal-body">
+      <label class="field-label">
+        New name
+        <%= text_field_tag :name, tag.name, class: "input", id: nil, autocomplete: "off",
+              maxlength: Fd::Tag::NAME_LENGTH %>
+      </label>
+    </div>
+    <div class="modal-foot">
+      <p class="card-note">Every case with this tag shows the new name. The audit log keeps the old one.</p>
+      <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
+      <%= submit_tag "Rename", class: "btn btn-primary" %>
+    </div>
+  <% end %>
+<% end %>
+
+<%= render layout: "fd/modal", locals: { id: "merge-tag-#{tag.id}", title: "Merge tag",
+      sub: "#{tag.name} · #{pluralize(tag.uses, 'case')}" } do %>
+  <%= form_with url: merge_fd_tag_path(tag), method: :post, html: { autocomplete: "off" } do %>
+    <div class="modal-body">
+      <div class="field-label">
+        <span>Merge into</span>
+        <%= render "shared/combobox", name: "into", kind: "tag", single: true, least: 0,
+              empty: "No tags found", placeholder: "Find a tag",
+              label: "Find the tag to merge into",
+              url: fd_tag_search_path(create: 0, except: tag.name) %>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <p class="card-note">Its cases get the chosen tag and <%= tag.name %> is removed. The audit log keeps both names.</p>
+      <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
+      <%= submit_tag "Merge", class: "btn btn-primary" %>
+    </div>
+  <% end %>
+<% end %>

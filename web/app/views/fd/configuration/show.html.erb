@@ -21,5 +21,9 @@
   <%= render "responses" %>
 <% end %>
 
+<% if @tab == "tags" %>
+  <%= render "tags", tags: @tags, total: @tag_total %>
+<% end %>
+
 <%= render "word_modal" %>
 <%= render "domain_modal" %>

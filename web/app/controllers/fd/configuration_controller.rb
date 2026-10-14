@@ -2,8 +2,9 @@ module Fd
   class ConfigurationController < BaseController
     permit "app.configure"
 
-    TABS = %w[automod domains responses].freeze
+    TABS = %w[automod domains responses tags].freeze
     LIST_LIMIT = 50
+    TAG_LIMIT = 100
 
     def show
       @tab = params[:tab].presence_in(TABS) || TABS.first
@@ -12,13 +13,15 @@ module Fd
       @matches = AutomodMatch.newest_first.limit(LIST_LIMIT).to_a
       load_domains
       load_responses
+      load_tags if @tab == "tags"
       @channels = ChannelNames.for(@matches.map(&:channel_id) + [@autoresponse_channel])
       @names = Names.for([@words.flat_map(&:people_named),
                           @retired.flat_map(&:people_named),
                           @matches.map(&:user_id),
                           @domains.flat_map(&:people_named),
                           @retired_domains.flat_map(&:people_named),
-                          @screens.map(&:user_id)])
+                          @screens.map(&:user_id),
+                          Array(@tags).map(&:created_by)])
     end
 
     private
@@ -27,6 +30,13 @@ module Fd
       @domains = BlockedDomain.watching
       @retired_domains = BlockedDomain.retired.newest_first.limit(LIST_LIMIT).to_a
       @screens = JoinScreen.caught.recent_first.limit(LIST_LIMIT).to_a
+    end
+
+    def load_tags
+      @tag_total = Tag.count
+      @tags = Tag.with_uses
+        .order(Arel.sql("MAX(fd.case_tags.added_at) DESC NULLS LAST, fd.tags.name"))
+        .limit(TAG_LIMIT).to_a
     end
 
     def load_responses
