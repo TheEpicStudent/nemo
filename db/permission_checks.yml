@@ -17,6 +17,18 @@ checks:
     case: theirs
     allowed: true
 
+  - name: a firefighter may tag a case assigned to them
+    role: firefighter
+    key: case.tag
+    case: mine
+    allowed: true
+
+  - name: a firefighter may tag somebody else's case too
+    role: firefighter
+    key: case.tag
+    case: theirs
+    allowed: true
+
   - name: a firefighter may act on a case nobody holds
     role: firefighter
     key: case.act

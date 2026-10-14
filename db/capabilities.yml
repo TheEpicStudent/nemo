@@ -10,6 +10,7 @@ roles:
       - case.read
       - case.open
       - case.categorise
+      - case.tag
       - case.note
       - case.people
       - case.chat
@@ -82,6 +83,12 @@ capabilities:
     area: case
     locked: true
     events: [case/categorised]
+
+  case.tag:
+    label: Add and remove case tags
+    area: case
+    locked: true
+    events: [case_tag/added, case_tag/removed, tag/added]
 
   case.note:
     label: Write a note and delete their own
@@ -265,10 +272,10 @@ capabilities:
     events: [flag/turned_on, flag/turned_off]
 
   app.configure:
-    label: Configure the automod list and canned replies
+    label: Configure the automod list, canned replies and tags
     area: app
     locked: true
-    events: [automod_word/added, automod_word/removed, app_setting/tuned]
+    events: [automod_word/added, automod_word/removed, app_setting/tuned, tag/renamed, tag/merged, tag/removed]
 
   api.review:
     label: Review requests for public API access

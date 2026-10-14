@@ -62,7 +62,7 @@ def test_every_panel_needs_a_real_capability_or_nothing():
 def test_the_locked_capabilities_are_fd_only_and_fixed():
     locked = [k for k, one in capabilities.capabilities(TABLE).items() if one.get("locked")]
     assert locked == [
-        "case.read", "case.open", "case.categorise", "case.note", "case.people",
+        "case.read", "case.open", "case.categorise", "case.tag", "case.note", "case.people",
         "case.chat", "case.reply", "case.act", "case.resolve",
         "case.reverse", "case.reopen", "thread.guard", "member.note", "member.guard",
         "member.deactivate", "member.links", "link.verdict", "identity.read",
