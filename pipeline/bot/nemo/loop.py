@@ -94,6 +94,11 @@ def apart(*doing):
             log.exception("nemo: %s failed", name)
 
 
+def start_purge(client, purge_id):
+    threading.Thread(target=purge.run, args=(client, purge_id),
+                     name=f"nemo-purge-{purge_id}", daemon=True).start()
+
+
 def flush_pending(client):
     with session() as conn:
         memberguards.refresh(conn)
@@ -174,7 +179,7 @@ def once(case_channel, channel_id=None):
     for guard_id in lifting:
         apart((f"lifting guard {guard_id}", lambda id=guard_id: guard_actions.lift_lock(client, id)))
     for purge_id in purging:
-        apart((f"purging {purge_id}", lambda id=purge_id: purge.run(client, id)))
+        start_purge(client, purge_id)
     apart(
         ("clearing unremoved guard artifacts", lambda: guard_actions.sweep_removals(client)),
         ("resetting sessions the guard has earned", guard_actions.sweep_strikes),
@@ -195,6 +200,10 @@ def start(case_channel, stopping, channel_id=None):
                  memberguards.refresh(conn), automod.refresh(conn))
         responses.refresh(conn)
         screening.refresh(conn)
+        stranded = purge.requeue_stranded(conn)
+    if stranded:
+        log.info("nemo: %s purge(s) were cut off by a restart and go again: %s",
+                 len(stranded), stranded)
 
     wake_notices = loops.draining(f"{NAME}-notices",
                                   lambda: guard_notices.drain(case_channel.client), stopping)
@@ -232,10 +241,7 @@ def start(case_channel, stopping, channel_id=None):
             with session() as conn:
                 screening.refresh(conn)
         elif channel_name == PURGE:
-            threading.Thread(
-                target=purge.run, args=(case_channel.client, payload),
-                name=f"nemo-purge-{payload}", daemon=True,
-            ).start()
+            start_purge(case_channel.client, payload)
         elif channel_name == CHANNEL_GUARD:
             with session() as conn:
                 channelguards.refresh(conn)

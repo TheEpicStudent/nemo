@@ -1,65 +1,137 @@
 import logging
+import time
+from collections import namedtuple
 
-from bot.core import session
-from bot.nemo import guard_actions
+from bot.core import access, audit, parse, privileged, session
+from bot.nemo import channel, guard_actions
 
 log = logging.getLogger("bot.nemo")
 
-MOST = 100
-CEILING = 500
+CAP = 10_000
 PAGE = 200
+BATCH = 200
+SEARCH_COUNT = 100
+SEARCH_PAGES = 100
 MAX_PASSES = 12
+CHECK_DELAY_SECONDS = 180
+FAILURES_IN_A_ROW = 25
+UNDELETABLE = frozenset({"channel_join", "channel_leave"})
+
+QUEUED = "queued"
+DELETED = "deleted"
+GONE = "gone"
+FAILED = "failed"
+
+Purge = namedtuple("Purge", "id channel_id member_id wanted asked_by")
+Item = namedtuple("Item", "channel_id ts thread_ts author_id text reply_count")
 
 WAITING = """
-SELECT id, channel_id, wanted, asked_by
+SELECT id
 FROM fd.purges
-WHERE state = 'asked' AND channel_id IS NOT NULL AND member_id IS NULL
+WHERE state = 'asked'
 ORDER BY asked_at
 LIMIT 20
 """
 
+STRANDED = """
+UPDATE fd.purges
+SET state = 'asked'
+WHERE state IN ('running', 'checking')
+RETURNING id
+"""
+
 CLAIM = """
 UPDATE fd.purges
-SET state = 'running', started_at = now()
-WHERE id = %s AND state = 'asked' AND channel_id IS NOT NULL AND member_id IS NULL
-RETURNING channel_id, wanted
+SET state = 'running', started_at = coalesce(started_at, now())
+WHERE id = %s AND state = 'asked'
+RETURNING id, channel_id, member_id, wanted, asked_by
 """
 
-DONE = """
-UPDATE fd.purges
-SET state = 'done', finished_at = now(), taken_down = %s
-WHERE id = %s AND state = 'running'
-"""
+HELD = "SELECT count(*) FROM fd.purge_items WHERE purge_id = %s"
 
-FAILED = """
-UPDATE fd.purges
-SET state = 'failed', finished_at = now(), taken_down = %s, error = %s
-WHERE id = %s AND state = 'running'
-"""
-
-ITEMS = """
-INSERT INTO fd.purge_items (purge_id, channel_id, ts, thread_ts, author_id, text, state, done_at)
-SELECT %s, %s, taken.ts, taken.thread_ts, taken.author_id, taken.text, 'deleted', now()
-FROM unnest(%s::text[], %s::text[], %s::text[], %s::text[])
-    AS taken(ts, thread_ts, author_id, text)
+QUEUE = """
+INSERT INTO fd.purge_items (purge_id, channel_id, ts, thread_ts, author_id, text, reply_count)
+SELECT %s, found.channel_id, found.ts, found.thread_ts, found.author_id, found.text,
+       found.reply_count
+FROM unnest(%s::text[], %s::text[], %s::text[], %s::text[], %s::text[], %s::integer[])
+    AS found(channel_id, ts, thread_ts, author_id, text, reply_count)
 ON CONFLICT (purge_id, channel_id, ts) DO NOTHING
+"""
+
+FOUND = "UPDATE fd.purges SET found = %s WHERE id = %s"
+
+NEXT = f"""
+SELECT channel_id, ts, thread_ts, author_id, text, reply_count
+FROM fd.purge_items
+WHERE purge_id = %s AND state = 'queued'
+ORDER BY coalesce(thread_ts, ts) DESC, thread_ts IS NULL, ts DESC
+LIMIT {BATCH}
+"""
+
+MARK = """
+UPDATE fd.purge_items
+SET state = %s, error = %s, done_at = now()
+WHERE purge_id = %s AND channel_id = %s AND ts = %s
+"""
+
+TAKEN = """
+INSERT INTO fd.purge_items (purge_id, channel_id, ts, thread_ts, author_id, text, state, error,
+                            done_at)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
+ON CONFLICT (purge_id, channel_id, ts) DO UPDATE
+SET state = EXCLUDED.state, error = EXCLUDED.error, done_at = now()
+"""
+
+PROGRESS = """
+UPDATE fd.purges
+SET taken_down = (SELECT count(*) FROM fd.purge_items WHERE purge_id = %s AND state = 'deleted')
+WHERE id = %s
+"""
+
+CHECKING = "UPDATE fd.purges SET state = 'checking' WHERE id = %s AND state = 'running'"
+
+DONE_ITEMS = "SELECT channel_id, ts, thread_ts FROM fd.purge_items WHERE purge_id = %s"
+
+FINISH = """
+UPDATE fd.purges
+SET state = %s, finished_at = now(), error = %s, left_after_check = %s,
+    checked_at = CASE WHEN %s THEN now() END,
+    taken_down = (SELECT count(*) FROM fd.purge_items WHERE purge_id = %s AND state = 'deleted')
+WHERE id = %s AND state IN ('running', 'checking')
+RETURNING taken_down
+"""
+
+ARCHIVED = """
+SELECT channel_id, ts, CASE WHEN is_reply THEN thread_root_ts END
+FROM archive.message
+WHERE author_id = %(member_id)s
+  AND deleted_at IS NULL
+  AND (%(channel_id)s::text IS NULL OR channel_id = %(channel_id)s)
+  AND coalesce(subtype, '') NOT IN ('channel_join', 'channel_leave')
+ORDER BY posted_at DESC
+LIMIT %(limit)s
 """
 
 
 class PurgeLimitExceeded(RuntimeError):
-    """Raised when a thread exceeds the maximum messages a purge may delete."""
+    """Raised when a purge reaches the most messages one purge may delete."""
 
 
 def waiting(conn):
     return conn.execute(WAITING).fetchall()
 
 
+def requeue_stranded(conn):
+    return [row[0] for row in conn.execute(STRANDED).fetchall()]
+
+
 def claim(conn, purge_id):
-    return conn.execute(CLAIM, (purge_id,)).fetchone()
+    row = conn.execute(CLAIM, (purge_id,)).fetchone()
+    return Purge(*row) if row else None
 
 
 def deletable(message):
-    return message.get("subtype") != "channel_join" and message.get("ts")
+    return bool(message.get("ts")) and message.get("subtype") not in UNDELETABLE
 
 
 def has_replies(message):
@@ -68,103 +140,298 @@ def has_replies(message):
     return bool(message.get("thread_ts")) and message.get("thread_ts") == message.get("ts")
 
 
-def newest(client, channel_id, max_messages):
-    messages = []
-    cursor = None
-    while len(messages) < max_messages:
-        params = {"channel": channel_id, "limit": min(PAGE, max_messages - len(messages))}
-        if cursor:
-            params["cursor"] = cursor
-        response = client.conversations_history(**params) or {}
-        for message in response.get("messages") or []:
-            if not deletable(message):
-                continue
-            messages.append(message)
-            if len(messages) >= max_messages:
-                break
-        cursor = ((response.get("response_metadata") or {}).get("next_cursor") or "").strip()
-        if not cursor:
-            break
-    return messages
+def next_cursor(page):
+    return ((page or {}).get("response_metadata") or {}).get("next_cursor", "").strip() or None
 
 
-def replies(client, channel_id, thread_ts):
-    messages, cursor = [], None
-    while True:
-        response = client.conversations_replies(
-            channel=channel_id, ts=thread_ts, limit=PAGE, cursor=cursor
-        ) or {}
-        for message in response.get("messages") or []:
-            if message.get("ts") and message["ts"] != thread_ts:
-                messages.append(message)
-        cursor = ((response.get("response_metadata") or {}).get("next_cursor") or "").strip()
-        if not cursor:
-            return messages
+def as_admin(client, channel_id, call):
+    try:
+        return call()
+    except Exception as failure:
+        if not privileged.absent(failure) or not guard_actions.invite_the_admin(client, channel_id):
+            raise
+    return call()
 
 
-def transcript_entry(message, thread_ts=None):
+def from_history(channel_id, message, thread_ts=None):
     return {
-        "ts": message.get("ts"),
+        "channel_id": channel_id,
+        "ts": message["ts"],
         "thread_ts": thread_ts,
-        "user": message.get("user") or message.get("bot_id"),
+        "author_id": message.get("user") or message.get("bot_id"),
         "text": message.get("text"),
+        "reply_count": (message.get("reply_count") or 1) if has_replies(message) else None,
     }
 
 
-def keep(conn, purge_id, channel_id, deleted):
-    if not deleted:
-        return
-    conn.execute(ITEMS, (
-        purge_id, channel_id,
-        [entry["ts"] for entry in deleted],
-        [entry["thread_ts"] for entry in deleted],
-        [entry["user"] for entry in deleted],
-        [entry["text"] for entry in deleted],
-    ))
-
-
-def delete_thread_replies(client, channel_id, parent, deleted):
-    thread_ts = parent["ts"]
-    for _ in range(MAX_PASSES):
-        thread_replies = replies(client, channel_id, thread_ts)
-        if not thread_replies:
+def channel_messages(client, purge):
+    limit = min(purge.wanted or CAP, CAP)
+    found, cursor = [], None
+    while len(found) < limit:
+        page = as_admin(client, purge.channel_id,
+                        lambda at=cursor: privileged.history(purge.channel_id, cursor=at, limit=PAGE))
+        for message in page.get("messages") or []:
+            if deletable(message):
+                found.append(from_history(purge.channel_id, message))
+                if len(found) >= limit:
+                    break
+        cursor = next_cursor(page)
+        if not cursor:
             break
+    return found
+
+
+def archived_messages(conn, purge, limit):
+    rows = conn.execute(ARCHIVED, {
+        "member_id": purge.member_id, "channel_id": purge.channel_id, "limit": limit,
+    }).fetchall()
+    return [
+        {"channel_id": channel_id, "ts": ts, "thread_ts": thread_ts,
+         "author_id": purge.member_id, "text": None, "reply_count": None}
+        for channel_id, ts, thread_ts in rows
+    ]
+
+
+def searched(purge, match):
+    where = match.get("channel") or {}
+    if where.get("is_im") or where.get("is_mpim") or match.get("user") != purge.member_id:
+        return None
+    if not where.get("id") or not match.get("ts"):
+        return None
+    if purge.channel_id and where["id"] != purge.channel_id:
+        return None
+    target = parse.link_target(match.get("permalink"))
+    thread_ts = target[2] if target else None
+    return {
+        "channel_id": where["id"],
+        "ts": match["ts"],
+        "thread_ts": thread_ts if thread_ts != match["ts"] else None,
+        "author_id": purge.member_id,
+        "text": match.get("text"),
+        "reply_count": None,
+    }
+
+
+def searched_messages(purge, limit):
+    found = []
+    for page_number in range(1, SEARCH_PAGES + 1):
+        data = privileged.search(f"from:<@{purge.member_id}>", page=page_number, count=SEARCH_COUNT)
+        results = data.get("messages") or {}
+        found.extend(hit for hit in (searched(purge, match) for match in results.get("matches") or [])
+                     if hit)
+        if page_number >= ((results.get("paging") or {}).get("pages") or 0) or len(found) >= limit:
+            break
+    return found
+
+
+def member_messages(purge):
+    limit = min(purge.wanted or CAP, CAP)
+    with session() as conn:
+        found = {(one["channel_id"], one["ts"]): one for one in archived_messages(conn, purge, limit)}
+    try:
+        for one in searched_messages(purge, limit):
+            found[(one["channel_id"], one["ts"])] = one
+    except Exception as failure:
+        log.warning("nemo: purge %s goes on from the archive alone, search failed: %s",
+                    purge.id, failure)
+    return sorted(found.values(), key=lambda one: float(one["ts"]), reverse=True)[:limit]
+
+
+def collect(client, purge):
+    return member_messages(purge) if purge.member_id else channel_messages(client, purge)
+
+
+def queue(conn, purge_id, messages):
+    if messages:
+        conn.execute(QUEUE, (
+            purge_id,
+            [one["channel_id"] for one in messages],
+            [one["ts"] for one in messages],
+            [one["thread_ts"] for one in messages],
+            [one["author_id"] for one in messages],
+            [one["text"] for one in messages],
+            [one["reply_count"] for one in messages],
+        ))
+    return len(messages)
+
+
+def delete_one(client, channel_id, ts):
+    try:
+        guard_actions.remove(client, channel_id, ts)
+        return DELETED, None
+    except Exception as failure:
+        if privileged.already_deleted(failure):
+            return GONE, None
+        return FAILED, str(failure)[:300]
+
+
+def keep(purge_id, channel_id, message, thread_ts, state, error):
+    with session() as conn:
+        conn.execute(TAKEN, (purge_id, channel_id, message["ts"], thread_ts,
+                             message.get("user") or message.get("bot_id"), message.get("text"),
+                             state, error))
+
+
+def held(purge_id):
+    with session() as conn:
+        return conn.execute(HELD, (purge_id,)).fetchone()[0]
+
+
+def replies_of(client, channel_id, thread_ts):
+    found, cursor = [], None
+    while True:
+        page = as_admin(client, channel_id,
+                        lambda at=cursor: privileged.replies(channel_id, thread_ts, cursor=at, limit=PAGE))
+        found.extend(message for message in page.get("messages") or []
+                     if message.get("ts") and message["ts"] != thread_ts)
+        cursor = next_cursor(page)
+        if not cursor:
+            return found
+
+
+def sweep_thread(client, purge, parent):
+    for _ in range(MAX_PASSES):
+        thread_replies = replies_of(client, parent.channel_id, parent.ts)
+        if not thread_replies:
+            return
         for message in thread_replies:
-            if len(deleted) >= CEILING:
-                raise PurgeLimitExceeded(f"more than {CEILING} messages hang off {channel_id}")
-            guard_actions.remove(client, channel_id, message["ts"])
-            deleted.append(transcript_entry(message, thread_ts))
+            if held(purge.id) >= CAP:
+                raise PurgeLimitExceeded(f"more than {CAP} messages to delete")
+            state, error = delete_one(client, parent.channel_id, message["ts"])
+            keep(purge.id, parent.channel_id, message, parent.ts, state, error)
 
 
-def delete_messages(client, channel_id, message, deleted):
-    if has_replies(message):
-        delete_thread_replies(client, channel_id, message, deleted)
-    if len(deleted) >= CEILING:
-        raise PurgeLimitExceeded(f"more than {CEILING} messages hang off {channel_id}")
-    guard_actions.remove(client, channel_id, message["ts"])
-    deleted.append(transcript_entry(message))
+def take_down(client, purge):
+    in_a_row = 0
+    while True:
+        with session() as conn:
+            batch = [Item(*row) for row in conn.execute(NEXT, (purge.id,)).fetchall()]
+        if not batch:
+            return
+        for item in batch:
+            if item.reply_count:
+                sweep_thread(client, purge, item)
+            state, error = delete_one(client, item.channel_id, item.ts)
+            with session() as conn:
+                conn.execute(MARK, (state, error, purge.id, item.channel_id, item.ts))
+            in_a_row = in_a_row + 1 if state == FAILED else 0
+            if in_a_row >= FAILURES_IN_A_ROW:
+                raise RuntimeError(f"{in_a_row} deletes failed in a row, the last: {error}")
+        with session() as conn:
+            conn.execute(PROGRESS, (purge.id, purge.id))
+
+
+def channel_leftovers(client, purge, items):
+    tops = sorted((ts for _, ts, thread_ts in items if thread_ts is None), key=float)
+    if not tops:
+        return []
+    taken = {ts for _, ts, _ in items}
+    found, cursor = [], None
+    while True:
+        page = as_admin(client, purge.channel_id, lambda at=cursor: privileged.history(
+            purge.channel_id, cursor=at, limit=PAGE, oldest=tops[0], latest=tops[-1]))
+        found.extend(message for message in page.get("messages") or []
+                     if deletable(message) and (not purge.wanted or message["ts"] in taken))
+        cursor = next_cursor(page)
+        if not cursor:
+            return found
+
+
+def member_leftovers(purge, items):
+    time.sleep(CHECK_DELAY_SECONDS)
+    taken = {(channel_id, ts) for channel_id, ts, _ in items}
+    return [one for one in searched_messages(purge, CAP)
+            if not purge.wanted or (one["channel_id"], one["ts"]) in taken]
+
+
+def check(client, purge):
+    with session() as conn:
+        conn.execute(CHECKING, (purge.id,))
+        items = conn.execute(DONE_ITEMS, (purge.id,)).fetchall()
+
+    left = 0
+    if purge.member_id:
+        for one in member_leftovers(purge, items):
+            state, error = delete_one(client, one["channel_id"], one["ts"])
+            keep(purge.id, one["channel_id"], {"ts": one["ts"], "user": purge.member_id,
+                                               "text": one["text"]}, one["thread_ts"], state, error)
+            left += state == FAILED
+        return left
+
+    for message in channel_leftovers(client, purge, items):
+        state, error = delete_one(client, purge.channel_id, message["ts"])
+        keep(purge.id, purge.channel_id, message, None, state, error)
+        left += state == FAILED
+    return left
+
+
+def summary(purge, taken, left, failure, unchecked=None):
+    whose = f" from <@{purge.member_id}>" if purge.member_id else ""
+    where = f"in <#{purge.channel_id}>" if purge.channel_id else "in every channel"
+    head = f"Purge {purge.id}: {taken} message{'' if taken == 1 else 's'} deleted{whose} {where}"
+    if failure:
+        text = f"{head}, then it stopped: {failure}."
+    elif unchecked:
+        text = f"{head}, the check could not run: {unchecked}."
+    else:
+        text = f"{head}, {left} left after the check."
+    text += f" Asked by <@{purge.asked_by}>."
+    url = (channel.member_url(purge.member_id) if purge.member_id
+           else channel.app_url(f"/fd/channels/{purge.channel_id}/purges/{purge.id}"))
+    return f"{text}\n{url}" if url else text
+
+
+def report(client, purge, taken, left, failure, unchecked=None):
+    try:
+        client.chat_postMessage(channel=channel.internal_log_channel(),
+                                text=summary(purge, taken, left, failure, unchecked),
+                                unfurl_links=False)
+    except Exception as error:
+        log.warning("nemo: could not post how purge %s went: %s", purge.id, error)
+
+
+def still_allowed(conn, purge):
+    allowed, refusal = access.may(conn, purge.asked_by,
+                                  "member.purge" if purge.member_id else "channel.purge")
+    return None if allowed else f"<@{purge.asked_by}> may no longer purge: {refusal}"
 
 
 def run(client, purge_id):
     with session() as conn:
-        claimed = claim(conn, purge_id)
-    if claimed is None:
-        return 0
+        purge = claim(conn, purge_id)
+        if purge is None:
+            return 0
+        resumed = conn.execute(HELD, (purge.id,)).fetchone()[0] > 0
+        failure = still_allowed(conn, purge)
 
-    channel_id, requested_count = claimed
-    deleted = []
-    failure = None
-    try:
-        for message in newest(client, channel_id, min(requested_count, MOST)):
-            delete_messages(client, channel_id, message, deleted)
-    except Exception as error:
-        failure = str(error)[:500]
-        log.warning("nemo: purge %s stopped after %s: %s", purge_id, len(deleted), failure)
+    unchecked, left = None, None
+    if failure is None:
+        try:
+            if not resumed:
+                messages = collect(client, purge)
+                with session() as conn:
+                    conn.execute(FOUND, (queue(conn, purge.id, messages), purge.id))
+            take_down(client, purge)
+        except Exception as error:
+            failure = str(error)[:500]
+            log.warning("nemo: purge %s stopped: %s", purge.id, failure)
 
+    if failure is None:
+        try:
+            left = check(client, purge)
+        except Exception as error:
+            unchecked = str(error)[:500]
+            log.warning("nemo: purge %s could not be checked: %s", purge.id, unchecked)
+
+    error = failure or (f"the check could not run: {unchecked}" if unchecked else None)
     with session() as conn:
-        keep(conn, purge_id, channel_id, deleted)
-        conn.execute(FAILED if failure else DONE,
-                     (len(deleted), failure, purge_id) if failure else (len(deleted), purge_id))
+        row = conn.execute(FINISH, (FAILED if failure else "done", error, left,
+                                    left is not None, purge.id, purge.id)).fetchone()
+        taken = row[0] if row else 0
+        audit.record(conn, "member_purge" if purge.member_id else "channel_purge", purge.id,
+                     "performed", purge.asked_by, subject_user_id=purge.member_id,
+                     after={"taken_down": taken, "left_after_check": left, "error": error})
 
-    log.info("nemo: purge %s took down %s in %s", purge_id, len(deleted), channel_id)
-    return len(deleted)
+    report(client, purge, taken, left, failure, unchecked)
+    log.info("nemo: purge %s took down %s, %s left after the check", purge.id, taken, left)
+    return taken

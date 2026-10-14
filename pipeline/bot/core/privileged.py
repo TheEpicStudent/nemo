@@ -76,6 +76,27 @@ def delete_message(channel_id, ts, max_retries=2):
                  credential="admin", max_retries=max_retries)
 
 
+def history(channel_id, cursor=None, limit=200, oldest=None, latest=None):
+    bounded = oldest is not None or latest is not None
+    return proxy().call("conversations.history", {
+        "channel": channel_id, "cursor": cursor, "limit": limit,
+        "oldest": oldest, "latest": latest, "inclusive": 1 if bounded else None,
+    }, credential="admin")
+
+
+def replies(channel_id, ts, cursor=None, limit=200):
+    return proxy().call("conversations.replies", {
+        "channel": channel_id, "ts": ts, "cursor": cursor, "limit": limit,
+    }, credential="admin")
+
+
+def search(query, page=1, count=100):
+    return proxy().call("search.messages", {
+        "query": query, "page": page, "count": count, "sort": "timestamp", "sort_dir": "desc",
+        "team_id": os.environ.get("SLACK_TEAM_ID", "").strip() or None,
+    }, credential="admin")
+
+
 def kick(channel_id, user_id):
     try:
         proxy().call("conversations.kick", {"channel": channel_id, "user": user_id},
