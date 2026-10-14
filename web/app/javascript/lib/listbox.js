@@ -33,7 +33,11 @@ export function nameLabel(id, name) {
   return el
 }
 
-function channelIcon() {
+const CHANNEL_ICON = "M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"
+const TAG_ICON = "M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"
+const PLUS_ICON = "M5 12h14M12 5v14"
+
+function icon(path) {
   const svg = document.createElementNS(SVG, "svg")
   svg.setAttribute("viewBox", "0 0 24 24")
   svg.setAttribute("fill", "none")
@@ -42,9 +46,9 @@ function channelIcon() {
   svg.setAttribute("stroke-linecap", "round")
   svg.setAttribute("aria-hidden", "true")
   svg.setAttribute("class", "combo-icon")
-  const path = document.createElementNS(SVG, "path")
-  path.setAttribute("d", "M4 9h16M4 15h16M10 3 8 21M16 3l-2 18")
-  svg.append(path)
+  const shape = document.createElementNS(SVG, "path")
+  shape.setAttribute("d", path)
+  svg.append(shape)
   return svg
 }
 
@@ -73,11 +77,19 @@ export function personOption(member) {
 export function channelOption(channel) {
   const row = option(channel.id)
   row.dataset.name = channel.name
-  row.append(channelIcon(), span("combo-name", channel.name), span("combo-end mono", channel.id))
+  row.append(icon(CHANNEL_ICON), span("combo-name", channel.name), span("combo-end mono", channel.id))
   return row
 }
 
-const OPTIONS = { member: personOption, channel: channelOption }
+export function tagOption(tag) {
+  const row = option(tag.id)
+  row.dataset.name = tag.name
+  row.append(icon(tag.create ? PLUS_ICON : TAG_ICON), span("combo-name", tag.name))
+  if (!tag.create) row.append(span("combo-end", `${tag.uses} ${tag.uses === 1 ? "case" : "cases"}`))
+  return row
+}
+
+const OPTIONS = { member: personOption, channel: channelOption, tag: tagOption }
 
 export class Listbox {
   constructor({ pop, list, anchor, kind, empty, input, onSelect }) {

@@ -57,6 +57,7 @@ Rails.application.routes.draw do
     get "cases/merge", to: "merges#confirm", as: :confirm_merge_cases
     get "cases/:id/merge", to: "merges#show", as: :case_merge
     get "members/search", to: "members#search", as: :member_search
+    get "tags/search", to: "tags#search", as: :tag_search
     get "members/pane", to: "members#pane", as: :member_pane
     get "channels/pane", to: "channels#pane", as: :channel_pane
     get "channels/search", to: "channels#search", as: :channel_search
@@ -118,6 +119,7 @@ Rails.application.routes.draw do
       resources :actions, only: [:create]
       resources :reversals, only: [:create]
       resources :participants, only: [:create, :destroy]
+      resources :tags, only: [:create, :destroy], controller: "case_tags"
     end
   end
 

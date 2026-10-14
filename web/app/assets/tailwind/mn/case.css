@@ -115,6 +115,14 @@
   .subjfaces-many .face-name:hover .face-sub,
   .subjfaces-many .face-name:focus-within .face-sub { opacity: 1; }
 
+  .tagbar { @apply flex min-w-0 flex-1 flex-wrap items-center gap-x-3.5 gap-y-1.5; }
+  .tagbar-mark { @apply size-3.5 flex-none text-muted-foreground; }
+  .tagbar .pill { gap: 2px; }
+  .tag-x {
+    @apply inline-grid size-4 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground hover:bg-muted hover:text-foreground;
+  }
+  .tag-x svg { @apply size-2.5; }
+
   .case-record { display: flex; flex-direction: column; min-height: 0; }
   .case-tab-body {
     flex: 1 1 auto;

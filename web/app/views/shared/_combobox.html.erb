@@ -18,7 +18,7 @@
         aria: { autocomplete: "list", expanded: false, label: local_assigns[:label] || placeholder },
         placeholder: placeholder, data: { combobox_target: "input", action: actions }) %>
   <% if trigger %>
-    <button type="button" class="btn" aria-haspopup="listbox" aria-expanded="false"
+    <button type="button" class="<%= local_assigns.fetch(:trigger_css, "btn") %>" aria-haspopup="listbox" aria-expanded="false"
             data-combobox-target="trigger" data-action="combobox#toggle">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
            stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg>

@@ -85,6 +85,10 @@
   <% end %>
 <% end %>
 
+<% content_for :page_controls do %>
+  <%= render "tags", kase: @case, links: @case.case_tags.includes(:tag).to_a %>
+<% end %>
+
 <% content_for :page_tabs do %>
   <% case_tabs(@tab_counts).each do |tab| %>
     <%= link_to fd_case_path(@case, @pane_params.merge(tab: tab[:key])),

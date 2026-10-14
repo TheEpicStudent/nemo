@@ -16,13 +16,18 @@ module Fd
       format: { with: NAME_SHAPE, allow_blank: true, message: "Use letters, numbers and hyphens." },
       uniqueness: { message: "That tag already exists." }
 
+    scope :with_uses, -> {
+      left_joins(:case_tags).group(:id).select("fd.tags.*", "COUNT(fd.case_tags.tag_id) AS uses")
+    }
+
     def self.normalise(value)
       value.to_s.downcase.gsub(/[^a-z0-9]+/, "-").gsub(/\A-+|-+\z/, "")
     end
 
     def self.find_or_add!(name, by:)
       normalised = normalise(name)
-      find_by(name: normalised) || create!(name: normalised, created_by: by)
+      find_by(name: normalised) ||
+        transaction(requires_new: true) { create!(name: normalised, created_by: by) }
     rescue ActiveRecord::RecordNotUnique
       find_by!(name: normalised)
     end

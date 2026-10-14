@@ -98,7 +98,7 @@ export default class extends Controller {
     if (abortController.signal.aborted) return
     if (this.inline ? document.activeElement !== this.inputTarget : !this.box.open) return
 
-    const items = payload.members || payload.channels || []
+    const items = payload.members || payload.channels || payload.tags || []
     this.box.show(items.filter((item) => !this.selected.has(item.id)))
   }
 
