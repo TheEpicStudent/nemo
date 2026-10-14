@@ -100,6 +100,8 @@ module Fd
     end
 
     def self.entity_type(record)
+      return record.audit_entity_type if record.respond_to?(:audit_entity_type)
+
       ENTITY_TYPES.fetch(record.class.name) do
         raise UnauditableRecordError, "#{record.class.name} is not a conduct record"
       end

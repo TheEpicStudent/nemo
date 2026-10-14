@@ -12,22 +12,45 @@
 
 <div class="card card-flush">
   <div class="card-head">
-    <h2 class="card-title"><%= @purge.wanted %> asked</h2>
-    <p class="card-note">
-      <%= member_face(@purge.asked_by, small: true) %> &middot; <%= at_minute(@purge.asked_at) %>
-      &middot; <%= @purge.taken_down %> taken down
-      <% if @purge.reply_count.positive? %>
-        &middot; <%= @purge.reply_count %> in threads
+    <h2 class="card-title">
+      <%= purge_scope(@purge) %>
+      <% if @purge.member_id %>
+        from <%= member_face(@purge.member_id, small: true) %>
       <% end %>
+    </h2>
+    <p class="card-note">
+      asked by <%= member_face(@purge.asked_by, small: true) %> &middot; <%= at_minute(@purge.asked_at) %>
+      <% if purge_source(@purge) %>
+        &middot; <%= purge_source(@purge) %>
+      <% end %>
+      &middot; <%= purge_progress(@purge) %>
     </p>
   </div>
-  <div class="card-body">
-    <p class="msg-body"><%= @purge.reason %></p>
-    <% if @purge.failed? && @purge.error.present? %>
-      <p class="sub2"><%= @purge.error %></p>
-    <% end %>
-  </div>
+  <% if @purge.reason.present? || @purge.error.present? %>
+    <div class="card-body">
+      <% if @purge.reason.present? %>
+        <p class="msg-body"><%= @purge.reason %></p>
+      <% end %>
+      <% if @purge.error.present? %>
+        <p class="sub2"><%= @purge.error %></p>
+      <% end %>
+    </div>
+  <% end %>
 </div>
+
+<% if @failed.any? %>
+  <div class="card card-flush">
+    <div class="card-head">
+      <h2 class="card-title">Could not be deleted</h2>
+    </div>
+    <div class="card-body">
+      <% @failed.each do |message, error| %>
+        <%= render "message", message: message, names: @names %>
+        <p class="sub2"><%= error %></p>
+      <% end %>
+    </div>
+  </div>
+<% end %>
 
 <div class="card card-flush">
   <div class="card-head">
@@ -40,7 +63,7 @@
         <%= render "message", message: message, names: @names %>
         <% below = @threads.below(message) %>
         <% if below.any? %>
-          <details class="purge-thread" open>
+          <details class="purge-thread">
             <summary><%= pluralize(below.size, "reply") %></summary>
             <% below.each do |reply| %>
               <%= render "message", message: reply, names: @names %>
@@ -50,8 +73,8 @@
       <% end %>
 
       <% if @threads.orphans.any? %>
-        <details class="purge-thread" open>
-          <summary><%= pluralize(@threads.orphans.size, "reply") %>, the top was not taken</summary>
+        <details class="purge-thread">
+          <summary><%= pluralize(@threads.orphans.size, "reply") %>, the top was not purged</summary>
           <% @threads.orphans.each do |message| %>
             <%= render "message", message: message, names: @names %>
           <% end %>

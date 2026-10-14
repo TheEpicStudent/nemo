@@ -10,7 +10,8 @@ module Fd
     FAILED = "failed".freeze
 
     WAITING = [ASKED, RUNNING, CHECKING].freeze
-    MOST = 100
+    PURGED_STATES = %w[deleted gone].freeze
+    MOST = 10_000
 
     belongs_to :kase, class_name: "Fd::Case", foreign_key: :case_id, optional: true,
       inverse_of: false
@@ -22,16 +23,32 @@ module Fd
     scope :newest_first, -> { order(asked_at: :desc, id: :desc) }
     scope :for_channel, ->(channel_id) { where(channel_id: channel_id) }
 
-    def self.waiting_on?(channel_id)
-      waiting.for_channel(channel_id).exists?
+    def self.waiting_on?(channel_id, member_id = nil)
+      waiting.for_channel(channel_id).where(member_id: member_id).exists?
     end
+
+    def audit_entity_type = member_id ? "member_purge" : "channel_purge"
 
     def waiting? = WAITING.include?(state)
     def done? = state == DONE
     def failed? = state == FAILED
 
+    def purged_items
+      items.select { |item| PURGED_STATES.include?(item.state) }
+    end
+
+    def failed_items
+      items.select { |item| item.state == "failed" }
+    end
+
     def transcript_entries
-      items.map(&:transcript_entry)
+      purged_items.map(&:transcript_entry)
+    end
+
+    def failed_messages
+      failed_items.map do |item|
+        [Message.new(**item.transcript_entry.symbolize_keys.slice(*Message.members)), item.error]
+      end
     end
 
     def reply_count
@@ -73,7 +90,7 @@ module Fd
     end
 
     def people_named
-      [asked_by] + transcript_entries.filter_map { |entry| entry["user"] }
+      [asked_by, member_id].compact + items.filter_map(&:author_id)
     end
   end
 end

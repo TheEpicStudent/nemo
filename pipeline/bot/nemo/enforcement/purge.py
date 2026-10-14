@@ -74,7 +74,7 @@ SET state = %s, error = %s, done_at = now()
 WHERE purge_id = %s AND channel_id = %s AND ts = %s
 """
 
-TAKEN = """
+RECORD_ITEM = """
 INSERT INTO fd.purge_items (purge_id, channel_id, ts, thread_ts, author_id, text, state, error,
                             done_at)
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
@@ -84,7 +84,7 @@ SET state = EXCLUDED.state, error = EXCLUDED.error, done_at = now()
 
 PROGRESS = """
 UPDATE fd.purges
-SET taken_down = (SELECT count(*) FROM fd.purge_items WHERE purge_id = %s AND state = 'deleted')
+SET purged = (SELECT count(*) FROM fd.purge_items WHERE purge_id = %s AND state = 'deleted')
 WHERE id = %s
 """
 
@@ -96,9 +96,9 @@ FINISH = """
 UPDATE fd.purges
 SET state = %s, finished_at = now(), error = %s, left_after_check = %s,
     checked_at = CASE WHEN %s THEN now() END,
-    taken_down = (SELECT count(*) FROM fd.purge_items WHERE purge_id = %s AND state = 'deleted')
+    purged = (SELECT count(*) FROM fd.purge_items WHERE purge_id = %s AND state = 'deleted')
 WHERE id = %s AND state IN ('running', 'checking')
-RETURNING taken_down
+RETURNING purged
 """
 
 ARCHIVED = """
@@ -267,7 +267,7 @@ def delete_one(client, channel_id, ts):
 
 def keep(purge_id, channel_id, message, thread_ts, state, error):
     with session() as conn:
-        conn.execute(TAKEN, (purge_id, channel_id, message["ts"], thread_ts,
+        conn.execute(RECORD_ITEM, (purge_id, channel_id, message["ts"], thread_ts,
                              message.get("user") or message.get("bot_id"), message.get("text"),
                              state, error))
 
@@ -301,7 +301,7 @@ def sweep_thread(client, purge, parent):
             keep(purge.id, parent.channel_id, message, parent.ts, state, error)
 
 
-def take_down(client, purge):
+def purge_queued(client, purge):
     in_a_row = 0
     while True:
         with session() as conn:
@@ -325,13 +325,13 @@ def channel_leftovers(client, purge, items):
     tops = sorted((ts for _, ts, thread_ts in items if thread_ts is None), key=float)
     if not tops:
         return []
-    taken = {ts for _, ts, _ in items}
+    purged_ts = {ts for _, ts, _ in items}
     found, cursor = [], None
     while True:
         page = as_admin(client, purge.channel_id, lambda at=cursor: privileged.history(
             purge.channel_id, cursor=at, limit=PAGE, oldest=tops[0], latest=tops[-1]))
         found.extend(message for message in page.get("messages") or []
-                     if deletable(message) and (not purge.wanted or message["ts"] in taken))
+                     if deletable(message) and (not purge.wanted or message["ts"] in purged_ts))
         cursor = next_cursor(page)
         if not cursor:
             return found
@@ -339,9 +339,9 @@ def channel_leftovers(client, purge, items):
 
 def member_leftovers(purge, items):
     time.sleep(CHECK_DELAY_SECONDS)
-    taken = {(channel_id, ts) for channel_id, ts, _ in items}
+    purged_pairs = {(channel_id, ts) for channel_id, ts, _ in items}
     return [one for one in searched_messages(purge, CAP)
-            if not purge.wanted or (one["channel_id"], one["ts"]) in taken]
+            if not purge.wanted or (one["channel_id"], one["ts"]) in purged_pairs]
 
 
 def check(client, purge):
@@ -365,10 +365,10 @@ def check(client, purge):
     return left
 
 
-def summary(purge, taken, left, failure, unchecked=None):
+def summary(purge, purged, left, failure, unchecked=None):
     whose = f" from <@{purge.member_id}>" if purge.member_id else ""
     where = f"in <#{purge.channel_id}>" if purge.channel_id else "in every channel"
-    head = f"Purge {purge.id}: {taken} message{'' if taken == 1 else 's'} deleted{whose} {where}"
+    head = f"Purge {purge.id}: {purged} message{'' if purged == 1 else 's'} deleted{whose} {where}"
     if failure:
         text = f"{head}, then it stopped: {failure}."
     elif unchecked:
@@ -381,10 +381,10 @@ def summary(purge, taken, left, failure, unchecked=None):
     return f"{text}\n{url}" if url else text
 
 
-def report(client, purge, taken, left, failure, unchecked=None):
+def report(client, purge, purged, left, failure, unchecked=None):
     try:
         client.chat_postMessage(channel=channel.internal_log_channel(),
-                                text=summary(purge, taken, left, failure, unchecked),
+                                text=summary(purge, purged, left, failure, unchecked),
                                 unfurl_links=False)
     except Exception as error:
         log.warning("nemo: could not post how purge %s went: %s", purge.id, error)
@@ -411,7 +411,7 @@ def run(client, purge_id):
                 messages = collect(client, purge)
                 with session() as conn:
                     conn.execute(FOUND, (queue(conn, purge.id, messages), purge.id))
-            take_down(client, purge)
+            purge_queued(client, purge)
         except Exception as error:
             failure = str(error)[:500]
             log.warning("nemo: purge %s stopped: %s", purge.id, failure)
@@ -427,11 +427,11 @@ def run(client, purge_id):
     with session() as conn:
         row = conn.execute(FINISH, (FAILED if failure else "done", error, left,
                                     left is not None, purge.id, purge.id)).fetchone()
-        taken = row[0] if row else 0
+        purged = row[0] if row else 0
         audit.record(conn, "member_purge" if purge.member_id else "channel_purge", purge.id,
                      "performed", purge.asked_by, subject_user_id=purge.member_id,
-                     after={"taken_down": taken, "left_after_check": left, "error": error})
+                     after={"purged": purged, "left_after_check": left, "error": error})
 
-    report(client, purge, taken, left, failure, unchecked)
-    log.info("nemo: purge %s took down %s, %s left after the check", purge.id, taken, left)
-    return taken
+    report(client, purge, purged, left, failure, unchecked)
+    log.info("nemo: purge %s purged %s, %s left after the check", purge.id, purged, left)
+    return purged

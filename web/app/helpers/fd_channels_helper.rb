@@ -63,6 +63,32 @@ module FdChannelsHelper
     "failed" => ["failed", "state-crit"]
   }.freeze
 
+  PURGE_SOURCES = { "slack" => "from Slack", "deactivation" => "with a deactivation" }.freeze
+
+  def purge_scope(purge)
+    purge.wanted ? "Last #{number_with_delimiter(purge.wanted)}" : "Every message"
+  end
+
+  def purge_source(purge)
+    PURGE_SOURCES[purge.source]
+  end
+
+  def purge_progress(purge)
+    purged = number_with_delimiter(purge.purged)
+    if purge.waiting?
+      return "#{purged} purged" if purge.found.nil?
+
+      return "#{purged} of #{number_with_delimiter(purge.found)} purged"
+    end
+
+    parts = ["#{purged} purged"]
+    parts << "#{purge.reply_count} in threads" if purge.reply_count.positive?
+    unless purge.left_after_check.nil?
+      parts << "#{number_with_delimiter(purge.left_after_check)} left after the check"
+    end
+    parts.join(" · ")
+  end
+
   def purge_state_chip(purge)
     label, tone = PURGE_STATE.fetch(purge.state, [purge.state, "state-off"])
     tag.span(label, class: "state #{tone}")

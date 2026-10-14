@@ -25,7 +25,7 @@ class Db:
         handlers = {
             purge.CLAIM: self.claim, purge.HELD: self.held, purge.QUEUE: self.queue,
             purge.FOUND: self.found, purge.NEXT: self.next, purge.MARK: self.mark,
-            purge.TAKEN: self.taken, purge.PROGRESS: lambda _: [], purge.CHECKING: self.checking,
+            purge.RECORD_ITEM: self.record_item, purge.PROGRESS: lambda _: [], purge.CHECKING: self.checking,
             purge.DONE_ITEMS: self.done_items, purge.FINISH: self.finish,
             purge.ARCHIVED: self.archive, purge.STRANDED: self.stranded, audit.RECORD: self.audit,
         }
@@ -74,7 +74,7 @@ class Db:
         state, error, _, channel_id, ts = args
         self.items[(channel_id, ts)].update(state=state, error=error)
 
-    def taken(self, args):
+    def record_item(self, args):
         _, channel_id, ts, thread_ts, author_id, text, state, error = args
         if (channel_id, ts) in self.items:
             self.items[(channel_id, ts)].update(state=state, error=error)
@@ -219,7 +219,7 @@ def test_each_kind_of_purge_asks_for_its_own_right(world):
     assert world.asked_keys == [("UASK", "channel.purge"), ("UASK", "member.purge")]
 
 
-def test_the_newest_are_taken_down_in_order(world):
+def test_the_newest_are_purged_in_order(world):
     world.pages = [{"messages": [message("3"), message("2"), message("1")]}]
 
     assert purge.run(Slack(), PURGE_ID) == 3
@@ -228,7 +228,7 @@ def test_the_newest_are_taken_down_in_order(world):
     assert world.db.purge["found"] == 3
 
 
-def test_what_was_taken_down_is_kept_with_its_words(world):
+def test_what_was_purged_is_kept_with_its_words(world):
     world.pages = [{"messages": [message("3", "the thing said")]}]
     purge.run(Slack(), PURGE_ID)
 
@@ -329,7 +329,7 @@ def test_the_check_takes_down_what_is_still_there(world):
     assert world.db.purge["checked"] is True
 
 
-def test_what_the_check_cannot_take_down_is_counted(world, monkeypatch):
+def test_what_the_check_cannot_purge_is_counted(world, monkeypatch):
     world.pages = [{"messages": [message("2"), message("1")]}]
     world.window = [message("2")]
 

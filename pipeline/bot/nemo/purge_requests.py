@@ -17,10 +17,15 @@ COUNT = re.compile(r"\A\d{1,6}\Z")
 
 USAGE = (
     "Say what to purge: */nemo purge 50* for this channel, */nemo purge #channel 50*, "
-    "*/nemo purge @them* or */nemo purge @them #channel 50*. No number means every message."
+    "*/nemo purge @them* or */nemo purge @them #channel*. "
+    "A member with no number means every message they posted."
 )
 NAME_A_CHANNEL = "Name the channel: */nemo purge #channel 50*"
-OUT_OF_RANGE = f"Say a number from 1 to {purge.CAP:,}, or none for every message."
+NEED_A_NUMBER = (
+    "Say how many: */nemo purge #channel 50*. "
+    "To purge everything one member posted there: */nemo purge @them #channel*"
+)
+OUT_OF_RANGE = f"Say a number from 1 to {purge.CAP:,}."
 TOO_LONG = f"Keep the reason under {LONGEST_REASON} characters."
 GONE = "This purge was already confirmed or cancelled."
 EXPIRED = f"This confirm ran out after {EXPIRES_MINUTES} minutes. Run the command again."
@@ -75,9 +80,9 @@ def requested(member_id, body, here):
         words.remove(count)
     reason = " ".join(words) or None
 
+    if member_id is None and count is None:
+        return None, NEED_A_NUMBER if channel_id else USAGE
     if member_id is None and channel_id is None:
-        if count is None:
-            return None, USAGE
         if not (here or "").startswith(("C", "G")):
             return None, NAME_A_CHANNEL
         channel_id = here

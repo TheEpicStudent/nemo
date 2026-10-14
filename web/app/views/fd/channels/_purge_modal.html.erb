@@ -1,14 +1,50 @@
+<% last = current_account.may?("channel.purge") %>
+<% one_member = current_account.may?("member.purge") %>
 <%= render layout: "fd/modal", locals: { id: "purge-channel",
-      title: "Take down messages in #{label}",
-      label: "Take down the last messages in this channel" } do %>
+      title: "Purge messages in #{label}",
+      label: "Purge messages in this channel" } do %>
   <%= form_with url: fd_channel_purges_path(channel_id), method: :post,
         html: { autocomplete: "off" } do %>
     <div class="modal-body">
-      <label class="field-label">
-        Channel messages
-        <%= number_field_tag :wanted, 10, class: "input", id: nil,
-              min: 1, max: Fd::ChannelPurge::MOST %>
-      </label>
+      <% if last && one_member %>
+        <div class="segmented">
+          <label>
+            <%= radio_button_tag :kind, Fd::ChannelPurgesController::LAST, true, id: nil,
+                  class: "purge-kind-last" %>
+            The last messages
+          </label>
+          <label>
+            <%= radio_button_tag :kind, Fd::ChannelPurgesController::MEMBER, false, id: nil,
+                  class: "purge-kind-member" %>
+            One member
+          </label>
+        </div>
+      <% else %>
+        <%= hidden_field_tag :kind,
+              last ? Fd::ChannelPurgesController::LAST : Fd::ChannelPurgesController::MEMBER, id: nil %>
+      <% end %>
+
+      <% if last %>
+        <label class="field-label purge-count">
+          Channel messages
+          <%= number_field_tag :wanted, 10, class: "input", id: nil,
+                min: 1, max: Fd::ChannelPurge::MOST %>
+        </label>
+      <% end %>
+
+      <% if one_member %>
+        <div class="field-label purge-member">
+          <span>Member</span>
+          <%= render "shared/combobox", name: "member_id", single: true,
+                label: "search for the member" %>
+        </div>
+        <label class="field-label purge-member">
+          Messages
+          <%= number_field_tag :member_wanted, nil, class: "input", id: nil, placeholder: "All",
+                min: 1, max: Fd::ChannelPurge::MOST %>
+        </label>
+      <% end %>
+
       <label class="field-label">
         Why
         <%= text_area_tag :reason, nil, rows: 3, class: "textarea", id: nil,
@@ -17,7 +53,7 @@
     </div>
     <div class="modal-foot">
       <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
-      <%= submit_tag "Take them down", class: "btn btn-danger" %>
+      <%= submit_tag "Purge", class: "btn btn-danger" %>
     </div>
   <% end %>
 <% end %>

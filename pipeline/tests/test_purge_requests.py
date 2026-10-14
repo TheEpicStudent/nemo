@@ -34,8 +34,14 @@ def test_a_private_channel_with_no_name_still_reads():
     assert asked("25 <#G01SECRET|>")[0].channel_id == "G01SECRET"
 
 
-def test_a_channel_with_no_number_means_every_message():
-    assert asked(f"<#{LOUNGE}|lounge>")[0] == purge_requests.Request(LOUNGE, None, None, None)
+def test_a_whole_channel_cannot_be_asked_for():
+    assert asked(f"<#{LOUNGE}|lounge>") == (None, purge_requests.NEED_A_NUMBER)
+    assert asked(f"<#{LOUNGE}|lounge> raid") == (None, purge_requests.NEED_A_NUMBER)
+
+
+def test_a_member_in_a_channel_with_no_number_means_all_of_theirs_there():
+    assert asked(f"<@{MEMBER}> <#{LOUNGE}|lounge>")[0] == purge_requests.Request(
+        LOUNGE, MEMBER, None, None)
 
 
 def test_a_member_alone_means_every_message_in_every_channel():
@@ -83,8 +89,8 @@ def test_the_confirm_says_what_goes():
             == f"all 1,204 messages from <@{MEMBER}> in every channel")
     assert (purge_requests.described(request(LOUNGE, MEMBER, 1, None))
             == f"the last 1 message from <@{MEMBER}> in <#{LOUNGE}>")
-    assert (purge_requests.described(request(LOUNGE, None, None, None), 25000)
-            == f"the last 10,000 of 25,000 messages in <#{LOUNGE}>, with their thread replies")
+    assert (purge_requests.described(request(LOUNGE, MEMBER, None, None), 25000)
+            == f"the last 10,000 of 25,000 messages from <@{MEMBER}> in <#{LOUNGE}>")
     assert (purge_requests.described(request(None, MEMBER, None, None), 0)
             == f"every message from <@{MEMBER}> in every channel")
 
