@@ -16,6 +16,14 @@ class FdChannelPurgeTest < ActionDispatch::IntegrationTest
 
   def purges = Fd::ChannelPurge.for_channel(@id)
 
+  def kept!(purge, entries)
+    entries.each do |entry|
+      Fd::PurgeItem.create!(purge_id: purge.id, channel_id: purge.channel_id, ts: entry["ts"],
+        thread_ts: entry["thread_ts"], author_id: entry["user"], text: entry["text"],
+        state: "deleted", done_at: Time.current)
+    end
+  end
+
   test "the purge tab opens" do
     get fd_channel_path(@id, tab: "purge")
 
@@ -73,8 +81,8 @@ class FdChannelPurgeTest < ActionDispatch::IntegrationTest
 
   test "the tab shows what was taken down" do
     post_purge
-    purges.sole.update!(state: "done", finished_at: Time.current, taken_down: 8,
-      transcript: [{ "ts" => "1", "user" => "USUB", "text" => "the raid" }])
+    purges.sole.update!(state: "done", finished_at: Time.current, taken_down: 8)
+    kept!(purges.sole, [{ "ts" => "1", "user" => "USUB", "text" => "the raid" }])
     get fd_channel_path(@id, tab: "purge")
 
     assert_match(/a raid/, response.body)
@@ -84,12 +92,12 @@ class FdChannelPurgeTest < ActionDispatch::IntegrationTest
 
   test "replies taken with a thread are counted apart" do
     post_purge
-    purges.sole.update!(state: "done", finished_at: Time.current, taken_down: 4,
-      transcript: [
-        { "ts" => "1.1", "thread_ts" => "1", "user" => "USUB", "text" => "in it" },
-        { "ts" => "1.2", "thread_ts" => "1", "user" => "USUB", "text" => "again" },
-        { "ts" => "1", "thread_ts" => nil, "user" => "USUB", "text" => "the top" }
-      ])
+    purges.sole.update!(state: "done", finished_at: Time.current, taken_down: 4)
+    kept!(purges.sole, [
+      { "ts" => "1.1", "thread_ts" => "1", "user" => "USUB", "text" => "in it" },
+      { "ts" => "1.2", "thread_ts" => "1", "user" => "USUB", "text" => "again" },
+      { "ts" => "1", "thread_ts" => nil, "user" => "USUB", "text" => "the top" }
+    ])
     get fd_channel_path(@id, tab: "purge")
 
     assert_equal 2, purges.sole.reply_count
@@ -127,8 +135,8 @@ class FdChannelPurgeTest < ActionDispatch::IntegrationTest
   def finished_purge(transcript, **over)
     post_purge
     one = purges.sole
-    one.update!({ state: "done", finished_at: Time.current, taken_down: transcript.size,
-                  transcript: transcript }.merge(over))
+    one.update!({ state: "done", finished_at: Time.current, taken_down: transcript.size }.merge(over))
+    kept!(one, transcript)
     one
   end
 

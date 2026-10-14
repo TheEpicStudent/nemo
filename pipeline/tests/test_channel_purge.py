@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from bot.nemo.enforcement import purge
@@ -97,10 +95,12 @@ def test_what_was_taken_down_is_kept(harness):
     conn, _ = harness
     purge.run(Slack(pages=[{"messages": [message("3", "the thing said")]}]), 7)
 
-    archived = json.loads(conn.args_for("SET state = 'done'")[0][1])
-    assert archived[0]["ts"] == "3"
-    assert archived[0]["text"] == "the thing said"
-    assert archived[0]["user"] == "U1"
+    purge_id, channel_id, ts, thread_ts, authors, texts = conn.args_for("fd.purge_items")[0]
+    assert (purge_id, channel_id) == (7, CHANNEL_ID)
+    assert ts == ["3"]
+    assert thread_ts == [None]
+    assert authors == ["U1"]
+    assert texts == ["the thing said"]
 
 
 def test_it_stops_at_what_was_asked_for(harness):
@@ -156,8 +156,8 @@ def test_a_failure_keeps_what_it_managed(monkeypatch):
 
     failed = conn.args_for("state = 'failed'")[0]
     assert failed[0] == 1
-    assert "slack said no" in failed[2]
-    assert json.loads(failed[1])[0]["ts"] == "3"
+    assert "slack said no" in failed[1]
+    assert conn.args_for("fd.purge_items")[0][2] == ["3"]
 
 
 def test_it_never_takes_more_than_the_cap(harness):
@@ -198,11 +198,9 @@ def test_a_reply_is_kept_against_its_thread(harness):
     )
     purge.run(client, 7)
 
-    archived = json.loads(conn.args_for("SET state = 'done'")[0][1])
-    assert archived[0]["ts"] == "3.1"
-    assert archived[0]["thread_ts"] == "3"
-    assert archived[1]["ts"] == "3"
-    assert archived[1]["thread_ts"] is None
+    _, _, ts, thread_ts, _, _ = conn.args_for("fd.purge_items")[0]
+    assert ts == ["3.1", "3"]
+    assert thread_ts == ["3", None]
 
 
 def test_a_plain_message_is_not_asked_about(harness):
@@ -232,7 +230,7 @@ def test_a_thread_beyond_the_ceiling_stops_and_says_so(harness):
 
     failed = conn.args_for("state = 'failed'")[0]
     assert len(removed) == purge.CEILING
-    assert "hang off" in failed[2]
+    assert "hang off" in failed[1]
 
 
 def test_the_count_covers_the_replies_too(harness):

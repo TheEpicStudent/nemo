@@ -55,8 +55,10 @@ module FdChannelsHelper
   end
 
   PURGE_STATE = {
+    "proposed" => ["not confirmed", "state-off"],
     "asked" => ["waiting", "state-warn"],
     "running" => ["running", "state-warn"],
+    "checking" => ["checking", "state-warn"],
     "done" => ["done", "state-good"],
     "failed" => ["failed", "state-crit"]
   }.freeze

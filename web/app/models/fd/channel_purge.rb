@@ -1,17 +1,21 @@
 module Fd
   class ChannelPurge < ApplicationRecord
-    self.table_name = "fd.channel_purges"
+    self.table_name = "fd.purges"
 
+    PROPOSED = "proposed".freeze
     ASKED = "asked".freeze
     RUNNING = "running".freeze
+    CHECKING = "checking".freeze
     DONE = "done".freeze
     FAILED = "failed".freeze
 
-    WAITING = [ASKED, RUNNING].freeze
+    WAITING = [ASKED, RUNNING, CHECKING].freeze
     MOST = 100
 
     belongs_to :kase, class_name: "Fd::Case", foreign_key: :case_id, optional: true,
       inverse_of: false
+    has_many :items, -> { order(:ts) }, class_name: "Fd::PurgeItem", foreign_key: :purge_id,
+      inverse_of: :purge, dependent: nil
 
     scope :waiting, -> { where(state: WAITING) }
     scope :newest_first, -> { order(asked_at: :desc, id: :desc) }
@@ -26,7 +30,7 @@ module Fd
     def failed? = state == FAILED
 
     def transcript_entries
-      transcript.is_a?(Array) ? transcript : []
+      items.map(&:transcript_entry)
     end
 
     def reply_count

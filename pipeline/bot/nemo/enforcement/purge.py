@@ -1,4 +1,3 @@
-import json
 import logging
 
 from bot.core import session
@@ -13,29 +12,37 @@ MAX_PASSES = 12
 
 WAITING = """
 SELECT id, channel_id, wanted, asked_by
-FROM fd.channel_purges
-WHERE state = 'asked'
+FROM fd.purges
+WHERE state = 'asked' AND channel_id IS NOT NULL AND member_id IS NULL
 ORDER BY asked_at
 LIMIT 20
 """
 
 CLAIM = """
-UPDATE fd.channel_purges
+UPDATE fd.purges
 SET state = 'running', started_at = now()
-WHERE id = %s AND state = 'asked'
+WHERE id = %s AND state = 'asked' AND channel_id IS NOT NULL AND member_id IS NULL
 RETURNING channel_id, wanted
 """
 
 DONE = """
-UPDATE fd.channel_purges
-SET state = 'done', finished_at = now(), taken_down = %s, transcript = %s
+UPDATE fd.purges
+SET state = 'done', finished_at = now(), taken_down = %s
 WHERE id = %s AND state = 'running'
 """
 
 FAILED = """
-UPDATE fd.channel_purges
-SET state = 'failed', finished_at = now(), taken_down = %s, transcript = %s, error = %s
+UPDATE fd.purges
+SET state = 'failed', finished_at = now(), taken_down = %s, error = %s
 WHERE id = %s AND state = 'running'
+"""
+
+ITEMS = """
+INSERT INTO fd.purge_items (purge_id, channel_id, ts, thread_ts, author_id, text, state, done_at)
+SELECT %s, %s, taken.ts, taken.thread_ts, taken.author_id, taken.text, 'deleted', now()
+FROM unnest(%s::text[], %s::text[], %s::text[], %s::text[])
+    AS taken(ts, thread_ts, author_id, text)
+ON CONFLICT (purge_id, channel_id, ts) DO NOTHING
 """
 
 
@@ -104,6 +111,18 @@ def transcript_entry(message, thread_ts=None):
     }
 
 
+def keep(conn, purge_id, channel_id, deleted):
+    if not deleted:
+        return
+    conn.execute(ITEMS, (
+        purge_id, channel_id,
+        [entry["ts"] for entry in deleted],
+        [entry["thread_ts"] for entry in deleted],
+        [entry["user"] for entry in deleted],
+        [entry["text"] for entry in deleted],
+    ))
+
+
 def delete_thread_replies(client, channel_id, parent, deleted):
     thread_ts = parent["ts"]
     for _ in range(MAX_PASSES):
@@ -143,9 +162,9 @@ def run(client, purge_id):
         log.warning("nemo: purge %s stopped after %s: %s", purge_id, len(deleted), failure)
 
     with session() as conn:
+        keep(conn, purge_id, channel_id, deleted)
         conn.execute(FAILED if failure else DONE,
-                     (len(deleted), json.dumps(deleted), failure, purge_id) if failure
-                     else (len(deleted), json.dumps(deleted), purge_id))
+                     (len(deleted), failure, purge_id) if failure else (len(deleted), purge_id))
 
     log.info("nemo: purge %s took down %s in %s", purge_id, len(deleted), channel_id)
     return len(deleted)

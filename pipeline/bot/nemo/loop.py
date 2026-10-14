@@ -20,7 +20,7 @@ CHANNEL_GUARD = "fd_channel_guard"
 MEMBER_GUARD = "fd_member_guard"
 APP_SETTING = "fd_app_setting"
 AUTOMOD_WORD = "fd_automod_word"
-CHANNEL_PURGE = "fd_channel_purge"
+PURGE = "fd_purge"
 BLOCKED_DOMAIN = "fd_blocked_domain"
 GUARD_NOTICE = "fd_guard_notice"
 GUARD_REMOVE = "fd_guard_remove"
@@ -231,7 +231,7 @@ def start(case_channel, stopping, channel_id=None):
         elif channel_name == BLOCKED_DOMAIN:
             with session() as conn:
                 screening.refresh(conn)
-        elif channel_name == CHANNEL_PURGE:
+        elif channel_name == PURGE:
             threading.Thread(
                 target=purge.run, args=(case_channel.client, payload),
                 name=f"nemo-purge-{payload}", daemon=True,
@@ -254,7 +254,7 @@ def start(case_channel, stopping, channel_id=None):
     return (
         loops.watching(NAME,
                        (CASES, CHAT, OUTBOX, CONVERSATION, GUARD, CHANNEL_GUARD,
-                        MEMBER_GUARD, APP_SETTING, AUTOMOD_WORD, CHANNEL_PURGE,
+                        MEMBER_GUARD, APP_SETTING, AUTOMOD_WORD, PURGE,
                         GUARD_NOTICE, GUARD_REMOVE, BLOCKED_DOMAIN),
                        on_notify, stopping),
         loops.sweeping(NAME, every(), lambda: once(case_channel, channel_id), stopping),
