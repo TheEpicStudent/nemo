@@ -11,7 +11,7 @@ def test_message_activity_is_never_logged_as_a_write():
 
 
 def test_the_bot_still_writes_only_on_the_admin_credential():
-    assert app.NEMO_METHODS["admin"] == app.WRITE_METHODS["admin"]
+    assert app.NEMO_METHODS["admin"] & app.WRITES == app.WRITE_METHODS["admin"]
     assert "insights.messageStats" not in app.NEMO_METHODS["admin"]
 
 
@@ -27,8 +27,23 @@ def test_reading_a_message_is_never_logged_as_a_write():
     assert "conversations.history" not in app.WRITES
 
 
-def test_the_bot_does_not_get_to_read_history_for_free():
-    assert "conversations.history" not in app.NEMO_METHODS.get("admin", frozenset())
+def test_the_bot_reads_only_what_a_purge_needs():
+    reads = app.NEMO_METHODS["admin"] - app.WRITE_METHODS["admin"]
+
+    assert reads == {"conversations.history", "conversations.replies", "search.messages"}
+    assert not reads & app.WRITES
+
+
+def test_purge_reads_stay_off_the_web():
+    assert "conversations.replies" not in app.WEB_METHODS["admin"]
+    assert "search.messages" not in app.WEB_METHODS["admin"]
+
+
+def test_purge_reads_have_their_own_pace_for_the_bot():
+    import budget
+
+    for method in app.PURGE_READ_METHODS["admin"]:
+        assert budget.keys_for("nemo", "admin", method) == [("nemo", "admin", method)]
 
 
 def test_the_web_still_holds_no_writes():

@@ -23,6 +23,7 @@ roles:
       - member.note
       - member.guard
       - member.deactivate
+      - member.purge
       - member.links
       - link.verdict
       - identity.read
@@ -166,6 +167,13 @@ capabilities:
     label: Deactivate and reactivate a Slack account
     area: member
     locked: true
+
+  member.purge:
+    label: Bulk delete one member's messages
+    area: member
+    locked: true
+    logged: true
+    events: [member_purge/queued, member_purge/performed]
 
   member.read:
     label: See member names in the analytics

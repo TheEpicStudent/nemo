@@ -88,9 +88,15 @@ WRITE_METHODS = {
 ACTIVITY_METHODS = {"internal": frozenset({"insights.messageStats"})}
 
 HISTORY_METHODS = {"admin": frozenset({"conversations.history"})}
+PURGE_READ_METHODS = {
+    "admin": frozenset({"conversations.history", "conversations.replies", "search.messages"})
+}
 WEB_FILE_METHODS = FILE_READ_METHODS
 
-NEMO_METHODS = {**WRITE_METHODS, **ACTIVITY_METHODS}
+NEMO_METHODS = {
+    "admin": WRITE_METHODS["admin"] | PURGE_READ_METHODS["admin"],
+    "internal": ACTIVITY_METHODS["internal"],
+}
 WEB_METHODS["internal"] = WEB_METHODS["internal"] | ACTIVITY_METHODS["internal"]
 WEB_METHODS["admin"] = WEB_METHODS["admin"] | HISTORY_METHODS["admin"]
 

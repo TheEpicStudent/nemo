@@ -65,6 +65,16 @@ checks:
     case: theirs
     allowed: true
 
+  - name: a firefighter may purge a member's messages
+    role: firefighter
+    key: member.purge
+    allowed: true
+
+  - name: a gardener may not purge a member's messages
+    role: gardener
+    key: member.purge
+    allowed: false
+
   - name: a firefighter may not grant access
     role: firefighter
     key: access.grant
