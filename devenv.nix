@@ -8,6 +8,8 @@
   languages.python.enable = true;
   languages.python.package = pkgs.python313;
   languages.python.uv.enable = true;
+  languages.python.uv.sync.enable = true;
+  languages.python.directory = "${config.devenv.root}/pipeline";
 
   env.UV_PROJECT_ENVIRONMENT = lib.mkForce "${config.devenv.root}/pipeline/.venv";
 
