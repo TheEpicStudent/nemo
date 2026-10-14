@@ -3,7 +3,7 @@ import logging
 import re
 
 from bot.core import access, audit, richtext, session
-from bot.nemo import case_actions, channel, memberguards, record
+from bot.nemo import case_actions, channel, memberguards, purge_requests, record
 from bot.nemo.views import help as helping
 from bot.nemo.views import merge, report
 
@@ -16,10 +16,11 @@ OPEN = "open"
 MERGE = "merge"
 SHUSH = "shush"
 CHANNEL_BAN = "channelban"
+PURGE = "purge"
 OPEN_RECORD = "open_record"
 
 ABOUT_SOMEBODY = (LOOKUP, NOTE, SHUSH, CHANNEL_BAN)
-VERBS = (*ABOUT_SOMEBODY, OPEN, MERGE)
+VERBS = (*ABOUT_SOMEBODY, OPEN, MERGE, PURGE)
 NEEDS_WORDS = (NOTE, OPEN, SHUSH, CHANNEL_BAN)
 
 WHO = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
@@ -257,10 +258,28 @@ def helped(user_id):
     return helping.build_view(capabilities, granters)
 
 
+def chosen(body):
+    actions = body.get("actions") or [{}]
+    value = str(actions[0].get("value") or "")
+    return int(value) if value.isdigit() else 0
+
+
 def register(app):
     @app.action(OPEN_RECORD)
     def on_open_record(ack):
         ack()
+
+    @app.action(purge_requests.CONFIRM)
+    def on_purge_confirm(ack, body, respond):
+        ack()
+        answer = purge_requests.confirm(chosen(body), (body.get("user") or {}).get("id"))
+        respond(replace_original=True, **message_only(answer))
+
+    @app.action(purge_requests.CANCEL)
+    def on_purge_cancel(ack, body, respond):
+        ack()
+        purge_requests.cancel(chosen(body), (body.get("user") or {}).get("id"))
+        respond(delete_original=True)
 
     @app.command(COMMAND)
     def on_nemo(ack, command, respond, client):
@@ -276,7 +295,8 @@ def register(app):
             return respond(**message_only(TEXT_USAGE[verb]))
 
         with session() as conn:
-            allowed, refusal = access.may(conn, user_id, NEEDED[verb])
+            needs = purge_requests.needed(target_id) if verb == PURGE else NEEDED[verb]
+            allowed, refusal = access.may(conn, user_id, needs)
             if not allowed:
                 return respond(**message_only(refusal))
 
@@ -329,6 +349,11 @@ def register(app):
                         banned(target_id, where, on) if guard_id
                         else already_banned(target_id, where)
                     )
+            elif verb == PURGE:
+                request, problem = purge_requests.requested(
+                    target_id, body, command.get("channel_id"))
+                answer = (message_only(problem) if problem
+                          else purge_requests.proposed(conn, request, user_id))
             elif verb == OPEN:
                 open_case_ids = case_actions.open_about(conn, target_id) if target_id else []
                 if open_case_ids:

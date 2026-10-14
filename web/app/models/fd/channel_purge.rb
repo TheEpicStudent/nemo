@@ -18,6 +18,7 @@ module Fd
       inverse_of: :purge, dependent: nil
 
     scope :waiting, -> { where(state: WAITING) }
+    scope :confirmed, -> { where.not(state: PROPOSED) }
     scope :newest_first, -> { order(asked_at: :desc, id: :desc) }
     scope :for_channel, ->(channel_id) { where(channel_id: channel_id) }
 

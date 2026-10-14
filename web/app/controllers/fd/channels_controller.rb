@@ -58,7 +58,7 @@ module Fd
       @nemo_inside = ChannelMembership.inside?(@channel_id)
       @events = @kind ? ChannelGuardEvent.for_kind(@channel_id, @kind)
         .newest_first.limit(ACTIVITY_LIMIT).to_a : []
-      @purges = @tab == "purge" ? ChannelPurge.for_channel(@channel_id).includes(:items)
+      @purges = @tab == "purge" ? ChannelPurge.for_channel(@channel_id).confirmed.includes(:items)
         .newest_first.limit(ACTIVITY_LIMIT).to_a : []
       @labels = labels_for(@events)
       @app_ids = app_ids_for(@allows)

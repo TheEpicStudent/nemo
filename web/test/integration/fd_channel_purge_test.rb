@@ -104,6 +104,14 @@ class FdChannelPurgeTest < ActionDispatch::IntegrationTest
     assert_match(/2 in threads/, response.body)
   end
 
+  test "a purge still waiting for its Slack confirm is not listed" do
+    Fd::ChannelPurge.create!(channel_id: @id, state: "proposed", source: "slack", asked_by: "UME")
+    get fd_channel_path(@id, tab: "purge")
+
+    assert_response :success
+    assert_no_match(/not confirmed/, response.body)
+  end
+
   test "a failure shows why" do
     post_purge
     purges.sole.update!(state: "failed", finished_at: Time.current,

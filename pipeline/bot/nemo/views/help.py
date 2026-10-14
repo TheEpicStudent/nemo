@@ -49,6 +49,17 @@ GUARDS = (
     ),
 )
 
+PURGING = (
+    "Taking messages down",
+    (
+        ("channel.purge", "/nemo purge 50", "the last 50 messages here, with their thread replies"),
+        ("channel.purge", "/nemo purge #channel 50", "the last 50 messages in that channel"),
+        ("member.purge", "/nemo purge @somebody", "every message they posted, in every channel"),
+        ("member.purge", "/nemo purge @somebody #channel 50",
+         "their last 50 messages in that channel"),
+    ),
+)
+
 THREAD = (
     "In a case thread",
     (
@@ -74,7 +85,7 @@ CARD = (
     ),
 )
 
-SECTIONS = (LOOKING, WRITING, GUARDS, THREAD, CARD)
+SECTIONS = (LOOKING, WRITING, GUARDS, PURGING, THREAD, CARD)
 
 
 def line(command, note):

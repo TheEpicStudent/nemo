@@ -23,7 +23,7 @@ features:
   slash_commands:
     - command: /nemo
       description: Look somebody up, note something, open a case, or pull one up
-      usage_hint: help | lookup @somebody | note @somebody | open @somebody | shush @somebody 3d | channelban @somebody #channel 3d | 3864
+      usage_hint: help | lookup @somebody | note @somebody | open @somebody | shush @somebody 3d | channelban @somebody #channel 3d | purge @somebody #channel 50 | 3864
       should_escape: true
 
 oauth_config:
