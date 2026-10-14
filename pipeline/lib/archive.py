@@ -7,6 +7,7 @@ DELETED_SUBTYPE = "message_deleted"
 CHANGED = "message_changed"
 WRAPPERS = frozenset({DELETED_SUBTYPE, CHANGED})
 FETCHED = 1
+EVENT = "event"
 
 FIELDS = (
     "channel_id", "ts", "revision", "posted_at", "author_id", "author_kind", "bot_id",
@@ -72,6 +73,34 @@ def _upsert():
 
 
 MESSAGE_SQL = _upsert()
+
+EDIT_MEASURES = (
+    "text_length", "has_text", "block_count", "attachment_count", "mention_count",
+    "mentioned_ids", "is_question", "is_substantive", "has_link", "emoji_only",
+)
+EDIT_KEPT_UNLESS_SENT = ("file_count", "edited_at", "edited_by")
+
+
+def _edit():
+    sent = [f"%({name})s" for name in EDIT_MEASURES]
+    sent += [f"coalesce(%({name})s, {name})" for name in EDIT_KEPT_UNLESS_SENT]
+    columns = (*EDIT_MEASURES, *EDIT_KEPT_UNLESS_SENT)
+    sets = ", ".join(f"{name} = {value}" for name, value in zip(columns, sent))
+    return (
+        f"UPDATE archive.message SET {sets}, updated_at = now() "
+        f"WHERE channel_id = %(channel_id)s AND ts = %(ts)s "
+        f"AND ({', '.join(columns)}) IS DISTINCT FROM ({', '.join(sent)})"
+    )
+
+
+EDIT_SQL = _edit()
+
+HELD_SQL = "SELECT 1 FROM archive.message WHERE channel_id = %s AND ts = %s"
+
+DELETE_SQL = """
+UPDATE archive.message SET deleted_at = %s, updated_at = now()
+WHERE channel_id = %s AND ts = %s AND deleted_at IS NULL
+"""
 
 LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtext(%s))"
 
@@ -192,3 +221,42 @@ def from_api(conn, channel_id, message, method, transport):
                   method, transport, True)
 
 
+def from_event(conn, channel_id, message):
+    return record(conn, channel_id, message.get("ts"), redact(message), normalize(message),
+                  EVENT, EVENT, False)
+
+
+def edit_values(channel_id, message):
+    measured = normalize(message)
+    edit = message.get("edited") or {}
+    values = {name: measured.get(name) for name in EDIT_MEASURES}
+    values.update(
+        channel_id=channel_id,
+        ts=message.get("ts"),
+        file_count=measured["file_count"] if "files" in message else None,
+        edited_at=stamp(edit.get("ts")) if edit.get("ts") else None,
+        edited_by=edit.get("user"),
+    )
+    return values
+
+
+def edited(conn, channel_id, message):
+    ts = message.get("ts")
+    if not channel_id or stamp(ts) is None:
+        return False
+
+    with conn.cursor() as cur:
+        cur.execute(EDIT_SQL, edit_values(channel_id, message))
+        if cur.rowcount:
+            return True
+        held = cur.execute(HELD_SQL, (channel_id, ts)).fetchone()
+    return False if held else from_event(conn, channel_id, message)
+
+
+def deleted(conn, channel_id, ts, at=None):
+    if not channel_id or stamp(ts) is None:
+        return False
+
+    with conn.cursor() as cur:
+        cur.execute(DELETE_SQL, (stamp(at) or datetime.now(timezone.utc), channel_id, ts))
+        return cur.rowcount == 1

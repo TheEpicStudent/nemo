@@ -14,6 +14,7 @@ from bot.nemo.enforcement import (  # noqa: F401
 )
 from lib.slack_client import RETRY_HANDLERS
 from bot.nemo.surface import (
+    archive_watch,  # noqa: F401
     automod_watch,  # noqa: F401
     autoresponse,  # noqa: F401
     bot_watch,  # noqa: F401
