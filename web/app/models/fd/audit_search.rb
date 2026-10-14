@@ -8,7 +8,6 @@ module Fd
     CHANNEL = /\A[CGD][A-Z0-9]{2,}\z/i
     IPV4 = %r{\A\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?\z}
     IPV6 = %r{\A[0-9a-f]{0,4}(:[0-9a-f]{0,4}){2,7}(/\d{1,3})?\z}i
-    EMAIL = /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
     DOMAIN = /\A[a-z0-9-]+(\.[a-z0-9-]+)+\z/i
     DATE = /\A\d{4}-\d{2}-\d{2}\z/
 
@@ -97,12 +96,18 @@ module Fd
     end
 
     IDENTITY_KINDS = %w[ip email domain].freeze
-    IDENTITY_TEXT = /\d{1,3}(?:\.\d{1,3}){3}|[^@\s":]+@[^@\s":]+\.[a-z]|\h{1,4}:\h{0,4}:/i
+    IPV4_TEXT = /\d{1,3}(?:\.\d{1,3}){3}/
+    IPV6_TEXT = /\h{1,4}:\h{0,4}:/i
+
+    def self.identity_text?(value)
+      text = value.to_s
+      text.match?(IPV4_TEXT) || text.match?(IPV6_TEXT) || EmailShape.within?(text)
+    end
 
     def identity_terms?
       return true if IDENTITY_KINDS.any? { |kind| of(kind).any? }
 
-      of("text").any? { |value| value.match?(IDENTITY_TEXT) }
+      of("text").any? { |value| self.class.identity_text?(value) }
     end
 
     def member_ids_for_email
@@ -193,7 +198,7 @@ module Fd
       return Term.new(kind: "ip", value: query, label: query) if address?(query)
       return member_term("about", query) if query.match?(MEMBER)
       return channel_term(query) if query.match?(CHANNEL)
-      return Term.new(kind: "email", value: query, label: query) if query.match?(EMAIL)
+      return Term.new(kind: "email", value: query, label: query) if EmailShape.full?(query)
       return time_term("after", query) if query.match?(DATE)
 
       Term.new(kind: "text", value: query, label: query)

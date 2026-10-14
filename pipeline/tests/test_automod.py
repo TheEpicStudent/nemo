@@ -112,6 +112,13 @@ def test_a_regex_matches_what_it_says():
     assert automod.caught("bdword") == []
 
 
+def test_a_regex_that_backtracks_for_too_long_is_skipped_not_waited_on():
+    load((1, "(a+)+$", "regex", "flag", None), (2, "fine", "word", "flag", None))
+
+    assert automod.caught("a" * 40 + "!") == []
+    assert automod.caught("all fine here")
+
+
 def test_matching_ignores_case():
     load((1, "badword", "word", "flag", None))
 

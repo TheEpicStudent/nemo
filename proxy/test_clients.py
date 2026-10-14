@@ -63,6 +63,40 @@ def test_a_file_url_elsewhere_is_refused():
             file_client.url_of(said)
 
 
+def test_a_file_url_with_credentials_or_a_port_is_refused():
+    import pytest
+
+    import file_client
+
+    for url in ("https://user:pass@files.slack.com/a.png",
+                "https://files.slack.com@evil.example/a.png",
+                "https://files.slack.com:8443/a.png"):
+        with pytest.raises(file_client.FileError):
+            file_client.url_of({"url": url})
+
+
+def test_a_redirect_off_slack_is_not_followed_and_keeps_the_cookie_home():
+    import io
+    import urllib.request
+
+    import pytest
+
+    import file_client
+
+    asked = urllib.request.Request("https://files.slack.com/a.png", headers={"Cookie": "d=secret"})
+    handler = file_client.SlackOnlyRedirects()
+
+    for target in ("https://evil.example/a.png", "http://files.slack.com/a.png",
+                   "https://files.slack.com.evil.example/a.png"):
+        with pytest.raises(file_client.FileError):
+            handler.redirect_request(asked, io.BytesIO(), 302, "Found", {}, target)
+
+    followed = handler.redirect_request(
+        asked, io.BytesIO(), 302, "Found", {}, "https://files.slack-edge.com/b.png"
+    )
+    assert followed.full_url == "https://files.slack-edge.com/b.png"
+
+
 def test_a_slack_file_url_is_taken_as_it_stands():
     import file_client
 

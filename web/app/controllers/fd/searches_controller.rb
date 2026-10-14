@@ -7,7 +7,6 @@ module Fd
     PAGE_LIMIT = 20
     CLUSTER_LIMIT = 3
     AUDIT_WINDOW = "last:30d".freeze
-    EMAIL_TERM = /\A[^@\s]+@[^@\s]+\.[a-z]+\z/i
 
     def show
       respond_to do |format|
@@ -65,9 +64,9 @@ module Fd
     end
 
     def audit_token(term)
-      return nil if term.match?(AuditSearch::IDENTITY_TEXT) && !current_account.may?("identity.read")
+      return nil if AuditSearch.identity_text?(term) && !current_account.may?("identity.read")
       return "ip:#{term}" if address?(term)
-      return "email:#{term}" if term.match?(EMAIL_TERM)
+      return "email:#{term}" if EmailShape.address?(term)
       return term if AuditSearch::OPERATORS.key?(term.split(":", 2).first.downcase) && term.include?(":")
 
       term.include?(" ") ? %("#{term}") : term

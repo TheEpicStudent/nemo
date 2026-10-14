@@ -1,9 +1,8 @@
 module Fd
   class MemberFinder
     MENTION = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/i
-    LINK = %r{\Ahttps?://\S*/([UW][A-Z0-9]{8,})(?:[/?#]\S*)?\z}
+    LINK_ID = /\A[UW][A-Z0-9]{8,}\z/
     BARE_ID = /\A[UW](?=[A-Z0-9]*\d)[A-Z0-9]{6,12}\z/i
-    EMAIL = /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
     WORDS = 5
     TRIGRAM = 3
     FUZZY_FROM = 4
@@ -28,14 +27,14 @@ module Fd
     def user_id
       return @user_id if defined?(@user_id)
 
-      match = MENTION.match(@typed) || LINK.match(@typed)
-      @user_id = match ? match[1].upcase : (@typed.upcase if BARE_ID.match?(@typed))
+      found = MENTION.match(@typed)&.then { |match| match[1] } || link_user_id
+      @user_id = found ? found.upcase : (@typed.upcase if BARE_ID.match?(@typed))
     end
 
     def email
       return @email if defined?(@email)
 
-      @email = @identity && EMAIL.match?(@typed) ? @typed.downcase : nil
+      @email = @identity && EmailShape.full?(@typed) ? @typed.downcase : nil
     end
 
     def words
@@ -68,6 +67,15 @@ module Fd
     end
 
     private
+
+    def link_user_id
+      uri = URI.parse(@typed)
+      return nil unless uri.is_a?(URI::HTTP)
+
+      uri.path.to_s.split("/").reverse.find { |segment| LINK_ID.match?(segment) }
+    rescue URI::InvalidURIError
+      nil
+    end
 
     def by_id(limit, offset)
       ApplicationRecord.sanitize_sql_array([<<~SQL, { id: user_id, limit: limit, offset: offset }])

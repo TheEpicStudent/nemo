@@ -27,7 +27,12 @@ module Fd
 
     def back_path
       requested_path = params[:back].to_s
-      requested_path.start_with?("/fd/") ? requested_path : nil
+      return nil unless requested_path.start_with?("/fd/")
+
+      target = URI.parse(requested_path)
+      target.to_s unless target.scheme || target.host
+    rescue URI::InvalidURIError
+      nil
     end
   end
 end

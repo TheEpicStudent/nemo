@@ -23,7 +23,7 @@ module Fd
     }
 
     def self.normalise(value)
-      value.to_s.downcase.gsub(/[^a-z0-9]+/, "-").gsub(/\A-+|-+\z/, "")
+      value.to_s.downcase.gsub(/[^a-z0-9]+/, "-").delete_prefix("-").delete_suffix("-")
     end
 
     def merge_into!(target)

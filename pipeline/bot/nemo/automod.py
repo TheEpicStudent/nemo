@@ -1,6 +1,7 @@
 import logging
-import re
 import threading
+
+import regex
 
 log = logging.getLogger("bot.nemo")
 
@@ -9,6 +10,8 @@ SUBSTRING = "substring"
 REGEX = "regex"
 
 FLAG = "flag"
+
+SEARCH_TIMEOUT = 0.05
 
 LIVE = """
 SELECT id, word, match_mode, effect, category_key
@@ -42,7 +45,13 @@ class WordRule:
         self.pattern = compile_one(word, match_mode)
 
     def hits(self, text):
-        return bool(self.pattern and self.pattern.search(text))
+        if self.pattern is None:
+            return False
+        try:
+            return bool(self.pattern.search(text, timeout=SEARCH_TIMEOUT))
+        except TimeoutError:
+            log.warning("nemo: automod word %r took too long on a message and was skipped", self.word)
+            return False
 
 
 def compile_one(word, match_mode):
@@ -51,11 +60,11 @@ def compile_one(word, match_mode):
         return None
     try:
         if match_mode == REGEX:
-            return re.compile(text, re.IGNORECASE)
+            return regex.compile(text, regex.IGNORECASE)
         if match_mode == SUBSTRING:
-            return re.compile(re.escape(text), re.IGNORECASE)
-        return re.compile(rf"(?<![0-9A-Za-z]){re.escape(text)}(?![0-9A-Za-z])", re.IGNORECASE)
-    except re.error as failure:
+            return regex.compile(regex.escape(text), regex.IGNORECASE)
+        return regex.compile(rf"(?<![0-9A-Za-z]){regex.escape(text)}(?![0-9A-Za-z])", regex.IGNORECASE)
+    except regex.error as failure:
         log.warning("nemo: automod word %r does not compile: %s", text, failure)
         return None
 

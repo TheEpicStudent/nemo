@@ -111,7 +111,7 @@ class Slack::RichTextTest < ActiveSupport::TestCase
   test "markup in a message is escaped, never rendered" do
     html = render([{ "type" => "text", "text" => "<script>alert(1)</script>" }])
 
-    assert_no_match(/<script>/, html)
+    assert_not_includes html.downcase, "<script"
     assert_match(/&lt;script&gt;/, html)
   end
 

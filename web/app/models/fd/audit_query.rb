@@ -1198,7 +1198,7 @@ module Fd
     end
 
     def identity_value?(value)
-      return true if value.match?(AuditSearch::EMAIL)
+      return true if EmailShape.full?(value)
       return false unless value.match?(ADDRESS_SHAPE)
 
       IPAddr.new(value)
