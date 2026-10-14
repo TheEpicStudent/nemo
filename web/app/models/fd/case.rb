@@ -234,6 +234,15 @@ module Fd
       assignee_user_ids.include?(user_id)
     end
 
+    def take_tags_from!(case_ids, by:)
+      held = CaseTag.where(case_id: id).select(:tag_id)
+      tag_ids = CaseTag.where(case_id: case_ids).where.not(tag_id: held).distinct.pluck(:tag_id)
+      return [] if tag_ids.empty?
+
+      CaseTag.insert_all(tag_ids.map { |tag_id| { case_id: id, tag_id: tag_id, added_by: by } })
+      Tag.where(id: tag_ids).order(:name).to_a
+    end
+
     def assign!(user_id, by: nil)
       assignees.create!(user_id: user_id, assigned_by: by || user_id, assigned_at: Time.current)
     end

@@ -116,6 +116,7 @@ module Fd
     def mark(ids, root)
       now = Time.current
       marked = 0
+      marked_ids = []
 
       writing do
         Case.where(id: ids).unresolved.order(:id).each do |kase|
@@ -127,6 +128,7 @@ module Fd
           next if rows.zero?
 
           marked += 1
+          marked_ids << kase.id
           audit(kase.reload, "resolved",
             before: { "resolved_at" => nil, "resolution" => nil, "duplicate_of" => nil },
             after: {
@@ -135,9 +137,20 @@ module Fd
               "duplicate_of" => root
             })
         end
+        carry_tags(marked_ids, root)
       end
 
       marked
+    end
+
+    def carry_tags(from_ids, root)
+      return if from_ids.empty?
+
+      carried = Case.find(root).take_tags_from!(from_ids, by: current_account.user_id)
+      return if carried.empty?
+
+      audit(CaseTag.new(case_id: root), "added", entity_id: root,
+        after: { "tags" => carried.map(&:name), "from" => from_ids })
     end
 
     def outcome(marked, ids, root)
