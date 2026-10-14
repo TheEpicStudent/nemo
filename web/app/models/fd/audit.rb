@@ -10,6 +10,8 @@ module Fd
       "Fd::CaseThread" => "thread",
       "Fd::CaseParticipant" => "participant",
       "Fd::CaseAssignee" => "assignee",
+      "Fd::Tag" => "tag",
+      "Fd::CaseTag" => "case_tag",
       "Fd::MemberIdentity" => "identity",
       "Engine::Setting" => "engine_setting",
       "Ingest::IncidentAck" => "incident_ack",
@@ -44,6 +46,7 @@ module Fd
       linked unlinked
       turned_on turned_off
       tuned reset
+      renamed merged
       acked muted
       exported
       queued cancelled

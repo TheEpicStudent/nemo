@@ -31,6 +31,9 @@ module Fd
       inverse_of: :kase, dependent: nil
     has_many :notes, class_name: "Fd::Note", foreign_key: :case_id,
       inverse_of: :kase, dependent: nil
+    has_many :case_tags, -> { oldest_first }, class_name: "Fd::CaseTag", foreign_key: :case_id,
+      inverse_of: :kase, dependent: nil
+    has_many :tags, through: :case_tags
 
     scope :unresolved, -> { where(resolved_at: nil) }
     scope :not_duplicate, -> { where(duplicate_of: nil) }
