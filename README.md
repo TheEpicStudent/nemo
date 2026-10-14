@@ -1,27 +1,137 @@
 <p align="center">
-  <img src="./web/public/nemo-pod.png" width="620" alt="a very large fish carrying some tiny friends">
+  <img src="./web/public/nemo-pod.png" width="420" alt="Mnemosyne mascot: a large fish carrying tiny friends">
 </p>
-<h1 align="center">mnemosyne</h1>
 
-<p align="center">a big fish with a suspiciously good memory.</p>
+<h1 align="center">Mnemosyne</h1>
 
-mnemosyne is an internal hack club tool for understanding the community and helping the fire department handle conduct.
+<p align="center">Community analytics and conduct casework for Hack Club, built on Slack metadata.</p>
 
-it turns slack metadata into useful community charts, follows the journey from joining to sticking around, and gives the cool folks a careful place to manage reports and cases.
+<p align="center">
+  <a href="https://github.com/hackclub/nemo/actions/workflows/ci.yml"><img src="https://github.com/hackclub/nemo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
+</p>
 
-there are two sides to the fish:
+Mnemosyne is an internal Hack Club tool. It turns Slack metadata into community analytics and gives the fire department a place to manage reports and cases.
 
-- **community (nemo):** aggregate analytics for onboarding, replies, retention, activity, and channels
-- **fire engine:** cases, mirrored threads, notes, reports, and actions
+| | |
+| --- | --- |
+| **Community (nemo)** | Aggregate analytics for onboarding, replies, retention, activity and channels. |
+| **Fire engine** | Cases, mirrored threads, notes, reports, actions, alt account detection and an audit trail. |
 
-mnemosyne is the umbrella for both ^
+## Screenshots
 
-underneath both is the less fish-shaped part: an ingestion and warehouse engine that keeps track of sources, backfills, runs, coverage, and whether the numbers can actually be trusted.
+<table>
+  <tr>
+    <th width="50%"><h3 align="center">Joining</h3></th>
+    <th width="50%"><h3 align="center">Getting replies</h3></th>
+  </tr>
+  <tr>
+    <td align="center"><img src="./docs/screenshots/community-joining.png" alt="Joining"></td>
+    <td align="center"><img src="./docs/screenshots/community-replies.png" alt="Getting replies"></td>
+  </tr>
+  <tr>
+    <th width="50%"><h3 align="center">Channels</h3></th>
+    <th width="50%"><h3 align="center">Engine</h3></th>
+  </tr>
+  <tr>
+    <td align="center"><img src="./docs/screenshots/community-channels.png" alt="Channels"></td>
+    <td align="center"><img src="./docs/screenshots/engine-runs.png" alt="Engine"></td>
+  </tr>
+  <tr>
+    <th width="50%"><h3 align="center">Cases</h3></th>
+    <th width="50%"><h3 align="center">Search</h3></th>
+  </tr>
+  <tr>
+    <td align="center"><img src="./docs/screenshots/fd-case.png" alt="Cases"></td>
+    <td align="center"><img src="./docs/screenshots/fd-search.png" alt="Search"></td>
+  </tr>
+  <tr>
+    <th width="50%"><h3 align="center">Alt accounts</h3></th>
+    <th width="50%"><h3 align="center">Audit log</h3></th>
+  </tr>
+  <tr>
+    <td align="center"><img src="./docs/screenshots/fd-alts-cluster.png" alt="Alt accounts"></td>
+    <td align="center"><img src="./docs/screenshots/fd-audit-log.png" alt="Audit log"></td>
+  </tr>
+</table>
 
-built with rails, postgres, python, dbt, and d3. fueled by slack and an unreasonable number of shenanigans.
+## Features
 
-## inspirations and thanks
+**Community**
 
-- [palantir foundry's](https://www.palantir.com/platforms/foundry/) and [data protection and governance guidance](https://www.palantir.com/docs/foundry/security/data-protection-and-governance/). mnemosyne is independent and hackclub isn't affilated with palantir.
-- [d3](https://d3js.org/) my beloved tool for making charts that do exactly what I need them to do.
-- the hack club community and fire department are the reason this exists, and the people teaching the fish what is useful deserve the biggest thanks.
+- Member journey: joining, getting replies, coming back and who is active.
+- Per-channel analytics.
+- Charts built with d3.
+
+**Fire engine**
+
+- Cases with assignees, participants, tags, resolutions, replies, notes, actions and reversals.
+- Case merges, member standing and member guards.
+- Reporter conversations and mirrored Slack threads, with deep links in both directions.
+- Alt account detection: links, clusters and a review queue with verdicts.
+- Audit log with saved queries and CSV export.
+- Slack bot: `relay` takes reports and `nemo` works them.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  slack[Slack] --> ingest[pipeline: ingest and jobs]
+  ingest --> pg[(Postgres)]
+  pg --> dbt[warehouse: dbt]
+  dbt --> pg
+  pg --> web[web: Rails]
+  web --> staff([Staff])
+  slack <--> bot[pipeline: bot]
+  bot --> pg
+  web --> proxy[proxy: FastAPI]
+  proxy --> slack
+```
+
+| Path | Contents |
+| --- | --- |
+| `web/` | Rails app: community analytics, fire engine, admin and the public API |
+| `pipeline/` | Python: Slack ingestion, nightly jobs, the Slack bot and the seeder |
+| `warehouse/` | dbt project: staging models and marts |
+| `proxy/` | FastAPI service wrapping the Slack API clients |
+| `db/` | SQL migrations and the YAML tables for capabilities, actions and flags |
+| `deploy/` | Compose file and per-role env examples |
+
+## Getting started
+
+Requirements: Docker, Ruby, Python 3.13 with [uv](https://docs.astral.sh/uv/), and Postgres 18. `devenv.nix` provides all of them if you use [devenv](https://devenv.sh).
+
+```sh
+cp deploy/.env.example deploy/.env
+```
+
+In `deploy/.env`, set `POSTGRES_DB=mnemosyne_seed` (the seeder only writes to databases ending in `_dev`, `_test` or `_seed`) and `BOOTSTRAP_ADMIN_SLACK_ID=USEED0000001`.
+
+```sh
+(cd pipeline && uv sync)
+(cd web && bundle install && bin/rails tailwindcss:build)
+
+make up                  # Postgres
+make provision           # schemas, roles, grants, migrations
+make seed SCALE=dev      # synthetic community data
+make serve               # http://localhost:3000
+```
+
+In development, `/dev/be/USEED0000001` signs you in as the bootstrap admin.
+
+## Development
+
+```sh
+make test     # pytest and rails test
+make lint     # ruff and rubocop
+make doctor   # environment a role needs (ROLE=serve)
+```
+
+## Acknowledgements
+
+- [Palantir Foundry](https://www.palantir.com/platforms/foundry/) and its [data protection and governance guidance](https://www.palantir.com/docs/foundry/security/data-protection-and-governance/) were an inspiration. Mnemosyne is independent, and Hack Club is not affiliated with Palantir.
+- [d3](https://d3js.org/) for the charts.
+
+## License
+
+[MIT](./LICENSE)
