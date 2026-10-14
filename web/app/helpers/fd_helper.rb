@@ -536,6 +536,7 @@ module FdHelper
     case key
     when "history" then @entries.size
     when "links" then @member_links&.count
+    when "purges" then @purge_count if @purge_count&.positive?
     end
   end
 
@@ -561,7 +562,7 @@ module FdHelper
                "fd/new_members" => "new_members", "fd/clusters" => "clusters",
                "fd/channels" => "channels", "fd/audits" => "audit",
                "fd/configuration" => "configuration",
-               "fd/channel_purges" => "channels" }.freeze
+               "fd/channel_purges" => "channels", "fd/member_purges" => "members" }.freeze
 
   def fd_current_nav_key
     if controller_path == "fd/member_links"

@@ -6,6 +6,7 @@ module Fd
 
     def create
       return deny!("member.deactivate") if deactivating?(kind)
+      return deny!("member.purge") if purging? && !current_account&.may?("member.purge")
 
       error = guard_error
       if error
@@ -14,7 +15,11 @@ module Fd
       end
 
       guard = nil
-      writing { guard = open_standing }
+      queued = nil
+      writing do
+        guard = open_standing
+        queued = queue_purge(guard) if guard && purging?
+      end
 
       if guard.nil?
         return redirect_to fd_member_path(subject_id),
@@ -22,7 +27,7 @@ module Fd
       end
 
       redirect_to fd_member_path(subject_id),
-        notice: "#{label(kind)} held on #{display_name(subject_id)}, on no case"
+        notice: "#{label(kind)} held on #{display_name(subject_id)}, on no case#{purge_note(queued)}"
     end
 
     def update
@@ -67,6 +72,27 @@ module Fd
     def kind = params[:kind].to_s
 
     def may_deactivate? = current_account&.may?("member.deactivate")
+
+    def purging? = kind == MemberGuard::DEACTIVATION && params[:purge_messages] == "1"
+
+    def queue_purge(guard)
+      purge = ChannelPurge.transaction(requires_new: true) do
+        ChannelPurge.create!(member_id: subject_id, reason: guard.reason, source: "deactivation",
+          guard_id: guard.id, asked_by: current_account.user_id)
+      end
+      audit(purge, "queued", subject_user_id: subject_id,
+        after: { "member_id" => subject_id, "guard_id" => guard.id, "source" => "deactivation" })
+      true
+    rescue ActiveRecord::RecordNotUnique
+      false
+    end
+
+    def purge_note(queued)
+      return "" if queued.nil?
+      return ". A purge of their messages is already running" unless queued
+
+      ". All their messages are purged once it goes through"
+    end
 
     def deactivating?(kind) = kind == MemberGuard::DEACTIVATION && !may_deactivate?
 

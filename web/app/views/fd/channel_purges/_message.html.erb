@@ -6,6 +6,9 @@
       <% if message.at %>
         <span class="msg-at"><%= clock_stamp(message.at) %></span>
       <% end %>
+      <% if local_assigns[:show_channel] && message.channel %>
+        <span class="msg-at">in <%= channels[message.channel] %></span>
+      <% end %>
     </span>
     <div class="msg-body"><%= message.text.presence || "no text held" %></div>
   </span>

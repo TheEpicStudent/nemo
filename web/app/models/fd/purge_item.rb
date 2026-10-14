@@ -6,7 +6,8 @@ module Fd
     belongs_to :purge, class_name: "Fd::ChannelPurge", foreign_key: :purge_id, inverse_of: :items
 
     def transcript_entry
-      { "ts" => ts, "thread_ts" => thread_ts, "user" => author_id, "text" => text }
+      { "ts" => ts, "thread_ts" => thread_ts, "user" => author_id, "text" => text,
+        "channel" => channel_id }
     end
   end
 end

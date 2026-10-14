@@ -26,12 +26,27 @@ Purge = namedtuple("Purge", "id channel_id member_id wanted asked_by")
 Item = namedtuple("Item", "channel_id ts thread_ts author_id text reply_count")
 
 WAITING = """
-SELECT id
-FROM fd.purges
-WHERE state = 'asked'
-ORDER BY asked_at
+SELECT p.id
+FROM fd.purges p
+LEFT JOIN fd.member_guards g ON g.id = p.guard_id
+WHERE p.state = 'asked'
+  AND (p.guard_id IS NULL OR g.enforcement_status = 'held' OR g.state = 'lifted')
+ORDER BY p.asked_at
 LIMIT 20
 """
+
+GATE = """
+SELECT g.state, g.enforcement_status
+FROM fd.purges p
+JOIN fd.member_guards g ON g.id = p.guard_id
+WHERE p.id = %s
+"""
+
+NO_GUARD = "none"
+GUARD_HELD = "held"
+GUARD_PENDING = "pending"
+GUARD_LIFTED = "lifted"
+DEACTIVATION_LIFTED = "the deactivation was lifted, so nothing was purged"
 
 STRANDED = """
 UPDATE fd.purges
@@ -123,6 +138,16 @@ def waiting(conn):
 
 def requeue_stranded(conn):
     return [row[0] for row in conn.execute(STRANDED).fetchall()]
+
+
+def guard_condition(conn, purge_id):
+    row = conn.execute(GATE, (purge_id,)).fetchone()
+    if row is None:
+        return NO_GUARD
+    state, enforcement = row
+    if state == "lifted":
+        return GUARD_LIFTED
+    return GUARD_HELD if enforcement == "held" else GUARD_PENDING
 
 
 def claim(conn, purge_id):
@@ -376,8 +401,8 @@ def summary(purge, purged, left, failure, unchecked=None):
     else:
         text = f"{head}, {left} left after the check."
     text += f" Asked by <@{purge.asked_by}>."
-    url = (channel.member_url(purge.member_id) if purge.member_id
-           else channel.app_url(f"/fd/channels/{purge.channel_id}/purges/{purge.id}"))
+    url = (channel.app_url(f"/fd/channels/{purge.channel_id}/purges/{purge.id}") if purge.channel_id
+           else channel.app_url(f"/fd/members/{purge.member_id}/purges/{purge.id}"))
     return f"{text}\n{url}" if url else text
 
 
@@ -398,11 +423,14 @@ def still_allowed(conn, purge):
 
 def run(client, purge_id):
     with session() as conn:
+        condition = guard_condition(conn, purge_id)
+        if condition == GUARD_PENDING:
+            return 0
         purge = claim(conn, purge_id)
         if purge is None:
             return 0
         resumed = conn.execute(HELD, (purge.id,)).fetchone()[0] > 0
-        failure = still_allowed(conn, purge)
+        failure = DEACTIVATION_LIFTED if condition == GUARD_LIFTED else still_allowed(conn, purge)
 
     unchecked, left = None, None
     if failure is None:

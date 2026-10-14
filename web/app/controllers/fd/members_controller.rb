@@ -14,8 +14,10 @@ module Fd
     end
 
     TABS = { "history" => "History", "links" => "Linked accounts", "sessions" => "Sessions",
-             "audit" => "Audit", "enforcement" => "Enforcement" }.freeze
-    TAB_CAPABILITIES = { "links" => "member.links", "sessions" => "identity.read" }.freeze
+             "audit" => "Audit", "enforcement" => "Enforcement", "purges" => "Purges" }.freeze
+    TAB_CAPABILITIES = { "links" => "member.links", "sessions" => "identity.read",
+                         "purges" => "member.purge" }.freeze
+    PURGE_ROWS = 50
     AUDIT_ROWS = 60
     AUDIT_SOURCES = "source:slack source:engine".freeze
     CHANNEL_ID = /\A[CGD][A-Z0-9]{2,}\z/
@@ -30,8 +32,9 @@ module Fd
       @tab = [params[:tab], params[:do]].find { |key| @tabs.key?(key) } || "history"
       load_member_audit if @tab == "audit"
       @guard_history = @tab == "enforcement" ? guard_history : []
+      load_purges
       @names = Names.for(@record.people_named + @pane_rows.map(&:user_id) + audit_member_ids +
-        @guard_history.flat_map(&:people_named))
+        @guard_history.flat_map(&:people_named) + @purges.map(&:asked_by))
       @member = @names.member(@user_id)
       @account = MemberAccount.find_by(user_id: @user_id)
       @entries = MemberTimeline.for(@record, names: @names)
@@ -40,7 +43,8 @@ module Fd
       @rooms = SlackScan.channels(@user_id)
       @standing = MemberStanding.new(@record)
       @guards = @standing.in_force
-      @channels = ChannelNames.for(@guards.map(&:channel_id) + @guard_history.map(&:channel_id) + audit_channel_ids)
+      @channels = ChannelNames.for(@guards.map(&:channel_id) + @guard_history.map(&:channel_id) +
+        audit_channel_ids + @purges.filter_map(&:channel_id))
       @member_grant = @pane_grants[@user_id] || Authz::Grant.live.roles.find_by(user_id: @user_id)
       return unless current_account.may?("member.links")
 
@@ -79,6 +83,14 @@ module Fd
     end
 
     private
+
+    def load_purges
+      return @purges = [] unless @tabs.key?("purges")
+
+      member_purges = ChannelPurge.where(member_id: @user_id).confirmed
+      @purge_count = member_purges.count
+      @purges = @tab == "purges" ? member_purges.includes(:items).newest_first.limit(PURGE_ROWS).to_a : []
+    end
 
     def may_open_tab?(key)
       capability = TAB_CAPABILITIES[key]

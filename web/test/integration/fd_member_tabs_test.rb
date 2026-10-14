@@ -35,7 +35,7 @@ class FdMemberTabsTest < ActionDispatch::IntegrationTest
   test "the record is split into tabs, history first" do
     get fd_member_path(WHO)
 
-    assert_equal ["History", "Linked accounts", "Sessions", "Audit", "Enforcement"], tab_labels
+    assert_equal ["History", "Linked accounts", "Sessions", "Audit", "Enforcement", "Purges"], tab_labels
     assert_select "nav.member-record-tabs a[aria-current=true]", text: /History/
     assert_select "turbo-frame#member-record[target=_top]"
     assert_select %(nav.member-record-tabs a[href="#{fd_member_path(WHO, tab: "audit")}"][data-turbo-frame="member-record"][data-turbo-action="advance"])
@@ -49,7 +49,7 @@ class FdMemberTabsTest < ActionDispatch::IntegrationTest
 
     get fd_member_path(WHO, tab: "sessions")
 
-    assert_equal %w[History Audit Enforcement], tab_labels
+    assert_equal %w[History Audit Enforcement Purges], tab_labels
     assert_select "nav.member-record-tabs a[aria-current=true]", text: /History/
   end
 

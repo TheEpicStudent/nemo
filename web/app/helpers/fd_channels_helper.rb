@@ -69,6 +69,12 @@ module FdChannelsHelper
     purge.wanted ? "Last #{number_with_delimiter(purge.wanted)}" : "Every message"
   end
 
+  def purge_path(purge)
+    return fd_channel_purge_path(purge.channel_id, purge) if purge.channel_id
+
+    fd_member_purge_path(purge.member_id, purge)
+  end
+
   def purge_source(purge)
     PURGE_SOURCES[purge.source]
   end

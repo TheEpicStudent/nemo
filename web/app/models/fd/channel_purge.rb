@@ -55,7 +55,7 @@ module Fd
       transcript_entries.count { |entry| entry["thread_ts"].present? }
     end
 
-    Message = Struct.new(:ts, :thread_ts, :user, :text, keyword_init: true) do
+    Message = Struct.new(:ts, :thread_ts, :user, :text, :channel, keyword_init: true) do
       def at
         Time.zone.at(ts.to_f) if ts.to_s.include?(".")
       end

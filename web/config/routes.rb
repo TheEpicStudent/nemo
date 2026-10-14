@@ -96,6 +96,7 @@ Rails.application.routes.draw do
       resource :standing, only: [:show], controller: "member_standings"
       resource :logins, only: [:show], controller: "member_logins"
       resource :links, only: [:show], controller: "member_link_panes"
+      resources :purges, only: [:show], controller: "member_purges"
     end
     resources :files, only: [:show]
     resource :search, only: [:show], controller: "searches"

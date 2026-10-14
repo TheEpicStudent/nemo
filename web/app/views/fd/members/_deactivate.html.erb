@@ -17,6 +17,13 @@
         <%= date_field_tag :expires_on, nil, class: "input", id: nil %>
       </label>
 
+      <% if current_account.may?("member.purge") %>
+        <label class="tickline">
+          <%= check_box_tag :purge_messages, "1", false, class: "tick", id: nil %>
+          Purge all messages
+        </label>
+      <% end %>
+
       <label class="field-label">
         Type <b class="mono"><%= handle %></b> to confirm
         <%= text_field_tag :confirm, nil, class: "input", id: nil, autocomplete: "off",

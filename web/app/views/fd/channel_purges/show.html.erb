@@ -1,13 +1,19 @@
 <% name = @channel&.name.presence %>
 <% label = name ? "##{name}" : @purge.channel_id %>
-<% content_for :page_title, "Purged from #{label}" %>
+<% everywhere = @purge.channel_id.nil? %>
+<% content_for :page_title, "Purged from #{everywhere ? names[@purge.member_id] : label}" %>
 <% content_for :head_context do %>
   <span class="triad-sep">&middot;</span>
   <span class="triad-who"><%= purge_state_chip(@purge) %></span>
 <% end %>
 <% content_for :head_actions do %>
-  <%= link_to "Back to the channel", fd_channel_path(@purge.channel_id, tab: "purge"),
-        class: "btn btn-ghost" %>
+  <% if everywhere %>
+    <%= link_to "Back to the member", fd_member_path(@purge.member_id, tab: "purges"),
+          class: "btn btn-ghost" %>
+  <% else %>
+    <%= link_to "Back to the channel", fd_channel_path(@purge.channel_id, tab: "purge"),
+          class: "btn btn-ghost" %>
+  <% end %>
 <% end %>
 
 <div class="card card-flush">
@@ -16,6 +22,9 @@
       <%= purge_scope(@purge) %>
       <% if @purge.member_id %>
         from <%= member_face(@purge.member_id, small: true) %>
+      <% end %>
+      <% if everywhere %>
+        in every channel
       <% end %>
     </h2>
     <p class="card-note">
@@ -45,7 +54,7 @@
     </div>
     <div class="card-body">
       <% @failed.each do |message, error| %>
-        <%= render "message", message: message, names: @names %>
+        <%= render "fd/channel_purges/message", message: message, names: @names, show_channel: everywhere %>
         <p class="sub2"><%= error %></p>
       <% end %>
     </div>
@@ -60,13 +69,13 @@
   <% if @threads.any? %>
     <div class="card-body">
       <% @threads.top_level.each do |message| %>
-        <%= render "message", message: message, names: @names %>
+        <%= render "fd/channel_purges/message", message: message, names: @names, show_channel: everywhere %>
         <% below = @threads.below(message) %>
         <% if below.any? %>
           <details class="purge-thread">
             <summary><%= pluralize(below.size, "reply") %></summary>
             <% below.each do |reply| %>
-              <%= render "message", message: reply, names: @names %>
+              <%= render "fd/channel_purges/message", message: reply, names: @names, show_channel: everywhere %>
             <% end %>
           </details>
         <% end %>
@@ -76,7 +85,7 @@
         <details class="purge-thread">
           <summary><%= pluralize(@threads.orphans.size, "reply") %>, the top was not purged</summary>
           <% @threads.orphans.each do |message| %>
-            <%= render "message", message: message, names: @names %>
+            <%= render "fd/channel_purges/message", message: message, names: @names, show_channel: everywhere %>
           <% end %>
         </details>
       <% end %>

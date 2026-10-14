@@ -1,0 +1,32 @@
+<% if @purges.any? %>
+  <div class="scroll">
+    <table class="data-table">
+      <thead>
+        <tr><th>Purge</th><th>Where</th><th>Progress</th><th>Asked</th></tr>
+      </thead>
+      <tbody>
+        <% @purges.each do |purge| %>
+          <tr>
+            <td>
+              <%= link_to purge_scope(purge), purge_path(purge) %>
+              <%= purge_state_chip(purge) %>
+            </td>
+            <td><%= purge.channel_id ? channels[purge.channel_id] : "Every channel" %></td>
+            <td class="sub2">
+              <%= purge_progress(purge) %>
+              <% if purge.error.present? %>
+                · <%= purge.error %>
+              <% end %>
+            </td>
+            <td>
+              <%= member_face(purge.asked_by, small: true) %>
+              <span class="sub2"><%= at_minute(purge.asked_at) %></span>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+<% else %>
+  <div class="empty"><p class="empty-title">No purges</p></div>
+<% end %>

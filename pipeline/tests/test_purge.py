@@ -12,13 +12,15 @@ PURGE_ID = 7
 
 
 class Db:
-    def __init__(self, channel_id=CHANNEL, member_id=None, wanted=3, state="asked", archived=()):
+    def __init__(self, channel_id=CHANNEL, member_id=None, wanted=3, state="asked", archived=(),
+                 guard=None):
         self.purge = {"channel_id": channel_id, "member_id": member_id, "wanted": wanted,
                       "asked_by": "UASK", "state": state, "found": None, "error": None,
                       "left": None, "checked": False}
         self.items = {}
         self.archived = list(archived)
         self.audits = []
+        self.guard = guard
         self.rows = []
 
     def execute(self, sql, args=None):
@@ -28,6 +30,7 @@ class Db:
             purge.RECORD_ITEM: self.record_item, purge.PROGRESS: lambda _: [], purge.CHECKING: self.checking,
             purge.DONE_ITEMS: self.done_items, purge.FINISH: self.finish,
             purge.ARCHIVED: self.archive, purge.STRANDED: self.stranded, audit.RECORD: self.audit,
+            purge.GATE: lambda _: [self.guard] if self.guard else [],
         }
         self.rows = handlers[sql](args) or []
         return self
@@ -438,3 +441,33 @@ def test_a_member_purge_is_audited_against_the_member(world):
     [row] = world.db.audits
     assert (row[2], row[4], row[8]) == ("member_purge", "performed", MEMBER)
     assert "from <@U9> in every channel" in slack.posts[0]["text"]
+    assert "https://fd.test/fd/members/U9/purges/7" in slack.posts[0]["text"]
+
+
+def deactivation_purge(guard):
+    return Db(channel_id=None, member_id=MEMBER, wanted=None, archived=[("C1", "5.0", None)],
+              guard=guard)
+
+
+def test_a_purge_waits_for_its_deactivation_to_go_through(world):
+    world.db = deactivation_purge(("live", "pending"))
+
+    assert purge.run(Slack(), PURGE_ID) == 0
+    assert world.removed == []
+    assert world.db.purge["state"] == "asked"
+
+
+def test_a_purge_runs_once_its_deactivation_is_held(world):
+    world.db = deactivation_purge(("live", "held"))
+
+    assert purge.run(Slack(), PURGE_ID) == 1
+    assert world.removed == [("C1", "5.0")]
+
+
+def test_a_purge_whose_deactivation_was_lifted_purges_nothing(world):
+    world.db = deactivation_purge(("lifted", "pending"))
+    purge.run(Slack(), PURGE_ID)
+
+    assert world.removed == []
+    assert world.db.purge["state"] == "failed"
+    assert world.db.purge["error"] == purge.DEACTIVATION_LIFTED
