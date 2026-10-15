@@ -64,7 +64,7 @@ module Fd
     end
 
     def last_lifted_guard
-      ChannelGuard.of_kind(kind).where(channel_id: channel_id, state: "lifted")
+      ChannelGuard.of_kind(kind).channel_wide.where(channel_id: channel_id, state: "lifted")
         .order(lifted_at: :desc, id: :desc).first
     end
 

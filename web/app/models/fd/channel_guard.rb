@@ -24,13 +24,19 @@ module Fd
     scope :live, -> { where(state: "live") }
     scope :allowlists, -> { where(kind: BOT_ALLOWLIST) }
     scope :of_kind, ->(kind) { where(kind: kind) }
+    scope :channel_wide, -> { where(thread_ts: "") }
+    scope :thread_scoped, -> { where.not(thread_ts: "") }
 
     def self.live_for(channel_id, kind: BOT_ALLOWLIST)
-      live.where(kind: kind).find_by(channel_id: channel_id)
+      live.channel_wide.where(kind: kind).find_by(channel_id: channel_id)
     end
 
     def self.live_by_kind(channel_id)
-      live.where(channel_id: channel_id).index_by(&:kind)
+      live.channel_wide.where(channel_id: channel_id).index_by(&:kind)
+    end
+
+    def self.thread_slowmodes(channel_id)
+      live.thread_scoped.of_kind(SLOWMODE).where(channel_id: channel_id).includes(:allows).order(:created_at)
     end
 
     def self.kind?(kind) = KINDS.include?(kind)

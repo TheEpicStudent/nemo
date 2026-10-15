@@ -16,6 +16,10 @@ features:
       type: message
       callback_id: lock_thread
       description: Delete new replies until a set date
+    - name: Slow mode
+      type: message
+      callback_id: slowmode_thread
+      description: Per-member reply cooldown in this thread
     - name: View message activity
       type: message
       callback_id: message_activity

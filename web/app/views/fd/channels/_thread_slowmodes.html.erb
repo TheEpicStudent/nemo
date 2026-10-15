@@ -1,0 +1,25 @@
+<div class="card card-flush">
+  <div class="card-head">
+    <h2 class="card-title">Threads</h2>
+  </div>
+  <div class="people-list">
+    <% guards.each do |guard| %>
+      <div class="line-row text-strong">
+        <%= guard_face(guard.opened_by) %>
+        <span class="grow two-line">
+          <b>
+            <%= link_to thread_started(guard), slack_thread_url(guard.channel_id, guard.thread_ts),
+                  target: "_blank", rel: "noopener" %>
+            &middot; set by <%= member_face(guard.opened_by, small: true) %>
+          </b>
+          <span title="<%= thread_slowmode_line(guard) %>"><%= thread_slowmode_line(guard) %></span>
+        </span>
+        <span class="row-right">
+          <%= gated_button("channel.guard", "Disable",
+                fd_channel_thread_slowmode_path(guard.channel_id, guard),
+                css: "btn btn-sm btn-danger", method: :delete) %>
+        </span>
+      </div>
+    <% end %>
+  </div>
+</div>

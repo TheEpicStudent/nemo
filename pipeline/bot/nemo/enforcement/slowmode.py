@@ -1,20 +1,16 @@
 import logging
 
 from bot.core import session
-from bot.nemo import channelguards, exemptions, guard_actions
+from bot.nemo import channelguards, exemptions, guard_actions, guards
 from bot.nemo.enforcement import notify
 from bot.nemo.surface import on_event
+from bot.nemo.views import slowmode as card
 
 log = logging.getLogger("bot.nemo")
 
 KIND = channelguards.SLOWMODE
 
 DELETED = "deleted"
-
-IN_CHANNEL = (
-    "Slow mode is on. You can post again in {left}."
-    "\n\nYour message:\n{body}"
-)
 
 TICK = """
 INSERT INTO fd.slowmode_clock (channel_id, thread_ts, user_id, posted_at)
@@ -47,11 +43,24 @@ def left_to_go(conn, channel_id, thread_ts, user_id, seconds):
     return max(1, row[0]) if row and row[0] else 1
 
 
-def time_left(seconds):
-    if seconds < 60:
-        return f"{seconds} second{'' if seconds == 1 else 's'}"
-    minutes = (seconds + 59) // 60
-    return f"{minutes} minute{'' if minutes == 1 else 's'}"
+def replied_in(event):
+    thread_ts = event.get("thread_ts")
+    return thread_ts if thread_ts and thread_ts != event.get("ts") else None
+
+
+def applying(channel_id, event):
+    thread_ts = replied_in(event)
+    if thread_ts:
+        if guards.has_live_guard(channel_id, thread_ts):
+            return None, None
+        own = channelguards.thread_slowmode(channel_id, thread_ts)
+        if own is not None:
+            return own, thread_ts
+
+    guard = channelguards.guarding(channel_id, KIND)
+    if guard is None:
+        return None, None
+    return guard, scope(guard, event)
 
 
 @on_event("message", open_to_all=True)
@@ -61,16 +70,12 @@ def on_message(ctx):
     if not channel_id:
         return None
 
-    guard = channelguards.guarding(channel_id, KIND)
-    if guard is None or guard.lets_past(subject_id):
+    guard, thread_ts = applying(channel_id, event)
+    if guard is None or thread_ts is None or guard.lets_past(subject_id):
         return None
 
     seconds = guard.seconds()
     if seconds <= 0:
-        return None
-
-    thread_ts = scope(guard, event)
-    if thread_ts is None:
         return None
 
     with session() as conn:
@@ -92,8 +97,8 @@ def on_message(ctx):
         channelguards.record_enforcement(conn, guard.guard_id, channel_id, subject_id,
                                DELETED, text=body, message_ts=ts)
 
-    notify.post_ephemeral(ctx.client, channel_id, subject_id,
-                     IN_CHANNEL.format(left=time_left(seconds_remaining), body=body),
-                     thread_ts=event.get("thread_ts"))
+    told = card.held_back(seconds_remaining, body, in_thread=bool(event.get("thread_ts")))
+    notify.post_ephemeral(ctx.client, channel_id, subject_id, told["text"],
+                          thread_ts=event.get("thread_ts"), blocks=told["blocks"])
     log.info("nemo: slow mode %s removed %s from %s", guard.guard_id, ts, channel_id)
     return True

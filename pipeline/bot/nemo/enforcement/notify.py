@@ -33,10 +33,10 @@ def dm_subject(client, conn, guard, message):
                                    memberguards.NOTIFIED, detail=detail)
 
 
-def post_ephemeral(client, channel_id, subject_id, message, thread_ts=None):
+def post_ephemeral(client, channel_id, subject_id, message, thread_ts=None, blocks=None):
     try:
         client.chat_postEphemeral(channel=channel_id, user=subject_id, text=message,
-                                   thread_ts=thread_ts)
+                                  thread_ts=thread_ts, **({"blocks": blocks} if blocks else {}))
     except Exception as failure:
         log.info("nemo: could not say why %s was stopped in %s: %s",
                  subject_id, channel_id, failure)

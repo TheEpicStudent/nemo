@@ -146,7 +146,8 @@ def test_app_setting_notify_starts_configured_joins(monkeypatch):
 
 def live_guards(monkeypatch, *keys):
     monkeypatch.setattr(channelguards, "_guards",
-                        {key: channelguards.LiveGuard(1, {}, frozenset()) for key in keys})
+                        {(*key, channelguards.CHANNEL_WIDE): channelguards.LiveGuard(1, {}, frozenset())
+                         for key in keys})
     monkeypatch.setattr(channelguards, "_loaded", True)
 
 
@@ -159,7 +160,7 @@ def test_is_guarded_for_every_guard_kind(monkeypatch, kind):
 
 
 def test_is_guarded_before_first_refresh_is_false(monkeypatch):
-    monkeypatch.setattr(channelguards, "_guards", {(channelguards.READONLY, "C_GUARDED"): None})
+    monkeypatch.setattr(channelguards, "_guards", {(channelguards.READONLY, "C_GUARDED", channelguards.CHANNEL_WIDE): None})
     monkeypatch.setattr(channelguards, "_loaded", False)
 
     assert channelguards.is_guarded("C_GUARDED") is False

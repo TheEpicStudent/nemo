@@ -86,7 +86,7 @@ def clean(monkeypatch):
 
 
 def guard(kind, settings=None, allowed=()):
-    channelguards._guards[(kind, CHANNEL_ID)] = channelguards.LiveGuard(7, settings or {}, frozenset(allowed))
+    channelguards._guards[(kind, CHANNEL_ID, channelguards.CHANNEL_WIDE)] = channelguards.LiveGuard(7, settings or {}, frozenset(allowed))
     channelguards._loaded = True
 
 
@@ -216,7 +216,7 @@ def test_slowmode_removes_one_that_is_too_soon(monkeypatch):
 
     assert slowmode.on_message(Ctx(message(), client)) is True
     assert removed == [(CHANNEL_ID, TS)]
-    assert "12 seconds" in client.ephemeral[0]["text"]
+    assert client.ephemeral[0]["text"] == "*Slow mode* · next message in 12s"
 
 
 def test_slowmode_exempt_member_post_skips_clock(monkeypatch):
@@ -294,9 +294,9 @@ def test_slowmode_with_no_interval_does_nothing(monkeypatch):
 
 
 def test_the_wait_reads_in_minutes_once_it_is_long():
-    assert slowmode.time_left(45) == "45 seconds"
-    assert slowmode.time_left(1) == "1 second"
-    assert slowmode.time_left(90) == "2 minutes"
+    assert slowmode.card.wait(45) == "45s"
+    assert slowmode.card.wait(1) == "1s"
+    assert slowmode.card.wait(90) == "2m"
 
 
 def test_account_age_removes_a_member_who_is_too_new(monkeypatch):
@@ -353,7 +353,7 @@ def test_a_carrier_ignores_a_bot(monkeypatch):
 
 def test_a_carrier_ignores_a_direct_message(monkeypatch):
     guard(channelguards.READONLY)
-    channelguards._guards[(channelguards.READONLY, "D1")] = channelguards.LiveGuard(7, {}, frozenset())
+    channelguards._guards[(channelguards.READONLY, "D1", channelguards.CHANNEL_WIDE)] = channelguards.LiveGuard(7, {}, frozenset())
     removed = install_fakes(monkeypatch, readonly, Conn())
 
     assert readonly.on_message(Ctx(message(channel="D1"))) is None

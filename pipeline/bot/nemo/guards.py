@@ -185,6 +185,11 @@ def watching(channel_id, thread_ts):
         return (channel_id, thread_ts) in _watched
 
 
+def has_live_guard(channel_id, thread_ts):
+    with _guard:
+        return _loaded and (channel_id, thread_ts) in _watched
+
+
 def active_guard(conn, channel_id, thread_ts):
     return conn.execute(ACTIVE_ON_THREAD, (channel_id, thread_ts)).fetchone()
 

@@ -1,0 +1,379 @@
+import contextlib
+import datetime as dt
+
+import pytest
+
+from bot.core.formatting import short_end
+from bot.nemo import channelguards, guards, userbots
+from bot.nemo.enforcement import slowmode
+from bot.nemo.surface import thread_slowmode
+from bot.nemo.views import slowmode as card
+
+CHANNEL_ID = "C1"
+THREAD = "1700000000.000000"
+TS = "1700000000.000100"
+USER_ID = "U1"
+MOD = "UMOD"
+NOW = dt.datetime(2026, 10, 16, 9, 30, tzinfo=dt.UTC)
+END = dt.datetime(2026, 10, 17, 14, 30, tzinfo=dt.UTC)
+
+
+def current(**over):
+    row = {"id": 9, "seconds": 30, "expires_at": END, "reason": "Heated argument",
+           "opened_by": MOD, "exempt": ["UEXEMPT"]}
+    row.update(over)
+    return row
+
+
+def submission(**over):
+    row = {"expires_at": None, "seconds": "30", "reason": "Heated argument", "exempt": []}
+    row.update(over)
+    return row
+
+
+def block_ids(view):
+    return [block.get("block_id") for block in view["blocks"]]
+
+
+def test_build_view_new_puts_end_before_cooldown():
+    view = card.build_view(CHANNEL_ID, THREAD)
+
+    assert block_ids(view) == [card.UNTIL, card.SECONDS, card.REASON, card.EXEMPT]
+    assert view["submit"]["text"] == "Enable"
+    assert view["blocks"][1]["label"]["text"] == "Cooldown (seconds)"
+
+
+def test_build_view_existing_shows_status_and_current_values():
+    view = card.build_view(CHANNEL_ID, THREAD, current())
+
+    assert block_ids(view)[1:] == [card.UNTIL, card.SECONDS, card.REASON, card.EXEMPT]
+    assert view["submit"]["text"] == "Save"
+    assert view["blocks"][0]["accessory"]["action_id"] == card.DISABLE
+    assert view["blocks"][1]["element"]["initial_date_time"] == int(END.timestamp())
+    assert view["blocks"][3]["element"]["initial_value"] == "Heated argument"
+    assert view["blocks"][4]["element"]["initial_users"] == ["UEXEMPT"]
+
+
+def test_submitted_values_reads_end_as_utc():
+    state = {"values": {
+        card.UNTIL: {card.UNTIL: {"selected_date_time": int(END.timestamp())}},
+        card.SECONDS: {card.SECONDS: {"value": "45"}},
+        card.REASON: {card.REASON: {"value": "  Heated argument "}},
+        card.EXEMPT: {card.EXEMPT: {"selected_users": ["UEXEMPT"]}},
+    }}
+
+    assert card.submitted_values(state) == {
+        "expires_at": END, "seconds": "45", "reason": "Heated argument", "exempt": ["UEXEMPT"]}
+
+
+@pytest.mark.parametrize(("over", "errors"), [
+    ({}, None),
+    ({"expires_at": NOW - dt.timedelta(minutes=1)}, {card.UNTIL: "Pick a time in the future."}),
+    ({"seconds": "0"}, {card.SECONDS: "Enter 1 to 3600 seconds."}),
+    ({"seconds": "3601"}, {card.SECONDS: "Enter 1 to 3600 seconds."}),
+    ({"seconds": "fast"}, {card.SECONDS: "Enter 1 to 3600 seconds."}),
+    ({"reason": ""}, {card.REASON: "Add a reason."}),
+])
+def test_validation_errors_checks_end_cooldown_and_reason(over, errors):
+    assert card.validation_errors(submission(**over), NOW) == errors
+
+
+def test_notice_labels_cooldown_and_end():
+    posted = card.notice(30, END, MOD)
+
+    assert posted["text"] == f"*Slow mode enabled* · 30s cooldown · ends {short_end(END)}"
+    assert posted["blocks"][1]["elements"][0]["text"] == f"Fire Department · <@{MOD}>"
+
+
+def test_confirmation_without_end_says_no_end_date():
+    assert card.confirmation("enabled", 120, None, "Heated argument") == \
+        "Slow mode enabled · 2m cooldown · no end date · Reason: Heated argument"
+
+
+def test_held_back_in_thread_quotes_the_reply():
+    told = card.held_back(12, "my reply", in_thread=True)
+
+    assert told["text"] == "*Slow mode* · next reply in 12s"
+    assert told["blocks"][1]["elements"][0]["elements"][0]["text"] == "my reply"
+
+
+def test_held_back_without_body_has_no_quote():
+    assert len(card.held_back(12, "", in_thread=False)["blocks"]) == 1
+
+
+@pytest.fixture
+def cache(monkeypatch):
+    monkeypatch.setattr(channelguards, "_guards", {})
+    monkeypatch.setattr(channelguards, "_loaded", True)
+    monkeypatch.setattr(userbots, "_people", {})
+    return channelguards._guards
+
+
+def live(cache, thread_ts, guard_id, seconds, allowed=(), expires_at=None, threads=False):
+    settings = {"seconds": seconds, **({"threads": True} if threads else {})}
+    cache[(channelguards.SLOWMODE, CHANNEL_ID, thread_ts)] = channelguards.LiveGuard(
+        guard_id, settings, frozenset(allowed), expires_at)
+
+
+def test_thread_slowmode_is_separate_from_channel_slowmode(cache):
+    live(cache, THREAD, 9, 30)
+
+    assert channelguards.thread_slowmode(CHANNEL_ID, THREAD).guard_id == 9
+    assert channelguards.guarding(CHANNEL_ID, channelguards.SLOWMODE) is None
+    assert channelguards.is_guarded(CHANNEL_ID) is True
+
+
+def test_thread_slowmode_past_end_is_not_in_force(cache):
+    live(cache, THREAD, 9, 30, expires_at=dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1))
+
+    assert channelguards.thread_slowmode(CHANNEL_ID, THREAD) is None
+
+
+def test_refresh_keys_guards_by_thread(cache):
+    rows = [("slowmode", CHANNEL_ID, "", 1, {"seconds": 60}, None, []),
+            ("slowmode", CHANNEL_ID, THREAD, 2, {"seconds": 30}, END, ["UEXEMPT"])]
+
+    class Conn:
+        def execute(self, sql, args=None):
+            return self
+
+        def fetchall(self):
+            return rows
+
+    channelguards.refresh(Conn())
+
+    assert set(channelguards._guards) == {("slowmode", CHANNEL_ID, ""), ("slowmode", CHANNEL_ID, THREAD)}
+    assert channelguards._guards[("slowmode", CHANNEL_ID, THREAD)].expires_at == END
+
+
+class Conn:
+    def __init__(self, remaining=12):
+        self.remaining = remaining
+        self.executed = []
+
+    def execute(self, sql, args=None):
+        self.executed.append((sql, args))
+        return self
+
+    def fetchone(self):
+        sql = self.executed[-1][0]
+        if "INSERT INTO fd.slowmode_clock" in sql:
+            return None
+        if "FROM fd.slowmode_clock" in sql:
+            return (self.remaining,)
+        if "holds_capability" in sql:
+            return (False,)
+        return (1,)
+
+    def args_for(self, mark):
+        return [args for sql, args in self.executed if mark in sql]
+
+
+class Slack:
+    def __init__(self):
+        self.ephemeral = []
+
+    def chat_postEphemeral(self, **kwargs):
+        self.ephemeral.append(kwargs)
+
+
+class EventCtx:
+    def __init__(self, event):
+        self.payload = event
+        self.client = Slack()
+
+
+def reply(**over):
+    return {"user": USER_ID, "channel": CHANNEL_ID, "ts": TS, "thread_ts": THREAD, "text": "my reply", **over}
+
+
+@contextlib.contextmanager
+def session_of(conn):
+    yield conn
+
+
+@pytest.fixture
+def enforcing(monkeypatch, cache):
+    conn = Conn()
+    removed = []
+    monkeypatch.setattr(slowmode, "session", lambda: session_of(conn))
+    monkeypatch.setattr(slowmode.guard_actions, "remove",
+                        lambda client, channel_id, ts: removed.append(ts) or True)
+    monkeypatch.setattr(guards, "has_live_guard", lambda channel_id, thread_ts: False)
+    return conn, removed
+
+
+def test_thread_slowmode_holds_back_a_fast_reply(enforcing, cache):
+    conn, removed = enforcing
+    live(cache, THREAD, 9, 30)
+    ctx = EventCtx(reply())
+
+    assert slowmode.on_message(ctx) is True
+    assert removed == [TS]
+    assert conn.args_for("INSERT INTO fd.slowmode_clock")[0][1] == THREAD
+    assert conn.args_for("INSERT INTO fd.channel_guard_events")[0][0] == 9
+    assert ctx.client.ephemeral[0]["text"] == "*Slow mode* · next reply in 12s"
+
+
+def test_thread_slowmode_takes_precedence_over_channel_slowmode(enforcing, cache):
+    conn, _removed = enforcing
+    live(cache, "", 1, 600, threads=True)
+    live(cache, THREAD, 9, 30)
+
+    slowmode.on_message(EventCtx(reply()))
+
+    assert conn.args_for("INSERT INTO fd.slowmode_clock")[0][3] == 30
+    assert conn.args_for("INSERT INTO fd.channel_guard_events")[0][0] == 9
+
+
+def test_thread_slowmode_leaves_channel_messages_alone(enforcing, cache):
+    _conn, removed = enforcing
+    live(cache, THREAD, 9, 30)
+
+    assert slowmode.on_message(EventCtx(reply(thread_ts=None))) is None
+    assert removed == []
+
+
+def test_thread_slowmode_skips_a_locked_thread(enforcing, cache, monkeypatch):
+    _conn, removed = enforcing
+    live(cache, THREAD, 9, 30)
+    monkeypatch.setattr(guards, "has_live_guard", lambda channel_id, thread_ts: True)
+
+    assert slowmode.on_message(EventCtx(reply())) is None
+    assert removed == []
+
+
+def test_thread_slowmode_lets_an_exempt_member_reply(enforcing, cache):
+    _conn, removed = enforcing
+    live(cache, THREAD, 9, 30, allowed=[USER_ID])
+
+    assert slowmode.on_message(EventCtx(reply())) is None
+    assert removed == []
+
+
+class Client:
+    def __init__(self, fails=False):
+        self.fails = fails
+        self.posted = []
+        self.updated = []
+        self.opened = []
+
+    def chat_postMessage(self, **kwargs):
+        if self.fails:
+            raise RuntimeError("not_in_channel")
+        self.posted.append(kwargs)
+
+    def views_update(self, **kwargs):
+        self.updated.append(kwargs)
+
+    def views_open(self, **kwargs):
+        self.opened.append(kwargs)
+
+
+class SurfaceCtx:
+    def __init__(self, view, client=None):
+        self.view = view
+        self.client = client or Client()
+        self.user_id = MOD
+        self.channel_id = CHANNEL_ID
+        self.thread_ts = THREAD
+        self.trigger_id = "T1"
+        self.acked = []
+        self.said = []
+
+    def ack(self, **kwargs):
+        self.acked.append(kwargs)
+
+    def join(self, channel_id=None):
+        return None
+
+    def post_ephemeral(self, message, channel_id=None, thread_ts=None):
+        self.said.append(message)
+
+    def post_ephemeral_or_dm(self, message, channel_id=None, thread_ts=None):
+        self.said.append(message)
+
+
+def submitted_view(seconds="30", reason="Heated argument"):
+    return {
+        "id": "V1", "hash": "H1", "callback_id": card.CALLBACK,
+        "private_metadata": card.metadata(CHANNEL_ID, THREAD),
+        "state": {"values": {
+            card.SECONDS: {card.SECONDS: {"value": seconds}},
+            card.REASON: {card.REASON: {"value": reason}},
+            card.EXEMPT: {card.EXEMPT: {"selected_users": ["UEXEMPT"]}},
+        }},
+    }
+
+
+@pytest.fixture
+def stored(monkeypatch):
+    calls = {"opened": [], "tuned": [], "allows": [], "lifted": [], "row": None}
+    monkeypatch.setattr(thread_slowmode, "session", lambda: session_of(object()))
+    monkeypatch.setattr(channelguards, "thread_slowmode_row", lambda conn, channel_id, thread_ts: calls["row"])
+    monkeypatch.setattr(channelguards, "open_thread_slowmode",
+                        lambda conn, *args: calls["opened"].append(args) or 9)
+    monkeypatch.setattr(channelguards, "tune_thread_slowmode",
+                        lambda conn, row, *args: calls["tuned"].append(args) or row["id"])
+    monkeypatch.setattr(channelguards, "set_allows",
+                        lambda conn, guard_id, ids, by: calls["allows"].append((guard_id, ids)))
+    monkeypatch.setattr(channelguards, "lift", lambda conn, guard_id, by: calls["lifted"].append(guard_id) or CHANNEL_ID)
+    monkeypatch.setattr(channelguards, "refresh", lambda conn: 0)
+    return calls
+
+
+def test_saved_new_opens_guard_posts_notice_and_confirms(stored):
+    ctx = SurfaceCtx(submitted_view())
+
+    assert thread_slowmode.saved(ctx) == 9
+    assert stored["opened"] == [(CHANNEL_ID, THREAD, 30, MOD, "Heated argument", None)]
+    assert stored["allows"] == [(9, ["UEXEMPT"])]
+    assert ctx.client.posted[0]["text"] == "*Slow mode enabled* · 30s cooldown · no end date"
+    assert ctx.said == ["Slow mode enabled · 30s cooldown · no end date · Reason: Heated argument"]
+
+
+def test_saved_existing_updates_without_notice(stored):
+    stored["row"] = current()
+    ctx = SurfaceCtx(submitted_view(seconds="60"))
+
+    thread_slowmode.saved(ctx)
+
+    assert stored["tuned"] == [(60, MOD, "Heated argument", None)]
+    assert ctx.client.posted == []
+    assert ctx.said == ["Slow mode updated · 1m cooldown · no end date · Reason: Heated argument"]
+
+
+def test_saved_notice_failure_lifts_the_guard(stored):
+    ctx = SurfaceCtx(submitted_view(), Client(fails=True))
+
+    assert thread_slowmode.saved(ctx) is None
+    assert stored["lifted"] == [9]
+    assert ctx.said == ["Slow mode not enabled · Nemo could not post in this thread (RuntimeError)"]
+
+
+def test_saved_bad_cooldown_returns_errors(stored):
+    ctx = SurfaceCtx(submitted_view(seconds="0"))
+
+    thread_slowmode.saved(ctx)
+
+    assert ctx.acked == [{"response_action": "errors", "errors": {card.SECONDS: "Enter 1 to 3600 seconds."}}]
+    assert stored["opened"] == []
+
+
+def test_disabled_lifts_and_closes_the_modal(stored):
+    stored["row"] = current()
+    ctx = SurfaceCtx(submitted_view())
+
+    assert thread_slowmode.disabled(ctx) == 9
+    assert stored["lifted"] == [9]
+    assert ctx.client.updated[0]["view"]["callback_id"] == card.DISABLED_CALLBACK
+    assert ctx.said == ["Slow mode disabled"]
+
+
+def test_open_slowmode_modal_prefills_current_settings(stored):
+    stored["row"] = current()
+    ctx = SurfaceCtx({})
+
+    thread_slowmode.open_slowmode_modal(ctx)
+
+    assert ctx.client.opened[0]["view"]["submit"]["text"] == "Save"

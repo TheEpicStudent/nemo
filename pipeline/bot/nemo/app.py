@@ -24,6 +24,7 @@ from bot.nemo.surface import (
     reaction_watch,  # noqa: F401
     thread_destroy,  # noqa: F401
     thread_lock,  # noqa: F401
+    thread_slowmode,  # noqa: F401
     thread_watch,  # noqa: F401
     unsub_shield,  # noqa: F401
 )

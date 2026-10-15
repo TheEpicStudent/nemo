@@ -285,6 +285,52 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_no_match(/Activity/, response.body)
   end
 
+  def thread_slowmode!(thread_ts: "1700000000.000100", seconds: 30, **attrs)
+    Fd::ChannelGuard.create!(kind: "slowmode", channel_id: @id, thread_ts: thread_ts, opened_by: "UME",
+      settings: { "seconds" => seconds }, reason: "Heated argument", **attrs)
+  end
+
+  test "thread slow mode is listed on the slow mode tab" do
+    ends = 2.days.from_now.utc.change(hour: 14, min: 30)
+    thread_slowmode!(expires_at: ends)
+
+    get fd_channel_path(@id, tab: "slowmode")
+
+    assert_select ".card-title", "Threads"
+    assert_match "30s cooldown · ends #{Fd::ShortDate.ending(ends)}", response.body
+    assert_match "Reason: Heated argument", response.body
+    assert_select "form[action=?]", fd_channel_thread_slowmode_path(@id, Fd::ChannelGuard.thread_scoped.sole)
+  end
+
+  test "thread slow mode is not the channel slow mode" do
+    thread_slowmode!
+
+    assert_nil live("slowmode")
+    post_guard("slowmode")
+
+    assert live("slowmode")
+    assert_equal "", live("slowmode").thread_ts
+    assert_equal 2, Fd::ChannelGuard.live.where(channel_id: @id, kind: "slowmode").count
+  end
+
+  test "thread slow mode is disabled from the slow mode tab" do
+    guard = thread_slowmode!
+
+    delete fd_channel_thread_slowmode_path(@id, guard)
+
+    assert_redirected_to fd_channel_path(@id, tab: "slowmode")
+    assert_equal "Thread slow mode disabled", flash[:notice]
+    assert_equal "lifted", guard.reload.state
+    assert_equal "UME", guard.lifted_by
+    assert Fd::AuditEntry.exists?(entity_type: "channel_guard", entity_id: guard.id, verb: "lifted")
+  end
+
+  test "thread slow mode is left out of the guarded channel list" do
+    thread_slowmode!
+
+    assert_equal 0, Fd::LiveGuards.new.total
+  end
+
   test "somebody without channel.guard cannot turn a kind on" do
     drop_roles!("UME")
     hold_role!("UME", "gardener")

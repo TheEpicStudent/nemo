@@ -123,9 +123,21 @@ def lift_expired_locks(client):
         apart((f"lifting guard {guard_id}", lambda one=guard_id: guard_actions.lift_lock(client, one)))
 
 
+def lift_lapsed_channel_guards():
+    with session() as conn:
+        lifted = channelguards.lift_lapsed(conn)
+        if lifted:
+            channelguards.refresh(conn)
+    for guard_id, kind, channel_id, thread_ts in lifted:
+        log.info("nemo: %s guard %s on %s%s ended", kind, guard_id, channel_id,
+                 f" thread {thread_ts}" if thread_ts else "")
+    return len(lifted)
+
+
 def lift_due(client):
     apart(("lifting what has run out", lambda: sweep.sweep_lapsed(client)),
-          ("lifting expired thread locks", lambda: lift_expired_locks(client)))
+          ("lifting expired thread locks", lambda: lift_expired_locks(client)),
+          ("lifting expired channel guards", lift_lapsed_channel_guards))
     with session() as conn:
         return sweep.seconds_to_next_expiry(conn)
 
@@ -222,6 +234,7 @@ def once(case_channel, channel_id=None):
         ("clearing unremoved guard artifacts", lambda: guard_actions.sweep_removals(client)),
         ("resetting sessions the guard has earned", guard_actions.sweep_strikes),
         ("lifting what has run out", lambda: sweep.sweep_lapsed(client)),
+        ("lifting expired channel guards", lift_lapsed_channel_guards),
         ("notifying manually lifted guards", lambda: sweep.sweep_lifted(client)),
         ("reclaiming released work", lambda: sweep.sweep_dropped(client)),
         ("notifying expiring guards", lambda: sweep.sweep_ending(client)),
@@ -292,6 +305,7 @@ def start(case_channel, stopping, channel_id=None):
                 target=join_channel, args=(case_channel.client, payload),
                 name=f"nemo-seat-{payload}", daemon=True,
             ).start()
+            wake_lapses()
         elif channel_name == MEMBER_GUARD:
             wake_member_guards()
             wake_lapses()

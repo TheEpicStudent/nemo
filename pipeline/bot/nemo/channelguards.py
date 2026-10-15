@@ -1,3 +1,5 @@
+import datetime as dt
+import json
 import threading
 
 from bot.core import audit
@@ -7,20 +9,54 @@ READONLY = "readonly"
 SLOWMODE = "slowmode"
 ACCOUNT_AGE = "account_age"
 KINDS = (BOT_ALLOWLIST, READONLY, SLOWMODE, ACCOUNT_AGE)
+CHANNEL_WIDE = ""
 
 LIVE = """
-SELECT g.kind, g.channel_id, g.id, g.settings, coalesce(array_agg(a.subject_id) FILTER
-         (WHERE a.subject_id IS NOT NULL), '{}')
+SELECT g.kind, g.channel_id, g.thread_ts, g.id, g.settings, g.expires_at,
+       coalesce(array_agg(a.subject_id) FILTER (WHERE a.subject_id IS NOT NULL), '{}')
 FROM fd.channel_guards g
 LEFT JOIN fd.channel_guard_allows a ON a.guard_id = g.id
 WHERE g.state = 'live'
-GROUP BY g.kind, g.channel_id, g.id, g.settings
+GROUP BY g.kind, g.channel_id, g.thread_ts, g.id, g.settings, g.expires_at
 """
 
 LIVE_GUARD = """
 SELECT id, kind, channel_id, state, opened_by, case_id
 FROM fd.channel_guards
-WHERE channel_id = %s AND kind = %s AND state = 'live'
+WHERE channel_id = %s AND kind = %s AND thread_ts = '' AND state = 'live'
+"""
+
+THREAD_SLOWMODE = """
+SELECT id, settings, expires_at, reason, opened_by
+FROM fd.channel_guards
+WHERE channel_id = %s AND thread_ts = %s AND kind = 'slowmode' AND state = 'live'
+"""
+
+OPEN_THREAD_SLOWMODE = """
+INSERT INTO fd.channel_guards (kind, channel_id, thread_ts, settings, opened_by, reason, expires_at)
+VALUES ('slowmode', %s, %s, %s, %s, %s, %s)
+ON CONFLICT DO NOTHING
+RETURNING id
+"""
+
+TUNE_THREAD_SLOWMODE = """
+UPDATE fd.channel_guards
+SET settings = %s, reason = %s, expires_at = %s, updated_at = now()
+WHERE id = %s AND state = 'live'
+RETURNING id
+"""
+
+LIFT_LAPSED = """
+UPDATE fd.channel_guards
+SET state = 'lifted', lifted_at = now(), updated_at = now()
+WHERE state = 'live' AND expires_at IS NOT NULL AND expires_at <= now()
+RETURNING id, kind, channel_id, thread_ts
+"""
+
+DISALLOW_ALL_BUT = """
+DELETE FROM fd.channel_guard_allows
+WHERE guard_id = %s AND NOT (subject_id = ANY(%s))
+RETURNING subject_id
 """
 
 OPEN = """
@@ -145,10 +181,14 @@ _lock = threading.Lock()
 
 
 class LiveGuard:
-    def __init__(self, guard_id, settings, allowed):
+    def __init__(self, guard_id, settings, allowed, expires_at=None):
         self.guard_id = guard_id
         self.settings = settings or {}
         self.allowed = allowed
+        self.expires_at = expires_at
+
+    def in_force(self, now=None):
+        return self.expires_at is None or self.expires_at > (now or dt.datetime.now(dt.UTC))
 
     def __iter__(self):
         return iter((self.guard_id, self.allowed))
@@ -169,28 +209,41 @@ class LiveGuard:
 def refresh(conn):
     global _loaded
     guards_by_key = {
-        (row[0], row[1]): LiveGuard(row[2], row[3], frozenset(row[4] or ()))
+        (row[0], row[1], row[2]): LiveGuard(row[3], row[4], frozenset(row[6] or ()), row[5])
         for row in conn.execute(LIVE).fetchall()
     }
     with _lock:
         _guards.clear()
         _guards.update(guards_by_key)
         _loaded = True
-    return sum(1 for kind, _ in guards_by_key if kind == BOT_ALLOWLIST)
+    return sum(1 for kind, _, _ in guards_by_key if kind == BOT_ALLOWLIST)
+
+
+def in_force(guard):
+    return guard if guard is not None and guard.in_force() else None
 
 
 def guarding(channel_id, kind=BOT_ALLOWLIST):
     with _lock:
         if not _loaded:
             return None
-        return _guards.get((kind, channel_id))
+        return in_force(_guards.get((kind, channel_id, CHANNEL_WIDE)))
+
+
+def thread_slowmode(channel_id, thread_ts):
+    if not thread_ts:
+        return None
+    with _lock:
+        if not _loaded:
+            return None
+        return in_force(_guards.get((SLOWMODE, channel_id, thread_ts)))
 
 
 def is_guarded(channel_id):
     with _lock:
         if not _loaded:
             return False
-        return any((kind, channel_id) in _guards for kind in KINDS)
+        return any(guarded_id == channel_id for _, guarded_id, _ in _guards)
 
 
 def lets_past(channel_id, *ids, kind=BOT_ALLOWLIST):
@@ -207,6 +260,73 @@ def live_guard(conn, channel_id, kind=BOT_ALLOWLIST):
 
 def allowed(conn, guard_id):
     return conn.execute(ALLOWED, (guard_id,)).fetchall()
+
+
+def thread_slowmode_row(conn, channel_id, thread_ts):
+    row = conn.execute(THREAD_SLOWMODE, (channel_id, thread_ts)).fetchone()
+    if row is None:
+        return None
+    guard_id, settings, expires_at, reason, opened_by = row
+    exempt_ids = [one[0] for one in allowed(conn, guard_id)]
+    return {"id": guard_id, "seconds": int((settings or {}).get("seconds") or 0),
+            "expires_at": expires_at, "reason": reason, "opened_by": opened_by,
+            "exempt": exempt_ids}
+
+
+def open_thread_slowmode(conn, channel_id, thread_ts, seconds, by, reason, expires_at):
+    row = conn.execute(OPEN_THREAD_SLOWMODE, (
+        channel_id, thread_ts, json.dumps({"seconds": seconds}), by, reason, expires_at,
+    )).fetchone()
+    if row is None:
+        return None
+
+    guard_id = row[0]
+    audit.record(
+        conn, "channel_guard", guard_id, "opened", by,
+        after={"kind": SLOWMODE, "channel_id": channel_id, "thread_ts": thread_ts,
+               "seconds": seconds, "reason": reason,
+               "expires_at": str(expires_at) if expires_at else None},
+    )
+    return guard_id
+
+
+def tune_thread_slowmode(conn, current, seconds, by, reason, expires_at):
+    row = conn.execute(TUNE_THREAD_SLOWMODE, (
+        json.dumps({"seconds": seconds}), reason, expires_at, current["id"],
+    )).fetchone()
+    if row is None:
+        return None
+
+    audit.record(
+        conn, "channel_guard", current["id"], "tuned", by,
+        before={"seconds": current["seconds"], "reason": current["reason"],
+                "expires_at": str(current["expires_at"]) if current["expires_at"] else None},
+        after={"seconds": seconds, "reason": reason,
+               "expires_at": str(expires_at) if expires_at else None},
+    )
+    return row[0]
+
+
+def set_allows(conn, guard_id, subject_ids, by):
+    wanted = list(dict.fromkeys(one for one in subject_ids if one))
+    held = {row[0] for row in allowed(conn, guard_id)}
+    for subject_id in (row[0] for row in conn.execute(DISALLOW_ALL_BUT, (guard_id, wanted)).fetchall()):
+        audit.record(conn, "channel_allow", guard_id, "removed", by,
+                     before={"subject_id": subject_id}, after=None)
+    for subject_id in wanted:
+        if subject_id not in held:
+            allow(conn, guard_id, subject_id, by)
+    return wanted
+
+
+def lift_lapsed(conn):
+    lifted = conn.execute(LIFT_LAPSED).fetchall()
+    for guard_id, kind, channel_id, thread_ts in lifted:
+        audit.record(conn, "channel_guard", guard_id, "lifted", "system", actor_kind="system",
+                     before={"state": "live"}, after={"state": "lifted", "kind": kind,
+                                                       "channel_id": channel_id,
+                                                       "thread_ts": thread_ts or None})
+    return lifted
 
 
 def open_guard(conn, channel_id, by, case_id=None, kind=BOT_ALLOWLIST):

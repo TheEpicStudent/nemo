@@ -48,6 +48,7 @@
 
 <% if @tab == "slowmode" %>
   <%= render "slowmode", channel_id: @channel_id, guard: @kind_guard, allows: @allows %>
+  <%= render "thread_slowmodes", guards: @thread_slowmodes if @thread_slowmodes.any? %>
   <%= render "activity", events: @events, labels: @labels %>
 <% end %>
 

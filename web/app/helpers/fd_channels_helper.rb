@@ -107,6 +107,22 @@ module FdChannelsHelper
     guard.threads? ? "#{label}, threads too" : label
   end
 
+  def cooldown_label(seconds)
+    seconds >= 60 && (seconds % 60).zero? ? "#{seconds / 60}m" : "#{seconds}s"
+  end
+
+  def thread_started(guard)
+    "Thread · #{Fd::ShortDate.ending(Time.at(guard.thread_ts.to_f).utc)}"
+  end
+
+  def thread_slowmode_line(guard)
+    parts = ["#{cooldown_label(guard.seconds)} cooldown",
+             guard.expires_at ? "ends #{Fd::ShortDate.ending(guard.expires_at)}" : "no end date"]
+    parts << pluralize(guard.allows.size, "exemption") if guard.allows.any?
+    parts << "Reason: #{guard.reason}" if guard.reason.present?
+    parts.join(" · ")
+  end
+
   def readonly_line(guard, allowed)
     label = allowed.positive? ? "#{pluralize(allowed, 'person')} may post" : "nobody may post"
     guard.threads? ? "#{label}, threads too" : label

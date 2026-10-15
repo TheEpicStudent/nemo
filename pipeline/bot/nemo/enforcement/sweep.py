@@ -14,7 +14,9 @@ SELECT extract(epoch FROM least(
     (SELECT min(expires_at) FROM fd.member_guards
       WHERE state = 'live' AND expires_at IS NOT NULL),
     (SELECT min(expires_at) FROM fd.thread_guards
-      WHERE kind = 'lock' AND state IN ('warned', 'running') AND expires_at IS NOT NULL)
+      WHERE kind = 'lock' AND state IN ('warned', 'running') AND expires_at IS NOT NULL),
+    (SELECT min(expires_at) FROM fd.channel_guards
+      WHERE state = 'live' AND expires_at IS NOT NULL)
 ) - now())
 """
 

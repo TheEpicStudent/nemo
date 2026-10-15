@@ -65,7 +65,7 @@ def harness(monkeypatch):
     calls = []
     conn = Conn()
     channelguards._guards.clear()
-    channelguards._guards[(channelguards.BOT_ALLOWLIST, CHANNEL_ID)] = channelguards.LiveGuard(
+    channelguards._guards[(channelguards.BOT_ALLOWLIST, CHANNEL_ID, channelguards.CHANNEL_WIDE)] = channelguards.LiveGuard(
         7, {}, frozenset())
     channelguards._loaded = True
     bot_watch._apps[BOT_ID] = (BOT_USER_ID, "spammer", "A1")

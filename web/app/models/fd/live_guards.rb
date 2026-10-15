@@ -31,7 +31,7 @@ module Fd
 
     def sorted
       @sorted ||= begin
-        guards = ChannelGuard.live.to_a
+        guards = ChannelGuard.live.channel_wide.to_a
         @channels = ChannelNames.for(guards.map(&:channel_id))
         guards.sort_by { |guard|
           [ChannelGuard::KINDS.index(guard.kind) || ChannelGuard::KINDS.size,
