@@ -132,6 +132,21 @@ class Ctx:
         except Exception as failure:
             log.warning("nemo: could not post an ephemeral message: %s", failure)
 
+    def post_ephemeral_or_dm(self, message, channel_id=None, thread_ts=None):
+        room = channel_id or self.channel_id
+        try:
+            self.client.chat_postEphemeral(
+                channel=room, user=self.user_id,
+                thread_ts=thread_ts or self.thread_ts, text=message,
+            )
+            return
+        except Exception as failure:
+            log.info("nemo: ephemeral refused in %s, sending a DM instead: %s", room, failure)
+        try:
+            self.client.chat_postMessage(channel=self.user_id, text=message)
+        except Exception as failure:
+            log.warning("nemo: could not send a DM either: %s", failure)
+
 
 def refused(entry, ctx, why):
     with session() as conn:

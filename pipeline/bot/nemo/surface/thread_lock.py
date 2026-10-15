@@ -2,13 +2,18 @@ import datetime as dt
 import logging
 
 from bot.core import session
-from bot.nemo import guards
+from bot.nemo import channels, guards
 from bot.nemo.views import guard as card
 from bot.nemo.surface import on_shortcut, on_view
 
 log = logging.getLogger("bot.nemo")
 
 SHORTCUT = "lock_thread"
+
+WARNING_NOT_POSTED = (
+    "Not locked: Nemo could not post in this thread ({error_code}). "
+    "Run /invite @nemo in the channel, then lock the thread again."
+)
 
 
 @on_shortcut(SHORTCUT, needs="thread.guard")
@@ -48,9 +53,19 @@ def confirmed(ctx):
         return ctx.post_ephemeral("That thread is already locked or being destroyed.", channel_id, thread_ts)
 
     ctx.join(channel_id)
+    error_code = None
     with session() as conn:
-        guards.warn(ctx.client, conn, guard_id, channel_id, thread_ts, guards.LOCK)
+        try:
+            guards.warn(ctx.client, conn, guard_id, channel_id, thread_ts, guards.LOCK)
+        except Exception as failure:
+            error_code = channels.refusal(failure)
+            guards.finish(conn, guard_id, "failed", f"warning not posted: {error_code}")
         guards.refresh(conn)
+
+    if error_code:
+        log.warning("nemo: lock guard %s failed, warning not posted: %s", guard_id, error_code)
+        ctx.post_ephemeral_or_dm(WARNING_NOT_POSTED.format(error_code=error_code), channel_id, thread_ts)
+        return None
 
     log.info("nemo: %s locked %s until %s (guard %s)", ctx.user_id, thread_ts, lock_until, guard_id)
     return guard_id
