@@ -11,6 +11,10 @@ module Fd
       seated.exists?(channel_id: channel_id)
     end
 
+    def self.seat(channel_id)
+      [inside?(channel_id), ChannelJoin.latest_for(channel_id)]
+    end
+
     def readonly?
       persisted?
     end

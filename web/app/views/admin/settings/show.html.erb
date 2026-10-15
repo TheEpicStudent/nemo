@@ -66,7 +66,10 @@
           <tbody>
             <% @react_channels.each do |channel_id| %>
               <tr>
-                <td><%= channel_cell(channel_id, @channels_by_id[channel_id]) %></td>
+                <td>
+                  <%= channel_cell(channel_id, @channels_by_id[channel_id]) %>
+                  <%= channel_seat_label(*@seats[channel_id]) %>
+                </td>
                 <td class="col-btn">
                   <% if may_grant? %>
                     <%= button_to "Take out", admin_settings_react_channel_path(channel_id),
@@ -86,14 +89,14 @@
   </div>
 
   <%= render "channel_setting", title: "Firehouse", channel_id: @firehouse,
-        url: admin_settings_firehouse_path, channels_by_id: @channels_by_id,
+        url: admin_settings_firehouse_path, channels_by_id: @channels_by_id, seat: @seats[@firehouse],
         warning: "No firehouse picked" %>
 
   <%= render "channel_setting", title: "Shroud reports", channel_id: @reports_channel,
-        url: admin_settings_reports_channel_path, channels_by_id: @channels_by_id,
+        url: admin_settings_reports_channel_path, channels_by_id: @channels_by_id, seat: @seats[@reports_channel],
         warning: "No channel picked" %>
 
   <%= render "channel_setting", title: "Internal logs", channel_id: @log_channel,
-        url: admin_settings_log_channel_path, channels_by_id: @channels_by_id,
+        url: admin_settings_log_channel_path, channels_by_id: @channels_by_id, seat: @seats[@log_channel],
         warning: "No channel picked" %>
 </div>

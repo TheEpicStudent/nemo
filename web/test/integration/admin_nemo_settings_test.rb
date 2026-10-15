@@ -37,6 +37,52 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert_select "p.sev-crit", count: 0
   end
 
+  def seat_nemo!(channel_id, inside)
+    connection = ActiveRecord::Base.connection
+    connection.execute(
+      "INSERT INTO fd.channel_membership (channel_id, inside) VALUES (#{connection.quote(channel_id)}, #{inside}) " \
+      "ON CONFLICT (channel_id) DO UPDATE SET inside = EXCLUDED.inside"
+    )
+  end
+
+  def refuse_join!(channel_id, why)
+    connection = ActiveRecord::Base.connection
+    connection.execute(
+      "INSERT INTO fd.channel_joins (channel_id, verb, why) " \
+      "VALUES (#{connection.quote(channel_id)}, 'refused', #{connection.quote(why)})"
+    )
+  end
+
+  test "firehouse nemo is not in shows the seat warning" do
+    Fd::AppSetting.set_firehouse_channel("C0FIRE", by: "UME")
+    seat_nemo!("C0FIRE", false)
+
+    get admin_settings_path
+
+    assert_select "td p.sev-crit", "Nemo is not in the channel"
+  end
+
+  test "react channel waiting for an invite shows the invite note" do
+    Fd::AppSetting.set_case_react_channels(["G0PRIVATE"], by: "UME")
+    seat_nemo!("G0PRIVATE", false)
+    refuse_join!("G0PRIVATE", FdChannelsHelper::NEEDS_INVITE)
+
+    get admin_settings_path
+
+    assert_select "td p.sev-crit", FdChannelsHelper::INVITE_NOTE
+  end
+
+  test "configured channels nemo is in show no seat warning" do
+    CHANNEL_KEYS.each { |key| Fd::AppSetting.write(key, "C0FIRE", by: "UME") }
+    Fd::AppSetting.set_case_react_channels(["C0REACT"], by: "UME")
+    seat_nemo!("C0FIRE", true)
+    seat_nemo!("C0REACT", true)
+
+    get admin_settings_path
+
+    assert_select "td p.sev-crit", count: 0
+  end
+
   test "reports_channel saves the picked channel and audits it" do
     channel_id = known_channel_id
 

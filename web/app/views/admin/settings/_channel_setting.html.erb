@@ -16,7 +16,12 @@
       <table class="data-table">
         <thead><tr><th>Channel</th></tr></thead>
         <tbody>
-          <tr><td><%= channel_cell(channel_id, channels_by_id[channel_id]) %></td></tr>
+          <tr>
+            <td>
+              <%= channel_cell(channel_id, channels_by_id[channel_id]) %>
+              <%= channel_seat_label(*seat) if seat %>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>

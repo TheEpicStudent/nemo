@@ -22,6 +22,32 @@ class FdResponsesTest < ActionDispatch::IntegrationTest
 
   def setting(key) = Fd::AppSetting.value(key)
 
+  def seat_nemo!(channel_id, inside)
+    connection = ActiveRecord::Base.connection
+    connection.execute(
+      "INSERT INTO fd.channel_membership (channel_id, inside) VALUES (#{connection.quote(channel_id)}, #{inside}) " \
+      "ON CONFLICT (channel_id) DO UPDATE SET inside = EXCLUDED.inside"
+    )
+  end
+
+  test "autoresponse channel nemo is not in shows the seat warning" do
+    Fd::AppSetting.write(Fd::AppSetting::AUTORESPONSE_CHANNEL, @channel.channel_id, by: "UME")
+    seat_nemo!(@channel.channel_id, false)
+
+    get fd_configuration_path(tab: "responses")
+
+    assert_select "p.sev-crit", "Nemo is not in the channel"
+  end
+
+  test "autoresponse channel nemo is in shows no seat warning" do
+    Fd::AppSetting.write(Fd::AppSetting::AUTORESPONSE_CHANNEL, @channel.channel_id, by: "UME")
+    seat_nemo!(@channel.channel_id, true)
+
+    get fd_configuration_path(tab: "responses")
+
+    assert_select "p.sev-crit", count: 0
+  end
+
   test "the responses tab opens" do
     get fd_configuration_path(tab: "responses")
 

@@ -16,9 +16,9 @@ module Admin
       @reports_channel = Fd::AppSetting.reports_channel
       @log_channel = Fd::AppSetting.log_channel
       @react_channels = Fd::AppSetting.case_react_channels
-      @channels_by_id = Analytics::DimChannel
-        .where(channel_id: ([@firehouse, @reports_channel, @log_channel] + @react_channels).compact)
-        .index_by(&:channel_id)
+      configured_ids = ([@firehouse, @reports_channel, @log_channel] + @react_channels).compact.uniq
+      @channels_by_id = Analytics::DimChannel.where(channel_id: configured_ids).index_by(&:channel_id)
+      @seats = configured_ids.index_with { |channel_id| Fd::ChannelMembership.seat(channel_id) }
     end
 
     def join_mode
