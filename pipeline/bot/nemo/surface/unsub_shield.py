@@ -25,7 +25,7 @@ def on_message(ctx):
     if not responses.shielding():
         return None
 
-    channel_id, subject_id, ts = notify.message_target(event)
+    channel_id, subject_id, ts = notify.message_target(event, ctx.client)
     if not channel_id or not event.get("thread_ts") or not is_unsubscribe_request(event):
         return None
 

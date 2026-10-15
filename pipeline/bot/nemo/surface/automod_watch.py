@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import session
-from bot.nemo import automod
+from bot.nemo import automod, userbots
 from bot.nemo.surface import on_event
 
 log = logging.getLogger("bot.nemo")
@@ -19,16 +19,17 @@ def permalink_for(client, channel_id, ts):
 
 
 def as_posted(event):
-    if event.get("subtype") not in HANDLED_SUBTYPES or event.get("bot_id"):
+    if event.get("subtype") not in HANDLED_SUBTYPES:
         return None
     return event
 
 
 def as_edited(event):
     message = event.get("message") or {}
-    if message.get("bot_id") or message.get("subtype") not in HANDLED_SUBTYPES:
+    if message.get("subtype") not in HANDLED_SUBTYPES:
         return None
     return {
+        "bot_id": message.get("bot_id"),
         "user": message.get("user"),
         "channel": event.get("channel"),
         "ts": message.get("ts"),
@@ -54,6 +55,8 @@ def watched(ctx):
 
     rules = automod.caught(message.get("text"))
     if not rules:
+        return None
+    if not userbots.posted_by_person(ctx.client, message):
         return None
 
     with session() as conn:

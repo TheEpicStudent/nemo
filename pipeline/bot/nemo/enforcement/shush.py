@@ -55,7 +55,7 @@ def remove(client, conn, guard, channel_id, ts):
 @on_event("message", open_to_all=True)
 def on_message(ctx):
     event = ctx.payload or {}
-    channel_id, subject_id, ts = notify.message_target(event)
+    channel_id, subject_id, ts = notify.message_target(event, ctx.client)
     if not channel_id:
         return None
     if channel_id == channel.firehouse_channel():

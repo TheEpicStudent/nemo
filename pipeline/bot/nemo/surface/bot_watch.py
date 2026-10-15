@@ -3,7 +3,7 @@ import os
 import time
 
 from bot.core import privileged, session, whoami
-from bot.nemo import channelguards, channels
+from bot.nemo import channelguards, channels, userbots
 from bot.nemo.surface import on_event
 from bot.nemo.views.activity import message_url
 
@@ -12,7 +12,6 @@ log = logging.getLogger("bot.nemo")
 HANDLED_SUBTYPES = (None, "bot_message", "file_share", "thread_broadcast")
 
 _apps = {}
-_people = {}
 
 
 def exempt_bot_ids():
@@ -39,23 +38,6 @@ def bot_face(client, bot_id):
     return _apps[bot_id]
 
 
-def fetch_user(client, user_id):
-    try:
-        return (client.users_info(user=user_id) or {}).get("user") or {}
-    except Exception as failure:
-        log.info("nemo: could not look up %s: %s", user_id, failure)
-        return {}
-
-
-def get_user(client, user_id):
-    if user_id not in _people:
-        user = fetch_user(client, user_id)
-        if not user:
-            return {}
-        _people[user_id] = user
-    return _people[user_id]
-
-
 def who_posted(event):
     if event.get("subtype") not in HANDLED_SUBTYPES:
         return None, None
@@ -66,12 +48,12 @@ def who_posted(event):
 
 
 def is_userbot(client, event, bot_id, user_id):
-    if event.get("subtype") == "bot_message" or not user_id:
+    if event.get("subtype") == userbots.BOT_MESSAGE or not user_id:
         return False
     face_id, _label, _app_id = bot_face(client, bot_id) if bot_id else (None, None, None)
     if user_id == face_id:
         return False
-    return get_user(client, user_id).get("is_bot") is False
+    return userbots.is_person(client, user_id)
 
 
 def names_for(client, bot_id, user_id):

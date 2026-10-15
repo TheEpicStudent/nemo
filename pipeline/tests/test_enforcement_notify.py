@@ -1,5 +1,8 @@
 import datetime as dt
 
+import pytest
+
+from bot.nemo import userbots
 from bot.nemo.enforcement import notify
 
 USER_ID = "U1"
@@ -28,10 +31,18 @@ class Conn:
 
 
 class Slack:
-    def __init__(self, fails=()):
+    def __init__(self, fails=(), users=None):
         self.posted = []
         self.ephemeral = []
         self.fails = fails
+        self.users = users or {}
+        self.looked_up = []
+
+    def users_info(self, user):
+        self.looked_up.append(user)
+        if user not in self.users:
+            raise RuntimeError("user_not_found")
+        return {"user": self.users[user]}
 
     def chat_postMessage(self, **kwargs):
         if "dm" in self.fails:
@@ -64,26 +75,60 @@ def test_a_date_reads_as_a_date_and_none_says_so():
     assert notify.ending(guard(expires_at=None)) == "with no end date"
 
 
+@pytest.fixture(autouse=True)
+def no_cached_users(monkeypatch):
+    monkeypatch.setattr(userbots, "_people", {})
+
+
 def test_a_message_with_words_in_it_is_ours():
-    assert notify.message_target(event()) == (CHANNEL_ID, USER_ID, TS)
+    assert notify.message_target(event(), Slack()) == (CHANNEL_ID, USER_ID, TS)
 
 
 def test_a_direct_message_is_never_ours():
-    assert notify.message_target(event(channel="D1"))[0] is None
+    assert notify.message_target(event(channel="D1"), Slack())[0] is None
 
 
-def test_a_bot_message_is_never_ours():
-    assert notify.message_target(event(bot_id="B1"))[0] is None
+def test_message_target_plain_post_does_not_look_up_user():
+    client = Slack()
+
+    notify.message_target(event(), client)
+
+    assert client.looked_up == []
+
+
+def test_message_target_bot_user_post_is_skipped():
+    client = Slack(users={USER_ID: {"id": USER_ID, "is_bot": True}})
+
+    assert notify.message_target(event(bot_id="B1"), client)[0] is None
+
+
+def test_message_target_user_token_post_is_ours():
+    client = Slack(users={USER_ID: {"id": USER_ID, "is_bot": False}})
+
+    assert notify.message_target(event(bot_id="B1"), client) == (CHANNEL_ID, USER_ID, TS)
+
+
+def test_message_target_user_lookup_failure_is_skipped():
+    assert notify.message_target(event(bot_id="B1"), Slack())[0] is None
+
+
+def test_message_target_user_lookup_is_cached():
+    client = Slack(users={USER_ID: {"id": USER_ID, "is_bot": False}})
+
+    notify.message_target(event(bot_id="B1"), client)
+    notify.message_target(event(bot_id="B1"), client)
+
+    assert client.looked_up == [USER_ID]
 
 
 def test_a_subtype_that_carries_nothing_is_skipped():
-    for subtype in ("channel_join", "message_deleted", "message_changed"):
-        assert notify.message_target(event(subtype=subtype))[0] is None, subtype
+    for subtype in ("channel_join", "message_deleted", "message_changed", "bot_message"):
+        assert notify.message_target(event(subtype=subtype), Slack())[0] is None, subtype
 
 
 def test_every_subtype_that_carries_words_is_ours():
     for subtype in (None, "file_share", "thread_broadcast", "me_message"):
-        assert notify.message_target(event(subtype=subtype))[0] == CHANNEL_ID, subtype
+        assert notify.message_target(event(subtype=subtype), Slack())[0] == CHANNEL_ID, subtype
 
 
 def test_the_notification_is_written_down():

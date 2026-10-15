@@ -1,6 +1,6 @@
 import pytest
 
-from bot.nemo import channelguards
+from bot.nemo import channelguards, userbots
 from bot.nemo.enforcement import account_age, readonly, slowmode
 
 USER_ID = "U1"
@@ -37,8 +37,14 @@ class Conn:
 
 
 class Slack:
-    def __init__(self):
+    def __init__(self, users=None):
         self.ephemeral = []
+        self.users = users or {}
+
+    def users_info(self, user):
+        if user not in self.users:
+            raise RuntimeError("user_not_found")
+        return {"user": self.users[user]}
 
     def chat_postEphemeral(self, **kwargs):
         self.ephemeral.append(kwargs)
@@ -67,7 +73,8 @@ def message(text="a message", **over):
 
 
 @pytest.fixture(autouse=True)
-def clean():
+def clean(monkeypatch):
+    monkeypatch.setattr(userbots, "_people", {})
     channelguards._guards.clear()
     channelguards._loaded = False
     yield
@@ -108,6 +115,24 @@ def test_readonly_removes_a_top_level_message(monkeypatch):
     assert readonly.on_message(Ctx(message(), client)) is True
     assert removed == [(CHANNEL_ID, TS)]
     assert conn.args_for("INSERT INTO fd.channel_guard_events")
+
+
+def test_readonly_user_token_post_is_removed(monkeypatch):
+    guard(channelguards.READONLY)
+    removed = install_fakes(monkeypatch, readonly, Conn())
+    client = Slack(users={USER_ID: {"is_bot": False}})
+
+    assert readonly.on_message(Ctx(message(bot_id="B1"), client)) is True
+    assert removed == [(CHANNEL_ID, TS)]
+
+
+def test_readonly_bot_user_post_is_left_alone(monkeypatch):
+    guard(channelguards.READONLY)
+    removed = install_fakes(monkeypatch, readonly, Conn())
+    client = Slack(users={USER_ID: {"is_bot": True}})
+
+    assert readonly.on_message(Ctx(message(bot_id="B1"), client)) is None
+    assert removed == []
 
 
 def test_readonly_echoes_the_message_back(monkeypatch):

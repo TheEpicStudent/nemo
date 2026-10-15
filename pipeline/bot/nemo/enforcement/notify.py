@@ -2,7 +2,7 @@ import logging
 
 from bot.core import privileged
 from bot.core.formatting import short_date
-from bot.nemo import memberguards
+from bot.nemo import memberguards, userbots
 
 log = logging.getLogger("bot.nemo")
 
@@ -56,8 +56,8 @@ def reset(conn, guard, why):
     return how
 
 
-def message_target(event):
-    if event.get("subtype") not in HANDLED_SUBTYPES or event.get("bot_id"):
+def message_target(event, client):
+    if event.get("subtype") not in HANDLED_SUBTYPES:
         return None, None, None
 
     channel_id = event.get("channel")
@@ -66,5 +66,7 @@ def message_target(event):
     if not channel_id or not subject_id or not ts:
         return None, None, None
     if channel_id.startswith("D"):
+        return None, None, None
+    if not userbots.posted_by_person(client, event):
         return None, None, None
     return channel_id, subject_id, ts

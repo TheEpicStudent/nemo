@@ -1,6 +1,6 @@
 import pytest
 
-from bot.nemo import automod
+from bot.nemo import automod, userbots
 from bot.nemo.surface import automod_watch
 
 USER_ID = "U1"
@@ -33,9 +33,15 @@ class Conn:
 
 
 class Slack:
-    def __init__(self, link="https://hackclub.slack.com/archives/C1/p1700000000000100"):
+    def __init__(self, link="https://hackclub.slack.com/archives/C1/p1700000000000100", users=None):
         self.link = link
         self.calls = []
+        self.users = users or {}
+
+    def users_info(self, user):
+        if user not in self.users:
+            raise RuntimeError("user_not_found")
+        return {"user": self.users[user]}
 
     def chat_getPermalink(self, **kwargs):
         self.calls.append(kwargs)
@@ -64,7 +70,8 @@ def edited(text, **over):
 
 
 @pytest.fixture(autouse=True)
-def clean():
+def clean(monkeypatch):
+    monkeypatch.setattr(userbots, "_people", {})
     automod._watching[:] = []
     automod._loaded = False
     yield
@@ -188,8 +195,20 @@ def test_the_watcher_ignores_a_bot(monkeypatch):
     conn = Conn()
     monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
 
-    assert automod_watch.watched(Ctx(message("badword", bot_id="B1"))) is None
+    client = Slack(users={USER_ID: {"is_bot": True}})
+
+    assert automod_watch.watched(Ctx(message("badword", bot_id="B1"), client)) is None
     assert not conn.args_for("INSERT INTO fd.automod_matches")
+
+
+def test_watched_user_token_post_is_recorded(monkeypatch):
+    load((1, "badword", "word", "flag", None))
+    conn = Conn()
+    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
+    client = Slack(users={USER_ID: {"is_bot": False}})
+
+    assert automod_watch.watched(Ctx(message("a badword here", bot_id="B1"), client)) == 1
+    assert conn.args_for("INSERT INTO fd.automod_matches")[0][3] == USER_ID
 
 
 def test_an_edit_that_adds_a_word_is_caught(monkeypatch):
@@ -226,7 +245,9 @@ def test_an_edit_by_a_bot_is_left_alone(monkeypatch):
     conn = Conn()
     monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
 
-    assert automod_watch.watched(Ctx(edited("badword", bot_id="B1"))) is None
+    client = Slack(users={USER_ID: {"is_bot": True}})
+
+    assert automod_watch.watched(Ctx(edited("badword", bot_id="B1"), client)) is None
 
 
 def test_an_unfurl_that_matches_nothing_new_costs_no_permalink(monkeypatch):

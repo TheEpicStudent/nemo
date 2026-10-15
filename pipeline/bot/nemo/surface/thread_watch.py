@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import session
-from bot.nemo import guards, guard_actions
+from bot.nemo import guards, guard_actions, userbots
 from bot.nemo.surface import on_event
 
 log = logging.getLogger("bot.nemo")
@@ -12,7 +12,7 @@ HANDLED_SUBTYPES = (None, "file_share", "me_message", "thread_broadcast")
 @on_event("message", open_to_all=True)
 def watched(ctx):
     event = ctx.payload or {}
-    if event.get("subtype") not in HANDLED_SUBTYPES or event.get("bot_id"):
+    if event.get("subtype") not in HANDLED_SUBTYPES:
         return None
 
     channel_id = event.get("channel")
@@ -25,6 +25,8 @@ def watched(ctx):
             log.info("nemo: %s posted at the top of guarded thread %s", event.get("user"), ts)
         return None
     if not guards.watching(channel_id, thread_ts):
+        return None
+    if not userbots.posted_by_person(ctx.client, event):
         return None
 
     who = event.get("user")
