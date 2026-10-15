@@ -49,7 +49,6 @@ ROLES = {
             "NEMO_CLIENT_ID",
             "NEMO_CLIENT_SECRET",
             "SLACK_TEAM_ID",
-            "INTERNAL_LOG_CHANNEL_ID",
             "FD_ENCRYPTION_PRIMARY_KEY",
             "FD_ENCRYPTION_DETERMINISTIC_KEY",
             "FD_ENCRYPTION_SALT",

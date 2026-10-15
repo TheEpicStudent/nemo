@@ -70,6 +70,23 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     assert_select "p.sev-crit", "Nemo was taken out of here"
   end
 
+  test "channel_seat_label outside channel with refused join shows refused_note" do
+    seat_nemo!(false)
+    record_join!("refused", "is_archived")
+
+    get fd_channel_path(@channel.channel_id)
+
+    assert_select "p.sev-crit", "Nemo could not join this channel: is_archived"
+  end
+
+  test "channel_seat_label without membership rows shows refused_note" do
+    record_join!("refused", "is_archived")
+
+    get fd_channel_path(@channel.channel_id)
+
+    assert_select "p.sev-crit", "Nemo could not join this channel: is_archived"
+  end
+
   test "the channel page shows no warning when nemo is in the channel" do
     seat_nemo!(true)
 

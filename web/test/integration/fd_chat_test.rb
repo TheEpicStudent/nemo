@@ -325,16 +325,35 @@ class FdChatTest < ActionDispatch::IntegrationTest
     Slack::Chat.define_singleton_method(name, original)
   end
 
-  def setup_linked_slack
-    ENV["INTERNAL_LOG_CHANNEL_ID"] = "C0FIRE"
-    Fd::CaseReport.create!(case_id: @kase.id, is_anonymous: true, source_app: "relay",
-      received_at: 2.days.ago, forwarded_ts: "1700.0001")
+  def use_firehouse(channel_id = "C0FIRE")
+    Fd::AppSetting.set_firehouse_channel(channel_id, by: "UME")
+  end
+
+  def link_slack
     Fd::StaffSlack.store!("UME", token: "xoxp-real", team_id: "T0FIRE", scopes: "chat:write")
+  end
+
+  def forward_report(card_channel_id: nil)
+    Fd::CaseReport.create!(case_id: @kase.id, is_anonymous: true, source_app: "relay",
+      received_at: 2.days.ago, forwarded_ts: "1700.0001", card_channel_id: card_channel_id)
+  end
+
+  def setup_linked_slack
+    use_firehouse
+    forward_report
+    link_slack
   end
 
   def post_chat(body = "did we warn them before?")
     post fd_case_chats_path(@kase), params: { body: body }, as: :turbo_stream
     Fd::CaseChat.where(case_id: @kase.id).last
+  end
+
+  def recording_posts(sent)
+    lambda do |**args|
+      sent << args
+      { "ok" => true, "ts" => "1700.00#{sent.size}9" }
+    end
   end
 
   test "with slack linked, the message goes out as you and the bot leaves it alone" do
@@ -355,8 +374,53 @@ class FdChatTest < ActionDispatch::IntegrationTest
     assert_equal "xoxp-real", sent[:token]
     assert_equal "did we warn them before?", sent[:text]
     assert_not_nil Fd::StaffSlack.active_for("UME").last_used_at
-  ensure
-    ENV.delete("INTERNAL_LOG_CHANNEL_ID")
+  end
+
+  test "post_to_thread with report card_channel_id posts in that channel" do
+    use_firehouse
+    forward_report(card_channel_id: "G01DBHPLK25")
+    link_slack
+    sent = []
+
+    stub_chat(:post_message, recording_posts(sent)) { post_chat }
+
+    assert_equal [["G01DBHPLK25", "1700.0001"]], sent.map { |args| args.values_at(:channel, :thread_ts) }
+  end
+
+  test "post_to_thread reads firehouse_channel for each message" do
+    setup_linked_slack
+    sent = []
+
+    stub_chat(:post_message, recording_posts(sent)) do
+      post_chat
+      use_firehouse("C0NEWFIRE")
+      post_chat("and now?")
+    end
+
+    assert_equal %w[C0FIRE C0NEWFIRE], sent.map { |args| args[:channel] }
+  end
+
+  test "post_to_thread without reports posts under card_thread_ts" do
+    use_firehouse
+    link_slack
+    @kase.update!(card_channel_id: "C0REACT", card_ts: "1800.0002", card_thread_ts: "1800.0001")
+    sent = []
+
+    chat = stub_chat(:post_message, recording_posts(sent)) { post_chat }
+
+    assert_equal "user", chat.mirrored_as
+    assert_equal [["C0REACT", "1800.0001"]], sent.map { |args| args.values_at(:channel, :thread_ts) }
+  end
+
+  test "post_to_thread without card_thread_ts posts under card_ts" do
+    use_firehouse
+    link_slack
+    @kase.update!(card_channel_id: "C0FIRE", card_ts: "1800.0002")
+    sent = []
+
+    stub_chat(:post_message, recording_posts(sent)) { post_chat }
+
+    assert_equal [["C0FIRE", "1800.0002"]], sent.map { |args| args.values_at(:channel, :thread_ts) }
   end
 
   test "slack refusing it hands the message back to the bot and says why" do
@@ -368,8 +432,6 @@ class FdChatTest < ActionDispatch::IntegrationTest
     assert_nil chat.mirrored_ts, "nothing was sent, so nemo still has to carry it"
     assert_nil chat.mirrored_as
     assert_equal "not_in_channel", Fd::StaffSlack.active_for("UME").last_error
-  ensure
-    ENV.delete("INTERNAL_LOG_CHANNEL_ID")
   end
 
   test "a dead token is given up on, not tried again for every message" do
@@ -383,8 +445,6 @@ class FdChatTest < ActionDispatch::IntegrationTest
     row = Fd::StaffSlack.find_by(staff_user_id: "UME")
     assert row.revoked_by_slack?
     assert_equal "token_revoked", row.last_error
-  ensure
-    ENV.delete("INTERNAL_LOG_CHANNEL_ID")
   end
 
   test "slack being unreachable hands the message back to the bot" do
@@ -395,32 +455,34 @@ class FdChatTest < ActionDispatch::IntegrationTest
 
     assert_nil chat.mirrored_as
     assert_match(/execution expired/, Fd::StaffSlack.active_for("UME").last_error)
-  ensure
-    ENV.delete("INTERNAL_LOG_CHANNEL_ID")
   end
 
   test "without slack linked, the message is left for the bot untouched" do
-    ENV["INTERNAL_LOG_CHANNEL_ID"] = "C0FIRE"
-    Fd::CaseReport.create!(case_id: @kase.id, is_anonymous: true, source_app: "relay",
-      received_at: 2.days.ago, forwarded_ts: "1700.0001")
+    use_firehouse
+    forward_report
 
     chat = stub_chat(:post_message, ->(**) { flunk "nothing should be sent" }) { post_chat }
 
     assert_nil chat.mirrored_as
     assert_nil chat.mirrored_ts
-  ensure
-    ENV.delete("INTERNAL_LOG_CHANNEL_ID")
   end
 
   test "a case with no card in the firehouse is left for the bot" do
-    ENV["INTERNAL_LOG_CHANNEL_ID"] = "C0FIRE"
-    Fd::StaffSlack.store!("UME", token: "xoxp-real", team_id: "T0FIRE", scopes: "chat:write")
+    use_firehouse
+    link_slack
 
     chat = stub_chat(:post_message, ->(**) { flunk "there is no thread to post into" }) { post_chat }
 
     assert_nil chat.mirrored_as
-  ensure
-    ENV.delete("INTERNAL_LOG_CHANNEL_ID")
+  end
+
+  test "claimable? without firehouse_channel or card_channel_id is false" do
+    forward_report
+    link_slack
+
+    chat = stub_chat(:post_message, ->(**) { flunk "there is no channel to post into" }) { post_chat }
+
+    assert_nil chat.mirrored_as
   end
 
   test "a mention survives, the rest is escaped for slack" do

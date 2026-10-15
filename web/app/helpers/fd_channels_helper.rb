@@ -132,7 +132,11 @@ module FdChannelsHelper
     return seat_note("nemo was taken out of here", "sev-crit") if standing.verb == "left"
     return seat_note(INVITE_NOTE, "sev-warn") if needs_invite?(standing)
 
-    seat_note("nemo could not get in: #{standing.why.presence || 'refused'}", "sev-crit")
+    seat_note(refused_note(standing.why.presence || "refused"), "sev-crit")
+  end
+
+  def refused_note(reason)
+    "Nemo could not join this channel: #{reason}"
   end
 
   def seat_note(text, severity)
@@ -149,7 +153,7 @@ module FdChannelsHelper
     return INVITE_NOTE if needs_invite?(standing)
 
     refusal_reason = standing&.refused? && standing.why.presence
-    return "nothing is enforced, nemo could not get in: #{refusal_reason}" if refusal_reason
+    return refused_note(refusal_reason) if refusal_reason
 
     "Nemo is not in the channel"
   end
