@@ -13,6 +13,15 @@ class FdCasePageTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "case page resolved in past year shows year on closed line" do
+    resolved = Time.zone.local(Date.current.year - 1, 3, 3, 12)
+    kase = make_case(opened_at: resolved - 2.days, resolved_at: resolved, resolution: "no_action")
+
+    get fd_case_path(kase)
+
+    assert_select ".closed-what", /Closed 3 Mar #{resolved.year}/
+  end
+
   test "a case about nobody still renders, and says so once" do
     @kase.subjects.destroy_all
     get fd_case_path(@kase, tab: "people")

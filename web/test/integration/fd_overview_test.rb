@@ -52,6 +52,17 @@ class FdOverviewTest < ActionDispatch::IntegrationTest
     assert_no_match(/attached to no case/, response.body)
   end
 
+  test "in_force panel with dates outside current year includes year" do
+    opened = Time.zone.local(Date.current.year - 1, 3, 3, 12)
+    expiry = Time.zone.local(Date.current.year + 1, 10, 15, 12)
+    guard!(opened_at: opened, expires_at: expiry)
+
+    get fd_root_path
+
+    assert_includes panel, "3 Mar #{opened.year}"
+    assert_includes panel, "15 Oct #{expiry.year}"
+  end
+
   test "a lifted guard is not in force" do
     guard!(state: "lifted", lifted_at: Time.current, lifted_by: "UMOD")
     get fd_root_path

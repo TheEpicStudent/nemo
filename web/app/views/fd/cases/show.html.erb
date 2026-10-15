@@ -104,7 +104,7 @@
   <% if @case.resolved? %>
     <div class="closed">
       <span class="closed-what">
-        Closed <%= @case.resolved_at.strftime("%-d %b") %> ·
+        Closed <%= Fd::ShortDate.for(@case.resolved_at) %> ·
         <%= resolution_label(@case.resolution).downcase %>
       </span>
       <% if @case.member_note.present? %>

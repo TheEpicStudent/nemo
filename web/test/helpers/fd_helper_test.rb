@@ -483,4 +483,28 @@ class FdHelperTest < ActionView::TestCase
 
     assert_match(%r{<time datetime="2026-10-12T10:05:00-04:00" title="12 Oct 2026 14:05 UTC">12 Oct 10:05</time>}, stamp)
   end
+
+  def next_year_expiry = Time.zone.local(Date.current.year + 1, 10, 15, 12)
+
+  test "thread_lock_note with expiry in next year includes year" do
+    note = thread_lock_note(build_guard(case_id: 1, expires_at: next_year_expiry), 1)
+
+    assert_includes note, "lifts 15 Oct #{Date.current.year + 1}"
+  end
+
+  test "guard_option_note with expiry in next year includes year" do
+    note = guard_option_note(build_guard(case_id: 1, expires_at: next_year_expiry), 1)
+
+    assert_includes note, "until 15 Oct #{Date.current.year + 1}"
+  end
+
+  test "guard_footnote with opened_at in past year includes year" do
+    guard = build_guard(opened_at: Time.zone.local(Date.current.year - 1, 3, 3, 12),
+      expires_at: next_year_expiry, enforced_by: "nemo", enforcement_status: "pending")
+
+    footnote = guard_footnote(guard, Fd::Names.none)
+
+    assert_includes footnote, "since 3 Mar #{Date.current.year - 1}"
+    assert_includes footnote, "until 15 Oct #{Date.current.year + 1}"
+  end
 end

@@ -21,9 +21,9 @@
             <tr>
               <td><%= member_face(guard.subject_id) %></td>
               <td><%= guard_line(guard) %></td>
-              <td><%= guard.opened_at.strftime("%-d %b") %></td>
+              <td><%= Fd::ShortDate.for(guard.opened_at) %></td>
               <td class="<%= "is-none" unless guard.expires_at %>">
-                <%= guard.expires_at ? guard.expires_at.strftime("%-d %b") : "no end date" %>
+                <%= guard.expires_at ? Fd::ShortDate.for(guard.expires_at) : "no end date" %>
               </td>
               <td>
                 <% if guard.case_id %>

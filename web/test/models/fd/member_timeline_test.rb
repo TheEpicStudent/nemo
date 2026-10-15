@@ -87,6 +87,22 @@ class Fd::MemberTimelineTest < ActiveSupport::TestCase
     assert_match(/in C1LOUNGE/, entries(only: "actions").sole.detail)
   end
 
+  test "guard_detail with expiry in next year includes year" do
+    expiry = Time.zone.local(Date.current.year + 1, 10, 15, 12)
+    hold(expires_at: expiry)
+
+    assert_match(/lifts 15 Oct #{expiry.year}/, entries(only: "actions").sole.detail)
+  end
+
+  test "action_detail with expiry in next year includes year" do
+    kase = make_case(subject: SUBJECT, opened_at: 5.days.ago)
+    expiry = Time.zone.local(Date.current.year + 1, 10, 15, 12)
+    act_on kase, at: 2.days.ago, type_key: "shush", expires_at: expiry
+
+    action = entries.find { |entry| entry.kind == "actions" }
+    assert_match(/lifts 15 Oct #{expiry.year}/, action.detail)
+  end
+
   test "lifting a guard with no case reads like a reversal, at the moment it was lifted" do
     guard = hold(at: 9.days.ago)
     guard.update!(state: "lifted", lifted_at: 2.days.ago, lifted_by: "UFF2",

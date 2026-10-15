@@ -47,7 +47,7 @@ module Fd
       end
 
       redirect_to fd_member_path(guard.subject_id),
-        notice: "#{label(guard.kind)} now runs until #{expiry.strftime("%-d %b")}"
+        notice: "#{label(guard.kind)} now runs until #{ShortDate.for(expiry)}"
     end
 
     def destroy

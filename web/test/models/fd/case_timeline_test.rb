@@ -118,9 +118,18 @@ class Fd::CaseTimelineTest < ActiveSupport::TestCase
     assert_equal OPENED + 2.days, entries.last.at
   end
 
-  test "an expiring action carries its date as a chip" do
-    entry = build(kase, actions: [action(type_key: "shush", expires_at: OPENED + 7.days)]).last
-    assert_equal ["expires Mar 8"], entry.chips
+  test "action_chips with expiry in current year shows day and month" do
+    travel_to OPENED do
+      entry = build(kase, actions: [action(type_key: "shush", expires_at: OPENED + 7.days)]).last
+      assert_equal ["expires 8 Mar"], entry.chips
+    end
+  end
+
+  test "action_chips with expiry in next year includes year" do
+    travel_to OPENED do
+      entry = build(kase, actions: [action(type_key: "shush", expires_at: OPENED + 1.year + 7.days)]).last
+      assert_equal ["expires 8 Mar 2027"], entry.chips
+    end
   end
 
   test "a standing note is marked as being about the member" do

@@ -102,6 +102,24 @@ class FdMemberGuardsTest < ActionDispatch::IntegrationTest
     assert_equal 1, audit_entries("extended").count
   end
 
+  test "update with expires_on in next year puts year in notice" do
+    guard = guard!
+    new_expiry = Date.new(Date.current.year + 1, 10, 15)
+
+    patch fd_member_guard_path("USUB", guard), params: { expires_on: new_expiry.to_s }
+
+    assert_equal "shush now runs until 15 Oct #{new_expiry.year}", flash[:notice]
+  end
+
+  test "member page with guard expiring in next year shows year" do
+    expiry = Time.zone.local(Date.current.year + 1, 10, 15, 12)
+    guard!(expires_at: expiry)
+
+    get fd_member_path("USUB")
+
+    assert_includes response.body, "until 15 Oct #{expiry.year}"
+  end
+
   test "a lifted one cannot be lifted or re-dated again" do
     guard = guard!(state: "lifted", lifted_at: Time.current, lifted_by: "UMOD")
 

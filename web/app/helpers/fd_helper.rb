@@ -1759,7 +1759,7 @@ module FdHelper
 
   def thread_lock_note(guard, case_id)
     parts = [guard_standing_where(guard, case_id)]
-    parts << (guard.expires_at ? "lifts #{guard.expires_at.strftime("%-d %b")}" : "no end date")
+    parts << (guard.expires_at ? "lifts #{Fd::ShortDate.for(guard.expires_at)}" : "no end date")
     parts << guard.reason.to_s.truncate(60)
     parts.join("  ·  ")
   end
@@ -1784,7 +1784,7 @@ module FdHelper
 
   def guard_option_note(guard, case_id)
     parts = [guard_standing_where(guard, case_id)]
-    parts << (guard.expires_at ? "until #{guard.expires_at.strftime("%-d %b")}" : "no end date")
+    parts << (guard.expires_at ? "until #{Fd::ShortDate.for(guard.expires_at)}" : "no end date")
     parts.join("  ·  ")
   end
 
@@ -1846,8 +1846,8 @@ module FdHelper
   def guard_footnote(guard, names = Names.none)
     opener = names.unknown?(guard.opened_by) ? tag.span(names[guard.opened_by], data: { cachet_name: guard.opened_by }) : names[guard.opened_by]
     parts = [safe_join(["Opened by ", opener])]
-    parts << "since #{guard.opened_at.strftime("%-d %b")}" if guard.opened_at
-    parts << (guard.expires_at ? "until #{guard.expires_at.strftime("%-d %b")}" : "with no end date")
+    parts << "since #{Fd::ShortDate.for(guard.opened_at)}" if guard.opened_at
+    parts << (guard.expires_at ? "until #{Fd::ShortDate.for(guard.expires_at)}" : "with no end date")
     parts << if guard.by_hand?
       "done by hand"
     else
