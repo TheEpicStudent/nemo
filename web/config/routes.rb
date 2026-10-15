@@ -63,6 +63,7 @@ Rails.application.routes.draw do
     get "channels/search", to: "channels#search", as: :channel_search
     post "channels/:channel_id/purges", to: "channel_purges#create", as: :channel_purges
     get "channels/:channel_id/purges/:id", to: "channel_purges#show", as: :channel_purge
+    post "channels/:channel_id/join", to: "channel_join_requests#create", as: :channel_join
     post "channels/:channel_id/guards/:kind", to: "channel_guards#create", as: :channel_guard
     patch "channels/:channel_id/guards/:kind", to: "channel_guards#update"
     delete "channels/:channel_id/guards/:kind", to: "channel_guards#destroy"

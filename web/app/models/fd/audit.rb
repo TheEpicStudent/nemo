@@ -30,6 +30,7 @@ module Fd
       "Fd::BlockedDomain" => "blocked_domain",
       "Fd::ChannelPurge" => "channel_purge",
       "Fd::ChannelGuardAllow" => "channel_allow",
+      "Fd::ChannelJoinRequest" => "channel_join_request",
       "Fd::AppSetting" => "app_setting",
       "Authz::Grant" => "capability_grant",
       "Fd::ThreadTranscript" => "thread_transcript",

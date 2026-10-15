@@ -5,7 +5,7 @@ import threading
 from bot.core import loops, session
 from bot.nemo import automod, channel, channelguards, channels, chat, guards, guard_actions
 from bot.nemo import enforcement, guard_notices, guard_removals, memberguards, case_queue
-from bot.nemo import responses, screening
+from bot.nemo import join_requests, responses, screening
 from bot.nemo.enforcement import purge, sweep
 
 log = logging.getLogger("bot.nemo")
@@ -24,6 +24,7 @@ PURGE = "fd_purge"
 BLOCKED_DOMAIN = "fd_blocked_domain"
 GUARD_NOTICE = "fd_guard_notice"
 GUARD_REMOVE = "fd_guard_remove"
+JOIN_REQUEST = "fd_channel_join_request"
 
 DEFAULT_SECONDS = 300
 DEFAULT_JOIN_SECONDS = 1800
@@ -99,6 +100,11 @@ def start_purge(client, purge_id):
                      name=f"nemo-purge-{purge_id}", daemon=True).start()
 
 
+def start_join_request(client, request_id):
+    threading.Thread(target=join_requests.run, args=(client, int(request_id)),
+                     name=f"nemo-join-request-{request_id}", daemon=True).start()
+
+
 def flush_pending(client):
     with session() as conn:
         memberguards.refresh(conn)
@@ -155,6 +161,7 @@ def once(case_channel, channel_id=None):
         destroying = guards.pending(conn)
         lifting = guards.lifting(conn)
         purging = [row[0] for row in purge.waiting(conn)]
+        joining = join_requests.queued(conn)
 
     posted = each(missing, "still has no card", channel.post_report, client, channel_id)
     posted += each(cardless, "was opened without a card", case_queue.card, client, channel_id)
@@ -180,6 +187,9 @@ def once(case_channel, channel_id=None):
         apart((f"lifting guard {guard_id}", lambda id=guard_id: guard_actions.lift_lock(client, id)))
     for purge_id in purging:
         start_purge(client, purge_id)
+    for request_id in joining:
+        apart((f"joining for request {request_id}",
+               lambda one=request_id: join_requests.run(client, one)))
     apart(
         ("clearing unremoved guard artifacts", lambda: guard_actions.sweep_removals(client)),
         ("resetting sessions the guard has earned", guard_actions.sweep_strikes),
@@ -242,6 +252,8 @@ def start(case_channel, stopping, channel_id=None):
                 screening.refresh(conn)
         elif channel_name == PURGE:
             start_purge(case_channel.client, payload)
+        elif channel_name == JOIN_REQUEST:
+            start_join_request(case_channel.client, payload)
         elif channel_name == CHANNEL_GUARD:
             with session() as conn:
                 channelguards.refresh(conn)
@@ -261,7 +273,7 @@ def start(case_channel, stopping, channel_id=None):
         loops.watching(NAME,
                        (CASES, CHAT, OUTBOX, CONVERSATION, GUARD, CHANNEL_GUARD,
                         MEMBER_GUARD, APP_SETTING, AUTOMOD_WORD, PURGE,
-                        GUARD_NOTICE, GUARD_REMOVE, BLOCKED_DOMAIN),
+                        GUARD_NOTICE, GUARD_REMOVE, JOIN_REQUEST, BLOCKED_DOMAIN),
                        on_notify, stopping),
         loops.sweeping(NAME, every(), lambda: once(case_channel, channel_id), stopping),
         loops.sweeping(f"{NAME}-joins", every_join_sweep(), lambda: join_sweep(case_channel), stopping),

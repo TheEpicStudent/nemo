@@ -119,7 +119,7 @@ module FdChannelsHelper
   end
 
   NEEDS_INVITE = "needs an invite".freeze
-  INVITE_NOTE = "a human has to /invite nemo here, a bot cannot join a private channel".freeze
+  INVITE_NOTE = "Nemo isn't in this private channel, someone has to /invite it".freeze
 
   def needs_invite?(standing)
     standing&.refused? && standing.why == NEEDS_INVITE
@@ -127,21 +127,31 @@ module FdChannelsHelper
 
   def channel_seat_label(inside, standing)
     return nil if inside
-    return tag.p(outside_label(standing), class: "sev-crit") if inside == false
+    return seat_note(outside_label(standing), "sev-crit") if inside == false
     return nil if standing.nil? || standing.inside?
-    return tag.p("nemo was taken out of here", class: "sev-crit") if standing.verb == "left"
-    return tag.p(INVITE_NOTE, class: "sev-warn") if needs_invite?(standing)
+    return seat_note("nemo was taken out of here", "sev-crit") if standing.verb == "left"
+    return seat_note(INVITE_NOTE, "sev-warn") if needs_invite?(standing)
 
-    tag.p("nemo could not get in: #{standing.why.presence || 'refused'}", class: "sev-crit")
+    seat_note("nemo could not get in: #{standing.why.presence || 'refused'}", "sev-crit")
+  end
+
+  def seat_note(text, severity)
+    tag.p(text.upcase_first, class: severity)
+  end
+
+  def offers_nemo_join?(channel_id, standing)
+    return false if channel_id.to_s.start_with?("G") || needs_invite?(standing)
+
+    current_account.may?("channel.guard")
   end
 
   def outside_label(standing)
-    return "nothing is enforced, #{INVITE_NOTE}" if needs_invite?(standing)
+    return INVITE_NOTE if needs_invite?(standing)
 
     refusal_reason = standing&.refused? && standing.why.presence
     return "nothing is enforced, nemo could not get in: #{refusal_reason}" if refusal_reason
 
-    "nothing is enforced, nemo is not in this channel"
+    "Nemo is not in the channel"
   end
 
   MARKETPLACE = "https://hackclub.slack.com/marketplace".freeze

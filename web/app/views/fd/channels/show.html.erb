@@ -19,6 +19,18 @@
   <% end %>
 <% end %>
 
+<% seat_warning = channel_seat_label(@nemo_inside, @standing) %>
+<% if seat_warning %>
+  <div class="toolbar">
+    <%= seat_warning %>
+    <% if offers_nemo_join?(@channel_id, @standing) %>
+      <%= button_to "Join channel", fd_channel_join_path(@channel_id), params: { tab: @tab },
+            class: "btn btn-sm", form: { class: "contents" },
+            data: { turbo_submits_with: "Joining" } %>
+    <% end %>
+  </div>
+<% end %>
+
 <% if @tab == "overview" %>
   <%= render "overview", channel_id: @channel_id, guards: @guards %>
 <% end %>

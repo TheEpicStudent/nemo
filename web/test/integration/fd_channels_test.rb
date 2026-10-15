@@ -27,6 +27,58 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  def seat_nemo!(inside)
+    ActiveRecord::Base.connection.execute(
+      "INSERT INTO fd.channel_membership (channel_id, inside) " \
+      "VALUES (#{ActiveRecord::Base.connection.quote(@channel.channel_id)}, #{inside}) " \
+      "ON CONFLICT (channel_id) DO UPDATE SET inside = EXCLUDED.inside"
+    )
+  end
+
+  def record_join!(verb, why = nil, at: Time.current)
+    connection = ActiveRecord::Base.connection
+    connection.execute(
+      "INSERT INTO fd.channel_joins (channel_id, verb, why, at) VALUES " \
+      "(#{connection.quote(@channel.channel_id)}, #{connection.quote(verb)}, " \
+      "#{connection.quote(why)}, #{connection.quote(at)})"
+    )
+  end
+
+  test "the channel page warns when nemo is not in the channel" do
+    seat_nemo!(false)
+
+    get fd_channel_path(@channel.channel_id)
+
+    assert_select "p.sev-crit", "Nemo is not in the channel"
+  end
+
+  test "the channel page asks for an invite when a private channel refused nemo" do
+    seat_nemo!(false)
+    record_join!("refused", FdChannelsHelper::NEEDS_INVITE)
+
+    get fd_channel_path(@channel.channel_id)
+
+    assert_select "p.sev-crit", "Nemo isn't in this private channel, someone has to /invite it"
+  end
+
+  test "the channel page says when nemo was removed" do
+    record_join!("joined", at: 1.hour.ago)
+    record_join!("left")
+
+    get fd_channel_path(@channel.channel_id)
+
+    assert_select "p.sev-crit", "Nemo was taken out of here"
+  end
+
+  test "the channel page shows no warning when nemo is in the channel" do
+    seat_nemo!(true)
+
+    get fd_channel_path(@channel.channel_id)
+
+    assert_select "p.sev-crit", count: 0
+    assert_select "p.sev-warn", count: 0
+  end
+
   test "a channel we have never heard of does not raise" do
     get fd_channel_path("C0NOTHING")
 
