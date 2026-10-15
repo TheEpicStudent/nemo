@@ -35,7 +35,7 @@ RETURNING id
 """
 
 TO_ECHO = """
-SELECT o.id, o.body, o.mode, o.requested_by, r.forwarded_ts
+SELECT o.id, o.body, o.mode, o.requested_by, r.forwarded_ts, r.card_channel_id
 FROM fd.intake_outbox o
 JOIN fd.intake_conversations c ON c.id = o.conversation_id
 JOIN fd.case_reports r ON r.id = c.report_id

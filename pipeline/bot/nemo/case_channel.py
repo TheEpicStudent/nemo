@@ -148,7 +148,7 @@ class CaseChannel:
             rows = outbox.to_echo(conn, case_id)
 
         done = 0
-        for outbox_id, body, mode, requested_by, forwarded_ts in rows:
+        for outbox_id, body, mode, requested_by, forwarded_ts, card_channel_id in rows:
             with session() as conn:
                 if not outbox.claim_echo(conn, outbox_id):
                     continue
@@ -157,7 +157,7 @@ class CaseChannel:
                     continue
                 at = channel.echo(
                     self.client, forwarded_ts, requested_by, body, mode == "signed",
-                    channel.card_room(conn, case_id),
+                    channel.room_of(card_channel_id, None, conn),
                 )
                 if at is None:
                     outbox.drop_echo(conn, outbox_id)
