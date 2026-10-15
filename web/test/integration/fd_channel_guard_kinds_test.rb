@@ -169,6 +169,44 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_match(/not guarded/, flash[:alert])
   end
 
+  test "turning a guard back on restores its allow list" do
+    post_guard("readonly")
+    post fd_channel_allows_path(@id, "readonly"), params: { subject_ids: ["USOMEBODY", "UOTHER"] }
+    delete fd_channel_guard_path(@id, "readonly")
+    post_guard("readonly")
+
+    guard = live("readonly")
+    assert_equal ["UOTHER", "USOMEBODY"], guard.allows.pluck(:subject_id).sort
+    assert_equal "Read-only turned on, 2 kept on the list", flash[:notice]
+    restored = Fd::AuditEntry.where(entity_type: "channel_allow", entity_id: guard.id, verb: "added")
+    assert_equal 2, restored.count
+  end
+
+  test "restoring keeps who added each allow" do
+    post_guard("bot_allowlist")
+    post fd_channel_allows_path(@id, "bot_allowlist"), params: { subject_ids: ["B0BOT"] }
+    delete fd_channel_guard_path(@id, "bot_allowlist")
+    post_guard("bot_allowlist")
+
+    assert_equal ["UME"], live("bot_allowlist").allows.pluck(:added_by)
+  end
+
+  test "a guard turned on for the first time starts with no allows" do
+    post_guard("slowmode")
+
+    assert_empty live("slowmode").allows
+    assert_equal "Slow mode turned on", flash[:notice]
+  end
+
+  test "restoring takes allows only from the same kind" do
+    post_guard("slowmode")
+    post fd_channel_allows_path(@id, "slowmode"), params: { subject_ids: ["USLOW"] }
+    delete fd_channel_guard_path(@id, "slowmode")
+    post_guard("readonly")
+
+    assert_empty live("readonly").allows
+  end
+
   test "the overview names every kind" do
     get fd_channel_path(@id, tab: "overview")
 

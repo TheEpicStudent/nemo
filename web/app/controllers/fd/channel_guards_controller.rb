@@ -9,13 +9,15 @@ module Fd
       error = settings_error
       return redirect_with_alert(error) if error
 
+      restored_count = 0
       writing do
         guard = ChannelGuard.create!(kind: kind, channel_id: channel_id,
           settings: requested_settings, opened_by: current_account.user_id)
         audit(guard, "opened", after: guard.settings)
+        restored_count = restore_allows(guard)
       end
 
-      redirect_to return_path, notice: "#{guard_label_text.upcase_first} turned on"
+      redirect_to return_path, notice: turned_on_notice(restored_count)
     end
 
     def update
@@ -59,6 +61,31 @@ module Fd
 
     def live_guard
       @live_guard ||= ChannelGuard.live_for(channel_id, kind: kind)
+    end
+
+    def last_lifted_guard
+      ChannelGuard.of_kind(kind).where(channel_id: channel_id, state: "lifted")
+        .order(lifted_at: :desc, id: :desc).first
+    end
+
+    def restore_allows(guard)
+      previous_guard = last_lifted_guard
+      return 0 if previous_guard.nil? || !guard.takes_allows?
+
+      previous_guard.allows.oldest_first.each do |previous_allow|
+        allow = guard.allows.create!(subject_id: previous_allow.subject_id,
+          label: previous_allow.label, added_by: previous_allow.added_by,
+          added_at: previous_allow.added_at)
+        audit(allow, "added", entity_id: guard.id,
+          after: { "subject_id" => allow.subject_id, "label" => allow.label,
+                   "restored_from_guard_id" => previous_guard.id })
+      end
+      previous_guard.allows.size
+    end
+
+    def turned_on_notice(restored_count)
+      notice = "#{guard_label_text.upcase_first} turned on"
+      restored_count.positive? ? "#{notice}, #{restored_count} kept on the list" : notice
     end
 
     def guard_label_text
