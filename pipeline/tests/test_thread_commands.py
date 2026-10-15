@@ -70,6 +70,21 @@ def test_commands_are_read_from_the_first_word():
     assert commands.parse_command("!whatever") == (None, None)
 
 
+def test_parse_command_accepts_spaced_resolve():
+    assert commands.parse_command("? resolve") == ("resolve", "")
+    assert commands.parse_command("?  RESOLVE ") == ("resolve", "")
+    assert commands.parse_command("!  resolve") == ("resolve", "")
+    assert commands.parse_command("~? resolve") == ("resolve", "")
+    assert commands.parse_command("~?resolve") == ("resolve", "")
+
+
+def test_parse_command_keeps_resolve_sentences_as_replies():
+    assert commands.parse_command("? resolved it") == (None, None)
+    assert commands.parse_command("? resolve this soon please") == (None, None)
+    assert commands.parse_command("resolve") == (None, None)
+    assert commands.parse_command("~resolve") == (None, None)
+
+
 def test_claiming_assigns_you(harness):
     outcome = commands.run("!claim", "", 39, "UME")
     assert harness["claimed"] == ["UME"]

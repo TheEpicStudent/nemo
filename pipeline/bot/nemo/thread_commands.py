@@ -10,7 +10,7 @@ log = logging.getLogger("bot.nemo")
 WHO = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
 
 RESOLVE = "resolve"
-RESOLVE_WORDS = ("!resolve", "?resolve")
+RESOLVE_COMMAND = re.compile(r"\A(?:~?\?|!)\s*resolve\Z", re.IGNORECASE)
 CASE, CLAIM, ASSIGN, UNASSIGN, NOTE = "!case", "!claim", "!assign", "!unassign", "!note"
 VERBS = (CASE, CLAIM, ASSIGN, UNASSIGN, NOTE)
 
@@ -21,7 +21,7 @@ NEEDS = {CASE: "case.read", CLAIM: "case.open", ASSIGN: "case.open", UNASSIGN: "
 
 def parse_command(text):
     words = (text or "").strip()
-    if words.lower() in RESOLVE_WORDS:
+    if RESOLVE_COMMAND.match(words):
         return RESOLVE, ""
     parts = words.split(None, 1)
     if not parts or parts[0].lower() not in VERBS:
