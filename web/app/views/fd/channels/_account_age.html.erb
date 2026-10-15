@@ -24,8 +24,7 @@
         </label>
       </div>
     <% end %>
-    <%= render "allows", channel_id: channel_id, guard: guard, allows: allows,
-          empty: "No exemptions" %>
+    <%= render "allows", channel_id: channel_id, guard: guard, allows: allows %>
   <% else %>
     <div class="empty"><p class="empty-title">Off</p></div>
   <% end %>

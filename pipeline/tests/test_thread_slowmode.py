@@ -26,7 +26,8 @@ def current(**over):
 
 
 def submission(**over):
-    row = {"expires_at": None, "seconds": "30", "reason": "Heated argument", "exempt": []}
+    row = {"starting": True, "duration": "1h", "extend": None, "until": None, "seconds": "30",
+           "reason": "Heated argument", "exempt": []}
     row.update(over)
     return row
 
@@ -35,27 +36,37 @@ def block_ids(view):
     return [block.get("block_id") for block in view["blocks"]]
 
 
-def test_build_view_new_puts_end_before_cooldown():
+def test_build_view_new_asks_for_duration_with_no_default():
     view = card.build_view(CHANNEL_ID, THREAD)
+    duration = view["blocks"][0]["element"]
 
-    assert block_ids(view) == [card.UNTIL, card.SECONDS, card.REASON, card.EXEMPT]
+    assert block_ids(view) == [card.DURATION, card.SECONDS, card.REASON, card.EXEMPT]
     assert view["submit"]["text"] == "Enable"
-    assert view["blocks"][1]["label"]["text"] == "Cooldown (seconds)"
+    assert view["blocks"][0]["optional"] is True
+    assert duration["placeholder"]["text"] == "No end"
+    assert "initial_option" not in duration
+    assert [one["value"] for one in duration["options"]] == [*card.DURATIONS, card.CUSTOM]
 
 
-def test_build_view_existing_shows_status_and_current_values():
-    view = card.build_view(CHANNEL_ID, THREAD, current())
+def test_build_view_custom_adds_the_end_picker():
+    assert block_ids(card.build_view(CHANNEL_ID, THREAD, custom=True))[:2] == [card.DURATION, card.UNTIL]
 
-    assert block_ids(view)[1:] == [card.UNTIL, card.SECONDS, card.REASON, card.EXEMPT]
+
+def test_build_view_existing_shows_time_left_and_extend():
+    view = card.build_view(CHANNEL_ID, THREAD, current(), now=NOW)
+
+    assert block_ids(view)[1:] == [card.EXTEND, card.SECONDS, card.REASON, card.EXEMPT]
     assert view["submit"]["text"] == "Save"
+    assert view["blocks"][0]["text"]["text"] == \
+        f"*Enabled* · ends in 1d 5h · {short_end(END)} · set by <@{MOD}>"
     assert view["blocks"][0]["accessory"]["action_id"] == card.DISABLE
-    assert view["blocks"][1]["element"]["initial_date_time"] == int(END.timestamp())
     assert view["blocks"][3]["element"]["initial_value"] == "Heated argument"
     assert view["blocks"][4]["element"]["initial_users"] == ["UEXEMPT"]
 
 
-def test_submitted_values_reads_end_as_utc():
+def test_submitted_values_reads_duration_and_custom_end():
     state = {"values": {
+        card.DURATION: {card.DURATION: {"selected_option": {"value": card.CUSTOM}}},
         card.UNTIL: {card.UNTIL: {"selected_date_time": int(END.timestamp())}},
         card.SECONDS: {card.SECONDS: {"value": "45"}},
         card.REASON: {card.REASON: {"value": "  Heated argument "}},
@@ -63,19 +74,43 @@ def test_submitted_values_reads_end_as_utc():
     }}
 
     assert card.submitted_values(state) == {
-        "expires_at": END, "seconds": "45", "reason": "Heated argument", "exempt": ["UEXEMPT"]}
+        "starting": True, "duration": card.CUSTOM, "extend": None, "until": END, "seconds": "45",
+        "reason": "Heated argument", "exempt": ["UEXEMPT"]}
+
+
+def test_submitted_values_existing_view_is_not_starting():
+    state = {"values": {card.EXTEND: {card.EXTEND: {"selected_option": None}}}}
+
+    assert card.submitted_values(state)["starting"] is False
 
 
 @pytest.mark.parametrize(("over", "errors"), [
     ({}, None),
-    ({"expires_at": NOW - dt.timedelta(minutes=1)}, {card.UNTIL: "Pick a time in the future."}),
+    ({"duration": None}, None),
+    ({"duration": card.CUSTOM}, {card.UNTIL: "Select the end."}),
+    ({"duration": card.CUSTOM, "until": NOW - dt.timedelta(minutes=1)},
+     {card.UNTIL: "Select a time in the future."}),
     ({"seconds": "0"}, {card.SECONDS: "Enter 1 to 3600 seconds."}),
     ({"seconds": "3601"}, {card.SECONDS: "Enter 1 to 3600 seconds."}),
     ({"seconds": "fast"}, {card.SECONDS: "Enter 1 to 3600 seconds."}),
     ({"reason": ""}, {card.REASON: "Add a reason."}),
+    ({"starting": False, "duration": None}, None),
 ])
-def test_validation_errors_checks_end_cooldown_and_reason(over, errors):
+def test_validation_errors_checks_duration_cooldown_and_reason(over, errors):
     assert card.validation_errors(submission(**over), NOW) == errors
+
+
+@pytest.mark.parametrize(("over", "row", "expected"), [
+    ({}, None, NOW + dt.timedelta(hours=1)),
+    ({"duration": None}, None, None),
+    ({"duration": None}, current(), None),
+    ({"duration": card.CUSTOM, "until": END}, None, END),
+    ({"starting": False, "extend": "1h"}, current(), END + dt.timedelta(hours=1)),
+    ({"starting": False}, current(), END),
+    ({"starting": False, "extend": "30m"}, current(expires_at=None), NOW + dt.timedelta(minutes=30)),
+])
+def test_new_end_starts_now_or_extends_the_current_end(over, row, expected):
+    assert card.new_end(submission(**over), row, NOW) == expected
 
 
 def test_notice_labels_cooldown_and_end():
@@ -294,11 +329,15 @@ class SurfaceCtx:
         self.said.append(message)
 
 
-def submitted_view(seconds="30", reason="Heated argument"):
+def submitted_view(seconds="30", reason="Heated argument", duration="1h", extend=None):
+    picked = {card.EXTEND: {card.EXTEND: {"selected_option": extend and {"value": extend}}}} \
+        if duration is None else \
+        {card.DURATION: {card.DURATION: {"selected_option": {"value": duration}}}}
     return {
         "id": "V1", "hash": "H1", "callback_id": card.CALLBACK,
         "private_metadata": card.metadata(CHANNEL_ID, THREAD),
         "state": {"values": {
+            **picked,
             card.SECONDS: {card.SECONDS: {"value": seconds}},
             card.REASON: {card.REASON: {"value": reason}},
             card.EXEMPT: {card.EXEMPT: {"selected_users": ["UEXEMPT"]}},
@@ -322,25 +361,37 @@ def stored(monkeypatch):
     return calls
 
 
-def test_saved_new_opens_guard_posts_notice_and_confirms(stored):
+def test_saved_new_opens_guard_for_the_duration_and_confirms(stored):
     ctx = SurfaceCtx(submitted_view())
+    before = dt.datetime.now(dt.UTC)
 
     assert thread_slowmode.saved(ctx) == 9
-    assert stored["opened"] == [(CHANNEL_ID, THREAD, 30, MOD, "Heated argument", None)]
+    (channel_id, thread_ts, seconds, by, reason, ends), = stored["opened"]
+    assert (channel_id, thread_ts, seconds, by, reason) == (CHANNEL_ID, THREAD, 30, MOD, "Heated argument")
+    assert before + dt.timedelta(hours=1) <= ends <= dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
     assert stored["allows"] == [(9, ["UEXEMPT"])]
-    assert ctx.client.posted[0]["text"] == "*Slow mode enabled* · 30s cooldown · no end date"
-    assert ctx.said == ["Slow mode enabled · 30s cooldown · no end date · Reason: Heated argument"]
+    assert ctx.client.posted[0]["text"] == f"*Slow mode enabled* · 30s cooldown · ends {short_end(ends)}"
+    assert ctx.said == [f"Slow mode enabled · 30s cooldown · ends {short_end(ends)} · Reason: Heated argument"]
 
 
-def test_saved_existing_updates_without_notice(stored):
+def test_saved_existing_extends_without_notice(stored):
     stored["row"] = current()
-    ctx = SurfaceCtx(submitted_view(seconds="60"))
+    ctx = SurfaceCtx(submitted_view(seconds="60", duration=None, extend="2h"))
 
     thread_slowmode.saved(ctx)
 
-    assert stored["tuned"] == [(60, MOD, "Heated argument", None)]
+    assert stored["tuned"] == [(60, MOD, "Heated argument", END + dt.timedelta(hours=2))]
     assert ctx.client.posted == []
-    assert ctx.said == ["Slow mode updated · 1m cooldown · no end date · Reason: Heated argument"]
+    assert ctx.said == [f"Slow mode updated · 1m cooldown · ends {short_end(END + dt.timedelta(hours=2))} "
+                        "· Reason: Heated argument"]
+
+
+def test_saved_existing_after_it_ended_is_refused(stored):
+    ctx = SurfaceCtx(submitted_view(duration=None, extend="1h"))
+
+    assert thread_slowmode.saved(ctx) is None
+    assert stored["opened"] == []
+    assert ctx.said == ["Slow mode already ended"]
 
 
 def test_saved_notice_failure_lifts_the_guard(stored):
@@ -377,3 +428,71 @@ def test_open_slowmode_modal_prefills_current_settings(stored):
     thread_slowmode.open_slowmode_modal(ctx)
 
     assert ctx.client.opened[0]["view"]["submit"]["text"] == "Save"
+
+
+class NoticeConn:
+    def __init__(self, claimed):
+        self.claimed = claimed
+        self.executed = []
+
+    def execute(self, sql, args=None):
+        self.executed.append((sql, args))
+        return self
+
+    def fetchall(self):
+        return self.claimed
+
+    def args_for(self, sql):
+        return [args for one, args in self.executed if one == sql]
+
+
+class Poster:
+    def __init__(self, fails=False):
+        self.fails = fails
+        self.posted = []
+
+    def chat_postMessage(self, **kwargs):
+        if self.fails:
+            raise RuntimeError("not_in_channel")
+        self.posted.append(kwargs)
+        return {"ts": "1700000000.000900"}
+
+
+def claimed_notice(attempts=1, thread_ts=""):
+    return (5, CHANNEL_ID, thread_ts, {"seconds": 30}, None, MOD, attempts)
+
+
+def test_post_notices_posts_in_the_channel_and_keeps_the_ts(monkeypatch):
+    conn = NoticeConn([claimed_notice()])
+    monkeypatch.setattr(slowmode, "session", lambda: session_of(conn))
+    client = Poster()
+
+    assert slowmode.post_notices(client) == 1
+    assert client.posted[0]["channel"] == CHANNEL_ID
+    assert client.posted[0]["thread_ts"] is None
+    assert client.posted[0]["text"] == "*Slow mode enabled* · 30s cooldown · no end date"
+    assert conn.args_for(slowmode.NOTICE_POSTED) == [("1700000000.000900", 5)]
+
+
+@pytest.mark.parametrize(("attempts", "again"), [(1, True), (2, True), (3, False)])
+def test_post_notices_failure_retries_until_three_tries(monkeypatch, attempts, again):
+    conn = NoticeConn([claimed_notice(attempts=attempts)])
+    monkeypatch.setattr(slowmode, "session", lambda: session_of(conn))
+
+    assert slowmode.post_notices(Poster(fails=True)) == 0
+    assert bool(conn.args_for(slowmode.NOTICE_AGAIN)) is again
+    assert conn.args_for(slowmode.NOTICE_POSTED) == []
+
+
+def test_claim_notices_takes_only_wanted_live_guards():
+    assert "WHERE notice_wanted AND state = 'live'" in slowmode.CLAIM_NOTICES
+    assert "FOR UPDATE SKIP LOCKED" in slowmode.CLAIM_NOTICES
+
+
+@pytest.mark.parametrize(("duration", "has_end"), [(card.CUSTOM, True), ("1h", False)])
+def test_duration_picked_shows_end_only_for_custom(stored, duration, has_end):
+    ctx = SurfaceCtx(submitted_view(duration=duration))
+
+    thread_slowmode.duration_picked(ctx)
+
+    assert (card.UNTIL in block_ids(ctx.client.updated[0]["view"])) is has_end

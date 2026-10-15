@@ -23,7 +23,7 @@ class FdChannelsOverviewTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_select ".people-list > .line-row", 2
     assert_match(/Read-only/, response.body)
-    assert_match(/30 seconds between messages, threads too/, response.body)
+    assert_match("30s cooldown · no end date · threads", response.body)
   end
 
   test "a read-only guard that also catches threads says so" do
@@ -63,7 +63,7 @@ class FdChannelsOverviewTest < ActionDispatch::IntegrationTest
     get fd_channels_path(kind: "slowmode")
 
     assert_select ".people-list > .line-row", 1
-    assert_match(/30 seconds between messages/, response.body)
+    assert_match("30s cooldown", response.body)
   end
 
   test "a kind nobody uses says so" do

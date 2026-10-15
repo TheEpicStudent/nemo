@@ -6,7 +6,7 @@ from bot.core import loops, session
 from bot.nemo import automod, channel, channelguards, channels, chat, guards, guard_actions
 from bot.nemo import enforcement, guard_notices, guard_removals, memberguards, case_queue
 from bot.nemo import join_requests, responses, screening
-from bot.nemo.enforcement import purge, sweep
+from bot.nemo.enforcement import purge, slowmode, sweep
 
 log = logging.getLogger("bot.nemo")
 
@@ -91,6 +91,11 @@ def join_channel(client, channel_id):
         if channels.mode(conn) == channels.OFF or channels.inside(conn, channel_id):
             return False
         return channels.join(client, conn, channel_id, verb="joined")
+
+
+def seat_and_announce(client, channel_id):
+    apart((f"joining {channel_id}", lambda: join_channel(client, channel_id)),
+          ("posting slow mode notices", lambda: slowmode.post_notices(client)))
 
 
 def take_up(client, guard):
@@ -235,6 +240,7 @@ def once(case_channel, channel_id=None):
         ("resetting sessions the guard has earned", guard_actions.sweep_strikes),
         ("lifting what has run out", lambda: sweep.sweep_lapsed(client)),
         ("lifting expired channel guards", lift_lapsed_channel_guards),
+        ("posting slow mode notices", lambda: slowmode.post_notices(client)),
         ("notifying manually lifted guards", lambda: sweep.sweep_lifted(client)),
         ("reclaiming released work", lambda: sweep.sweep_dropped(client)),
         ("notifying expiring guards", lambda: sweep.sweep_ending(client)),
@@ -302,7 +308,7 @@ def start(case_channel, stopping, channel_id=None):
             with session() as conn:
                 channelguards.refresh(conn)
             threading.Thread(
-                target=join_channel, args=(case_channel.client, payload),
+                target=seat_and_announce, args=(case_channel.client, payload),
                 name=f"nemo-seat-{payload}", daemon=True,
             ).start()
             wake_lapses()

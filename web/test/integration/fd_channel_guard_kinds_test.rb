@@ -16,12 +16,16 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
 
   def live(kind) = Fd::ChannelGuard.live_for(@id, kind: kind)
 
+  def with_reason(kind, params)
+    kind == "slowmode" ? { reason: "Heated argument" }.merge(params) : params
+  end
+
   def post_guard(kind, **params)
-    post fd_channel_guard_path(@id, kind), params: params
+    post fd_channel_guard_path(@id, kind), params: with_reason(kind, params)
   end
 
   def patch_guard(kind, **params)
-    patch fd_channel_guard_path(@id, kind), params: params
+    patch fd_channel_guard_path(@id, kind), params: with_reason(kind, params)
   end
 
   test "every tab opens" do
@@ -117,15 +121,113 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
 
     post_guard("slowmode", seconds: "99999")
     assert_nil live("slowmode")
-    assert_match(/from 1 to/, flash[:alert])
+    assert_equal "Enter 1 to 3600 seconds", flash[:alert]
   end
 
-  test "slow mode is retuned in place and audited" do
-    post_guard("slowmode", seconds: "30")
-    patch_guard("slowmode", seconds: "90", threads: "1")
+  test "slow mode without a reason is refused" do
+    post_guard("slowmode", reason: " ")
 
-    assert_equal 90, live("slowmode").seconds
-    assert_equal 1, Fd::AuditEntry.where(entity_type: "channel_guard", verb: "tuned").count
+    assert_nil live("slowmode")
+    assert_equal "Enter a reason", flash[:alert]
+  end
+
+  test "slow mode with a duration ends after it and asks nemo for the notice" do
+    freeze_time do
+      post_guard("slowmode", duration: "2h")
+      guard = live("slowmode")
+
+      assert_equal 2.hours.from_now, guard.expires_at
+      assert_equal "Heated argument", guard.reason
+      assert guard.notice_wanted
+      assert_equal "Slow mode enabled · ends #{Fd::ShortDate.ending(2.hours.from_now)}", flash[:notice]
+    end
+  end
+
+  test "slow mode without a duration runs until turned off" do
+    post_guard("slowmode")
+
+    assert_nil live("slowmode").expires_at
+    assert_equal "Slow mode enabled · no end date", flash[:notice]
+  end
+
+  test "slow mode with a custom end ends at that time in utc" do
+    post_guard("slowmode", duration: "custom", expires_on: 2.days.from_now.to_date.to_s, expires_time: "14:30")
+
+    assert_equal 2.days.from_now.utc.change(hour: 14, min: 30), live("slowmode").expires_at
+  end
+
+  test "slow mode with a custom end in the past is refused" do
+    post_guard("slowmode", duration: "custom", expires_on: 1.day.ago.to_date.to_s)
+
+    assert_nil live("slowmode")
+    assert_equal "End must be in the future", flash[:alert]
+  end
+
+  test "slow mode with custom picked and no date is refused" do
+    post_guard("slowmode", duration: "custom")
+
+    assert_nil live("slowmode")
+    assert_equal "Enter the end date", flash[:alert]
+  end
+
+  test "slow mode extend adds to the current end and is audited" do
+    post_guard("slowmode", duration: "1h")
+    first_end = live("slowmode").expires_at
+    patch_guard("slowmode", extend_by: "30m")
+
+    assert_equal first_end + 30.minutes, live("slowmode").expires_at
+    extended = Fd::AuditEntry.where(entity_type: "channel_guard", verb: "extended").sole
+    assert_equal first_end.iso8601, extended.before["expires_at"]
+  end
+
+  test "slow mode with no end is extended from now" do
+    post_guard("slowmode")
+    freeze_time do
+      patch_guard("slowmode", extend_by: "1h")
+
+      assert_equal 1.hour.from_now, live("slowmode").expires_at
+    end
+  end
+
+  test "slow mode extend without a choice is refused" do
+    post_guard("slowmode", duration: "1h")
+    patch_guard("slowmode")
+
+    assert_equal "Select how long to extend", flash[:alert]
+  end
+
+  test "slow mode enabled again starts with no exemptions" do
+    post_guard("slowmode")
+    post fd_channel_allows_path(@id, "slowmode"), params: { subject_ids: ["USLOW"] }
+    delete fd_channel_guard_path(@id, "slowmode")
+    assert_equal "Slow mode disabled", flash[:notice]
+    post_guard("slowmode")
+
+    assert_empty live("slowmode").allows
+  end
+
+  test "slow mode tab shows time left with extend and disable" do
+    post_guard("slowmode", duration: "2h", threads: "1")
+
+    get fd_channel_path(@id, tab: "slowmode")
+
+    assert_select ".setline .setval", /\Ain (1h 59m|2h 0m) · /
+    assert_select ".setline .setval", "Included"
+    assert_select "[data-modal-id-value=slowmode-extend] select[name=extend_by]"
+    assert_select "form[action=?] button", fd_channel_guard_path(@id, "slowmode"), text: "Disable"
+  end
+
+  test "slow mode tab when off offers the enable dialog with no end by default" do
+    get fd_channel_path(@id, tab: "slowmode")
+
+    assert_select ".empty-title", "Off"
+    assert_select "[data-modal-id-value=slowmode-enable] select[name=duration] option[value=\"\"]", "No end"
+  end
+
+  test "read-only asks nemo for no notice" do
+    post_guard("readonly")
+
+    assert_not live("readonly").notice_wanted
   end
 
   test "an account age gate keeps its days" do
@@ -181,12 +283,12 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_select "#allow-bot"
   end
 
-  test "account age tab without exemptions shows the empty state" do
+  test "account age tab without exemptions shows no empty state" do
     guard!("account_age", min_age_days: 7)
 
     get fd_channel_path(@id, tab: "account_age")
 
-    assert_select ".empty-title", "No exemptions"
+    assert_no_match "No exemptions", response.body
   end
 
   test "account age turned back on restores its exemptions" do
@@ -227,10 +329,10 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
   end
 
   test "a guard turned on for the first time starts with no allows" do
-    post_guard("slowmode")
+    post_guard("readonly")
 
-    assert_empty live("slowmode").allows
-    assert_equal "Slow mode turned on", flash[:notice]
+    assert_empty live("readonly").allows
+    assert_equal "Read-only turned on", flash[:notice]
   end
 
   test "restoring takes allows only from the same kind" do
@@ -297,7 +399,8 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     get fd_channel_path(@id, tab: "slowmode")
 
     assert_select ".card-title", "Threads"
-    assert_match "30s cooldown · ends #{Fd::ShortDate.ending(ends)}", response.body
+    assert_match "30s cooldown · ends in ", response.body
+    assert_match Fd::ShortDate.ending(ends), response.body
     assert_match "Reason: Heated argument", response.body
     assert_select "form[action=?]", fd_channel_thread_slowmode_path(@id, Fd::ChannelGuard.thread_scoped.sole)
   end

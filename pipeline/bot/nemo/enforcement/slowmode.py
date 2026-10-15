@@ -12,6 +12,26 @@ KIND = channelguards.SLOWMODE
 
 DELETED = "deleted"
 
+NOTICE_ATTEMPTS = 3
+NOTICES_PER_PASS = 20
+
+CLAIM_NOTICES = """
+UPDATE fd.channel_guards
+SET notice_wanted = false, notice_attempts = notice_attempts + 1
+WHERE id IN (
+    SELECT id FROM fd.channel_guards
+    WHERE notice_wanted AND state = 'live'
+    ORDER BY id
+    LIMIT %s
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING id, channel_id, thread_ts, settings, expires_at, opened_by, notice_attempts
+"""
+
+NOTICE_POSTED = "UPDATE fd.channel_guards SET notice_ts = %s WHERE id = %s"
+
+NOTICE_AGAIN = "UPDATE fd.channel_guards SET notice_wanted = state = 'live' WHERE id = %s"
+
 TICK = """
 INSERT INTO fd.slowmode_clock (channel_id, thread_ts, user_id, posted_at)
 VALUES (%s, %s, %s, now())
@@ -102,3 +122,28 @@ def on_message(ctx):
                           thread_ts=event.get("thread_ts"), blocks=told["blocks"])
     log.info("nemo: slow mode %s removed %s from %s", guard.guard_id, ts, channel_id)
     return True
+
+
+def post_notices(client):
+    with session() as conn:
+        claimed = conn.execute(CLAIM_NOTICES, (NOTICES_PER_PASS,)).fetchall()
+
+    posted = 0
+    for guard_id, channel_id, thread_ts, settings, expires_at, opened_by, attempts in claimed:
+        seconds = int((settings or {}).get("seconds") or 0)
+        try:
+            sent = client.chat_postMessage(channel=channel_id, thread_ts=thread_ts or None,
+                                           unfurl_links=False,
+                                           **card.notice(seconds, expires_at, opened_by))
+        except Exception as failure:
+            log.warning("nemo: slow mode %s notice not posted in %s (try %s): %s",
+                        guard_id, channel_id, attempts, failure)
+            if attempts < NOTICE_ATTEMPTS:
+                with session() as conn:
+                    conn.execute(NOTICE_AGAIN, (guard_id,))
+            continue
+
+        with session() as conn:
+            conn.execute(NOTICE_POSTED, ((sent or {}).get("ts"), guard_id))
+        posted += 1
+    return posted

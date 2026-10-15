@@ -24,9 +24,11 @@
   <div class="toolbar">
     <%= seat_warning %>
     <% if offers_nemo_join?(@channel_id, @standing) %>
-      <%= button_to "Join channel", fd_channel_join_path(@channel_id), params: { tab: @tab },
-            class: "btn btn-sm", form: { class: "contents" },
-            data: { turbo_submits_with: "Joining" } %>
+      <div class="toolbar-end">
+        <%= button_to "Join channel", fd_channel_join_path(@channel_id), params: { tab: @tab },
+              class: "btn btn-sm", form: { class: "contents" },
+              data: { turbo_submits_with: "Joining" } %>
+      </div>
     <% end %>
   </div>
 <% end %>

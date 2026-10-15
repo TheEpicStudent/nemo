@@ -7,6 +7,8 @@ CALLBACK = "thread_slowmode"
 DISABLED_CALLBACK = "thread_slowmode_disabled"
 
 UNTIL = "slowmode_until"
+DURATION = "slowmode_duration"
+EXTEND = "slowmode_extend"
 SECONDS = "slowmode_seconds"
 REASON = "slowmode_reason"
 EXEMPT = "slowmode_exempt"
@@ -17,6 +19,17 @@ REASON_LIMIT = 500
 SHORTEST = 1
 LONGEST = 3600
 STARTING_SECONDS = 30
+
+CUSTOM = "custom"
+DURATIONS = {
+    "15m": ("15 minutes", dt.timedelta(minutes=15)),
+    "30m": ("30 minutes", dt.timedelta(minutes=30)),
+    "1h": ("1 hour", dt.timedelta(hours=1)),
+    "2h": ("2 hours", dt.timedelta(hours=2)),
+    "6h": ("6 hours", dt.timedelta(hours=6)),
+    "12h": ("12 hours", dt.timedelta(hours=12)),
+    "24h": ("24 hours", dt.timedelta(hours=24)),
+}
 
 
 def metadata(channel_id, thread_ts):
@@ -41,6 +54,19 @@ def ends(expires_at):
     return f"ends {short_end(expires_at)}" if expires_at else "no end date"
 
 
+def remaining(expires_at, now=None):
+    if not expires_at:
+        return "no end date"
+    seconds = max(int((expires_at - (now or dt.datetime.now(dt.UTC))).total_seconds()), 0)
+    if seconds >= 86400:
+        left = f"{seconds // 86400}d {seconds % 86400 // 3600}h"
+    elif seconds >= 3600:
+        left = f"{seconds // 3600}h {seconds % 3600 // 60}m"
+    else:
+        left = f"{max(seconds // 60, 1)}m"
+    return f"ends in {left} · {short_end(expires_at)}"
+
+
 def summary(seconds, expires_at):
     return f"{cooldown(seconds)} cooldown · {ends(expires_at)}"
 
@@ -49,12 +75,32 @@ def plain(text):
     return {"type": "plain_text", "text": text}
 
 
-def until_block(expires_at=None):
-    element = {"type": "datetimepicker", "action_id": UNTIL}
-    if expires_at:
-        element["initial_date_time"] = int(expires_at.timestamp())
-    return {"type": "input", "block_id": UNTIL, "optional": True,
-            "label": plain("End"), "element": element}
+def option(key, label):
+    return {"text": plain(label), "value": key}
+
+
+def length_options(prefix=""):
+    return [option(key, f"{prefix}{label}") for key, (label, _length) in DURATIONS.items()] + \
+        [option(CUSTOM, "Custom end")]
+
+
+def duration_block():
+    return {"type": "input", "block_id": DURATION, "optional": True, "dispatch_action": True,
+            "label": plain("Duration"),
+            "element": {"type": "static_select", "action_id": DURATION,
+                        "placeholder": plain("No end"), "options": length_options()}}
+
+
+def extend_block():
+    return {"type": "input", "block_id": EXTEND, "optional": True, "dispatch_action": True,
+            "label": plain("Extend by"),
+            "element": {"type": "static_select", "action_id": EXTEND,
+                        "placeholder": plain("Select"), "options": length_options("+")}}
+
+
+def until_block():
+    return {"type": "input", "block_id": UNTIL, "label": plain("End"),
+            "element": {"type": "datetimepicker", "action_id": UNTIL}}
 
 
 def seconds_block(seconds=None):
@@ -80,11 +126,12 @@ def exempt_block(user_ids=()):
             "label": plain("Exempt members"), "element": element}
 
 
-def status_block(current):
+def status_block(current, now=None):
     return {
         "type": "section",
         "text": {"type": "mrkdwn",
-                 "text": f"*Enabled* · set by <@{current['opened_by']}> · {ends(current['expires_at'])}"},
+                 "text": f"*Enabled* · {remaining(current['expires_at'], now)} · "
+                         f"set by <@{current['opened_by']}>"},
         "accessory": {
             "type": "button", "action_id": DISABLE, "style": "danger", "text": plain("Disable"),
             "confirm": {"title": plain("Disable slow mode"),
@@ -94,15 +141,15 @@ def status_block(current):
     }
 
 
-def build_view(channel_id, thread_ts, current=None):
-    blocks = [
-        until_block(current and current["expires_at"]),
+def build_view(channel_id, thread_ts, current=None, custom=False, now=None):
+    blocks = [status_block(current, now), extend_block()] if current else [duration_block()]
+    if custom:
+        blocks.append(until_block())
+    blocks += [
         seconds_block(current and current["seconds"]),
         reason_block(current and current["reason"]),
         exempt_block(current["exempt"] if current else ()),
     ]
-    if current:
-        blocks.insert(0, status_block(current))
     return {
         "type": "modal",
         "callback_id": CALLBACK,
@@ -124,11 +171,18 @@ def disabled_view():
     }
 
 
+def chosen(values, block_id):
+    return ((values.get(block_id, {}).get(block_id, {}).get("selected_option") or {}).get("value"))
+
+
 def submitted_values(state):
     values = state.get("values", {})
     picked = values.get(UNTIL, {}).get(UNTIL, {}).get("selected_date_time")
     return {
-        "expires_at": dt.datetime.fromtimestamp(picked, dt.UTC) if picked else None,
+        "starting": EXTEND not in values,
+        "duration": chosen(values, DURATION),
+        "extend": chosen(values, EXTEND),
+        "until": dt.datetime.fromtimestamp(picked, dt.UTC) if picked else None,
         "seconds": values.get(SECONDS, {}).get(SECONDS, {}).get("value"),
         "reason": (values.get(REASON, {}).get(REASON, {}).get("value") or "").strip(),
         "exempt": values.get(EXEMPT, {}).get(EXEMPT, {}).get("selected_users") or [],
@@ -143,9 +197,30 @@ def seconds_of(values):
     return seconds if SHORTEST <= seconds <= LONGEST else None
 
 
+def length_key(values):
+    return values["duration"] if values["starting"] else values["extend"]
+
+
+def new_end(values, current=None, now=None):
+    now = now or dt.datetime.now(dt.UTC)
+    key = length_key(values)
+    if key == CUSTOM:
+        return values["until"]
+    if key in DURATIONS:
+        start = now if values["starting"] or not current else (current["expires_at"] or now)
+        return max(start, now) + DURATIONS[key][1]
+    if values["starting"]:
+        return None
+    return current["expires_at"] if current else None
+
+
 def validation_errors(values, now=None):
-    if values["expires_at"] and values["expires_at"] <= (now or dt.datetime.now(dt.UTC)):
-        return {UNTIL: "Pick a time in the future."}
+    now = now or dt.datetime.now(dt.UTC)
+    key = length_key(values)
+    if key == CUSTOM and not values["until"]:
+        return {UNTIL: "Select the end."}
+    if key == CUSTOM and values["until"] <= now:
+        return {UNTIL: "Select a time in the future."}
     if seconds_of(values) is None:
         return {SECONDS: f"Enter {SHORTEST} to {LONGEST} seconds."}
     if not values["reason"]:

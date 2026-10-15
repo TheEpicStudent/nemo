@@ -103,8 +103,35 @@ module FdChannelsHelper
   def slowmode_line(guard)
     return nil if guard.nil?
 
-    label = "#{pluralize(guard.seconds, 'second')} between messages"
-    guard.threads? ? "#{label}, threads too" : label
+    parts = ["#{cooldown_label(guard.seconds)} cooldown", time_left_label(guard.expires_at)]
+    parts << "threads" if guard.threads?
+    parts.join(" · ")
+  end
+
+  DURATION_LABELS = {
+    "15m" => "15 minutes", "30m" => "30 minutes", "1h" => "1 hour", "2h" => "2 hours",
+    "6h" => "6 hours", "12h" => "12 hours", "24h" => "24 hours"
+  }.freeze
+
+  def duration_options(prefix = "")
+    DURATION_LABELS.map { |key, label| ["#{prefix}#{label}", key] } +
+      [["Custom end", Fd::ChannelGuard::CUSTOM]]
+  end
+
+  def time_left_label(expires_at, now: Time.current)
+    expires_at ? "ends #{time_left(expires_at, now: now)}" : "no end date"
+  end
+
+  def time_left(expires_at, now: Time.current)
+    return "No end" if expires_at.nil?
+
+    seconds = [(expires_at - now).to_i, 0].max
+    left =
+      if seconds >= 1.day then "#{seconds / 1.day}d #{seconds % 1.day / 1.hour}h"
+      elsif seconds >= 1.hour then "#{seconds / 1.hour}h #{seconds % 1.hour / 1.minute}m"
+      else "#{[seconds / 1.minute, 1].max}m"
+      end
+    "in #{left} · #{Fd::ShortDate.ending(expires_at)}"
   end
 
   def cooldown_label(seconds)
@@ -116,8 +143,7 @@ module FdChannelsHelper
   end
 
   def thread_slowmode_line(guard)
-    parts = ["#{cooldown_label(guard.seconds)} cooldown",
-             guard.expires_at ? "ends #{Fd::ShortDate.ending(guard.expires_at)}" : "no end date"]
+    parts = ["#{cooldown_label(guard.seconds)} cooldown", time_left_label(guard.expires_at)]
     parts << pluralize(guard.allows.size, "exemption") if guard.allows.any?
     parts << "Reason: #{guard.reason}" if guard.reason.present?
     parts.join(" · ")
