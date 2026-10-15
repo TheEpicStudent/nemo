@@ -4,7 +4,7 @@
     <div class="card-tools">
       <% if guard %>
         <%= submit_tag "Save", class: "btn btn-sm btn-primary", form: "slowmode-form" %>
-        <%= opens_modal "channel.guard", "Exempt somebody", opens: "allow-bot",
+        <%= opens_modal "channel.guard", "Exempt member", opens: "allow-bot",
               css: "btn btn-sm" %>
       <% end %>
       <%= channel_guard_switch(channel_id, guard, kind: Fd::ChannelGuard::SLOWMODE) %>
@@ -31,7 +31,7 @@
       </div>
     <% end %>
     <%= render "allows", channel_id: channel_id, guard: guard, allows: allows,
-          empty: "Nobody is exempt" %>
+          empty: "No exemptions" %>
   <% else %>
     <div class="empty"><p class="empty-title">Off</p></div>
   <% end %>

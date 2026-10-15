@@ -8,8 +8,6 @@ module Fd
     ACCOUNT_AGE = "account_age".freeze
     KINDS = [BOT_ALLOWLIST, READONLY, SLOWMODE, ACCOUNT_AGE].freeze
 
-    ALLOWS = [BOT_ALLOWLIST, READONLY, SLOWMODE].freeze
-
     SLOWEST = 3600
     OLDEST = 365
 
@@ -38,8 +36,6 @@ module Fd
     def self.kind?(kind) = KINDS.include?(kind)
 
     def live? = state == "live"
-
-    def takes_allows? = ALLOWS.include?(kind)
 
     def seconds = settings["seconds"].to_i
 

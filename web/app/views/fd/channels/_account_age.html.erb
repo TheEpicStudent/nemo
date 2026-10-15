@@ -4,6 +4,8 @@
     <div class="card-tools">
       <% if guard %>
         <%= submit_tag "Save", class: "btn btn-sm btn-primary", form: "account-age-form" %>
+        <%= opens_modal "channel.guard", "Exempt member", opens: "allow-bot",
+              css: "btn btn-sm" %>
       <% end %>
       <%= channel_guard_switch(channel_id, guard, kind: Fd::ChannelGuard::ACCOUNT_AGE) %>
     </div>
@@ -14,7 +16,7 @@
           id: "account-age-form" do %>
       <div class="setlist">
         <label class="setline">
-          <span class="setname">Days old before they may post</span>
+          <span class="setname">Days old</span>
           <span class="setval">
             <%= number_field_tag :min_age_days, guard.min_age_days, class: "input", id: nil,
                   min: 1, max: Fd::ChannelGuard::OLDEST %>
@@ -22,6 +24,8 @@
         </label>
       </div>
     <% end %>
+    <%= render "allows", channel_id: channel_id, guard: guard, allows: allows,
+          empty: "No exemptions" %>
   <% else %>
     <div class="empty"><p class="empty-title">Off</p></div>
   <% end %>

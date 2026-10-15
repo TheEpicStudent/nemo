@@ -163,6 +163,41 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_equal 0, live("slowmode").allows.count
   end
 
+  test "account age exemption is saved on the gate" do
+    guard!("account_age", min_age_days: 7)
+    post fd_channel_allows_path(@id, "account_age"), params: { subject_ids: ["USOMEBODY"] }
+
+    assert_redirected_to fd_channel_path(@id, tab: "account_age")
+    assert_equal ["USOMEBODY"], live("account_age").allows.pluck(:subject_id)
+  end
+
+  test "account age tab lists exemptions with the exempt button" do
+    guard!("account_age", min_age_days: 7).allows.create!(subject_id: "USOMEBODY", added_by: "UME")
+
+    get fd_channel_path(@id, tab: "account_age")
+
+    assert_select ".card-tools button", text: "Exempt member"
+    assert_match "USOMEBODY", response.body
+    assert_select "#allow-bot"
+  end
+
+  test "account age tab without exemptions shows the empty state" do
+    guard!("account_age", min_age_days: 7)
+
+    get fd_channel_path(@id, tab: "account_age")
+
+    assert_select ".empty-title", "No exemptions"
+  end
+
+  test "account age turned back on restores its exemptions" do
+    post_guard("account_age")
+    post fd_channel_allows_path(@id, "account_age"), params: { subject_ids: ["USOMEBODY"] }
+    delete fd_channel_guard_path(@id, "account_age")
+    post_guard("account_age")
+
+    assert_equal ["USOMEBODY"], live("account_age").allows.pluck(:subject_id)
+  end
+
   test "an allow on a kind nobody guards is refused" do
     post fd_channel_allows_path(@id, "readonly"), params: { subject_ids: ["USOMEBODY"] }
 

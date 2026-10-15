@@ -53,7 +53,7 @@ module Fd
       @guard = @guards[ChannelGuard::BOT_ALLOWLIST]
       @kind = TAB_KINDS[@tab]
       @kind_guard = @kind ? @guards[@kind] : nil
-      @allows = @kind_guard&.takes_allows? ? @kind_guard.allows.oldest_first.to_a : []
+      @allows = @kind_guard ? @kind_guard.allows.oldest_first.to_a : []
       @standing = ChannelJoin.latest_for(@channel_id)
       @nemo_inside = ChannelMembership.inside?(@channel_id)
       @events = @kind ? ChannelGuardEvent.for_kind(@channel_id, @kind)

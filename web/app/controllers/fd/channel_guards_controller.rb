@@ -70,7 +70,7 @@ module Fd
 
     def restore_allows(guard)
       previous_guard = last_lifted_guard
-      return 0 if previous_guard.nil? || !guard.takes_allows?
+      return 0 if previous_guard.nil?
 
       previous_guard.allows.oldest_first.each do |previous_allow|
         allow = guard.allows.create!(subject_id: previous_allow.subject_id,

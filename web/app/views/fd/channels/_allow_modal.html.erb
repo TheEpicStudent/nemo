@@ -1,15 +1,15 @@
 <% bots = kind == Fd::ChannelGuard::BOT_ALLOWLIST %>
 <%= render layout: "fd/modal", locals: { id: "allow-bot",
-      title: "#{bots ? "Allow a bot in" : "Let somebody post in"} #{label}",
-      label: bots ? "Allow a bot to post here" : "Let somebody post here" } do %>
+      title: "#{bots ? "Allow a bot in" : "Exempt a member in"} #{label}",
+      label: bots ? "Allow a bot to post here" : "Exempt a member here" } do %>
   <%= form_with url: fd_channel_allows_path(channel_id, kind), method: :post,
         html: { autocomplete: "off" } do %>
     <div class="modal-body">
       <div class="field-label">
-        <span><%= bots ? "Which bot" : "Who" %></span>
+        <span><%= bots ? "Bot" : "Member" %></span>
         <%= render "shared/combobox", name: "subject_ids[]",
               url: bots ? fd_member_search_path(bots: 1) : fd_member_search_path,
-              label: bots ? "search for the bot to allow" : "search for who to allow",
+              label: bots ? "search for the bot to allow" : "search for the member to exempt",
               placeholder: ("Search bots" if bots), empty: ("No bots found" if bots) %>
       </div>
     </div>

@@ -52,7 +52,7 @@
 <% end %>
 
 <% if @tab == "account_age" %>
-  <%= render "account_age", channel_id: @channel_id, guard: @kind_guard %>
+  <%= render "account_age", channel_id: @channel_id, guard: @kind_guard, allows: @allows %>
   <%= render "activity", events: @events, labels: @labels %>
 <% end %>
 
@@ -60,7 +60,7 @@
   <%= render "purge", channel_id: @channel_id, label: label, purges: @purges %>
 <% end %>
 
-<% if @kind_guard&.takes_allows? %>
+<% if @kind_guard %>
   <%= render "allow_modal", channel_id: @channel_id, label: label,
         kind: @kind_guard.kind %>
 <% end %>
