@@ -18,12 +18,14 @@ OPEN = "open"
 MERGE = "merge"
 SHUSH = "shush"
 CHANNEL_BAN = "channelban"
+UNSHUSH = "unshush"
+UNBAN = "unban"
 PURGE = "purge"
 SLOWMODE = "slowmode"
 OPEN_RECORD = "open_record"
 OFF = "off"
 
-ABOUT_SOMEBODY = (LOOKUP, NOTE, SHUSH, CHANNEL_BAN)
+ABOUT_SOMEBODY = (LOOKUP, NOTE, SHUSH, CHANNEL_BAN, UNSHUSH, UNBAN)
 VERBS = (*ABOUT_SOMEBODY, OPEN, MERGE, PURGE, SLOWMODE)
 NEEDS_WORDS = (NOTE, OPEN, SHUSH, CHANNEL_BAN, SLOWMODE)
 
@@ -45,6 +47,8 @@ SUBJECT_USAGE = {
     NOTE: "Name the member: */nemo note @member text*",
     SHUSH: "Name the member: */nemo shush @member 3d reason*",
     CHANNEL_BAN: "Name the member: */nemo channelban @member #channel 3d reason*",
+    UNSHUSH: "Name the member: */nemo unshush @member*",
+    UNBAN: "Name the member: */nemo unban @member #channel*",
 }
 
 TEXT_USAGE = {
@@ -73,6 +77,7 @@ COOLDOWN_USAGE = (
 SLOWMODE_REASON_USAGE = "Add a reason: */nemo slowmode #channel 30s reason*"
 
 CHANNEL_USAGE = "Name the channel: */nemo channelban @member #channel 3d reason*"
+UNBAN_CHANNEL_USAGE = "Name the channel: */nemo unban @member #channel*"
 
 
 def parse_command(text):
@@ -281,6 +286,8 @@ NEEDED = {
     MERGE: "case.resolve",
     SHUSH: "member.guard",
     CHANNEL_BAN: "member.guard",
+    UNSHUSH: "member.guard",
+    UNBAN: "member.guard",
     SLOWMODE: "channel.guard",
     "case": "case.read",
 }
@@ -312,6 +319,32 @@ def already_banned(user_id, channel_id):
         f"<@{user_id}> is already banned from <#{channel_id}>. "
         "Lift or extend it in Fire Engine."
     )
+
+
+def with_reason(text, why):
+    return f"{text}. Reason: {why}" if why else text
+
+
+def lift_guard(conn, user_id, kind, channel_id, why, by):
+    guard = memberguards.active_guard(conn, user_id, kind, channel_id)
+    if guard is None or guard["state"] != "live":
+        return False
+    return memberguards.lift(conn, guard["id"], by, why, kind=kind)
+
+
+def unshushed(conn, user_id, why, by):
+    if not lift_guard(conn, user_id, memberguards.SHUSH, None, why, by):
+        return f"<@{user_id}> is not shushed"
+    return with_reason(f"<@{user_id}> has been unshushed", why)
+
+
+def unbanned(conn, user_id, body, by):
+    where, why = in_a_channel(body)
+    if where is None:
+        return UNBAN_CHANNEL_USAGE
+    if not lift_guard(conn, user_id, memberguards.CHANNEL_BAN, where, why, by):
+        return f"<@{user_id}> is not banned from <#{where}>"
+    return with_reason(f"<@{user_id}> has been unbanned from <#{where}>", why)
 
 
 def opened(case_id, user_id):
@@ -428,6 +461,10 @@ def register(app):
                         banned(target_id, where, expires_at, why) if guard_id
                         else already_banned(target_id, where)
                     )
+            elif verb == UNSHUSH:
+                answer = message_only(unshushed(conn, target_id, body, user_id))
+            elif verb == UNBAN:
+                answer = message_only(unbanned(conn, target_id, body, user_id))
             elif verb == SLOWMODE:
                 request, problem = slowmode_request(body, command.get("channel_id"))
                 answer = message_only(problem or apply_slowmode(conn, request, user_id))

@@ -272,3 +272,70 @@ def test_apply_slowmode_off_lifts_or_says_there_is_none(guards_calls):
 def test_the_help_card_lists_slowmode_for_channel_guard():
     assert "/nemo slowmode" in command.helping.flat({"channel.guard"})
     assert "/nemo slowmode" not in command.helping.flat({"member.guard"})
+
+
+def test_unshush_and_unban_name_a_member():
+    assert command.parse_command(f"unshush {USER_MENTION}") == (command.UNSHUSH, USER_ID, None)
+    assert command.parse_command(f"unban {USER_MENTION} {CHANNEL_MENTION} appeal upheld") == \
+        (command.UNBAN, USER_ID, f"{CHANNEL_MENTION} appeal upheld")
+
+
+def test_unshush_and_unban_need_the_member_guard_capability():
+    assert command.NEEDED[command.UNSHUSH] == command.NEEDED[command.UNBAN] == "member.guard"
+
+
+@pytest.fixture
+def member_guards(monkeypatch):
+    state = {"guard": {"id": 7, "state": "live"}, "asked": [], "lifted": []}
+    monkeypatch.setattr(command.memberguards, "active_guard",
+                        lambda conn, user_id, kind, channel_id=None:
+                        state["asked"].append((user_id, kind, channel_id)) or state["guard"])
+    monkeypatch.setattr(command.memberguards, "lift",
+                        lambda conn, guard_id, by, why, kind=None:
+                        state["lifted"].append((guard_id, by, why, kind)) or True)
+    return state
+
+
+def test_unshushed_lifts_the_live_shush(member_guards):
+    assert command.unshushed(object(), USER_ID, None, "UMOD") == f"<@{USER_ID}> has been unshushed"
+    assert member_guards["asked"] == [(USER_ID, "shush", None)]
+    assert member_guards["lifted"] == [(7, "UMOD", None, "shush")]
+
+
+def test_unshushed_with_a_reason_says_it(member_guards):
+    assert command.unshushed(object(), USER_ID, "appeal upheld", "UMOD") == \
+        f"<@{USER_ID}> has been unshushed. Reason: appeal upheld"
+
+
+def test_unshushed_without_a_shush_says_so(member_guards):
+    member_guards["guard"] = None
+
+    assert command.unshushed(object(), USER_ID, None, "UMOD") == f"<@{USER_ID}> is not shushed"
+    assert member_guards["lifted"] == []
+
+
+def test_unbanned_lifts_the_ban_in_that_channel(member_guards):
+    answer = command.unbanned(object(), USER_ID, f"{CHANNEL_MENTION} appeal upheld", "UMOD")
+
+    assert answer == f"<@{USER_ID}> has been unbanned from <#{CHANNEL_ID}>. Reason: appeal upheld"
+    assert member_guards["asked"] == [(USER_ID, "channel_ban", CHANNEL_ID)]
+    assert member_guards["lifted"] == [(7, "UMOD", "appeal upheld", "channel_ban")]
+
+
+def test_unbanned_without_a_channel_asks_for_it(member_guards):
+    assert command.unbanned(object(), USER_ID, None, "UMOD") == command.UNBAN_CHANNEL_USAGE
+    assert member_guards["lifted"] == []
+
+
+def test_unbanned_without_a_ban_says_so(member_guards):
+    member_guards["guard"] = None
+
+    assert command.unbanned(object(), USER_ID, CHANNEL_MENTION, "UMOD") == \
+        f"<@{USER_ID}> is not banned from <#{CHANNEL_ID}>"
+
+
+def test_the_help_card_lists_unshush_and_unban():
+    help_text = command.helping.flat({"member.guard"})
+
+    assert "/nemo unshush" in help_text
+    assert "/nemo unban" in help_text
