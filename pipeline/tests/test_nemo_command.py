@@ -169,3 +169,106 @@ def test_case_answer_keeps_the_report_quote():
 
 def test_case_answer_for_an_unknown_number():
     assert command.case_answer(Conn({}), 99)["text"] == "There is no case 99."
+
+
+def test_slowmode_is_asked_for_like_the_other_verbs():
+    verb, target, body = command.parse_command(f"slowmode {CHANNEL_MENTION} 30s 2h heated thread")
+
+    assert (verb, target, body) == (command.SLOWMODE, None, f"{CHANNEL_MENTION} 30s 2h heated thread")
+
+
+def test_slowmode_needs_the_channel_guard_capability():
+    assert command.NEEDED[command.SLOWMODE] == "channel.guard"
+
+
+@pytest.mark.parametrize(("text", "seconds"), [("30s", 30), ("30", 30), ("2m", 120), ("3600", 3600),
+                                               ("0s", None), ("3601", None), ("61m", None), ("fast", None)])
+def test_cooldown_of_reads_seconds_and_minutes(text, seconds):
+    assert command.cooldown_of(text) == seconds
+
+
+def test_slowmode_request_with_channel_and_duration():
+    request, problem = command.slowmode_request(f"{CHANNEL_MENTION} 30s 2h heated thread", "CHERE", NOW)
+
+    assert problem is None
+    assert request == {"channel_id": CHANNEL_ID, "off": False, "seconds": 30,
+                       "expires_at": NOW + dt.timedelta(hours=2), "reason": "heated thread"}
+
+
+def test_slowmode_request_without_duration_has_no_end():
+    request, _problem = command.slowmode_request(f"{CHANNEL_MENTION} 45s heated thread", "CHERE", NOW)
+
+    assert (request["seconds"], request["expires_at"], request["reason"]) == (45, None, "heated thread")
+
+
+def test_slowmode_request_without_channel_uses_this_one():
+    request, _problem = command.slowmode_request("1m heated", "CHERE", NOW)
+
+    assert request["channel_id"] == "CHERE"
+
+
+def test_slowmode_request_in_a_dm_needs_a_channel():
+    assert command.slowmode_request("30s heated", "D123", NOW) == (None, command.TEXT_USAGE[command.SLOWMODE])
+
+
+def test_slowmode_request_off_disables():
+    assert command.slowmode_request(f"{CHANNEL_MENTION} off", "CHERE", NOW) == \
+        ({"channel_id": CHANNEL_ID, "off": True}, None)
+
+
+@pytest.mark.parametrize(("body", "problem"), [
+    (f"{CHANNEL_MENTION} soon heated", command.COOLDOWN_USAGE),
+    (f"{CHANNEL_MENTION} 30s 400d heated", command.DURATION_USAGE[command.SLOWMODE]),
+    (f"{CHANNEL_MENTION} 30s 2h", command.SLOWMODE_REASON_USAGE),
+])
+def test_slowmode_request_refuses_bad_input(body, problem):
+    assert command.slowmode_request(body, "CHERE", NOW) == (None, problem)
+
+
+@pytest.fixture
+def guards_calls(monkeypatch):
+    calls = {"row": None, "opened": [], "tuned": [], "lifted": []}
+    monkeypatch.setattr(command.channelguards, "slowmode_row", lambda conn, channel_id: calls["row"])
+    monkeypatch.setattr(command.channelguards, "open_slowmode",
+                        lambda conn, *args, **kwargs: calls["opened"].append((args, kwargs)) or 5)
+    monkeypatch.setattr(command.channelguards, "tune_slowmode",
+                        lambda conn, row, *args: calls["tuned"].append(args) or row["id"])
+    monkeypatch.setattr(command.channelguards, "lift",
+                        lambda conn, guard_id, by: calls["lifted"].append(guard_id) or CHANNEL_ID)
+    return calls
+
+
+def request_for(**over):
+    row = {"channel_id": CHANNEL_ID, "off": False, "seconds": 30, "expires_at": None, "reason": "heated"}
+    row.update(over)
+    return row
+
+
+def test_apply_slowmode_new_opens_guard_with_notice(guards_calls):
+    answer = command.apply_slowmode(object(), request_for(), "UMOD")
+
+    assert guards_calls["opened"] == [((CHANNEL_ID, "", 30, "UMOD", "heated", None), {"notice_wanted": True})]
+    assert answer == f"Slow mode enabled in <#{CHANNEL_ID}> · 30s cooldown · no end date · Reason: heated"
+
+
+def test_apply_slowmode_existing_updates(guards_calls):
+    guards_calls["row"] = {"id": 9, "seconds": 60, "expires_at": None, "reason": "old"}
+
+    answer = command.apply_slowmode(object(), request_for(seconds=120), "UMOD")
+
+    assert guards_calls["tuned"] == [(120, "UMOD", "heated", None)]
+    assert answer.startswith(f"Slow mode updated in <#{CHANNEL_ID}> · 2m cooldown")
+
+
+def test_apply_slowmode_off_lifts_or_says_there_is_none(guards_calls):
+    assert command.apply_slowmode(object(), request_for(off=True), "UMOD") == f"No slow mode in <#{CHANNEL_ID}>"
+
+    guards_calls["row"] = {"id": 9}
+    assert command.apply_slowmode(object(), request_for(off=True), "UMOD") == \
+        f"Slow mode disabled in <#{CHANNEL_ID}>"
+    assert guards_calls["lifted"] == [9]
+
+
+def test_the_help_card_lists_slowmode_for_channel_guard():
+    assert "/nemo slowmode" in command.helping.flat({"channel.guard"})
+    assert "/nemo slowmode" not in command.helping.flat({"member.guard"})

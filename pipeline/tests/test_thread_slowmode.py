@@ -349,10 +349,10 @@ def submitted_view(seconds="30", reason="Heated argument", duration="1h", extend
 def stored(monkeypatch):
     calls = {"opened": [], "tuned": [], "allows": [], "lifted": [], "row": None}
     monkeypatch.setattr(thread_slowmode, "session", lambda: session_of(object()))
-    monkeypatch.setattr(channelguards, "thread_slowmode_row", lambda conn, channel_id, thread_ts: calls["row"])
-    monkeypatch.setattr(channelguards, "open_thread_slowmode",
+    monkeypatch.setattr(channelguards, "slowmode_row", lambda conn, channel_id, thread_ts: calls["row"])
+    monkeypatch.setattr(channelguards, "open_slowmode",
                         lambda conn, *args: calls["opened"].append(args) or 9)
-    monkeypatch.setattr(channelguards, "tune_thread_slowmode",
+    monkeypatch.setattr(channelguards, "tune_slowmode",
                         lambda conn, row, *args: calls["tuned"].append(args) or row["id"])
     monkeypatch.setattr(channelguards, "set_allows",
                         lambda conn, guard_id, ids, by: calls["allows"].append((guard_id, ids)))

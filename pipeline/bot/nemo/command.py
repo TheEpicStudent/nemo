@@ -4,9 +4,10 @@ import re
 
 from bot.core import access, audit, richtext, session
 from bot.core.formatting import short_end
-from bot.nemo import case_actions, case_queue, channel, memberguards, purge_requests, record
+from bot.nemo import case_actions, case_queue, channel, channelguards, memberguards, purge_requests, record
 from bot.nemo.views import help as helping
 from bot.nemo.views import merge, queued, report
+from bot.nemo.views import slowmode as slowcard
 
 log = logging.getLogger("bot.nemo")
 
@@ -18,11 +19,13 @@ MERGE = "merge"
 SHUSH = "shush"
 CHANNEL_BAN = "channelban"
 PURGE = "purge"
+SLOWMODE = "slowmode"
 OPEN_RECORD = "open_record"
+OFF = "off"
 
 ABOUT_SOMEBODY = (LOOKUP, NOTE, SHUSH, CHANNEL_BAN)
-VERBS = (*ABOUT_SOMEBODY, OPEN, MERGE, PURGE)
-NEEDS_WORDS = (NOTE, OPEN, SHUSH, CHANNEL_BAN)
+VERBS = (*ABOUT_SOMEBODY, OPEN, MERGE, PURGE, SLOWMODE)
+NEEDS_WORDS = (NOTE, OPEN, SHUSH, CHANNEL_BAN, SLOWMODE)
 
 WHO = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
 WHERE = re.compile(r"<#(C[A-Z0-9]+)(?:\|[^>]*)?>")
@@ -30,6 +33,7 @@ CASE = re.compile(r"\A#?(\d+)\Z")
 MEMBER_ID = re.compile(r"\A[UW][A-Z0-9]{2,}\Z")
 LENGTH = re.compile(r"\A(\d{1,6})([mhdw])\Z", re.IGNORECASE)
 ON_A_DATE = re.compile(r"\A(\d{4})-(\d{2})-(\d{2})\Z")
+COOLDOWN = re.compile(r"\A(\d{1,4})([sm]?)\Z", re.IGNORECASE)
 UNITS = {"m": "minutes", "h": "hours", "d": "days", "w": "weeks"}
 
 LONGEST_DAYS = 365
@@ -48,6 +52,7 @@ TEXT_USAGE = {
     OPEN: "Add a summary: */nemo open @member summary*",
     SHUSH: "Add a reason: */nemo shush @member 3d reason*",
     CHANNEL_BAN: "Add a reason: */nemo channelban @member #channel 3d reason*",
+    SLOWMODE: "Usage: */nemo slowmode #channel 30s 2h reason* · */nemo slowmode #channel off*",
 }
 
 HOW_LONG = (
@@ -58,7 +63,14 @@ HOW_LONG = (
 DURATION_USAGE = {
     SHUSH: HOW_LONG.format(example="/nemo shush @member 3d reason"),
     CHANNEL_BAN: HOW_LONG.format(example="/nemo channelban @member #channel 3d reason"),
+    SLOWMODE: HOW_LONG.format(example="/nemo slowmode #channel 30s 2h reason"),
 }
+
+COOLDOWN_USAGE = (
+    f"Cooldown: 30s, 2m or seconds, from {slowcard.SHORTEST} to {slowcard.LONGEST}: "
+    "*/nemo slowmode #channel 30s reason*"
+)
+SLOWMODE_REASON_USAGE = "Add a reason: */nemo slowmode #channel 30s reason*"
 
 CHANNEL_USAGE = "Name the channel: */nemo channelban @member #channel 3d reason*"
 
@@ -123,6 +135,56 @@ def for_how_long(body, now=None):
         return True, None, text or None
     expires_at = ends_at(first, now)
     return expires_at is not None, expires_at, remainder or None
+
+
+def cooldown_of(text):
+    match = COOLDOWN.match(text or "")
+    if not match:
+        return None
+    seconds = int(match.group(1)) * (60 if match.group(2).lower() == "m" else 1)
+    return seconds if slowcard.SHORTEST <= seconds <= slowcard.LONGEST else None
+
+
+def slowmode_request(body, here, now=None):
+    where, rest = in_a_channel(body)
+    if where is None:
+        where, rest = here, re.sub(r"\s+", " ", body or "").strip()
+    if not where or where.startswith("D"):
+        return None, TEXT_USAGE[SLOWMODE]
+
+    first, _, remainder = (rest or "").partition(" ")
+    if first.lower() == OFF:
+        return {"channel_id": where, "off": True}, None
+    seconds = cooldown_of(first)
+    if seconds is None:
+        return None, COOLDOWN_USAGE
+    valid, expires_at, why = for_how_long(remainder, now)
+    if not valid:
+        return None, DURATION_USAGE[SLOWMODE]
+    if not why:
+        return None, SLOWMODE_REASON_USAGE
+    return {"channel_id": where, "off": False, "seconds": seconds, "expires_at": expires_at,
+            "reason": why}, None
+
+
+def apply_slowmode(conn, request, by):
+    channel_id = request["channel_id"]
+    current = channelguards.slowmode_row(conn, channel_id)
+    if request["off"]:
+        if current is None:
+            return f"No slow mode in <#{channel_id}>"
+        channelguards.lift(conn, current["id"], by)
+        return f"Slow mode disabled in <#{channel_id}>"
+
+    seconds, expires_at, reason = request["seconds"], request["expires_at"], request["reason"]
+    if current:
+        channelguards.tune_slowmode(conn, current, seconds, by, reason, expires_at)
+        verb = "updated"
+    else:
+        channelguards.open_slowmode(conn, channel_id, channelguards.CHANNEL_WIDE, seconds, by, reason,
+                                    expires_at, notice_wanted=True)
+        verb = "enabled"
+    return slowcard.confirmation(verb, seconds, expires_at, reason, channel_id)
 
 
 def in_a_channel(body):
@@ -219,6 +281,7 @@ NEEDED = {
     MERGE: "case.resolve",
     SHUSH: "member.guard",
     CHANNEL_BAN: "member.guard",
+    SLOWMODE: "channel.guard",
     "case": "case.read",
 }
 
@@ -365,6 +428,9 @@ def register(app):
                         banned(target_id, where, expires_at, why) if guard_id
                         else already_banned(target_id, where)
                     )
+            elif verb == SLOWMODE:
+                request, problem = slowmode_request(body, command.get("channel_id"))
+                answer = message_only(problem or apply_slowmode(conn, request, user_id))
             elif verb == PURGE:
                 request, problem = purge_requests.requested(
                     target_id, body, command.get("channel_id"))

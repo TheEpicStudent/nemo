@@ -22,7 +22,7 @@ def open_slowmode_modal(ctx):
         return ctx.post_ephemeral(NOT_A_THREAD)
 
     with session() as conn:
-        current = channelguards.thread_slowmode_row(conn, ctx.channel_id, ctx.thread_ts)
+        current = channelguards.slowmode_row(conn, ctx.channel_id, ctx.thread_ts)
     ctx.client.views_open(
         trigger_id=ctx.trigger_id,
         view=card.build_view(ctx.channel_id, ctx.thread_ts, current),
@@ -32,15 +32,15 @@ def open_slowmode_modal(ctx):
 
 def save(conn, channel_id, thread_ts, values, by):
     seconds = card.seconds_of(values)
-    current = channelguards.thread_slowmode_row(conn, channel_id, thread_ts)
+    current = channelguards.slowmode_row(conn, channel_id, thread_ts)
     if current is None and not values["starting"]:
         return None, None, ALREADY_OFF
     values["expires_at"] = card.new_end(values, current)
     if current:
-        guard_id = channelguards.tune_thread_slowmode(
+        guard_id = channelguards.tune_slowmode(
             conn, current, seconds, by, values["reason"], values["expires_at"])
     else:
-        guard_id = channelguards.open_thread_slowmode(
+        guard_id = channelguards.open_slowmode(
             conn, channel_id, thread_ts, seconds, by, values["reason"], values["expires_at"])
     if guard_id is None:
         return None, current, ALREADY_OFF if current else ALREADY_ON
@@ -76,7 +76,7 @@ def reshape(ctx, block_id):
     values = card.submitted_values(view.get("state") or {})
     custom = values["duration" if block_id == card.DURATION else "extend"] == card.CUSTOM
     with session() as conn:
-        current = channelguards.thread_slowmode_row(conn, channel_id, thread_ts)
+        current = channelguards.slowmode_row(conn, channel_id, thread_ts)
     try:
         ctx.client.views_update(view_id=view["id"], hash=view.get("hash"),
                                 view=card.build_view(channel_id, thread_ts, current, custom=custom))
@@ -132,7 +132,7 @@ def disabled(ctx):
 
     channel_id, thread_ts = card.opened(view)
     with session() as conn:
-        current = channelguards.thread_slowmode_row(conn, channel_id, thread_ts)
+        current = channelguards.slowmode_row(conn, channel_id, thread_ts)
         lifted = current is not None and channelguards.lift(conn, current["id"], ctx.user_id)
         channelguards.refresh(conn)
 

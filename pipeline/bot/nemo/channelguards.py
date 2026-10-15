@@ -26,22 +26,23 @@ FROM fd.channel_guards
 WHERE channel_id = %s AND kind = %s AND thread_ts = '' AND state = 'live'
 """
 
-THREAD_SLOWMODE = """
+SLOWMODE_ROW = """
 SELECT id, settings, expires_at, reason, opened_by
 FROM fd.channel_guards
 WHERE channel_id = %s AND thread_ts = %s AND kind = 'slowmode' AND state = 'live'
 """
 
-OPEN_THREAD_SLOWMODE = """
-INSERT INTO fd.channel_guards (kind, channel_id, thread_ts, settings, opened_by, reason, expires_at)
-VALUES ('slowmode', %s, %s, %s, %s, %s, %s)
+OPEN_SLOWMODE = """
+INSERT INTO fd.channel_guards
+    (kind, channel_id, thread_ts, settings, opened_by, reason, expires_at, notice_wanted)
+VALUES ('slowmode', %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT DO NOTHING
 RETURNING id
 """
 
-TUNE_THREAD_SLOWMODE = """
+TUNE_SLOWMODE = """
 UPDATE fd.channel_guards
-SET settings = %s, reason = %s, expires_at = %s, updated_at = now()
+SET settings = settings || %s::jsonb, reason = %s, expires_at = %s, updated_at = now()
 WHERE id = %s AND state = 'live'
 RETURNING id
 """
@@ -262,8 +263,8 @@ def allowed(conn, guard_id):
     return conn.execute(ALLOWED, (guard_id,)).fetchall()
 
 
-def thread_slowmode_row(conn, channel_id, thread_ts):
-    row = conn.execute(THREAD_SLOWMODE, (channel_id, thread_ts)).fetchone()
+def slowmode_row(conn, channel_id, thread_ts=CHANNEL_WIDE):
+    row = conn.execute(SLOWMODE_ROW, (channel_id, thread_ts)).fetchone()
     if row is None:
         return None
     guard_id, settings, expires_at, reason, opened_by = row
@@ -273,9 +274,9 @@ def thread_slowmode_row(conn, channel_id, thread_ts):
             "exempt": exempt_ids}
 
 
-def open_thread_slowmode(conn, channel_id, thread_ts, seconds, by, reason, expires_at):
-    row = conn.execute(OPEN_THREAD_SLOWMODE, (
-        channel_id, thread_ts, json.dumps({"seconds": seconds}), by, reason, expires_at,
+def open_slowmode(conn, channel_id, thread_ts, seconds, by, reason, expires_at, notice_wanted=False):
+    row = conn.execute(OPEN_SLOWMODE, (
+        channel_id, thread_ts, json.dumps({"seconds": seconds}), by, reason, expires_at, notice_wanted,
     )).fetchone()
     if row is None:
         return None
@@ -283,15 +284,15 @@ def open_thread_slowmode(conn, channel_id, thread_ts, seconds, by, reason, expir
     guard_id = row[0]
     audit.record(
         conn, "channel_guard", guard_id, "opened", by,
-        after={"kind": SLOWMODE, "channel_id": channel_id, "thread_ts": thread_ts,
+        after={"kind": SLOWMODE, "channel_id": channel_id, "thread_ts": thread_ts or None,
                "seconds": seconds, "reason": reason,
                "expires_at": str(expires_at) if expires_at else None},
     )
     return guard_id
 
 
-def tune_thread_slowmode(conn, current, seconds, by, reason, expires_at):
-    row = conn.execute(TUNE_THREAD_SLOWMODE, (
+def tune_slowmode(conn, current, seconds, by, reason, expires_at):
+    row = conn.execute(TUNE_SLOWMODE, (
         json.dumps({"seconds": seconds}), reason, expires_at, current["id"],
     )).fetchone()
     if row is None:

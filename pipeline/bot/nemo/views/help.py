@@ -39,6 +39,15 @@ GUARDS = (
     ),
 )
 
+SLOWMODE = (
+    "Slow mode",
+    (
+        ("channel.guard", "/nemo slowmode #channel 30s 2h reason", "30s cooldown for 2 hours"),
+        ("channel.guard", "/nemo slowmode #channel 30s reason", "30s cooldown with no end date"),
+        ("channel.guard", "/nemo slowmode #channel off", "disable slow mode"),
+    ),
+)
+
 PURGE = (
     "Purge",
     (
@@ -74,7 +83,7 @@ CARD = (
     ),
 )
 
-SECTIONS = (LOOKUP, NOTES, GUARDS, PURGE, THREAD, CARD)
+SECTIONS = (LOOKUP, NOTES, GUARDS, SLOWMODE, PURGE, THREAD, CARD)
 
 
 def line(command, note):

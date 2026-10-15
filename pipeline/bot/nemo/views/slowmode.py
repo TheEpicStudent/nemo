@@ -239,8 +239,9 @@ def notice(seconds, expires_at, by):
     }
 
 
-def confirmation(verb, seconds, expires_at, reason):
-    return f"Slow mode {verb} · {summary(seconds, expires_at)} · Reason: {reason}"
+def confirmation(verb, seconds, expires_at, reason, channel_id=None):
+    where = f" in <#{channel_id}>" if channel_id else ""
+    return f"Slow mode {verb}{where} · {summary(seconds, expires_at)} · Reason: {reason}"
 
 
 def held_back(seconds_remaining, body, in_thread):
