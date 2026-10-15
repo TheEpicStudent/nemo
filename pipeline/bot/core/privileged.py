@@ -1,6 +1,7 @@
 import logging
 import os
 
+from bot.core.db import session
 from lib.proxy_client import ProxyClient, ProxyError
 
 log = logging.getLogger("bot.privileged")
@@ -10,32 +11,51 @@ LOG = "log"
 ON = "on"
 MODES = (OFF, LOG, ON)
 
+DEACTIVATE_SETTING = "nemo.deactivate"
+SESSION_RESET_SETTING = "nemo.session_reset"
+STRIKES_SETTING = "nemo.session_reset_strikes"
+CAP_SETTING = "nemo.session_reset_max"
+
 DEFAULT_STRIKES = 2
 DEFAULT_CAP = 5
 
-
-def mode():
-    mode = (os.environ.get("FD_SESSION_RESET") or LOG).strip().lower()
-    return mode if mode in MODES else LOG
+SETTING = "SELECT value FROM fd.app_settings WHERE key = %s"
 
 
-def deactivation_mode():
-    mode = (os.environ.get("FD_DEACTIVATE") or LOG).strip().lower()
-    return mode if mode in MODES else LOG
+def setting(key, conn=None):
+    if conn is None:
+        with session() as own:
+            return setting(key, own)
+    row = conn.execute(SETTING, (key,)).fetchone()
+    return (row[0] if row and row[0] else "").strip()
 
 
-def strikes_needed():
+def mode_of(key, conn=None):
+    value = setting(key, conn).lower()
+    return value if value in MODES else LOG
+
+
+def number_of(key, fall_back, least, conn=None):
     try:
-        return max(int(os.environ["FD_SESSION_RESET_STRIKES"]), 1)
-    except (KeyError, ValueError):
-        return DEFAULT_STRIKES
+        return max(int(setting(key, conn)), least)
+    except ValueError:
+        return fall_back
 
 
-def cap_per_guard():
-    try:
-        return max(int(os.environ["FD_SESSION_RESET_MAX"]), 0)
-    except (KeyError, ValueError):
-        return DEFAULT_CAP
+def mode(conn=None):
+    return mode_of(SESSION_RESET_SETTING, conn)
+
+
+def deactivation_mode(conn=None):
+    return mode_of(DEACTIVATE_SETTING, conn)
+
+
+def strikes_needed(conn=None):
+    return number_of(STRIKES_SETTING, DEFAULT_STRIKES, 1, conn)
+
+
+def cap_per_guard(conn=None):
+    return number_of(CAP_SETTING, DEFAULT_CAP, 0, conn)
 
 
 def proxy():
@@ -112,12 +132,13 @@ def kick(channel_id, user_id):
     return "kicked"
 
 
-def reset_sessions(user_id):
-    how = mode()
+def reset_sessions(user_id, conn=None):
+    how = mode(conn)
     if how == OFF:
         return "off"
     if how == LOG:
-        log.warning("privileged: would reset every session for %s (FD_SESSION_RESET=log)", user_id)
+        log.warning("privileged: would reset every session for %s (%s is log)",
+                    user_id, SESSION_RESET_SETTING)
         return "would"
 
     try:
@@ -138,12 +159,12 @@ DEACTIVATED = "deactivated"
 REACTIVATED = "reactivated"
 
 
-def set_account_state(user_id, method, done, doing):
-    how = deactivation_mode()
+def set_account_state(user_id, method, done, doing, conn=None):
+    how = deactivation_mode(conn)
     if how == OFF:
         return "off"
     if how == LOG:
-        log.warning("privileged: would %s %s (FD_DEACTIVATE=log)", doing, user_id)
+        log.warning("privileged: would %s %s (%s is log)", doing, user_id, DEACTIVATE_SETTING)
         return "would"
 
     try:
@@ -173,9 +194,9 @@ def profile(user_id):
     return (response or {}).get("user")
 
 
-def deactivate(user_id):
-    return set_account_state(user_id, DEACTIVATE, DEACTIVATED, "deactivate")
+def deactivate(user_id, conn=None):
+    return set_account_state(user_id, DEACTIVATE, DEACTIVATED, "deactivate", conn)
 
 
-def reactivate(user_id):
-    return set_account_state(user_id, ACTIVATE, REACTIVATED, "put back")
+def reactivate(user_id, conn=None):
+    return set_account_state(user_id, ACTIVATE, REACTIVATED, "put back", conn)

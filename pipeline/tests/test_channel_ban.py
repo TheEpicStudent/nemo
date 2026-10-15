@@ -162,7 +162,7 @@ def test_coming_back_gets_them_put_out_again(kicks):
 
 
 def test_ten_returns_in_an_hour_earns_a_reset(kicks, monkeypatch):
-    monkeypatch.setattr(channel_ban.notify.privileged, "reset_sessions", lambda user_id: "reset")
+    monkeypatch.setattr(channel_ban.notify.privileged, "reset_sessions", lambda user_id, conn=None: "reset")
     conn = Conn({"kicked": 10, "reset": 0})
     assert channel_ban.reapply(conn, guard(), "coming back")
     assert "reset" in conn.verbs()

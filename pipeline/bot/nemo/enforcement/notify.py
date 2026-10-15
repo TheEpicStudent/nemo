@@ -49,7 +49,7 @@ def reset_threshold_met(conn, guard, verb):
 
 
 def reset(conn, guard, why):
-    how = privileged.reset_sessions(guard["subject_id"])
+    how = privileged.reset_sessions(guard["subject_id"], conn)
     memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], None, "reset", detail=how)
     log.warning("nemo: %s kept %s through guard %s, sessions %s",
                 guard["subject_id"], why, guard["id"], how)

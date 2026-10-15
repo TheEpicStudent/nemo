@@ -47,8 +47,8 @@ def guard(**over):
 @pytest.fixture
 def slack_outcome(monkeypatch):
     def set_outcome(outcome):
-        monkeypatch.setattr(deactivate.privileged, "deactivate", lambda user_id: outcome)
-        monkeypatch.setattr(deactivate.privileged, "reactivate", lambda user_id: outcome)
+        monkeypatch.setattr(deactivate.privileged, "deactivate", lambda user_id, conn=None: outcome)
+        monkeypatch.setattr(deactivate.privileged, "reactivate", lambda user_id, conn=None: outcome)
     return set_outcome
 
 

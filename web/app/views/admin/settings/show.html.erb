@@ -96,4 +96,41 @@
       </div>
     <% end %>
   </div>
+
+  <div class="card card-flush">
+    <div class="card-head">
+      <h2 class="card-title">Account actions</h2>
+      <% if may_grant? %>
+        <div class="card-tools">
+          <%= submit_tag "Save", class: "btn btn-sm btn-primary", form: "accounts-form" %>
+        </div>
+      <% end %>
+    </div>
+    <%= form_with url: admin_settings_accounts_path, method: :post, id: "accounts-form" do %>
+      <div class="setlist">
+        <label class="setline">
+          <span class="setname">Deactivate on ban</span>
+          <span class="setval"><%= admin_account_mode_select(:deactivate, @deactivate_mode) %></span>
+        </label>
+        <label class="setline">
+          <span class="setname">Sign out repeat posters</span>
+          <span class="setval"><%= admin_account_mode_select(:session_reset, @session_reset_mode) %></span>
+        </label>
+        <label class="setline">
+          <span class="setname">Replies before sign-out</span>
+          <span class="setval">
+            <%= number_field_tag :strikes, @reset_strikes, class: "input", id: nil,
+                  min: 1, max: Admin::SettingsController::MOST_STRIKES, disabled: !may_grant? %>
+          </span>
+        </label>
+        <label class="setline">
+          <span class="setname">Sign-outs per locked thread</span>
+          <span class="setval">
+            <%= number_field_tag :resets, @reset_max, class: "input", id: nil,
+                  min: 0, max: Admin::SettingsController::MOST_RESETS, disabled: !may_grant? %>
+          </span>
+        </label>
+      </div>
+    <% end %>
+  </div>
 </div>

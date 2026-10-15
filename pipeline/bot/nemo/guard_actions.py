@@ -245,7 +245,8 @@ def threshold_met(guard, user_id):
 
     with session() as conn:
         count = guards.record_strike(conn, gid, user_id)
-    if count < privileged.strikes_needed():
+        needed = privileged.strikes_needed(conn)
+    if count < needed:
         return None
 
     outcome = escalate(gid, user_id, channel_id, thread_ts, count)
@@ -279,7 +280,7 @@ def escalate(guard_id, user_id, channel_id, thread_ts, messages):
         return None
 
     with session() as conn:
-        cap = privileged.cap_per_guard()
+        cap = privileged.cap_per_guard(conn)
         if cap and guards.strike_count(conn, guard_id) >= cap:
             log.warning("nemo: guard %s hit the reset cap of %s, leaving %s alone",
                         guard_id, cap, user_id)

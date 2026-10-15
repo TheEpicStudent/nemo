@@ -128,7 +128,7 @@ def test_the_count_only_looks_back_an_hour():
 
 
 def test_a_reset_is_written_down_with_what_came_of_it(monkeypatch):
-    monkeypatch.setattr(notify.privileged, "reset_sessions", lambda user_id: "reset")
+    monkeypatch.setattr(notify.privileged, "reset_sessions", lambda user_id, conn=None: "reset")
     conn = Conn()
     assert notify.reset(conn, guard(), "posting") == "reset"
     recorded = conn.args_for("INSERT INTO fd.member_guard_events")[0]

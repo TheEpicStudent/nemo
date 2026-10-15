@@ -20,16 +20,29 @@ module Fd
     SWEEP_SOON_HOURS = "nemo.sweep_soon_hours".freeze
     SWEEP_TELLS_MEMBER = "nemo.sweep_tells_member".freeze
 
+    DEACTIVATE = "nemo.deactivate".freeze
+    SESSION_RESET = "nemo.session_reset".freeze
+    SESSION_RESET_STRIKES = "nemo.session_reset_strikes".freeze
+    SESSION_RESET_MAX = "nemo.session_reset_max".freeze
+
     SOON_FALL_BACK = 36
     SOONEST = 720
 
     COOLDOWN_FALL_BACK = 7
+
+    STRIKES_FALL_BACK = 2
+    MOST_STRIKES = 100
+    RESET_MAX_FALL_BACK = 5
+    MOST_RESETS = 1000
 
     ON = "on".freeze
     GUARDED = "guarded".freeze
     OFF = "off".freeze
     MODES = [ON, GUARDED, OFF].freeze
     FALL_BACK = GUARDED
+
+    LOG = "log".freeze
+    ACCOUNT_MODES = [OFF, LOG, ON].freeze
 
     def self.join_mode
       mode = find_by(key: JOIN_MODE)&.value.to_s.strip.downcase
@@ -104,6 +117,24 @@ module Fd
     def self.sweep_tells_member?
       value(SWEEP_TELLS_MEMBER) != OFF
     end
+
+    def self.account_mode(key)
+      mode = value(key).downcase
+      ACCOUNT_MODES.include?(mode) ? mode : LOG
+    end
+
+    def self.deactivate_mode = account_mode(DEACTIVATE)
+
+    def self.session_reset_mode = account_mode(SESSION_RESET)
+
+    def self.number(key, fall_back, least)
+      number = Integer(value(key), 10, exception: false)
+      number ? [number, least].max : fall_back
+    end
+
+    def self.session_reset_strikes = number(SESSION_RESET_STRIKES, STRIKES_FALL_BACK, 1)
+
+    def self.session_reset_max = number(SESSION_RESET_MAX, RESET_MAX_FALL_BACK, 0)
 
     def self.autoresponse_cooldown_days
       days = value(AUTORESPONSE_COOLDOWN).to_i

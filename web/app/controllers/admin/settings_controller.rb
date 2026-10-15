@@ -1,11 +1,17 @@
 module Admin
   class SettingsController < BaseController
     SOONEST = Fd::AppSetting::SOONEST
+    MOST_STRIKES = Fd::AppSetting::MOST_STRIKES
+    MOST_RESETS = Fd::AppSetting::MOST_RESETS
 
     def show
       @join_mode = Fd::AppSetting.join_mode
       @soon_hours = Fd::AppSetting.sweep_soon_hours
       @tells_member = Fd::AppSetting.sweep_tells_member?
+      @deactivate_mode = Fd::AppSetting.deactivate_mode
+      @session_reset_mode = Fd::AppSetting.session_reset_mode
+      @reset_strikes = Fd::AppSetting.session_reset_strikes
+      @reset_max = Fd::AppSetting.session_reset_max
       @firehouse = Fd::AppSetting.firehouse_channel
       @reports_channel = Fd::AppSetting.reports_channel
       @log_channel = Fd::AppSetting.log_channel
@@ -33,6 +39,32 @@ module Admin
       audit_setting(Fd::AppSetting.flip(Fd::AppSetting::SWEEP_TELLS_MEMBER, params[:tells].present?,
         by: current_account.user_id))
       redirect_to admin_settings_path, notice: "Guard expiry settings saved"
+    end
+
+    def accounts
+      modes = { Fd::AppSetting::DEACTIVATE => params[:deactivate].to_s.strip.downcase,
+                Fd::AppSetting::SESSION_RESET => params[:session_reset].to_s.strip.downcase }
+      return redirect_with_alert("That is not a valid mode") unless modes.values.all? { |mode|
+        Fd::AppSetting::ACCOUNT_MODES.include?(mode)
+      }
+
+      strikes = Integer(params[:strikes].to_s.strip, 10, exception: false)
+      unless strikes&.between?(1, MOST_STRIKES)
+        return redirect_with_alert("Enter a number of replies, from 1 to #{MOST_STRIKES}")
+      end
+
+      resets = Integer(params[:resets].to_s.strip, 10, exception: false)
+      unless resets&.between?(0, MOST_RESETS)
+        return redirect_with_alert("Enter a number of sign-outs, from 0 to #{MOST_RESETS}")
+      end
+
+      modes.merge(Fd::AppSetting::SESSION_RESET_STRIKES => strikes.to_s,
+                  Fd::AppSetting::SESSION_RESET_MAX => resets.to_s).each do |key, value|
+        next if Fd::AppSetting.value(key) == value
+
+        audit_setting(Fd::AppSetting.write(key, value, by: current_account.user_id))
+      end
+      redirect_to admin_settings_path, notice: "Account action settings saved"
     end
 
     def firehouse

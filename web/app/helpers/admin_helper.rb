@@ -118,6 +118,17 @@ module AdminHelper
     Fd::AppSetting::OFF => "Configured channels only"
   }.freeze
 
+  ACCOUNT_MODES = {
+    Fd::AppSetting::OFF => "Off",
+    Fd::AppSetting::LOG => "Log only",
+    Fd::AppSetting::ON => "On"
+  }.freeze
+
+  def admin_account_mode_select(name, mode)
+    select_tag name, options_for_select(ACCOUNT_MODES.invert, mode), class: "select", id: nil,
+      disabled: !may_grant?
+  end
+
   def admin_join_mode_switch(mode)
     form_with(url: admin_settings_join_mode_path, method: :post, class: "segmented") do
       safe_join(JOIN_MODES.map { |key, label|

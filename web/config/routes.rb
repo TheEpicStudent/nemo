@@ -165,6 +165,7 @@ Rails.application.routes.draw do
     post "settings/log_channel", to: "settings#log_channel", as: :settings_log_channel
     post "settings/join_mode", to: "settings#join_mode", as: :settings_join_mode
     post "settings/sweep", to: "settings#sweep", as: :settings_sweep
+    post "settings/accounts", to: "settings#accounts", as: :settings_accounts
     post "settings/react_channels", to: "settings#add_react", as: :settings_react_channels
     delete "settings/react_channels/:channel_id", to: "settings#drop_react",
            as: :settings_react_channel

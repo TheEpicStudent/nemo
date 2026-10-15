@@ -196,4 +196,75 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
 
     assert_equal "guarded", Fd::AppSetting.join_mode
   end
+
+  ACCOUNT_KEYS = [Fd::AppSetting::DEACTIVATE, Fd::AppSetting::SESSION_RESET,
+                  Fd::AppSetting::SESSION_RESET_STRIKES, Fd::AppSetting::SESSION_RESET_MAX].freeze
+
+  def save_account_settings(**over)
+    post admin_settings_accounts_path,
+      params: { deactivate: "on", session_reset: "off", strikes: "3", resets: "0" }.merge(over)
+  end
+
+  def tuned_count = Fd::AuditEntry.where(entity_type: "app_setting", verb: "tuned").count
+
+  test "account settings save every value" do
+    Fd::AppSetting.where(key: ACCOUNT_KEYS).delete_all
+
+    save_account_settings
+
+    assert_redirected_to admin_settings_path
+    assert_equal "Account action settings saved", flash[:notice]
+    assert_equal ["on", "off", 3, 0],
+      [Fd::AppSetting.deactivate_mode, Fd::AppSetting.session_reset_mode,
+       Fd::AppSetting.session_reset_strikes, Fd::AppSetting.session_reset_max]
+    assert_equal 4, tuned_count
+  end
+
+  test "account settings never set fall back to log only and the defaults" do
+    Fd::AppSetting.where(key: ACCOUNT_KEYS).delete_all
+
+    get admin_settings_path
+
+    assert_select "select[name=deactivate] option[selected]", "Log only"
+    assert_select "select[name=session_reset] option[selected]", "Log only"
+    assert_select "input[name=strikes][value='2']"
+    assert_select "input[name=resets][value='5']"
+  end
+
+  test "account settings unchanged values are not written again" do
+    Fd::AppSetting.write(Fd::AppSetting::DEACTIVATE, "on", by: "UOTHER")
+    Fd::AppSetting.where(key: ACCOUNT_KEYS - [Fd::AppSetting::DEACTIVATE]).delete_all
+
+    save_account_settings
+
+    assert_equal "UOTHER", Fd::AppSetting.find(Fd::AppSetting::DEACTIVATE).changed_by
+    assert_equal 3, tuned_count
+  end
+
+  test "account settings with an unknown mode change nothing" do
+    Fd::AppSetting.where(key: ACCOUNT_KEYS).delete_all
+
+    save_account_settings(session_reset: "sometimes")
+
+    assert_equal "That is not a valid mode", flash[:alert]
+    assert_equal 0, Fd::AppSetting.where(key: ACCOUNT_KEYS).count
+  end
+
+  test "account settings with strikes outside the range change nothing" do
+    Fd::AppSetting.where(key: ACCOUNT_KEYS).delete_all
+
+    save_account_settings(strikes: "0")
+
+    assert_match(/from 1 to/, flash[:alert])
+    assert_equal 0, Fd::AppSetting.where(key: ACCOUNT_KEYS).count
+  end
+
+  test "account settings with sign-outs that are not a number change nothing" do
+    Fd::AppSetting.where(key: ACCOUNT_KEYS).delete_all
+
+    save_account_settings(resets: "lots")
+
+    assert_match(/from 0 to/, flash[:alert])
+    assert_equal 0, Fd::AppSetting.where(key: ACCOUNT_KEYS).count
+  end
 end

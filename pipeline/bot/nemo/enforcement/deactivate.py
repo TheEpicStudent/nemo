@@ -18,7 +18,7 @@ def succeeded(how, expected):
 
 
 def take_up(client, conn, guard):
-    how = privileged.deactivate(guard["subject_id"])
+    how = privileged.deactivate(guard["subject_id"], conn)
     if not succeeded(how, DEACTIVATED):
         memberguards.dropped(conn, guard["id"], how)
         memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], None,
@@ -36,7 +36,7 @@ def take_up(client, conn, guard):
 
 
 def lift(client, conn, guard, notify_member=True):
-    how = privileged.reactivate(guard["subject_id"])
+    how = privileged.reactivate(guard["subject_id"], conn)
     if not succeeded(how, REACTIVATED):
         memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], None,
                               FAILED, detail=how)
