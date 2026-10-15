@@ -47,6 +47,7 @@ module Fd
       writing do
         @case.update!(resolved_at: nil, resolution: nil, duplicate_of: nil, updated_at: @now)
         @case.assignees.destroy_all
+        reopen_reports
         audit(@case, "reopened", before: previous_state,
           after: { "resolved_at" => nil, "resolution" => nil, "duplicate_of" => nil,
                    "assignees" => [] })
@@ -91,6 +92,15 @@ module Fd
         audit(report, "closed", entity_id: @case.id,
           before: { "closed_at" => nil }, after: { "closed_at" => @now })
         queue(report, message)
+      end
+    end
+
+    def reopen_reports
+      CaseReport.where(case_id: @case.family_ids).where.not(closed_at: nil).find_each do |report|
+        previous_closure = { "closed_at" => report.closed_at, "closed_by" => report.closed_by }
+        report.update!(closed_at: nil, closed_by: nil)
+        audit(report, "reopened", entity_id: @case.id,
+          before: previous_closure, after: { "closed_at" => nil, "closed_by" => nil })
       end
     end
 

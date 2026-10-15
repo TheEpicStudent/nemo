@@ -247,6 +247,36 @@ class FdResolutionsTest < ActionDispatch::IntegrationTest
     assert_empty entry.after["assignees"]
   end
 
+  test "reopening reopens the reports the resolution closed" do
+    report = Fd::CaseReport.create!(case_id: @kase.id, reporter_user_id: "UREP1",
+      is_anonymous: false, body: "look at this", source_app: "relay", received_at: 2.days.ago)
+    sign_in_as(@me)
+    close(member_note: "done", notify_reporter: "1")
+
+    delete fd_case_resolution_path(@kase)
+
+    report.reload
+    assert_nil report.closed_at
+    assert_nil report.closed_by
+    entry = Fd::AuditEntry.where(entity_type: "report", entity_id: @kase.id, verb: "reopened").sole
+    assert_equal "UME", entry.before["closed_by"]
+  end
+
+  test "a second resolution after a reopen tells the reporter again" do
+    report = Fd::CaseReport.create!(case_id: @kase.id, is_anonymous: true,
+      source_app: "relay", received_at: 2.days.ago)
+    conversation = Fd::IntakeConversation.create!(channel_id: "DREPORTER", thread_ts: "1.1",
+      report_id: report.id, handed_off_at: 2.days.ago)
+    sign_in_as(@me)
+
+    close(member_note: "done", notify_reporter: "1")
+    delete fd_case_resolution_path(@kase)
+    close(member_note: "done again", notify_reporter: "1")
+
+    outcomes = Fd::IntakeOutbox.where(conversation_id: conversation.id, kind: "outcome")
+    assert_equal 2, outcomes.count
+  end
+
   test "an open case cannot be reopened" do
     sign_in_as(@me)
     delete fd_case_resolution_path(@kase)
