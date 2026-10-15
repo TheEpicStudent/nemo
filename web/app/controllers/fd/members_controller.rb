@@ -40,7 +40,7 @@ module Fd
       @entries = MemberTimeline.for(@record, names: @names)
       @identity = MemberIdentity.look_up(@user_id, actor: current_account)
       @context = MemberContext.for([@user_id])[@user_id]
-      @rooms = SlackScan.channels(@user_id)
+      @member_channels = SlackScan.channels(@user_id)
       @standing = MemberStanding.new(@record)
       @guards = @standing.in_force
       @channels = ChannelNames.for(@guards.map(&:channel_id) + @guard_history.map(&:channel_id) +
@@ -121,7 +121,7 @@ module Fd
       @names = Names.for(@record.people_named + [@user_id])
       @member = @names.member(@user_id)
       @context = MemberContext.for([@user_id])[@user_id]
-      @rooms = SlackScan.channels(@user_id)
+      @member_channels = SlackScan.channels(@user_id)
       @standing = MemberStanding.new(@record)
       @guards = @standing.in_force
       @channels = ChannelNames.for(@guards.map(&:channel_id))

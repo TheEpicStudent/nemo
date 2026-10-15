@@ -382,7 +382,7 @@ def test_history_row_has_no_first_post_when_nothing_public_is_visible():
     assert member_history.history_row("U1", messages) == ("U1", 2, None, None)
 
 
-def test_joined_channels_keeps_public_rooms_only_and_dedupes():
+def test_joined_channels_keeps_public_channels_only_and_dedupes():
     channels = [
         {"id": "C2", "is_channel": True},
         {"id": "C1", "is_channel": True},

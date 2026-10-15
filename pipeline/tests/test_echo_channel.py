@@ -63,7 +63,7 @@ def test_echo_queued_without_card_channel_uses_firehouse(monkeypatch, echo_calls
     assert echo_calls["posted"] == [(FIREHOUSE_ID, THREAD_TS)]
 
 
-def test_echo_queued_keeps_each_row_in_its_own_room(monkeypatch, echo_calls):
+def test_echo_queued_keeps_each_row_in_its_own_channel(monkeypatch, echo_calls):
     queue_echoes(monkeypatch, [
         (1, "first", "signed", "USTAFF", THREAD_TS, OLD_CHANNEL_ID),
         (2, "second", "body", "USTAFF", "300.000", FIREHOUSE_ID),

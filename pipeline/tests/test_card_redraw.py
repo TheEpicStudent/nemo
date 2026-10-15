@@ -81,7 +81,7 @@ def test_a_new_report_card_remembers_its_channel(monkeypatch):
 
 
 def test_threads_follow_the_report_card_into_its_channel():
-    assert "r.card_channel_id" in channel.CARD_ROOM
+    assert "r.card_channel_id" in channel.CARD_CHANNEL_FOR_CASE
     for query in (channel.FOLLOW_UP, channel.FILES_ON_CASE, channel.UNFURLS_ON_CASE):
         assert "r.card_channel_id" in query
 

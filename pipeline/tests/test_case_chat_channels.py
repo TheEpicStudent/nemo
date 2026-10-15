@@ -87,7 +87,7 @@ def test_an_action_echo_quotes_a_report_thread(monkeypatch):
         lambda client, user_id: {"name": user_id, "icon": None})
     conn = Conn({
         "r.forwarded_ts FROM": ("100.000",),
-        "card_channel_id FROM": ("CROOM",),
+        "card_channel_id FROM": ("CCARD",),
     })
     client = Slack()
 
@@ -96,14 +96,14 @@ def test_an_action_echo_quotes_a_report_thread(monkeypatch):
 
     assert ts == "9.9"
     posted = client.posted[0]
-    assert posted["channel"] == "CROOM"
+    assert posted["channel"] == "CCARD"
     assert posted["thread_ts"] == "100.000"
     assert posted["blocks"][0]["text"]["text"] == "Warning"
     recorded = conn.args_for("INSERT INTO fd.case_chat")[0]
     assert recorded[0] == 412
     assert recorded[1] == "UMOD"
     assert recorded[2].obj == posted["blocks"]
-    assert recorded[3:] == ("CROOM", "9.9", "9.9")
+    assert recorded[3:] == ("CCARD", "9.9", "9.9")
 
 
 def test_a_channel_ban_echo_names_its_channel_and_end_date(monkeypatch):
@@ -111,7 +111,7 @@ def test_a_channel_ban_echo_names_its_channel_and_end_date(monkeypatch):
         lambda client, user_id: {"name": user_id, "icon": None})
     conn = Conn({
         "r.forwarded_ts FROM": ("100.000",),
-        "card_channel_id FROM": ("CROOM",),
+        "card_channel_id FROM": ("CCARD",),
         "SELECT name FROM raw.channel_dim": ("general",),
     })
     client = Slack()
@@ -138,7 +138,7 @@ def test_an_action_echo_with_nowhere_to_go_posts_nothing(monkeypatch):
 def test_an_action_echo_slack_refuses_is_not_recorded(monkeypatch):
     monkeypatch.setattr(channel.profile, "profile",
         lambda client, user_id: {"name": user_id, "icon": None})
-    conn = Conn({"r.forwarded_ts FROM": ("100.000",), "card_channel_id FROM": ("CROOM",)})
+    conn = Conn({"r.forwarded_ts FROM": ("100.000",), "card_channel_id FROM": ("CCARD",)})
     client = Slack(fails=True)
 
     assert channel.post_action_echo(client, conn, 412,
@@ -151,7 +151,7 @@ def test_a_resolution_echo_quotes_a_report_thread(monkeypatch):
         lambda client, user_id: {"name": user_id, "icon": None})
     conn = Conn({
         "r.forwarded_ts FROM": ("100.000",),
-        "card_channel_id FROM": ("CROOM",),
+        "card_channel_id FROM": ("CCARD",),
     })
     client = Slack()
 
@@ -159,14 +159,14 @@ def test_a_resolution_echo_quotes_a_report_thread(monkeypatch):
 
     assert ts == "9.9"
     posted = client.posted[0]
-    assert posted["channel"] == "CROOM"
+    assert posted["channel"] == "CCARD"
     assert posted["thread_ts"] == "100.000"
     assert posted["text"] == "No action needed"
     recorded = conn.args_for("INSERT INTO fd.case_chat")[0]
     assert recorded[0] == 412
     assert recorded[1] == "UMOD"
     assert recorded[2].obj == posted["blocks"]
-    assert recorded[3:] == ("CROOM", "9.9", "9.9")
+    assert recorded[3:] == ("CCARD", "9.9", "9.9")
 
 
 def test_a_resolution_echo_with_nowhere_to_go_posts_nothing():
@@ -220,7 +220,7 @@ def test_a_file_that_will_not_carry_does_not_block_the_rest(monkeypatch):
         (47, "100.000", False, "U1", None),
     ])
 
-    assert channel.carry_files(Slack(), conn, 19, "CROOM") == 1
+    assert channel.carry_files(Slack(), conn, 19, "CCARD") == 1
     assert shared_ids == [46, 47]
 
 

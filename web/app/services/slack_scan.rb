@@ -6,7 +6,7 @@ class SlackScan
   OPEN_TIMEOUT = 2
   READ_TIMEOUT = 5
 
-  Room = Struct.new(:channel_id, :name, :private, keyword_init: true)
+  Channel = Struct.new(:channel_id, :name, :private, keyword_init: true)
 
   def self.base_url
     ENV["SLACKSCAN_URL"].presence&.chomp("/") || DEFAULT_URL
@@ -39,7 +39,7 @@ class SlackScan
       id = channel["channel_id"].presence
       next if id.nil?
 
-      Room.new(channel_id: id, name: channel["channel_name"].presence || id,
+      Channel.new(channel_id: id, name: channel["channel_name"].presence || id,
         private: !!channel["is_private"])
     end
   end

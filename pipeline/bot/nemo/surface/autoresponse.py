@@ -27,10 +27,10 @@ def reacted(ctx):
         return None
 
     who = event.get("user")
-    room = (event.get("item") or {}).get("channel")
-    if not who or not room:
+    channel_id = (event.get("item") or {}).get("channel")
+    if not who or not channel_id:
         return None
-    if not responses.answering(room, plain(event.get("reaction"))):
+    if not responses.answering(channel_id, plain(event.get("reaction"))):
         return None
 
     with session() as conn:

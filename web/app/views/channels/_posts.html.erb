@@ -15,7 +15,7 @@
 
           <div class="post-body">
             <% if post.message %>
-              <%= Slack::RichText.for(post.message, names: names, channels: rooms, emoji: emoji) %>
+              <%= Slack::RichText.for(post.message, names: names, channels: mentioned_channels, emoji: emoji) %>
             <% else %>
               <p class="msg-gone">Slack would not answer for this one.</p>
             <% end %>

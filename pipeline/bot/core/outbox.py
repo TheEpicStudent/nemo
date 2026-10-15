@@ -40,6 +40,9 @@ FROM fd.intake_outbox o
 JOIN fd.intake_conversations c ON c.id = o.conversation_id
 JOIN fd.case_reports r ON r.id = c.report_id
 WHERE o.echoed_at IS NULL AND r.forwarded_ts IS NOT NULL
+  AND (NOT EXISTS (SELECT 1 FROM fd.staff_slack s
+                    WHERE s.staff_user_id = o.requested_by AND s.revoked_at IS NULL)
+       OR coalesce(o.sent_at, o.failed_at) < now() - interval '2 minutes')
 """
 
 TO_TICK = """

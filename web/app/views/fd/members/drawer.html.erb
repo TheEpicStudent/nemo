@@ -9,8 +9,8 @@
           <% if @context&.messages_posted %>
             &middot; <%= number_with_delimiter(@context.messages_posted) %> messages
           <% end %>
-          <% if @rooms.any? %>
-            &middot; <%= pluralize(number_with_delimiter(@rooms.size), "channel") %>
+          <% if @member_channels.any? %>
+            &middot; <%= pluralize(number_with_delimiter(@member_channels.size), "channel") %>
           <% end %>
         </span>
       </span>

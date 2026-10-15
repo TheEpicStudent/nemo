@@ -61,5 +61,5 @@ def test_an_upload_with_no_id_is_left_alone():
     assert slack.calls == []
 
 
-def test_shared_at_ignores_another_room():
+def test_shared_at_ignores_another_channel():
     assert shared_at({"shares": {"private": {"D999": [{"ts": "9.9"}]}}}, CHANNEL_ID) is None

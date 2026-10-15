@@ -589,7 +589,7 @@ def joined(**over):
     return entry(**row)
 
 
-def test_a_room_somebody_walks_into_is_written_down_with_the_room_it_was():
+def test_channel_row_for_join_records_channel():
     row = pull.channel_row(joined())
 
     assert row[2] == USER_ID
@@ -605,18 +605,18 @@ def test_leaving_is_kept_apart_from_arriving():
     assert pull.channel_row(joined(action="user_login")) is None
 
 
-def test_a_room_a_workflow_put_them_in_says_so_so_it_is_not_read_as_a_raid():
+def test_channel_row_for_workflow_join_sets_is_workflow():
     assert pull.channel_row(joined(details={"is_workflow": True}))[7] is True
 
 
-def test_a_join_missing_the_member_or_the_room_is_not_written_down():
+def test_channel_row_without_member_or_channel_is_none():
     assert pull.channel_row(joined(actor={})) is None
     assert pull.channel_row(joined(entity={"type": "channel", "channel": {}})) is None
     assert pull.channel_row(joined(entity={})) is None
     assert pull.channel_row(joined(date_create=None)) is None
 
 
-def test_landing_projects_the_rooms_alongside_the_events():
+def test_insert_rows_projects_channel_joins_with_events():
     conn, counts = Conn(), Counts()
     pull.insert_rows(conn, [joined(), joined(id=OTHER_ID, action="user_channel_leave"), entry()],
               "audit_logs_tail", frozenset(), counts)
@@ -626,11 +626,11 @@ def test_landing_projects_the_rooms_alongside_the_events():
     assert {one[6] for one in channel_rows} == {pull.JOINED, pull.DEPARTED}
 
 
-def test_the_rooms_are_projected_org_wide_not_only_where_nemo_sits():
+def test_member_channel_join_migration_backfills_org_wide():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
             / "0148_member_channel_joins.sql").read_text()
     assert "FROM slack.audit_event" in sql, "the history already landed must be projected too"
-    assert "member_channel_join_room_idx" in sql, "fan-out is read by room and time"
+    assert "member_channel_join_room_idx" in sql, "fan-out is read by channel and time"
 
 
 @pytest.mark.parametrize(("agent", "app", "system"), [

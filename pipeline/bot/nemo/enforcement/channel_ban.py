@@ -11,13 +11,13 @@ KIND = memberguards.CHANNEL_BAN
 
 KICKED = "kicked"
 
-APPLIED_DM = "Hey <@{who}>, you've been banned from <#{room}> for {why}, {until}."
+APPLIED_DM = "Hey <@{who}>, you've been banned from <#{channel_id}> for {why}, {until}."
 
 IN_CHANNEL = (
     "Your message was removed. You are banned from this channel for {why}, {until}."
 )
 
-OVER = "Your ban from <#{room}> has ended. You can join it again."
+OVER = "Your ban from <#{channel_id}> has ended. You can join it again."
 
 
 def remove_from_channel(conn, guard):
@@ -40,7 +40,7 @@ def take_up(client, conn, guard):
         return False
 
     notify.dm_subject(client, conn, guard, APPLIED_DM.format(
-        who=guard["subject_id"], room=guard["channel_id"],
+        who=guard["subject_id"], channel_id=guard["channel_id"],
         why=guard["reason"], until=notify.ending(guard),
     ))
     log.info("nemo: channel ban %s is now held on %s in %s",
@@ -50,7 +50,7 @@ def take_up(client, conn, guard):
 
 def lift(client, conn, guard, notify_member=True):
     if notify_member:
-        notify.dm_subject(client, conn, guard, OVER.format(room=guard["channel_id"]))
+        notify.dm_subject(client, conn, guard, OVER.format(channel_id=guard["channel_id"]))
     return True
 
 

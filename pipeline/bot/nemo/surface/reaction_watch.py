@@ -183,7 +183,7 @@ def post_ban_prompt(client, conn, case_id, target):
         return None
     try:
         return client.chat_postMessage(
-            channel=channel.card_room(conn, case_id),
+            channel=channel.card_channel_for(conn, case_id),
             thread_ts=thread,
             text=f"Log an action for case {case_id}",
             blocks=views.edit.ban_prompt(case_id, target),
@@ -206,9 +206,9 @@ def banned(ctx):
 
     with session() as conn:
         case_id = card_case(conn, channel_id, ts)
-        in_react_room = channel_id in channels.react_channels(conn)
+        in_react_channel = channel_id in channels.react_channels(conn)
         may, _why = access.may(conn, who, "case.act", case_id)
-    if not may or (case_id is None and not in_react_room):
+    if not may or (case_id is None and not in_react_channel):
         return None
 
     target = None

@@ -54,7 +54,7 @@ module ProfileHelper
     if cell.elsewhere.positive?
       rows << { label: "elsewhere", value: number_with_delimiter(cell.elsewhere) }
     end
-    rows << { label: "rooms we hold", value: number_with_delimiter(cell.channels) } if cell.channels.positive?
+    rows << { label: "archived channels", value: number_with_delimiter(cell.channels) } if cell.channels.positive?
     rows << { label: "replies", value: number_with_delimiter(cell.replies) } if cell.replies.positive?
     rows
   end

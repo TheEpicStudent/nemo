@@ -59,8 +59,8 @@ class FdAuditGroupsTest < ActionDispatch::IntegrationTest
   end
 
   test "channels and actions group too" do
-    slack!(action: "user_channel_join", channel: "C0GRPROOM")
-    slack!(action: "user_channel_join", channel: "C0GRPROOM")
+    slack!(action: "user_channel_join", channel: "C0GRPCHAN")
+    slack!(action: "user_channel_join", channel: "C0GRPCHAN")
 
     get fd_audit_path(group: "action")
     assert_includes cells.map(&:first), "Joined a channel"

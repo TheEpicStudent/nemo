@@ -67,19 +67,19 @@ def kick_detail(detail):
 
 def detail_of(event):
     name = naming(event["subject_id"], event["label"])
-    room = event["channel_id"]
+    channel_id = event["channel_id"]
     if event["verb"] == "deleted":
-        return (f"Deleted a message from {name} in <#{room}>, not on the allow list."
-                + quoted(event["message_text"]) + footer(room, event["permalink"], event["app_id"]))
+        return (f"Deleted a message from {name} in <#{channel_id}>, not on the allow list."
+                + quoted(event["message_text"]) + footer(channel_id, event["permalink"], event["app_id"]))
     if event["verb"] == "kicked":
-        return (f"Removed {name} from <#{room}>, not on the allow list."
-                + footer(room, app_id=event["app_id"]))
+        return (f"Removed {name} from <#{channel_id}>, not on the allow list."
+                + footer(channel_id, app_id=event["app_id"]))
     if event["message_ts"]:
-        return (f"Could not delete a message from {name} in <#{room}> "
+        return (f"Could not delete a message from {name} in <#{channel_id}> "
                 f"({event['detail']})."
-                + quoted(event["message_text"]) + footer(room, event["permalink"], event["app_id"]))
-    return (f"{name} joined <#{room}> without being on the allow list and could not be removed "
-            f"({kick_detail(event['detail'])})." + footer(room, app_id=event["app_id"]))
+                + quoted(event["message_text"]) + footer(channel_id, event["permalink"], event["app_id"]))
+    return (f"{name} joined <#{channel_id}> without being on the allow list and could not be removed "
+            f"({kick_detail(event['detail'])})." + footer(channel_id, app_id=event["app_id"]))
 
 
 def counts(events):
@@ -97,7 +97,7 @@ def failed(conn, events):
 def post(client, conn, guard_id, subject_id, events):
     first = events[0]
     name = naming(subject_id, first["label"])
-    room = first["channel_id"]
+    channel_id = first["channel_id"]
     log_channel = channel.internal_log_channel(conn)
     thread = channelguards.open_notice_thread(conn, guard_id, subject_id, IDLE_TIMEOUT, MAX_AGE)
     planned = counts(events)
@@ -105,7 +105,7 @@ def post(client, conn, guard_id, subject_id, events):
     is_new_thread = thread is None
     if is_new_thread:
         try:
-            sent = client.chat_postMessage(channel=log_channel, text=summary(name, room, *planned),
+            sent = client.chat_postMessage(channel=log_channel, text=summary(name, channel_id, *planned),
                                            unfurl_links=False)
         except Exception as failure:
             log.warning("nemo: could not open a notice thread for guard %s: %s", guard_id, failure)
@@ -136,7 +136,7 @@ def post(client, conn, guard_id, subject_id, events):
     if not (is_new_thread and totals == planned):
         try:
             client.chat_update(channel=log_channel, ts=parent_ts,
-                               text=summary(name, room, *totals))
+                               text=summary(name, channel_id, *totals))
         except Exception as failure:
             log.warning("nemo: could not update notice thread %s: %s", parent_ts, failure)
 

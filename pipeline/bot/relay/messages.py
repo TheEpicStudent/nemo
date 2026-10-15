@@ -34,8 +34,8 @@ WHERE id = (SELECT report_id FROM fd.intake_conversations WHERE id = %s)
 def shared_at(file, channel_id):
     shares = (file or {}).get("shares") or {}
     for kind in ("public", "private"):
-        for room, entries in (shares.get(kind) or {}).items():
-            if room == channel_id and entries:
+        for shared_channel_id, entries in (shares.get(kind) or {}).items():
+            if shared_channel_id == channel_id and entries:
                 return entries[0].get("ts")
     return None
 

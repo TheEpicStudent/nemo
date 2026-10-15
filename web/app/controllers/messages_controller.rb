@@ -16,7 +16,7 @@ class MessagesController < ApplicationController
 
     @slack_message = Slack::Message.at(@channel_id, @ts)
     @names = Fd::Names.for([@post.author_id] + Fd::Mentions.ids(@slack_message.message&.dig("text")))
-    @rooms = Analytics::DimChannel
+    @mentioned_channels = Analytics::DimChannel
       .where(channel_id: Fd::Mentions.channel_ids(@slack_message.message&.dig("text")))
       .pluck(:channel_id, :name).to_h
     @emoji = Slack::Emoji.for(Slack::RichText.emoji_names(@slack_message.message))

@@ -233,14 +233,14 @@ def case_channels(conn=None):
 
 
 def card_channel(case, channel_id=None, conn=None):
-    return room_of(case.get("card_channel_id"), channel_id, conn)
+    return channel_or_firehouse(case.get("card_channel_id"), channel_id, conn)
 
 
-def room_of(stored, channel_id=None, conn=None):
+def channel_or_firehouse(stored, channel_id=None, conn=None):
     return stored or channel_id or internal_log_channel(conn)
 
 
-CARD_ROOM = """
+CARD_CHANNEL_FOR_CASE = """
 SELECT coalesce(
     (SELECT r.card_channel_id FROM fd.case_reports r
       WHERE r.case_id = %(case_id)s AND r.forwarded_ts IS NOT NULL
@@ -250,8 +250,8 @@ SELECT coalesce(
 """
 
 
-def card_room(conn, case_id, channel_id=None):
-    row = conn.execute(CARD_ROOM, {"case_id": case_id}).fetchone()
+def card_channel_for(conn, case_id, channel_id=None):
+    row = conn.execute(CARD_CHANNEL_FOR_CASE, {"case_id": case_id}).fetchone()
     return (row and row[0]) or channel_id or internal_log_channel(conn)
 
 
@@ -276,7 +276,7 @@ def post_line(client, conn, case_id, text):
         return None
     try:
         return client.chat_postMessage(
-            channel=card_room(conn, case_id),
+            channel=card_channel_for(conn, case_id),
             thread_ts=thread,
             text=text,
             unfurl_links=False,
@@ -301,12 +301,12 @@ UPDATE fd.case_reports SET header_ts = %s WHERE id = %s AND header_ts IS NULL
 """
 
 
-def post_header(client, conn, case, room, thread_ts):
+def post_header(client, conn, case, card_channel_id, thread_ts):
     if case.get("header_ts") or not views.report.needs_header(case):
         return None
     try:
         sent = client.chat_postMessage(
-            channel=room,
+            channel=card_channel_id,
             thread_ts=thread_ts,
             text=f"Case {case['case_id']}",
             blocks=views.report.header_blocks(case),
@@ -574,7 +574,7 @@ def carry_unfurls(client, conn, case_id, channel_id=None):
     unfurled_count = 0
     for message_id, thread_ts, stored in conn.execute(UNFURLS_ON_CASE, (case_id,)).fetchall():
         try:
-            if unfurl(client, conn, message_id, room_of(stored, channel_id, conn), thread_ts):
+            if unfurl(client, conn, message_id, channel_or_firehouse(stored, channel_id, conn), thread_ts):
                 unfurled_count += 1
         except Exception as failure:
             log.warning("nemo: message %s's links would not unfurl: %s", message_id, failure)
@@ -596,9 +596,9 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
         return row[0]
 
     built = views.report.build_blocks(case)
-    room = channel_id or internal_log_channel(conn)
+    card_channel_id = channel_id or internal_log_channel(conn)
     sent = client.chat_postMessage(
-        channel=room,
+        channel=card_channel_id,
         thread_ts=thread_ts,
         text=views.report.fallback(case),
         blocks=built,
@@ -612,10 +612,10 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
     conn.execute(
         "UPDATE fd.case_reports SET forwarded_ts = %s, card_digest = %s, card_channel_id = %s, "
         "card_rendered_at = now() WHERE id = %s AND forwarded_ts IS NULL",
-        (ts, card_state(card_mark(case)), room, case["report_id"]),
+        (ts, card_state(card_mark(case)), card_channel_id, case["report_id"]),
     )
-    mark_card(client, room, ts, case, is_new=True)
-    post_header(client, conn, case, room, ts)
+    mark_card(client, card_channel_id, ts, case, is_new=True)
+    post_header(client, conn, case, card_channel_id, ts)
     if case["message_id"]:
         conn.execute(
             "UPDATE fd.intake_messages SET mirrored_ts = %s, mirrored_at = now() "
@@ -623,12 +623,12 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
             (ts, case["message_id"]),
         )
         try:
-            unfurl(client, conn, case["message_id"], room, ts)
+            unfurl(client, conn, case["message_id"], card_channel_id, ts)
         except Exception as failure:
             log.warning("nemo: case %s's links would not unfurl: %s", case_id, failure)
     if case["message_id"]:
         attachments.share(
-            client, conn, case["message_id"], room, ts,
+            client, conn, case["message_id"], card_channel_id, ts,
             author_fields=as_reporter(client, case["is_anonymous"], case["reporter_user_id"]),
         )
 
@@ -683,10 +683,10 @@ def post_follow_up(client, conn, message_id, channel_id=None):
         log.warning("nemo: message %s has no card to hang under", message_id)
         return None
 
-    room = room_of(stored, channel_id, conn)
+    card_channel_id = channel_or_firehouse(stored, channel_id, conn)
     numbered = numbers(conn, conversation_id).get(message_id)
     ts = attachments.share(
-        client, conn, message_id, room, forwarded,
+        client, conn, message_id, card_channel_id, forwarded,
         author_fields=as_reporter(client, anonymous, reporter),
         body=views.linked.numbered_text(
             views.report.escape_but_mentions(quote_text(body)), numbered
@@ -703,7 +703,7 @@ def post_follow_up(client, conn, message_id, channel_id=None):
         (ts, message_id),
     )
     try:
-        unfurl(client, conn, message_id, room, forwarded)
+        unfurl(client, conn, message_id, card_channel_id, forwarded)
     except Exception as failure:
         log.warning("nemo: message %s's links would not unfurl: %s", message_id, failure)
     log.info("nemo: message %s carried into the internal_log at %s", message_id, ts)
@@ -721,11 +721,11 @@ def refresh_card(client, conn, case_id, channel_id=None):
     if state == case["card_digest"]:
         return case["forwarded_ts"]
 
-    room = card_channel(case, channel_id, conn)
+    card_channel_id = card_channel(case, channel_id, conn)
     if drawn_before_states(case["card_digest"]):
         try:
             client.chat_update(
-                channel=room,
+                channel=card_channel_id,
                 ts=case["forwarded_ts"],
                 text=views.report.fallback(case),
                 blocks=views.report.build_blocks(case),
@@ -739,8 +739,8 @@ def refresh_card(client, conn, case_id, channel_id=None):
             return case["forwarded_ts"]
 
     conn.execute(REDRAWN, (state, case["report_id"]))
-    mark_card(client, room, case["forwarded_ts"], case)
-    post_header(client, conn, case, room, case["forwarded_ts"])
+    mark_card(client, card_channel_id, case["forwarded_ts"], case)
+    post_header(client, conn, case, card_channel_id, case["forwarded_ts"])
     log.info("nemo: case %s is now %s", case_id, state)
     return case["forwarded_ts"]
 
@@ -856,7 +856,7 @@ def carry_files(client, conn, case_id, channel_id=None):
     ).fetchall():
         try:
             posted_ts = attachments.share(
-                client, conn, message_id, room_of(stored, channel_id, conn), forwarded_ts,
+                client, conn, message_id, channel_or_firehouse(stored, channel_id, conn), forwarded_ts,
                 author_fields=as_reporter(client, anonymous, reporter),
             )
         except Exception as failure:
@@ -929,10 +929,10 @@ def echo(client, thread_ts, sent_by, body, signed, channel_id=None):
     if not signed:
         text = f"{answer.ANON}{text}"
 
-    room = channel_id or internal_log_channel()
+    target_channel_id = channel_id or internal_log_channel()
     try:
         sent = client.chat_postMessage(
-            channel=room,
+            channel=target_channel_id,
             thread_ts=thread_ts,
             text=text,
             unfurl_links=False,
@@ -943,11 +943,11 @@ def echo(client, thread_ts, sent_by, body, signed, channel_id=None):
         log.warning("nemo: the thread did not hear about the reply: %s", failure)
         return None
 
-    return room, sent["ts"]
+    return target_channel_id, sent["ts"]
 
 
 def mirror(client, conn, case_id, channel_id=None):
-    room = card_room(conn, case_id, channel_id)
+    card_channel_id = card_channel_for(conn, case_id, channel_id)
     mirrored_count = 0
 
     for chat_id, author, body, thread_ts in chat.waiting(conn, case_id):
@@ -962,7 +962,7 @@ def mirror(client, conn, case_id, channel_id=None):
 
         try:
             sent = client.chat_postMessage(
-                channel=room,
+                channel=card_channel_id,
                 thread_ts=thread_ts,
                 text=views.report.escape_but_mentions(body),
                 unfurl_links=False,
@@ -996,7 +996,7 @@ def post_echo(client, conn, case_id, blocks, by, fallback_text, log_format):
         log.info("nemo: case %s has no thread yet, the echo has nowhere to go", case_id)
         return None
 
-    room = card_room(conn, case_id)
+    card_channel_id = card_channel_for(conn, case_id)
     member_profile = profile.profile(client, by)
     author_fields = {"username": member_profile["name"]}
     if member_profile["icon"]:
@@ -1008,7 +1008,7 @@ def post_echo(client, conn, case_id, blocks, by, fallback_text, log_format):
 
     try:
         sent = client.chat_postMessage(
-            channel=room,
+            channel=card_channel_id,
             thread_ts=thread_ts,
             blocks=blocks,
             text=fallback_text,
@@ -1020,7 +1020,7 @@ def post_echo(client, conn, case_id, blocks, by, fallback_text, log_format):
         log.warning(log_format, case_id, failure)
         return None
 
-    conn.execute(INSERT_ECHO, (case_id, by, Jsonb(blocks), room, sent["ts"], sent["ts"]))
+    conn.execute(INSERT_ECHO, (case_id, by, Jsonb(blocks), card_channel_id, sent["ts"], sent["ts"]))
     return sent["ts"]
 
 

@@ -38,7 +38,7 @@
   <% when "messages" %>
     <%= render "conversation", pulse: @pulse, start_date: @start_date, end_date: @end_date %>
   <% when "posts" %>
-    <%= render "posts", posts: @posts, names: @names, rooms: @rooms, emoji: @emoji %>
+    <%= render "posts", posts: @posts, names: @names, mentioned_channels: @mentioned_channels, emoji: @emoji %>
   <% when "neighbours" %>
     <%= render "context", neighbours: @neighbours %>
   <% end %>

@@ -17,10 +17,6 @@ UPDATE fd.case_reports SET first_replied_at = now()
 WHERE id = %s AND first_replied_at IS NULL
 """
 
-LINKED = """
-SELECT 1 FROM fd.staff_slack WHERE staff_user_id = %s AND revoked_at IS NULL
-"""
-
 
 class CaseChannel:
     def __init__(self, client=None):
@@ -152,12 +148,9 @@ class CaseChannel:
             with session() as conn:
                 if not outbox.claim_echo(conn, outbox_id):
                     continue
-                if requested_by and conn.execute(LINKED, (requested_by,)).fetchone():
-                    outbox.echoed(conn, outbox_id, None, "user")
-                    continue
                 at = channel.echo(
                     self.client, forwarded_ts, requested_by, body, mode == "signed",
-                    channel.room_of(card_channel_id, None, conn),
+                    channel.channel_or_firehouse(card_channel_id, None, conn),
                 )
                 if at is None:
                     outbox.drop_echo(conn, outbox_id)
@@ -199,10 +192,10 @@ class CaseChannel:
             waiting = outbox.to_tick(conn)
 
         for outbox_id, channel_id, ts, failed_at, error in waiting:
-            room = channel_id or channel.internal_log_channel()
-            self.mark((room, ts), answer.STUCK if failed_at else answer.SENT)
+            target_channel_id = channel_id or channel.internal_log_channel()
+            self.mark((target_channel_id, ts), answer.STUCK if failed_at else answer.SENT)
             if failed_at:
-                self.post_refusal(room, ts, error)
+                self.post_refusal(target_channel_id, ts, error)
             with session() as conn:
                 outbox.ticked(conn, outbox_id)
 

@@ -127,7 +127,7 @@ class ChannelsController < ApplicationController
     when "posts"
       @posts = Channels::Posts.for(channel_id: id, subject_id: current_account.user_id)
       @names = Fd::Names.for(mentioned_in(@posts) + @posts.map(&:author_id))
-      @rooms = Analytics::DimChannel.where(channel_id: rooms_in(@posts))
+      @mentioned_channels = Analytics::DimChannel.where(channel_id: channel_ids_in(@posts))
         .pluck(:channel_id, :name).to_h
       @emoji = Slack::Emoji.for(emoji_in(@posts))
     when "neighbours"
@@ -188,7 +188,7 @@ class ChannelsController < ApplicationController
     posts.flat_map { |post| Fd::Mentions.ids(post.message&.dig("text")) }.uniq
   end
 
-  def rooms_in(posts)
+  def channel_ids_in(posts)
     posts.flat_map { |post| Fd::Mentions.channel_ids(post.message&.dig("text")) }.uniq
   end
 

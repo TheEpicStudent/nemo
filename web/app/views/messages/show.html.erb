@@ -48,7 +48,7 @@
 
       <div class="message-activity-post-body">
         <% if @slack_message&.message %>
-          <%= Slack::RichText.for(@slack_message.message, names: @names, channels: @rooms, emoji: @emoji) %>
+          <%= Slack::RichText.for(@slack_message.message, names: @names, channels: @mentioned_channels, emoji: @emoji) %>
         <% else %>
           <p class="msg-gone">Slack did not return the message.</p>
         <% end %>

@@ -12,7 +12,7 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     sign_in_as(@ff)
   end
 
-  def slack!(action: "user_channel_join", actor: WHO, at: AT, session: 4242, channel: "C0PIVROOM", app: "A0PIVAPP1")
+  def slack!(action: "user_channel_join", actor: WHO, at: AT, session: 4242, channel: "C0PIVCHAN", app: "A0PIVAPP1")
     id = SecureRandom.uuid
     payload = { id: id, action: action, context: { ip_address: "81.2.69.144", session_id: session } }
     as_pipeline(<<~SQL.squish, id, at, action, actor, actor, channel, app, session, payload.to_json)
@@ -49,11 +49,11 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
 
   test "a channel pivot is only offered for a channel we can name" do
     slack!
-    as_pipeline("INSERT INTO raw.channel_dim (channel_id, name, visibility) VALUES ('C0PIVROOM', 'pivot-room', 'public')")
-    seeded!("raw.channel_dim", "channel_id", "C0PIVROOM")
+    as_pipeline("INSERT INTO raw.channel_dim (channel_id, name, visibility) VALUES ('C0PIVCHAN', 'pivot-channel', 'public')")
+    seeded!("raw.channel_dim", "channel_id", "C0PIVCHAN")
 
     get fd_audit_path(q: "after:2026-09-01")
-    assert_equal fd_audit_path(q: "after:2026-09-01 channel:C0PIVROOM"), menu_links["Channel"]
+    assert_equal fd_audit_path(q: "after:2026-09-01 channel:C0PIVCHAN"), menu_links["Channel"]
   end
 
   test "a value pivot swaps that term and keeps the rest of the search" do

@@ -114,20 +114,20 @@ def post_to_internal_log(client, conn, user_id, domain, outcome):
 
     from bot.nemo import channel
 
-    room = channel.internal_log_channel(conn)
-    if not room:
+    log_channel_id = channel.internal_log_channel(conn)
+    if not log_channel_id:
         return None
 
     try:
         client.chat_postMessage(
-            channel=room,
+            channel=log_channel_id,
             text=f"<@{user_id}> {OUTCOME_NOTICES[outcome].format(domain=domain)}.",
             unfurl_links=False,
         )
     except Exception as failure:  # noqa: BLE001
         log.warning("nemo: could not say that %s was screened: %s", user_id, failure)
         return None
-    return room
+    return log_channel_id
 
 
 def screen(conn, user_id, email, by="nemo", client=None):
