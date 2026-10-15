@@ -30,7 +30,7 @@ def event(**over):
 USER_ID = "U1"
 CHANNEL_ID = "C1"
 TS = "1700000000.000100"
-EXPIRES_AT = dt.datetime(2026, 3, 10, 12, tzinfo=dt.UTC)
+EXPIRES_AT = dt.datetime(2099, 3, 10, 12, tzinfo=dt.UTC)
 
 
 class Conn:

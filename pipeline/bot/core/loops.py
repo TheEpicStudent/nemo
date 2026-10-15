@@ -84,3 +84,28 @@ def draining(name, work, stopping, settle=2.0, every=60.0):
     thread = threading.Thread(target=loop, name=f"{name}-drain", daemon=True)
     thread.start()
     return woken.set
+
+
+def timed(name, work, stopping, longest=300.0, retry=30.0, settle=0.5):
+    woken = threading.Event()
+
+    def loop():
+        while not stopping.is_set():
+            try:
+                seconds = work()
+            except Exception:
+                log.exception("%s: the timed run failed, trying again later", name)
+                seconds = retry
+            if seconds is None:
+                wait = longest
+            elif seconds <= 0:
+                wait = retry
+            else:
+                wait = min(seconds, longest)
+            if woken.wait(wait) and stopping.wait(settle):
+                return
+            woken.clear()
+
+    thread = threading.Thread(target=loop, name=f"{name}-timer", daemon=True)
+    thread.start()
+    return woken.set

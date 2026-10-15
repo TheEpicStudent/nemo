@@ -9,6 +9,15 @@ log = logging.getLogger("bot.nemo")
 
 LAPSED_BECAUSE = "the date it ran until has passed"
 
+NEXT_EXPIRY = """
+SELECT extract(epoch FROM least(
+    (SELECT min(expires_at) FROM fd.member_guards
+      WHERE state = 'live' AND expires_at IS NOT NULL),
+    (SELECT min(expires_at) FROM fd.thread_guards
+      WHERE kind = 'lock' AND state IN ('warned', 'running') AND expires_at IS NOT NULL)
+) - now())
+"""
+
 SOON_HOURS = 36
 SOONEST = 720
 
@@ -59,6 +68,11 @@ def lapse(client, conn, guard):
     log.info("nemo: %s %s on %s has run out and is lifted",
              guard["kind"], guard["id"], guard["subject_id"])
     return True
+
+
+def seconds_to_next_expiry(conn):
+    row = conn.execute(NEXT_EXPIRY).fetchone()
+    return float(row[0]) if row and row[0] is not None else None
 
 
 def sweep_lapsed(client):

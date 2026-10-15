@@ -31,6 +31,7 @@ ACTIVE_ON_THREAD = """
 SELECT id, kind, channel_id, thread_ts, state, opened_by, warned_ts, expires_at
 FROM fd.thread_guards
 WHERE channel_id = %s AND thread_ts = %s AND state IN ('warned', 'running')
+  AND (expires_at IS NULL OR expires_at > now())
 """
 
 BY_ID = """

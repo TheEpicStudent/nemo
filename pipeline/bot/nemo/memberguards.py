@@ -1,3 +1,4 @@
+import datetime as dt
 import threading
 
 from bot.core import audit
@@ -274,18 +275,25 @@ def refresh(conn):
     return len(shushes) + len(bans)
 
 
+def in_force(guard, now=None):
+    expires_at = guard.get("expires_at")
+    return expires_at is None or expires_at > (now or dt.datetime.now(dt.timezone.utc))
+
+
 def shushed(subject_id):
     with _lock:
         if not _loaded:
             return None
-        return _shushes.get(subject_id)
+        guard = _shushes.get(subject_id)
+    return guard if guard and in_force(guard) else None
 
 
 def banned(subject_id, channel_id):
     with _lock:
         if not _loaded:
             return None
-        return _bans.get((subject_id, channel_id))
+        guard = _bans.get((subject_id, channel_id))
+    return guard if guard and in_force(guard) else None
 
 
 def unenforced(conn):

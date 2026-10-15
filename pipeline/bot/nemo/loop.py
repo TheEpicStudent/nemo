@@ -68,10 +68,10 @@ def every_join_sweep():
     return int(os.environ.get("NEMO_JOIN_SECONDS", DEFAULT_JOIN_SECONDS))
 
 
-def join_sweep(case_channel):
+def join_sweep(case_channel, stopping=None):
     client = case_channel.client
     apart(("joining configured channels", lambda: channels.join_configured(client)),
-          ("joining channels", lambda: channels.reconcile(client)))
+          ("joining channels", lambda: channels.reconcile(client, stopping=stopping)))
 
 
 def join_configured(client):
@@ -114,6 +114,20 @@ def start_purge(client, purge_id):
 def start_join_request(client, request_id):
     threading.Thread(target=join_requests.run, args=(client, int(request_id)),
                      name=f"nemo-join-request-{request_id}", daemon=True).start()
+
+
+def lift_expired_locks(client):
+    with session() as conn:
+        due = guards.lifting(conn)
+    for guard_id in due:
+        apart((f"lifting guard {guard_id}", lambda one=guard_id: guard_actions.lift_lock(client, one)))
+
+
+def lift_due(client):
+    apart(("lifting what has run out", lambda: sweep.sweep_lapsed(client)),
+          ("lifting expired thread locks", lambda: lift_expired_locks(client)))
+    with session() as conn:
+        return sweep.seconds_to_next_expiry(conn)
 
 
 def flush_pending(client):
@@ -233,6 +247,7 @@ def start(case_channel, stopping, channel_id=None):
     wake_removals = loops.draining(f"{NAME}-removals",
                                    lambda: guard_removals.drain(case_channel.client, wake_notices),
                                    stopping, settle=1.0, every=5.0)
+    wake_lapses = loops.timed(f"{NAME}-lapses", lambda: lift_due(case_channel.client), stopping)
 
     def on_notify(channel_name, payload):
         if channel_name == GUARD_NOTICE:
@@ -250,6 +265,7 @@ def start(case_channel, stopping, channel_id=None):
                 target=guard_actions.run_destroy, args=(case_channel.client, payload),
                 name=f"nemo-guard-{payload}", daemon=True,
             ).start()
+            wake_lapses()
         elif channel_name == APP_SETTING:
             with session() as conn:
                 channel.refresh_channels(conn)
@@ -274,6 +290,7 @@ def start(case_channel, stopping, channel_id=None):
             ).start()
         elif channel_name == MEMBER_GUARD:
             wake_member_guards()
+            wake_lapses()
         elif channel_name == CONVERSATION:
             apart(("catching up", lambda: case_channel.caught_up(payload)),
                   ("ticking", case_channel.tick_queued))
@@ -287,5 +304,6 @@ def start(case_channel, stopping, channel_id=None):
                         GUARD_NOTICE, GUARD_REMOVE, JOIN_REQUEST, BLOCKED_DOMAIN),
                        on_notify, stopping),
         loops.sweeping(NAME, every(), lambda: once(case_channel, channel_id), stopping),
-        loops.sweeping(f"{NAME}-joins", every_join_sweep(), lambda: join_sweep(case_channel), stopping),
+        loops.sweeping(f"{NAME}-joins", every_join_sweep(), lambda: join_sweep(case_channel, stopping),
+                       stopping),
     )

@@ -112,12 +112,14 @@ def test_waits_for_invite_reads_latest_join(latest, waiting):
 
 def test_join_sweep_joins_configured_channels_before_reconcile(monkeypatch):
     order = []
+    stopping = threading.Event()
     monkeypatch.setattr(loop.channels, "join_configured", lambda client: order.append("configured"))
-    monkeypatch.setattr(loop.channels, "reconcile", lambda client: order.append("reconcile"))
+    monkeypatch.setattr(loop.channels, "reconcile",
+                        lambda client, stopping=None: order.append(("reconcile", stopping)))
 
-    loop.join_sweep(SimpleNamespace(client=object()))
+    loop.join_sweep(SimpleNamespace(client=object()), stopping)
 
-    assert order == ["configured", "reconcile"]
+    assert order == ["configured", ("reconcile", stopping)]
 
 
 def test_app_setting_notify_starts_configured_joins(monkeypatch):
@@ -133,6 +135,7 @@ def test_app_setting_notify_starts_configured_joins(monkeypatch):
     monkeypatch.setattr(loop.loops, "watching",
                         lambda name, names, on_notify, stopping: watched.update(on_notify=on_notify))
     monkeypatch.setattr(loop.loops, "sweeping", lambda *args, **kwargs: None)
+    monkeypatch.setattr(loop.loops, "timed", lambda *args, **kwargs: (lambda: None))
     monkeypatch.setattr(loop, "start_configured_joins", lambda one: started.append(one))
 
     loop.start(SimpleNamespace(client=client), threading.Event())
@@ -196,3 +199,74 @@ def test_join_channel_skips_channel_nemo_is_in(monkeypatch):
 
     assert loop.join_channel(object(), "C_GUARDED") is False
     assert joined == []
+
+
+class Workspace:
+    def __init__(self, absent, refusing=(), stop_after=None, stopping=None):
+        self.absent = list(absent)
+        self.refusing = set(refusing)
+        self.stop_after = stop_after
+        self.stopping = stopping
+        self.joins = []
+        self.reads = 0
+
+    def missing(self, client):
+        self.reads += 1
+        return channels.ON, [channel_id for channel_id in self.absent if channel_id not in self.joined()]
+
+    def joined(self):
+        return {channel_id for channel_id in self.joins if channel_id not in self.refusing}
+
+    def join(self, client, conn, channel_id, by=None, verb="joined"):
+        self.joins.append(channel_id)
+        if self.stop_after and len(self.joins) >= self.stop_after:
+            self.stopping.set()
+        return channel_id not in self.refusing
+
+
+def run_reconcile(monkeypatch, workspace, cap, delay=0.0, stopping=None):
+    monkeypatch.setattr(channels, "session", lambda: session_of(Conn()))
+    monkeypatch.setattr(channels, "missing", workspace.missing)
+    monkeypatch.setattr(channels, "join", workspace.join)
+    monkeypatch.setattr(channels, "pace", lambda: delay)
+    return channels.reconcile(object(), cap=cap, stopping=stopping)
+
+
+def test_reconcile_joins_every_absent_channel_across_batches(monkeypatch):
+    workspace = Workspace(["C1", "C2", "C3", "C4", "C5"])
+
+    assert run_reconcile(monkeypatch, workspace, cap=2) == (channels.ON, 5, 0)
+    assert workspace.joins == ["C1", "C2", "C3", "C4", "C5"]
+    assert workspace.reads == 4
+
+
+def test_reconcile_tries_a_refused_channel_once_per_run(monkeypatch):
+    workspace = Workspace(["C_BAD", "C_OK"], refusing={"C_BAD"})
+
+    assert run_reconcile(monkeypatch, workspace, cap=1) == (channels.ON, 1, 1)
+    assert workspace.joins == ["C_BAD", "C_OK"]
+
+
+def test_reconcile_stops_when_stopping_is_set(monkeypatch):
+    stopping = threading.Event()
+    workspace = Workspace(["C1", "C2", "C3"], stop_after=1, stopping=stopping)
+
+    assert run_reconcile(monkeypatch, workspace, cap=0, stopping=stopping) == (channels.ON, 1, 0)
+    assert workspace.joins == ["C1"]
+
+
+def test_reconcile_waits_on_stopping_between_joins(monkeypatch):
+    waits = []
+
+    class Stopping:
+        def is_set(self):
+            return False
+
+        def wait(self, seconds):
+            waits.append(seconds)
+
+    workspace = Workspace(["C1", "C2", "C3"])
+
+    run_reconcile(monkeypatch, workspace, cap=2, delay=1.2, stopping=Stopping())
+
+    assert waits == [1.2, 1.2]

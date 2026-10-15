@@ -115,6 +115,7 @@ def test_app_setting_notify_refreshes_channels(monkeypatch):
     monkeypatch.setattr(loop.loops, "watching",
                         lambda name, names, on_notify, stopping: watched.update(on_notify=on_notify))
     monkeypatch.setattr(loop.loops, "sweeping", lambda *args, **kwargs: None)
+    monkeypatch.setattr(loop.loops, "timed", lambda *args, **kwargs: (lambda: None))
     monkeypatch.setattr(loop, "start_configured_joins", lambda client: None)
 
     loop.start(SimpleNamespace(client=None), threading.Event())

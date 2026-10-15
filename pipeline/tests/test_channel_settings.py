@@ -281,6 +281,7 @@ def test_loop_start_refreshes_channels(monkeypatch):
     monkeypatch.setattr(loop.loops, "draining", lambda *args, **kwargs: (lambda: None))
     monkeypatch.setattr(loop.loops, "watching", lambda *args, **kwargs: None)
     monkeypatch.setattr(loop.loops, "sweeping", lambda *args, **kwargs: None)
+    monkeypatch.setattr(loop.loops, "timed", lambda *args, **kwargs: (lambda: None))
     monkeypatch.setattr(loop.channel, "refresh_channels", lambda conn: refreshed.append(conn))
 
     loop.start(SimpleNamespace(client=None), threading.Event())

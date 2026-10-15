@@ -282,24 +282,44 @@ def missing(client):
     return how, sorted(target_ids - joined_ids)
 
 
-def reconcile(client, cap=None):
-    how, absent = missing(client)
-    if not absent:
-        return how, 0, 0
+def stopped(stopping):
+    return stopping is not None and stopping.is_set()
 
+
+def wait(stopping, seconds):
+    if stopping is None:
+        time.sleep(seconds)
+    else:
+        stopping.wait(seconds)
+
+
+def reconcile(client, cap=None, stopping=None):
     cap = per_sweep() if cap is None else cap
     delay = pace()
-    joined = refused = 0
+    tried = set()
+    how, joined, refused = None, 0, 0
 
-    for index, channel_id in enumerate(absent[:cap] if cap else absent):
-        if index and delay:
-            time.sleep(delay)
-        with session() as conn:
-            if join(client, conn, channel_id):
-                joined += 1
-            else:
-                refused += 1
+    while not stopped(stopping):
+        how, absent = missing(client)
+        batch = [channel_id for channel_id in absent if channel_id not in tried]
+        if cap:
+            batch = batch[:cap]
+        if not batch:
+            break
 
-    log.info("nemo: %s mode, joined %s channel(s), %s refused, %s still to go",
-             how, joined, refused, max(len(absent) - joined - refused, 0))
+        for channel_id in batch:
+            if stopped(stopping):
+                break
+            if tried and delay:
+                wait(stopping, delay)
+            tried.add(channel_id)
+            with session() as conn:
+                if join(client, conn, channel_id):
+                    joined += 1
+                else:
+                    refused += 1
+
+        log.info("nemo: %s mode, joined %s channel(s), %s refused, %s still to go",
+                 how, joined, refused, max(len(absent) - len(batch), 0))
+
     return how, joined, refused
