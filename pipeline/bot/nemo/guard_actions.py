@@ -63,9 +63,9 @@ def post_destroy_notice(client, conn, channel_id, thread_ts, by):
     if url:
         notice += f"\nArchive: {url}"
 
-    log_channel_id = channel.internal_log_channel(conn)
+    log_channel_id = channel.log_channel(conn)
     if not log_channel_id:
-        log.warning("nemo: no nemo.firehouse_channel to say that %s was destroyed", channel_id)
+        log.warning("nemo: no nemo.log_channel to say that %s was destroyed", channel_id)
         return
 
     try:

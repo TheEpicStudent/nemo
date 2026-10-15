@@ -13,9 +13,11 @@ module Admin
       @soon_hours = Fd::AppSetting.sweep_soon_hours
       @tells_member = Fd::AppSetting.sweep_tells_member?
       @firehouse = Fd::AppSetting.firehouse_channel
+      @reports_channel = Fd::AppSetting.reports_channel
+      @log_channel = Fd::AppSetting.log_channel
       @react_channels = Fd::AppSetting.case_react_channels
       @channels_by_id = Analytics::DimChannel
-        .where(channel_id: ([@firehouse] + @react_channels).compact)
+        .where(channel_id: ([@firehouse, @reports_channel, @log_channel] + @react_channels).compact)
         .index_by(&:channel_id)
     end
 
@@ -40,12 +42,15 @@ module Admin
     end
 
     def firehouse
-      channel_id = params[:channel_id].to_s.strip
-      return redirect_with_alert("Select a channel") if channel_id.blank?
-      return redirect_with_alert("#{channel_id} is not a channel") unless channel_exists?(channel_id)
+      save_channel(Fd::AppSetting::FIREHOUSE, "The firehouse is now")
+    end
 
-      audit_setting(Fd::AppSetting.set_firehouse_channel(channel_id, by: current_account.user_id))
-      redirect_to admin_settings_path, notice: "Guard notices now post to ##{name_of(channel_id)}"
+    def reports_channel
+      save_channel(Fd::AppSetting::REPORTS, "Shroud reports now post to")
+    end
+
+    def log_channel
+      save_channel(Fd::AppSetting::LOGS, "Nemo logs now post to")
     end
 
     def add_react
@@ -70,6 +75,15 @@ module Admin
     end
 
     private
+
+    def save_channel(key, notice)
+      channel_id = params[:channel_id].to_s.strip
+      return redirect_with_alert("Select a channel") if channel_id.blank?
+      return redirect_with_alert("#{channel_id} is not a channel") unless channel_exists?(channel_id)
+
+      audit_setting(Fd::AppSetting.write(key, channel_id, by: current_account.user_id))
+      redirect_to admin_settings_path, notice: "#{notice} ##{name_of(channel_id)}"
+    end
 
     def audit_setting(setting)
       audit(setting, "tuned") if setting

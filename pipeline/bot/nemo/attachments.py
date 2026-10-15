@@ -128,7 +128,7 @@ def post(client, conn, message_id, channel_id, thread_ts, inline, text, alongsid
     for file_id, _, _, uploaded in uploaded_files:
         conn.execute(MIRRORED, (uploaded, message_id, file_id))
     if uploaded_files:
-        log.info("nemo: carried %d file(s) into the internal_log", len(uploaded_files))
+        log.info("nemo: carried %d file(s) into the card thread", len(uploaded_files))
     return ts
 
 

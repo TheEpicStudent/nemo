@@ -8,7 +8,7 @@ from bot.nemo.channel import (
     card_state,
     case_url,
     drawn_before_states,
-    internal_log_channel,
+    firehouse_channel,
     is_foreign_message_error,
     mark_card,
     mark_root,
@@ -221,7 +221,7 @@ def card(client, conn, case_id, channel_id=None):
     if conn.execute(WANTS_A_CARD, (case_id,)).fetchone() is None:
         return None
 
-    card_channel_id = channel_id or internal_log_channel(conn)
+    card_channel_id = channel_id or firehouse_channel(conn)
     if not card_channel_id:
         log.warning("nemo: case %s waits for nemo.firehouse_channel to be set", case_id)
         return None

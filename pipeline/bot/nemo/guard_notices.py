@@ -98,14 +98,14 @@ def post(client, conn, guard_id, subject_id, events):
     first = events[0]
     name = naming(subject_id, first["label"])
     channel_id = first["channel_id"]
-    log_channel = channel.internal_log_channel(conn)
+    log_channel_id = channel.log_channel(conn)
     thread = channelguards.open_notice_thread(conn, guard_id, subject_id, IDLE_TIMEOUT, MAX_AGE)
     planned = counts(events)
 
     is_new_thread = thread is None
     if is_new_thread:
         try:
-            sent = client.chat_postMessage(channel=log_channel, text=summary(name, channel_id, *planned),
+            sent = client.chat_postMessage(channel=log_channel_id, text=summary(name, channel_id, *planned),
                                            unfurl_links=False)
         except Exception as failure:
             log.warning("nemo: could not open a notice thread for guard %s: %s", guard_id, failure)
@@ -119,7 +119,7 @@ def post(client, conn, guard_id, subject_id, events):
     done = []
     for event in events:
         try:
-            client.chat_postMessage(channel=log_channel, text=detail_of(event),
+            client.chat_postMessage(channel=log_channel_id, text=detail_of(event),
                                     thread_ts=parent_ts, unfurl_links=False)
         except Exception as failure:
             log.warning("nemo: could not reply in notice thread %s: %s", parent_ts, failure)
@@ -135,7 +135,7 @@ def post(client, conn, guard_id, subject_id, events):
 
     if not (is_new_thread and totals == planned):
         try:
-            client.chat_update(channel=log_channel, ts=parent_ts,
+            client.chat_update(channel=log_channel_id, ts=parent_ts,
                                text=summary(name, channel_id, *totals))
         except Exception as failure:
             log.warning("nemo: could not update notice thread %s: %s", parent_ts, failure)
@@ -158,8 +158,8 @@ def drain_group(client, guard_id, subject_id):
 
 def drain(client):
     with session() as conn:
-        if not channel.internal_log_channel(conn):
-            log.warning("nemo: guard notices wait for nemo.firehouse_channel to be set")
+        if not channel.log_channel(conn):
+            log.warning("nemo: guard notices wait for nemo.log_channel to be set")
             return False
         groups = channelguards.notice_groups(conn, GIVE_UP_AFTER, GROUPS_PER_DRAIN)
 

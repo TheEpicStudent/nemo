@@ -156,8 +156,7 @@ def once(case_channel, channel_id=None):
         automod.refresh(conn)
         responses.refresh(conn)
         screening.refresh(conn)
-        channel.internal_log_channel(conn)
-        channel.react_channels(conn)
+        channel.refresh_channels(conn)
         destroying = guards.pending(conn)
         lifting = guards.lifting(conn)
         purging = [row[0] for row in purge.waiting(conn)]
@@ -210,8 +209,7 @@ def start(case_channel, stopping, channel_id=None):
                  memberguards.refresh(conn), automod.refresh(conn))
         responses.refresh(conn)
         screening.refresh(conn)
-        channel.internal_log_channel(conn)
-        channel.react_channels(conn)
+        channel.refresh_channels(conn)
         stranded = purge.requeue_stranded(conn)
     if stranded:
         log.info("nemo: %s purge(s) were cut off by a restart and go again: %s",
@@ -243,8 +241,7 @@ def start(case_channel, stopping, channel_id=None):
             ).start()
         elif channel_name == APP_SETTING:
             with session() as conn:
-                channel.internal_log_channel(conn)
-                channel.react_channels(conn)
+                channel.refresh_channels(conn)
                 responses.refresh(conn)
         elif channel_name == AUTOMOD_WORD:
             with session() as conn:

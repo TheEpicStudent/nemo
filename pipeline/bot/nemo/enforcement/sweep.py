@@ -126,12 +126,12 @@ def post_expiry_notice(client, guards, channel_id):
 def sweep_ending(client):
     with session() as conn:
         ending = memberguards.ending_not_notified(conn, expiring_soon(conn))
-        log_channel_id = channel.internal_log_channel(conn)
+        firehouse_channel_id = channel.firehouse_channel(conn)
 
-    if not ending or not log_channel_id:
+    if not ending or not firehouse_channel_id:
         return 0
 
-    post_expiry_notice(client, ending, log_channel_id)
+    post_expiry_notice(client, ending, firehouse_channel_id)
     with session() as conn:
         for guard in ending:
             memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], None,

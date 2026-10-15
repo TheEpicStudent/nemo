@@ -145,8 +145,8 @@ def proposed(conn, request, user_id):
 
 
 def log_channel_mention():
-    log_channel_id = channel.internal_log_channel()
-    return f"<#{log_channel_id}>" if log_channel_id else "the firehouse log"
+    log_channel_id = channel.log_channel()
+    return f"<#{log_channel_id}>" if log_channel_id else "the log channel"
 
 
 def started(request):

@@ -159,7 +159,7 @@ class CaseChannel:
                 done += 1
 
         if done:
-            log.info("nemo: echoed %s queued message(s) into the internal_log", done)
+            log.info("nemo: echoed %s queued message(s) into case threads", done)
         self.post_pending_resolutions()
         return done
 
@@ -192,7 +192,7 @@ class CaseChannel:
             waiting = outbox.to_tick(conn)
 
         for outbox_id, channel_id, ts, failed_at, error in waiting:
-            target_channel_id = channel_id or channel.internal_log_channel()
+            target_channel_id = channel_id or channel.firehouse_channel()
             if not target_channel_id:
                 continue
             self.mark((target_channel_id, ts), answer.STUCK if failed_at else answer.SENT)

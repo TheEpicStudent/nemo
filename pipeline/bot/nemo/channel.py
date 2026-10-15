@@ -210,13 +210,25 @@ def mark_root(client, channel_id, root_ts, card_ts, case, is_new=False):
         react(client, "reactions_add", channel_id, root_ts, target_mark)
 
 
-_internal_log = {}
+_settings = {}
 
 
-def internal_log_channel(conn=None):
+def channel_setting(key, conn=None):
     if conn is not None:
-        _internal_log["id"] = channels.setting(conn, channels.INTERNAL_LOG) or None
-    return _internal_log.get("id")
+        _settings[key] = channels.setting(conn, key) or None
+    return _settings.get(key)
+
+
+def firehouse_channel(conn=None):
+    return channel_setting(channels.FIREHOUSE, conn)
+
+
+def reports_channel(conn=None):
+    return channel_setting(channels.REPORTS, conn)
+
+
+def log_channel(conn=None):
+    return channel_setting(channels.LOGS, conn)
 
 
 _react = {}
@@ -228,8 +240,32 @@ def react_channels(conn=None):
     return _react.get("ids") or set()
 
 
+CARD_CHANNELS = """
+SELECT card_channel_id FROM fd.case_reports WHERE card_channel_id IS NOT NULL
+UNION
+SELECT card_channel_id FROM fd.cases WHERE card_channel_id IS NOT NULL
+"""
+
+_cards = {}
+
+
+def card_channels(conn=None):
+    if conn is not None:
+        _cards["ids"] = {row[0] for row in conn.execute(CARD_CHANNELS).fetchall()}
+    return _cards.get("ids") or set()
+
+
+def refresh_channels(conn):
+    firehouse_channel(conn)
+    reports_channel(conn)
+    log_channel(conn)
+    react_channels(conn)
+    card_channels(conn)
+
+
 def case_channels(conn=None):
-    return ({internal_log_channel(conn)} | react_channels(conn)) - {None}
+    named = {firehouse_channel(conn), reports_channel(conn)}
+    return (named | react_channels(conn) | card_channels(conn)) - {None}
 
 
 def card_channel(case, channel_id=None, conn=None):
@@ -237,7 +273,7 @@ def card_channel(case, channel_id=None, conn=None):
 
 
 def channel_or_firehouse(stored, channel_id=None, conn=None):
-    return stored or channel_id or internal_log_channel(conn)
+    return stored or channel_id or firehouse_channel(conn)
 
 
 CARD_CHANNEL_FOR_CASE = """
@@ -252,7 +288,7 @@ SELECT coalesce(
 
 def card_channel_for(conn, case_id, channel_id=None):
     row = conn.execute(CARD_CHANNEL_FOR_CASE, {"case_id": case_id}).fetchone()
-    return (row and row[0]) or channel_id or internal_log_channel(conn)
+    return (row and row[0]) or channel_id or firehouse_channel(conn)
 
 
 THREAD_FOR_CASE = """
@@ -587,12 +623,12 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
         log.warning("nemo: case %s has no report to post", case_id)
         return None
     if case["forwarded_ts"]:
-        log.info("nemo: case %s is already in the internal_log", case_id)
+        log.info("nemo: case %s already has a report card", case_id)
         return case["forwarded_ts"]
 
-    card_channel_id = channel_id or internal_log_channel(conn)
+    card_channel_id = channel_id or reports_channel(conn)
     if not card_channel_id:
-        log.warning("nemo: case %s waits for nemo.firehouse_channel to be set", case_id)
+        log.warning("nemo: case %s waits for nemo.reports_channel to be set", case_id)
         return None
 
     row = conn.execute(CLAIM_CARD, (case["report_id"],)).fetchone()
@@ -636,7 +672,7 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
             author_fields=as_reporter(client, case["is_anonymous"], case["reporter_user_id"]),
         )
 
-    log.info("nemo: case %s posted to the internal_log at %s", case_id, ts)
+    log.info("nemo: case %s report card posted at %s", case_id, ts)
     return ts
 
 
@@ -710,7 +746,7 @@ def post_follow_up(client, conn, message_id, channel_id=None):
         unfurl(client, conn, message_id, card_channel_id, forwarded)
     except Exception as failure:
         log.warning("nemo: message %s's links would not unfurl: %s", message_id, failure)
-    log.info("nemo: message %s carried into the internal_log at %s", message_id, ts)
+    log.info("nemo: message %s carried into its card thread at %s", message_id, ts)
     return ts
 
 
@@ -920,7 +956,7 @@ def post_reopen_announcement(client, conn, case_id, was, channel_id=None):
 
 
 def echo(client, thread_ts, sent_by, body, signed, channel_id=None):
-    target_channel_id = channel_id or internal_log_channel()
+    target_channel_id = channel_id or firehouse_channel()
     if not target_channel_id:
         log.warning("nemo: a reply waits for nemo.firehouse_channel to be set")
         return None

@@ -1,11 +1,17 @@
+import contextlib
+import inspect
+import threading
+from types import SimpleNamespace
+
 import pytest
 
-from bot.nemo import channel, chat
+from bot.nemo import channel, chat, loop
 
 
 class Conn:
-    def __init__(self, rows=None):
+    def __init__(self, rows=None, lists=None):
         self.rows = rows or {}
+        self.lists = lists or {}
         self.executed = []
 
     def execute(self, sql, args=None):
@@ -18,18 +24,27 @@ class Conn:
                 return row
         return None
 
+    def fetchall(self):
+        for mark, rows in self.lists.items():
+            if mark in self.executed[-1][0]:
+                return rows
+        return []
+
     def args_for(self, mark):
         return [args for sql, args in self.executed if mark in sql]
 
 
 @pytest.fixture(autouse=True)
 def reset_channel_cache(monkeypatch):
-    monkeypatch.setattr(channel, "_internal_log", {})
+    monkeypatch.setattr(channel, "_settings", {})
     monkeypatch.setattr(channel, "_react", {})
+    monkeypatch.setattr(channel, "_cards", {}, raising=False)
 
 
-def settings(monkeypatch, internal_log="C_FIRE", react=("C_REACT",)):
-    monkeypatch.setattr(channel.channels, "setting", lambda conn, key: internal_log)
+def settings(monkeypatch, firehouse="C_FIRE", reports=None, logs=None, react=("C_REACT",)):
+    values = {channel.channels.FIREHOUSE: firehouse, channel.channels.REPORTS: reports,
+              channel.channels.LOGS: logs}
+    monkeypatch.setattr(channel.channels, "setting", lambda conn, key: values.get(key))
     monkeypatch.setattr(channel.channels, "react_channels", lambda conn: set(react))
 
 
@@ -48,6 +63,64 @@ def test_the_channels_are_remembered_so_every_message_does_not_ask(monkeypatch):
     channel.case_channels(Conn())
     monkeypatch.setattr(channel.channels, "react_channels", lambda conn: 1 / 0)
     assert channel.case_channels() == {"C_FIRE", "C_REACT"}
+
+
+CARD_ROWS = {"FROM fd.case_reports WHERE card_channel_id IS NOT NULL": [("C_OLDFIRE",), ("G01DBHPLK25",)]}
+
+
+def test_case_channels_includes_card_channels_after_firehouse_moves(monkeypatch):
+    settings(monkeypatch, firehouse="C_NEWFIRE")
+
+    assert channel.case_channels(Conn(lists=CARD_ROWS)) == {"C_NEWFIRE", "C_REACT", "C_OLDFIRE", "G01DBHPLK25"}
+
+
+def test_card_channels_reads_reports_and_cases():
+    assert "FROM fd.case_reports WHERE card_channel_id IS NOT NULL" in channel.CARD_CHANNELS
+    assert "FROM fd.cases WHERE card_channel_id IS NOT NULL" in channel.CARD_CHANNELS
+
+
+def test_card_channels_are_cached_between_refreshes(monkeypatch):
+    settings(monkeypatch)
+    channel.refresh_channels(Conn(lists=CARD_ROWS))
+
+    assert channel.card_channels() == {"C_OLDFIRE", "G01DBHPLK25"}
+    assert "C_OLDFIRE" in channel.case_channels()
+
+
+def refreshes_recorded(monkeypatch):
+    refreshed = []
+    monkeypatch.setattr(loop.channel, "refresh_channels", lambda conn: refreshed.append(conn))
+    return refreshed
+
+
+def test_loop_once_refreshes_channels():
+    assert "channel.refresh_channels(conn)" in inspect.getsource(loop.once)
+
+
+def test_app_setting_notify_refreshes_channels(monkeypatch):
+    conn = Conn()
+    refreshed = refreshes_recorded(monkeypatch)
+    watched = {}
+
+    @contextlib.contextmanager
+    def fake_session():
+        yield conn
+
+    monkeypatch.setattr(loop, "session", fake_session)
+    for module in (loop.guards, loop.channelguards, loop.memberguards, loop.automod,
+                   loop.responses, loop.screening):
+        monkeypatch.setattr(module, "refresh", lambda conn: 0)
+    monkeypatch.setattr(loop.purge, "requeue_stranded", lambda conn: [])
+    monkeypatch.setattr(loop.loops, "draining", lambda *args, **kwargs: (lambda: None))
+    monkeypatch.setattr(loop.loops, "watching",
+                        lambda name, names, on_notify, stopping: watched.update(on_notify=on_notify))
+    monkeypatch.setattr(loop.loops, "sweeping", lambda *args, **kwargs: None)
+
+    loop.start(SimpleNamespace(client=None), threading.Event())
+    refreshed.clear()
+    watched["on_notify"](loop.APP_SETTING, "nemo.firehouse_channel")
+
+    assert refreshed == [conn]
 
 
 def test_a_thread_on_no_case_names_none():

@@ -85,32 +85,15 @@
     <% end %>
   </div>
 
-  <div class="card card-flush">
-    <div class="card-head">
-      <h2 class="card-title">Firehouse</h2>
-      <% if may_grant? %>
-        <div class="card-tools">
-          <%= form_with url: admin_settings_firehouse_path, method: :post, class: "contents" do %>
-            <%= render "shared/combobox", kind: "channel", name: :channel_id, submit: true,
-                  url: search_admin_channels_path, trigger: @firehouse ? "Move it" : "Pick a channel" %>
-          <% end %>
-        </div>
-      <% end %>
-    </div>
+  <%= render "channel_setting", title: "Firehouse", channel_id: @firehouse,
+        url: admin_settings_firehouse_path, channels_by_id: @channels_by_id,
+        warning: "No firehouse picked" %>
 
-    <% if @firehouse %>
-      <div class="scroll">
-        <table class="data-table">
-          <thead><tr><th>Channel</th></tr></thead>
-          <tbody>
-            <tr><td><%= channel_cell(@firehouse, @channels_by_id[@firehouse]) %></td></tr>
-          </tbody>
-        </table>
-      </div>
-    <% else %>
-      <div class="empty">
-        <p class="empty-title sev-crit">No firehouse picked, Nemo posts no case cards or notices</p>
-      </div>
-    <% end %>
-  </div>
+  <%= render "channel_setting", title: "Shroud reports", channel_id: @reports_channel,
+        url: admin_settings_reports_channel_path, channels_by_id: @channels_by_id,
+        warning: "No channel picked" %>
+
+  <%= render "channel_setting", title: "Internal logs", channel_id: @log_channel,
+        url: admin_settings_log_channel_path, channels_by_id: @channels_by_id,
+        warning: "No channel picked" %>
 </div>

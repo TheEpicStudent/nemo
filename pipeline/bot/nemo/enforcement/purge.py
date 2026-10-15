@@ -408,9 +408,9 @@ def summary(purge, purged, left, failure, unchecked=None):
 
 
 def report(client, purge, purged, left, failure, unchecked=None):
-    log_channel_id = channel.internal_log_channel()
+    log_channel_id = channel.log_channel()
     if not log_channel_id:
-        log.warning("nemo: no nemo.firehouse_channel to post how purge %s went", purge.id)
+        log.warning("nemo: no nemo.log_channel to post how purge %s went", purge.id)
         return
     try:
         client.chat_postMessage(channel=log_channel_id,

@@ -92,7 +92,7 @@ class Slack:
 
 @pytest.fixture(autouse=True)
 def log_channel(monkeypatch):
-    monkeypatch.setattr(channel, "internal_log_channel", lambda conn=None: LOG)
+    monkeypatch.setattr(channel, "log_channel", lambda conn=None: LOG)
 
 
 def run_drain(monkeypatch, conn, client):

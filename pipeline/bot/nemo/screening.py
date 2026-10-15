@@ -114,7 +114,7 @@ def post_to_internal_log(client, conn, user_id, domain, outcome):
 
     from bot.nemo import channel
 
-    log_channel_id = channel.internal_log_channel(conn)
+    log_channel_id = channel.log_channel(conn)
     if not log_channel_id:
         return None
 

@@ -219,7 +219,7 @@ HEADINGS = {
     "provision": "schemas, roles, grants and both migration sets. one shot",
     "bot": "relay takes the reports, nemo works them. long running",
     "bot.relay": "relay alone, taking reports and carrying the outbox. long running",
-    "bot.nemo": "nemo alone, working the cases in the internal_log. long running",
+    "bot.nemo": "nemo alone, working the cases in the firehouse. long running",
     "archive": "channel history and thread replies. long running",
     "audit": "the slack audit log, tailed and backfilled a day at a time. long running",
 }

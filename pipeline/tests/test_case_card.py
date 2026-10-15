@@ -2,7 +2,7 @@ import pytest
 
 from bot.nemo import case_queue
 
-INTERNAL_LOG = "C_FIRE"
+FIREHOUSE_ID = "C_FIRE"
 THREAD = "100.000"
 
 
@@ -45,8 +45,8 @@ class Slack:
 
 
 @pytest.fixture(autouse=True)
-def internal_log(monkeypatch):
-    monkeypatch.setattr(case_queue, "internal_log_channel", lambda conn=None: INTERNAL_LOG)
+def firehouse(monkeypatch):
+    monkeypatch.setattr(case_queue, "firehouse_channel", lambda conn=None: FIREHOUSE_ID)
 
 
 @pytest.fixture(autouse=True)
@@ -72,9 +72,9 @@ def test_a_case_opened_without_a_report_gets_a_card_in_the_firehouse():
     ts = case_queue.card(slack, conn, 41)
 
     assert ts == "9.9"
-    assert slack.posted[0]["channel"] == INTERNAL_LOG
+    assert slack.posted[0]["channel"] == FIREHOUSE_ID
     assert slack.posted[0]["thread_ts"] is None
-    assert conn.args_for("UPDATE fd.cases SET card_channel_id")[0][:3] == (INTERNAL_LOG, None, "9.9")
+    assert conn.args_for("UPDATE fd.cases SET card_channel_id")[0][:3] == (FIREHOUSE_ID, None, "9.9")
 
 
 def test_a_card_can_be_sent_somewhere_other_than_the_firehouse():
@@ -96,7 +96,7 @@ def test_a_case_that_already_has_a_card_does_not_get_a_second_one():
     conn, slack = Conn(case_rows(card_ts="8.8")), Slack()
 
     assert case_queue.card(slack, conn, 41) is None
-    assert case_queue.post(slack, conn, 41, INTERNAL_LOG) == "8.8"
+    assert case_queue.post(slack, conn, 41, FIREHOUSE_ID) == "8.8"
     assert slack.posted == []
 
 
@@ -104,7 +104,7 @@ def test_a_card_claimed_while_we_were_asking_is_left_alone():
     conn, slack = Conn(case_rows()), Slack()
     conn.rows["FOR UPDATE"] = ("7.7",)
 
-    assert case_queue.post(slack, conn, 41, INTERNAL_LOG) == "7.7"
+    assert case_queue.post(slack, conn, 41, FIREHOUSE_ID) == "7.7"
     assert slack.posted == []
 
 
@@ -145,7 +145,7 @@ def test_a_new_card_waits_with_an_hourglass():
 
     case_queue.card(slack, conn, 41)
 
-    assert slack.reacted == [{"channel": INTERNAL_LOG, "timestamp": "9.9",
+    assert slack.reacted == [{"channel": FIREHOUSE_ID, "timestamp": "9.9",
                               "name": "hourglass_flowing_sand"}]
 
 

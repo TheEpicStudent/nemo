@@ -58,7 +58,7 @@ def on_message(ctx):
     channel_id, subject_id, ts = notify.message_target(event)
     if not channel_id:
         return None
-    if channel_id == channel.internal_log_channel():
+    if channel_id == channel.firehouse_channel():
         return None
 
     guard = memberguards.shushed(subject_id)

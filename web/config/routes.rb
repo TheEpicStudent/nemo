@@ -161,6 +161,8 @@ Rails.application.routes.draw do
     patch "api/tokens/:id/rate", to: "api_settings#rate", as: :api_token_rate
     delete "api/tokens/:id", to: "api_settings#destroy", as: :api_token
     post "settings/firehouse", to: "settings#firehouse", as: :settings_firehouse
+    post "settings/reports_channel", to: "settings#reports_channel", as: :settings_reports_channel
+    post "settings/log_channel", to: "settings#log_channel", as: :settings_log_channel
     post "settings/join_mode", to: "settings#join_mode", as: :settings_join_mode
     post "settings/sweep", to: "settings#sweep", as: :settings_sweep
     post "settings/react_channels", to: "settings#add_react", as: :settings_react_channels

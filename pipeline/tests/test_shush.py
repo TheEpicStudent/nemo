@@ -119,7 +119,7 @@ def test_a_removed_message_is_written_down_and_the_guard_reads_as_held():
 
 def test_seen_notifies_them_inside_the_thread_they_posted_in(monkeypatch):
     monkeypatch.setattr(shush, "session", lambda: _conn_context(Conn()))
-    monkeypatch.setattr(shush.channel, "internal_log_channel", lambda: "COTHER")
+    monkeypatch.setattr(shush.channel, "firehouse_channel", lambda: "COTHER")
     memberguards._shushes[USER_ID] = guard()
     memberguards._loaded = True
     try:
@@ -133,7 +133,7 @@ def test_seen_notifies_them_inside_the_thread_they_posted_in(monkeypatch):
 
 def test_seen_tells_them_channel_wide_outside_a_thread(monkeypatch):
     monkeypatch.setattr(shush, "session", lambda: _conn_context(Conn()))
-    monkeypatch.setattr(shush.channel, "internal_log_channel", lambda: "COTHER")
+    monkeypatch.setattr(shush.channel, "firehouse_channel", lambda: "COTHER")
     memberguards._shushes[USER_ID] = guard()
     memberguards._loaded = True
     try:

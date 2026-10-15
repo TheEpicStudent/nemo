@@ -176,7 +176,7 @@ def test_one_on_no_case_is_called_out_in_the_nudge():
 def test_the_nudge_goes_out_once_and_is_written_down(monkeypatch):
     conn = Conn()
     monkeypatch.setattr(memberguards, "ending_not_notified", lambda c, within: [guard()])
-    monkeypatch.setattr(sweep.channel, "internal_log_channel", lambda c: LOG_CHANNEL_ID)
+    monkeypatch.setattr(sweep.channel, "firehouse_channel", lambda c: LOG_CHANNEL_ID)
     monkeypatch.setattr(sweep, "session", _session(conn))
     client = Slack()
 
@@ -190,7 +190,7 @@ def test_the_nudge_goes_out_once_and_is_written_down(monkeypatch):
 
 def test_nothing_ending_says_nothing(monkeypatch):
     monkeypatch.setattr(memberguards, "ending_not_notified", lambda c, within: [])
-    monkeypatch.setattr(sweep.channel, "internal_log_channel", lambda c: LOG_CHANNEL_ID)
+    monkeypatch.setattr(sweep.channel, "firehouse_channel", lambda c: LOG_CHANNEL_ID)
     monkeypatch.setattr(sweep, "session", _session(Conn()))
     client = Slack()
 

@@ -138,7 +138,7 @@ def stub(monkeypatch):
     monkeypatch.setattr(purge_requests, "session", session)
     monkeypatch.setattr(purge_requests.access, "may",
                         lambda conn, user_id, key, case_id=None: state["allowed"])
-    monkeypatch.setattr(purge_requests.channel, "internal_log_channel", lambda: "CLOG")
+    monkeypatch.setattr(purge_requests.channel, "log_channel", lambda: "CLOG")
     return state
 
 

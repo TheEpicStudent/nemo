@@ -188,7 +188,7 @@ def world(monkeypatch):
     monkeypatch.setattr(purge.privileged, "replies", replies)
     monkeypatch.setattr(purge.privileged, "search", search)
     monkeypatch.setattr(purge.guard_actions, "remove", remove)
-    monkeypatch.setattr(purge.channel, "internal_log_channel", lambda: "CLOG")
+    monkeypatch.setattr(purge.channel, "log_channel", lambda: "CLOG")
     monkeypatch.setattr(purge.channel, "app_url", lambda path: f"https://fd.test{path}")
     monkeypatch.setattr(purge.channel, "member_url", lambda user_id: f"https://fd.test/m/{user_id}")
     monkeypatch.setattr(purge, "CHECK_DELAY_SECONDS", 0)

@@ -63,7 +63,7 @@ class LogSlack:
 def test_a_catch_is_said_in_the_firehouse(monkeypatch):
     set_rules(domain_rule(effect="flag"))
     from bot.nemo import channel
-    monkeypatch.setattr(channel, "internal_log_channel", lambda _conn=None: "CHOUSE")
+    monkeypatch.setattr(channel, "log_channel", lambda _conn=None: "CHOUSE")
     log_slack = LogSlack()
 
     screening.screen(Conn(), USER_ID, "kid@throwaway.example", client=log_slack)
@@ -76,7 +76,7 @@ def test_a_catch_is_said_in_the_firehouse(monkeypatch):
 def test_somebody_the_list_lets_in_is_not_announced(monkeypatch):
     set_rules(domain_rule())
     from bot.nemo import channel
-    monkeypatch.setattr(channel, "internal_log_channel", lambda _conn=None: "CHOUSE")
+    monkeypatch.setattr(channel, "log_channel", lambda _conn=None: "CHOUSE")
     log_slack = LogSlack()
 
     screening.screen(Conn(), USER_ID, "kid@school.example", client=log_slack)
@@ -86,7 +86,7 @@ def test_somebody_the_list_lets_in_is_not_announced(monkeypatch):
 def test_a_firehouse_that_will_not_take_it_does_not_lose_the_screen(monkeypatch):
     set_rules(domain_rule(effect="flag"))
     from bot.nemo import channel
-    monkeypatch.setattr(channel, "internal_log_channel", lambda _conn=None: "CHOUSE")
+    monkeypatch.setattr(channel, "log_channel", lambda _conn=None: "CHOUSE")
 
     class FailingSlack:
         def chat_postMessage(self, **_kwargs):

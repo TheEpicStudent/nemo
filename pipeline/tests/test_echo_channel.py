@@ -33,7 +33,7 @@ def echo_calls(monkeypatch):
         lambda conn, outbox_id, ts, echoed_as: calls["echoed"].append((outbox_id, ts, echoed_as)),
     )
     monkeypatch.setattr(case_channel.outbox, "drop_echo", lambda conn, outbox_id: None)
-    monkeypatch.setattr(case_channel.channel, "internal_log_channel", lambda conn=None: FIREHOUSE_ID)
+    monkeypatch.setattr(case_channel.channel, "firehouse_channel", lambda conn=None: FIREHOUSE_ID)
     monkeypatch.setattr(
         case_channel.channel, "echo",
         lambda client, thread_ts, sent_by, body, signed, channel_id=None:

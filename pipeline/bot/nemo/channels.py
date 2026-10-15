@@ -13,7 +13,9 @@ OFF = "off"
 MODES = (ON, GUARDED, OFF)
 
 SETTING = "nemo.join_mode"
-INTERNAL_LOG = "nemo.firehouse_channel"
+FIREHOUSE = "nemo.firehouse_channel"
+REPORTS = "nemo.reports_channel"
+LOGS = "nemo.log_channel"
 REACT_CHANNELS = "nemo.case_react_channels"
 SWEEP_SOON_HOURS = "nemo.sweep_soon_hours"
 SWEEP_TELLS_MEMBER = "nemo.sweep_tells_member"

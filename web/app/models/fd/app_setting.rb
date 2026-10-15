@@ -5,6 +5,8 @@ module Fd
 
     JOIN_MODE = "nemo.join_mode".freeze
     FIREHOUSE = "nemo.firehouse_channel".freeze
+    REPORTS = "nemo.reports_channel".freeze
+    LOGS = "nemo.log_channel".freeze
     REACT_CHANNELS = "nemo.case_react_channels".freeze
 
     AUTORESPONSE_ON = "nemo.autoresponse_on".freeze
@@ -50,6 +52,14 @@ module Fd
 
     def self.set_firehouse_channel(channel_id, by:)
       write(FIREHOUSE, channel_id, by: by)
+    end
+
+    def self.reports_channel
+      value(REPORTS).presence
+    end
+
+    def self.log_channel
+      value(LOGS).presence
     end
 
     def self.case_react_channels
