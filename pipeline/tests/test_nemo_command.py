@@ -96,3 +96,64 @@ def test_the_help_card_lists_shush_only_for_who_holds_it():
     assert "/nemo shush" in help_text
     assert "/nemo channelban" in help_text
     assert "/nemo shush" not in command.helping.flat({"case.read"})
+
+
+REPORT_CASE = "JOIN fd.case_reports r ON r.case_id = c.id"
+QUEUE_CASE = "SELECT id, category_key"
+OPENING = "mirrored_as = 'card'"
+ACTION_COUNT = "FROM fd.actions"
+
+
+class Conn:
+    def __init__(self, rows):
+        self.rows = rows
+        self.last_sql = ""
+
+    def execute(self, sql, args=None):
+        self.last_sql = sql
+        return self
+
+    def fetchone(self):
+        for marker, row in self.rows.items():
+            if marker in self.last_sql:
+                return row
+        return None
+
+    def fetchall(self):
+        return []
+
+
+def queue_case_row(case_id):
+    return (case_id, None, None, "C_FIRE", "5.5", None, "UOPENER", None, None, None)
+
+
+def report_case_row(case_id, body):
+    return (case_id, None, None, 3, True, None, body, "1.1", None, None, None, None, "C_FIRE",
+            None)
+
+
+def test_case_answer_falls_back_to_the_queue_card():
+    conn = Conn({QUEUE_CASE: queue_case_row(12), OPENING: (7, "spam in the lounge")})
+
+    answer = command.case_answer(conn, 12)
+
+    assert answer["text"] == "case 12"
+    assert "spam in the lounge" in str(answer["blocks"])
+
+
+def test_case_answer_without_an_opening_shows_the_header():
+    answer = command.case_answer(Conn({QUEUE_CASE: queue_case_row(12)}), 12)
+
+    assert "Case 12" in str(answer["blocks"])
+
+
+def test_case_answer_keeps_the_report_quote():
+    conn = Conn({REPORT_CASE: report_case_row(12, "they spammed"), ACTION_COUNT: (0,)})
+
+    answer = command.case_answer(conn, 12)
+
+    assert "they spammed" in str(answer["blocks"])
+
+
+def test_case_answer_for_an_unknown_number():
+    assert command.case_answer(Conn({}), 99)["text"] == "There is no case 99."

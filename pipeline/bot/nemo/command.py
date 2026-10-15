@@ -3,9 +3,9 @@ import logging
 import re
 
 from bot.core import access, audit, richtext, session
-from bot.nemo import case_actions, channel, memberguards, purge_requests, record
+from bot.nemo import case_actions, case_queue, channel, memberguards, purge_requests, record
 from bot.nemo.views import help as helping
-from bot.nemo.views import merge, report
+from bot.nemo.views import merge, queued, report
 
 log = logging.getLogger("bot.nemo")
 
@@ -243,6 +243,16 @@ def opened(case_id, user_id):
     return f"{text} about <@{user_id}>" if user_id else text
 
 
+def case_answer(conn, case_id):
+    case = channel.gather(conn, case_id)
+    if case:
+        return {"text": f"case {case_id}", "blocks": report.build_blocks(case)}
+    case = case_queue.gather(conn, case_id)
+    if case:
+        return {"text": f"case {case_id}", "blocks": queued.build_blocks(case)}
+    return message_only(f"There is no case {case_id}.")
+
+
 def helped(user_id):
     with session() as conn:
         capabilities = {row[0] for row in conn.execute(helping.USER_CAPABILITIES, (user_id,)).fetchall()}
@@ -354,12 +364,7 @@ def register(app):
                     case_id = case_actions.open_case(conn, target_id, body, user_id)
                     answer = message_only(opened(case_id, target_id))
             else:
-                case = channel.gather(conn, target_id)
-                answer = (
-                    {"text": f"case {target_id}", "blocks": report.build_blocks(case)}
-                    if case
-                    else message_only(f"There is no case {target_id}.")
-                )
+                answer = case_answer(conn, target_id)
 
         log.info("nemo: %s ran %s on %s", user_id, verb, target_id)
         return respond(**answer)
