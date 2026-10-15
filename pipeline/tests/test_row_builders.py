@@ -1,6 +1,7 @@
 import json
 from datetime import date, datetime, timedelta, timezone
 
+from bot.nemo import new_members
 from ingest import (
     analytics_pull,
     channel_history_pull,
@@ -151,6 +152,30 @@ def test_users_list_member_dim_row_reads_invite_pending_by_presence():
     present = users_list_pull.member_dim_row({"id": "U2", "is_invited_user": True})
     assert absent[8] is False
     assert present[8] is True
+
+
+def test_users_list_member_row_reads_admin_and_owner_flags():
+    flagged = users_list_pull.member_row({"id": "U1", "is_admin": True, "is_owner": True})
+    plain = users_list_pull.member_row({"id": "U2"})
+    assert flagged[7:9] == (True, True)
+    assert plain[7:9] == (False, False)
+
+
+def test_users_list_member_sql_takes_one_value_per_row_field():
+    row = users_list_pull.member_row({"id": "U1"})
+    assert users_list_pull.MEMBER_SQL.count("%s") == len(row)
+
+
+def test_new_members_member_row_reads_admin_and_owner_flags():
+    flagged = new_members.member_row({"id": "U1", "is_admin": True, "is_owner": False})
+    plain = new_members.member_row({"id": "U2"})
+    assert flagged[9:11] == (True, False)
+    assert plain[9:11] == (False, False)
+
+
+def test_new_members_member_sql_takes_one_value_per_row_field():
+    row = new_members.member_row({"id": "U1"})
+    assert new_members.MEMBER.count("%s") == len(row)
 
 
 FLOOR = date(2026, 7, 1)
