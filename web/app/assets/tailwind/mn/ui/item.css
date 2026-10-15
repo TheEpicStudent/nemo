@@ -22,4 +22,8 @@
   .setline > .setval {
     @apply ml-auto flex flex-none items-center gap-2;
   }
+
+  .setline > .setname > p {
+    @apply text-xs font-normal;
+  }
 }

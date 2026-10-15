@@ -84,7 +84,7 @@ def start_configured_joins(client):
 
 
 def join_channel(client, channel_id):
-    if channelguards.guarding(channel_id) is None:
+    if not channelguards.is_guarded(channel_id):
         return False
 
     with session() as conn:

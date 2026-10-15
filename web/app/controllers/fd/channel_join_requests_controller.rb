@@ -38,7 +38,7 @@ module Fd
     def refusal_text(error)
       return FdChannelsHelper::INVITE_NOTE if error == FdChannelsHelper::NEEDS_INVITE
 
-      "Nemo could not join: #{error.presence || 'refused'}"
+      "Join failed: #{error.presence || 'refused'}"
     end
 
     def redirect_with_alert(message)

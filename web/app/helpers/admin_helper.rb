@@ -108,13 +108,13 @@ module AdminHelper
 
   JOIN_MODES = {
     Fd::AppSetting::ON => "All public",
-    Fd::AppSetting::GUARDED => "Guarded only",
-    Fd::AppSetting::OFF => "None"
+    Fd::AppSetting::GUARDED => "Guarded",
+    Fd::AppSetting::OFF => "Configured only"
   }.freeze
 
   JOIN_NOTES = {
-    Fd::AppSetting::ON => "Every public channel",
-    Fd::AppSetting::GUARDED => "Guarded and configured channels",
+    Fd::AppSetting::ON => "All public channels and configured channels",
+    Fd::AppSetting::GUARDED => "Guarded channels and configured channels",
     Fd::AppSetting::OFF => "Configured channels only"
   }.freeze
 

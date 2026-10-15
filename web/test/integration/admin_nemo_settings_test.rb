@@ -25,8 +25,8 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
 
     get admin_settings_path
 
-    assert_equal ["No firehouse picked", "No channel picked", "No channel picked"],
-      css_select("p.empty-title.sev-crit").map { |node| node.text.strip }
+    assert_equal ["No channel selected"] * 3,
+      css_select(".setname p.sev-crit").map { |node| node.text.strip }
   end
 
   test "settings page with channel settings shows no warning" do
@@ -59,7 +59,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
 
     get admin_settings_path
 
-    assert_select "td p.sev-crit", "Nemo is not in the channel"
+    assert_select ".setname p.sev-crit", "Nemo is not a member of this channel"
   end
 
   test "react channel waiting for an invite shows the invite note" do
@@ -69,7 +69,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
 
     get admin_settings_path
 
-    assert_select "td p.sev-crit", FdChannelsHelper::INVITE_NOTE
+    assert_select ".setname p.sev-crit", FdChannelsHelper::INVITE_NOTE
   end
 
   test "configured channels nemo is in show no seat warning" do
@@ -80,7 +80,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
 
     get admin_settings_path
 
-    assert_select "td p.sev-crit", count: 0
+    assert_select ".setname p.sev-crit", count: 0
   end
 
   test "reports_channel saves the picked channel and audits it" do
@@ -90,7 +90,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
 
     assert_redirected_to admin_settings_path
     assert_equal channel_id, setting(Fd::AppSetting::REPORTS)
-    assert_match(/\AShroud reports now post to #/, flash[:notice])
+    assert_match(/\AShroud reports channel set to #/, flash[:notice])
     assert Fd::AuditEntry.exists?(verb: "tuned")
   end
 
@@ -101,13 +101,13 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     post admin_settings_log_channel_path, params: { channel_id: channel_id }
 
     assert_equal [channel_id, "C0FIRE"], [setting(Fd::AppSetting::LOGS), setting(Fd::AppSetting::FIREHOUSE)]
-    assert_match(/\ANemo logs now post to #/, flash[:notice])
+    assert_match(/\AInternal logs channel set to #/, flash[:notice])
   end
 
   test "log_channel refuses a channel that does not exist" do
     post admin_settings_log_channel_path, params: { channel_id: "C0NOSUCH" }
 
-    assert_equal "C0NOSUCH is not a channel", flash[:alert]
+    assert_equal "C0NOSUCH is not a known channel", flash[:alert]
     assert_equal "", setting(Fd::AppSetting::LOGS)
   end
 
@@ -117,7 +117,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     post admin_settings_firehouse_path, params: { channel_id: channel_id }
 
     assert_equal channel_id, setting(Fd::AppSetting::FIREHOUSE)
-    assert_match(/\AThe firehouse is now #/, flash[:notice])
+    assert_match(/\AFirehouse channel set to #/, flash[:notice])
   end
 
   test "the settings page carries both" do
@@ -138,7 +138,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
   test "join_mode off still joins configured channels" do
     post admin_settings_join_mode_path, params: { mode: "off" }
 
-    assert_equal "nemo joins configured channels only", flash[:notice]
+    assert_equal "Join mode set to Configured only", flash[:notice]
     follow_redirect!
     assert_select "p.card-sub", "Configured channels only"
   end

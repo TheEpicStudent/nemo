@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bot.nemo import channels, loop, responses
+from bot.nemo import channelguards, channels, loop, responses
 
 FIREHOUSE_ID = "C_FIRE"
 PRIVATE_ID = "G_PRIVATE"
@@ -139,3 +139,60 @@ def test_app_setting_notify_starts_configured_joins(monkeypatch):
     watched["on_notify"](loop.APP_SETTING, "nemo.firehouse_channel")
 
     assert started == [client]
+
+
+def live_guards(monkeypatch, *keys):
+    monkeypatch.setattr(channelguards, "_guards",
+                        {key: channelguards.LiveGuard(1, {}, frozenset()) for key in keys})
+    monkeypatch.setattr(channelguards, "_loaded", True)
+
+
+@pytest.mark.parametrize("kind", channelguards.KINDS)
+def test_is_guarded_for_every_guard_kind(monkeypatch, kind):
+    live_guards(monkeypatch, (kind, "C_GUARDED"))
+
+    assert channelguards.is_guarded("C_GUARDED") is True
+    assert channelguards.is_guarded("C_OTHER") is False
+
+
+def test_is_guarded_before_first_refresh_is_false(monkeypatch):
+    monkeypatch.setattr(channelguards, "_guards", {(channelguards.READONLY, "C_GUARDED"): None})
+    monkeypatch.setattr(channelguards, "_loaded", False)
+
+    assert channelguards.is_guarded("C_GUARDED") is False
+
+
+def join_channel_calls(monkeypatch, how=channels.GUARDED, inside=False):
+    joined = []
+    monkeypatch.setattr(loop, "session", lambda: session_of(Conn()))
+    monkeypatch.setattr(loop.channels, "mode", lambda conn: how)
+    monkeypatch.setattr(loop.channels, "inside", lambda conn, channel_id: inside)
+    monkeypatch.setattr(loop.channels, "join", lambda client, conn, channel_id, by=None, verb="joined":
+                        joined.append(channel_id) or True)
+    return joined
+
+
+@pytest.mark.parametrize("kind", [channelguards.READONLY, channelguards.SLOWMODE,
+                                  channelguards.ACCOUNT_AGE, channelguards.BOT_ALLOWLIST])
+def test_join_channel_joins_for_every_guard_kind(monkeypatch, kind):
+    live_guards(monkeypatch, (kind, "C_GUARDED"))
+    joined = join_channel_calls(monkeypatch)
+
+    assert loop.join_channel(object(), "C_GUARDED") is True
+    assert joined == ["C_GUARDED"]
+
+
+def test_join_channel_skips_unguarded_channel(monkeypatch):
+    live_guards(monkeypatch)
+    joined = join_channel_calls(monkeypatch)
+
+    assert loop.join_channel(object(), "C_PLAIN") is False
+    assert joined == []
+
+
+def test_join_channel_skips_channel_nemo_is_in(monkeypatch):
+    live_guards(monkeypatch, (channelguards.READONLY, "C_GUARDED"))
+    joined = join_channel_calls(monkeypatch, inside=True)
+
+    assert loop.join_channel(object(), "C_GUARDED") is False
+    assert joined == []

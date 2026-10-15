@@ -119,7 +119,7 @@ module FdChannelsHelper
   end
 
   NEEDS_INVITE = "needs an invite".freeze
-  INVITE_NOTE = "Nemo isn't in this private channel, someone has to /invite it".freeze
+  INVITE_NOTE = "Nemo needs an invite to this private channel".freeze
 
   def needs_invite?(standing)
     standing&.refused? && standing.why == NEEDS_INVITE
@@ -129,14 +129,14 @@ module FdChannelsHelper
     return nil if inside
     return seat_note(outside_label(standing), "sev-crit") if inside == false
     return nil if standing.nil? || standing.inside?
-    return seat_note("nemo was taken out of here", "sev-crit") if standing.verb == "left"
+    return seat_note("Nemo was removed from this channel", "sev-crit") if standing.verb == "left"
     return seat_note(INVITE_NOTE, "sev-warn") if needs_invite?(standing)
 
     seat_note(refused_note(standing.why.presence || "refused"), "sev-crit")
   end
 
   def refused_note(reason)
-    "Nemo could not join this channel: #{reason}"
+    "Join failed: #{reason}"
   end
 
   def seat_note(text, severity)
@@ -155,7 +155,7 @@ module FdChannelsHelper
     refusal_reason = standing&.refused? && standing.why.presence
     return refused_note(refusal_reason) if refusal_reason
 
-    "Nemo is not in the channel"
+    "Nemo is not a member of this channel"
   end
 
   MARKETPLACE = "https://hackclub.slack.com/marketplace".freeze

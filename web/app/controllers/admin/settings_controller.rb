@@ -2,12 +2,6 @@ module Admin
   class SettingsController < BaseController
     SOONEST = Fd::AppSetting::SOONEST
 
-    JOIN_MODE_NOTICES = {
-      Fd::AppSetting::ON => "nemo joins every public channel",
-      Fd::AppSetting::GUARDED => "nemo joins guarded and configured channels",
-      Fd::AppSetting::OFF => "nemo joins configured channels only"
-    }.freeze
-
     def show
       @join_mode = Fd::AppSetting.join_mode
       @soon_hours = Fd::AppSetting.sweep_soon_hours
@@ -27,7 +21,7 @@ module Admin
       return redirect_to admin_settings_path if mode == Fd::AppSetting.join_mode
 
       audit_setting(Fd::AppSetting.set_join_mode(mode, by: current_account.user_id))
-      redirect_to admin_settings_path, notice: JOIN_MODE_NOTICES.fetch(mode)
+      redirect_to admin_settings_path, notice: "Join mode set to #{AdminHelper::JOIN_MODES.fetch(mode)}"
     end
 
     def sweep
@@ -38,25 +32,25 @@ module Admin
         by: current_account.user_id))
       audit_setting(Fd::AppSetting.flip(Fd::AppSetting::SWEEP_TELLS_MEMBER, params[:tells].present?,
         by: current_account.user_id))
-      redirect_to admin_settings_path, notice: "Sweep settings saved"
+      redirect_to admin_settings_path, notice: "Guard expiry settings saved"
     end
 
     def firehouse
-      save_channel(Fd::AppSetting::FIREHOUSE, "The firehouse is now")
+      save_channel(Fd::AppSetting::FIREHOUSE, "Firehouse channel")
     end
 
     def reports_channel
-      save_channel(Fd::AppSetting::REPORTS, "Shroud reports now post to")
+      save_channel(Fd::AppSetting::REPORTS, "Shroud reports channel")
     end
 
     def log_channel
-      save_channel(Fd::AppSetting::LOGS, "Nemo logs now post to")
+      save_channel(Fd::AppSetting::LOGS, "Internal logs channel")
     end
 
     def add_react
       channel_id = params[:channel_id].to_s.strip
       return redirect_with_alert("Select a channel") if channel_id.blank?
-      return redirect_with_alert("#{channel_id} is not a channel") unless channel_exists?(channel_id)
+      return redirect_with_alert("#{channel_id} is not a known channel") unless channel_exists?(channel_id)
 
       channel_ids = Fd::AppSetting.case_react_channels
       return redirect_to admin_settings_path if channel_ids.include?(channel_id)
@@ -64,25 +58,25 @@ module Admin
       audit_setting(Fd::AppSetting.set_case_react_channels(channel_ids + [channel_id],
         by: current_account.user_id))
       redirect_to admin_settings_path,
-        notice: "An hourglass in ##{name_of(channel_id)} now opens a case"
+        notice: "##{name_of(channel_id)} added to case reaction channels"
     end
 
     def drop_react
       channel_id = params[:channel_id].to_s.strip
       channel_ids = Fd::AppSetting.case_react_channels - [channel_id]
       audit_setting(Fd::AppSetting.set_case_react_channels(channel_ids, by: current_account.user_id))
-      redirect_to admin_settings_path, notice: "##{name_of(channel_id)} no longer opens cases"
+      redirect_to admin_settings_path, notice: "##{name_of(channel_id)} removed from case reaction channels"
     end
 
     private
 
-    def save_channel(key, notice)
+    def save_channel(key, label)
       channel_id = params[:channel_id].to_s.strip
       return redirect_with_alert("Select a channel") if channel_id.blank?
-      return redirect_with_alert("#{channel_id} is not a channel") unless channel_exists?(channel_id)
+      return redirect_with_alert("#{channel_id} is not a known channel") unless channel_exists?(channel_id)
 
       audit_setting(Fd::AppSetting.write(key, channel_id, by: current_account.user_id))
-      redirect_to admin_settings_path, notice: "#{notice} ##{name_of(channel_id)}"
+      redirect_to admin_settings_path, notice: "#{label} set to ##{name_of(channel_id)}"
     end
 
     def audit_setting(setting)

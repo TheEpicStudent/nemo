@@ -1,6 +1,6 @@
 <% content_for :page_title, "Nemo channels" %>
 
-<div class="grid g-sided items-start">
+<div class="stack">
   <div class="card card-flush">
     <div class="card-head">
       <div>
@@ -17,6 +17,58 @@
 
   <div class="card card-flush">
     <div class="card-head">
+      <h2 class="card-title">Channel assignments</h2>
+    </div>
+    <div class="setlist">
+      <%= render "channel_setline", title: "Firehouse", channel_id: @firehouse,
+            url: admin_settings_firehouse_path, channels_by_id: @channels_by_id, seat: @seats[@firehouse] %>
+      <%= render "channel_setline", title: "Shroud reports", channel_id: @reports_channel,
+            url: admin_settings_reports_channel_path, channels_by_id: @channels_by_id, seat: @seats[@reports_channel] %>
+      <%= render "channel_setline", title: "Internal logs", channel_id: @log_channel,
+            url: admin_settings_log_channel_path, channels_by_id: @channels_by_id, seat: @seats[@log_channel] %>
+    </div>
+  </div>
+
+  <div class="card card-flush">
+    <div class="card-head">
+      <h2 class="card-title">Case reaction channels</h2>
+      <% if may_grant? %>
+        <div class="card-tools">
+          <%= form_with url: admin_settings_react_channels_path, method: :post,
+                class: "contents" do %>
+            <%= render "shared/combobox", kind: "channel", name: :channel_id, submit: true,
+                  trigger_css: "btn btn-sm", url: search_admin_channels_path, trigger: "Add channel" %>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+
+    <% if @react_channels.any? %>
+      <div class="setlist">
+        <% @react_channels.each do |channel_id| %>
+          <div class="setline">
+            <div class="setname">
+              <%= channel_cell(channel_id, @channels_by_id[channel_id]) %>
+              <%= channel_seat_label(*@seats[channel_id]) %>
+            </div>
+            <% if may_grant? %>
+              <div class="setval">
+                <%= button_to "Remove", admin_settings_react_channel_path(channel_id),
+                      method: :delete, class: "btn btn-sm", form: { class: "contents" } %>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="empty">
+        <p class="empty-title">No channels configured</p>
+      </div>
+    <% end %>
+  </div>
+
+  <div class="card card-flush">
+    <div class="card-head">
       <h2 class="card-title">Guard expiry</h2>
       <% if may_grant? %>
         <div class="card-tools">
@@ -27,7 +79,7 @@
     <%= form_with url: admin_settings_sweep_path, method: :post, id: "sweep-form" do %>
       <div class="setlist">
         <label class="setline">
-          <span class="setname">Firehouse warning, hours ahead</span>
+          <span class="setname">Firehouse notice, hours before expiry</span>
           <span class="setval">
             <%= number_field_tag :soon_hours, @soon_hours, class: "input", id: nil,
                   min: 1, max: Admin::SettingsController::SOONEST,
@@ -35,7 +87,7 @@
           </span>
         </label>
         <label class="setline">
-          <span class="setname">DM the member when their guard lifts</span>
+          <span class="setname">Message the member when a guard ends</span>
           <span class="setval">
             <%= check_box_tag :tells, "1", @tells_member, class: "switch", id: nil,
                   disabled: !may_grant? %>
@@ -44,59 +96,4 @@
       </div>
     <% end %>
   </div>
-
-  <div class="card card-flush">
-    <div class="card-head">
-      <h2 class="card-title">Cases from reactions</h2>
-      <% if may_grant? %>
-        <div class="card-tools">
-          <%= form_with url: admin_settings_react_channels_path, method: :post,
-                class: "contents" do %>
-            <%= render "shared/combobox", kind: "channel", name: :channel_id, submit: true,
-                  url: search_admin_channels_path, trigger: "Add a channel" %>
-          <% end %>
-        </div>
-      <% end %>
-    </div>
-
-    <% if @react_channels.any? %>
-      <div class="scroll">
-        <table class="data-table">
-          <thead><tr><th>Channel</th><th class="col-btn"><span class="sr-only">Actions</span></th></tr></thead>
-          <tbody>
-            <% @react_channels.each do |channel_id| %>
-              <tr>
-                <td>
-                  <%= channel_cell(channel_id, @channels_by_id[channel_id]) %>
-                  <%= channel_seat_label(*@seats[channel_id]) %>
-                </td>
-                <td class="col-btn">
-                  <% if may_grant? %>
-                    <%= button_to "Take out", admin_settings_react_channel_path(channel_id),
-                          method: :delete, class: "btn btn-sm", form: { class: "contents" } %>
-                  <% end %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
-    <% else %>
-      <div class="empty">
-        <p class="empty-title">No channel opens cases from a reaction</p>
-      </div>
-    <% end %>
-  </div>
-
-  <%= render "channel_setting", title: "Firehouse", channel_id: @firehouse,
-        url: admin_settings_firehouse_path, channels_by_id: @channels_by_id, seat: @seats[@firehouse],
-        warning: "No firehouse picked" %>
-
-  <%= render "channel_setting", title: "Shroud reports", channel_id: @reports_channel,
-        url: admin_settings_reports_channel_path, channels_by_id: @channels_by_id, seat: @seats[@reports_channel],
-        warning: "No channel picked" %>
-
-  <%= render "channel_setting", title: "Internal logs", channel_id: @log_channel,
-        url: admin_settings_log_channel_path, channels_by_id: @channels_by_id, seat: @seats[@log_channel],
-        warning: "No channel picked" %>
 </div>

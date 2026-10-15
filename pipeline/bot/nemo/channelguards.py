@@ -186,6 +186,13 @@ def guarding(channel_id, kind=BOT_ALLOWLIST):
         return _guards.get((kind, channel_id))
 
 
+def is_guarded(channel_id):
+    with _lock:
+        if not _loaded:
+            return False
+        return any((kind, channel_id) in _guards for kind in KINDS)
+
+
 def lets_past(channel_id, *ids, kind=BOT_ALLOWLIST):
     guard = guarding(channel_id, kind)
     if guard is None:

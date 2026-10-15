@@ -36,7 +36,7 @@ class FdResponsesTest < ActionDispatch::IntegrationTest
 
     get fd_configuration_path(tab: "responses")
 
-    assert_select "p.sev-crit", "Nemo is not in the channel"
+    assert_select "p.sev-crit", "Nemo is not a member of this channel"
   end
 
   test "autoresponse channel nemo is in shows no seat warning" do

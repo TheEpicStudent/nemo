@@ -49,7 +49,7 @@ class FdChannelJoinTest < ActionDispatch::IntegrationTest
   test "a public channel nemo is not in offers to join" do
     get fd_channel_path(@id)
 
-    assert_select "p.sev-crit", "Nemo is not in the channel"
+    assert_select "p.sev-crit", "Nemo is not a member of this channel"
     assert_select "form[action=?] button", fd_channel_join_path(@id), text: "Join channel"
   end
 
@@ -88,7 +88,7 @@ class FdChannelJoinTest < ActionDispatch::IntegrationTest
   test "a refused join shows nemo's reason" do
     join_with(Fd::ChannelJoinRequest::REFUSED, "is_archived")
 
-    assert_equal "Nemo could not join: is_archived", flash[:alert]
+    assert_equal "Join failed: is_archived", flash[:alert]
   end
 
   test "a join refused for a private channel asks for an invite" do

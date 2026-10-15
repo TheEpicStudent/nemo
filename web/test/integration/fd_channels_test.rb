@@ -49,7 +49,7 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
 
     get fd_channel_path(@channel.channel_id)
 
-    assert_select "p.sev-crit", "Nemo is not in the channel"
+    assert_select "p.sev-crit", "Nemo is not a member of this channel"
   end
 
   test "the channel page asks for an invite when a private channel refused nemo" do
@@ -58,7 +58,7 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
 
     get fd_channel_path(@channel.channel_id)
 
-    assert_select "p.sev-crit", "Nemo isn't in this private channel, someone has to /invite it"
+    assert_select "p.sev-crit", FdChannelsHelper::INVITE_NOTE
   end
 
   test "the channel page says when nemo was removed" do
@@ -67,7 +67,7 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
 
     get fd_channel_path(@channel.channel_id)
 
-    assert_select "p.sev-crit", "Nemo was taken out of here"
+    assert_select "p.sev-crit", "Nemo was removed from this channel"
   end
 
   test "channel_seat_label outside channel with refused join shows refused_note" do
@@ -76,7 +76,7 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
 
     get fd_channel_path(@channel.channel_id)
 
-    assert_select "p.sev-crit", "Nemo could not join this channel: is_archived"
+    assert_select "p.sev-crit", "Join failed: is_archived"
   end
 
   test "channel_seat_label without membership rows shows refused_note" do
@@ -84,7 +84,7 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
 
     get fd_channel_path(@channel.channel_id)
 
-    assert_select "p.sev-crit", "Nemo could not join this channel: is_archived"
+    assert_select "p.sev-crit", "Join failed: is_archived"
   end
 
   test "the channel page shows no warning when nemo is in the channel" do

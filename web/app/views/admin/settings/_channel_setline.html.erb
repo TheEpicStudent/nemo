@@ -1,0 +1,20 @@
+<div class="setline">
+  <div class="setname">
+    <span><%= title %></span>
+    <% if channel_id %>
+      <%= channel_seat_label(*seat) if seat %>
+    <% else %>
+      <p class="sev-crit">No channel selected</p>
+    <% end %>
+  </div>
+  <div class="setval">
+    <%= channel_cell(channel_id, channels_by_id[channel_id]) if channel_id %>
+    <% if may_grant? %>
+      <%= form_with url: url, method: :post, class: "contents" do %>
+        <%= render "shared/combobox", kind: "channel", name: :channel_id, submit: true, trigger_icon: false,
+              trigger_css: "btn btn-sm", url: search_admin_channels_path,
+              trigger: channel_id ? "Change channel" : "Select channel" %>
+      <% end %>
+    <% end %>
+  </div>
+</div>
