@@ -201,7 +201,7 @@ def destroy(client, guard_id):
     return deleted
 
 
-def lift_lock(client, guard_id):
+def lift_lock(client, guard_id, by=None):
     with session() as conn:
         guard = guards.by_id(conn, guard_id)
         if guard is None:
@@ -209,11 +209,38 @@ def lift_lock(client, guard_id):
         gid, kind, channel_id, _thread_ts, state, _by, _warned, _expires = guard
         if kind != guards.LOCK or state not in ("warned", "running"):
             return None
-        guards.finish(conn, gid, "done")
+        guards.finish(conn, gid, "done", by=by)
         guards.refresh(conn)
 
     log.info("nemo: guard %s lifted the lock on %s", gid, channel_id)
+    remove_lock_warnings(client)
     return gid
+
+
+WARNINGS_PER_PASS = 50
+
+
+def remove_lock_warnings(client):
+    with session() as conn:
+        waiting = guards.warnings_to_remove(conn, WARNINGS_PER_PASS)
+
+    removed_count = 0
+    for guard_id, channel_id, warned_ts in waiting:
+        try:
+            client.chat_delete(channel=channel_id, ts=warned_ts)
+        except Exception as failure:
+            if not (privileged.already_deleted(failure) or privileged.absent(failure)):
+                log.warning("nemo: guard %s lock notice not removed yet: %s", guard_id, failure)
+                continue
+        with session() as conn:
+            guards.warning_removed(conn, guard_id)
+        removed_count += 1
+    return removed_count
+
+
+def after_guard_change(client, guard_id):
+    run_destroy(client, guard_id)
+    remove_lock_warnings(client)
 
 
 def note_it(conn, guard, user_id, ts):

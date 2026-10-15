@@ -35,6 +35,28 @@ WHERE channel_id = %s AND thread_ts = %s AND state IN ('warned', 'running')
   AND (expires_at IS NULL OR expires_at > now())
 """
 
+LIVE_ON_THREAD = """
+SELECT id, kind, opened_by, expires_at, reason, warned_ts
+FROM fd.thread_guards
+WHERE channel_id = %s AND thread_ts = %s AND state IN ('warned', 'running')
+"""
+
+EXTENDED = """
+UPDATE fd.thread_guards SET expires_at = %s, updated_at = now()
+WHERE id = %s AND kind = 'lock' AND state IN ('warned', 'running')
+RETURNING id
+"""
+
+WARNINGS_TO_REMOVE = """
+SELECT id, channel_id, warned_ts FROM fd.thread_guards
+WHERE kind = 'lock' AND state IN ('done', 'failed') AND warned_ts IS NOT NULL
+  AND warning_removed_at IS NULL
+ORDER BY finished_at
+LIMIT %s
+"""
+
+WARNING_REMOVED = "UPDATE fd.thread_guards SET warning_removed_at = now() WHERE id = %s"
+
 BY_ID = """
 SELECT id, kind, channel_id, thread_ts, state, opened_by, warned_ts, expires_at
 FROM fd.thread_guards WHERE id = %s
@@ -198,6 +220,31 @@ def by_id(conn, guard_id):
     return conn.execute(BY_ID, (guard_id,)).fetchone()
 
 
+def live_on_thread(conn, channel_id, thread_ts):
+    row = conn.execute(LIVE_ON_THREAD, (channel_id, thread_ts)).fetchone()
+    if row is None:
+        return None
+    return dict(zip(("id", "kind", "opened_by", "expires_at", "reason", "warned_ts"), row))
+
+
+def extend(conn, current, expires_at, by):
+    row = conn.execute(EXTENDED, (expires_at, current["id"])).fetchone()
+    if row is None:
+        return None
+    audit.record(conn, "thread_guard", current["id"], "extended", by,
+                 before={"expires_at": str(current["expires_at"]) if current["expires_at"] else None},
+                 after={"expires_at": str(expires_at) if expires_at else None})
+    return row[0]
+
+
+def warnings_to_remove(conn, limit):
+    return conn.execute(WARNINGS_TO_REMOVE, (limit,)).fetchall()
+
+
+def warning_removed(conn, guard_id):
+    conn.execute(WARNING_REMOVED, (guard_id,))
+
+
 def case_of(conn, channel_id, thread_ts):
     row = conn.execute(ON_A_CASE, (channel_id, thread_ts)).fetchone()
     return row[0] if row else None
@@ -358,9 +405,10 @@ def progressed(conn, guard_id, deleted):
     conn.execute(PROGRESS, (deleted, guard_id))
 
 
-def finish(conn, guard_id, state, error=None, sha=None):
+def finish(conn, guard_id, state, error=None, sha=None, by=None):
     conn.execute(FINISHED, (state, error, sha, guard_id))
     audit.record(
-        conn, "thread_guard", guard_id, "lifted", "system", actor_kind="system",
+        conn, "thread_guard", guard_id, "lifted", by or "system",
+        actor_kind="human" if by else "system",
         after={"state": state, "error": error},
     )

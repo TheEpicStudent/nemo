@@ -67,4 +67,76 @@ class FdThreadGuardsTest < ActionDispatch::IntegrationTest
     actions_tab
     assert_select ".thread-guard-list", false
   end
+  test "a live lock shows its time left with extend and unlock" do
+    guard = guard!(expires_at: 2.hours.from_now + 5.minutes)
+    body = actions_tab
+
+    assert_match(/ends in 2h \d+m/, body)
+    assert_select "form[action=?] button", fd_case_thread_lock_path(@kase, guard), text: "Unlock"
+    assert_select "[data-modal-id-value=lock-extend-#{guard.id}] select[name=extend_by]"
+  end
+
+  test "a lock with no end reads as no end date" do
+    guard!(expires_at: nil)
+
+    assert_match(/no end date/, actions_tab)
+  end
+
+  test "extend adds the picked length to the current end and is audited" do
+    guard = guard!
+    first_end = guard.reload.expires_at
+
+    patch fd_case_thread_lock_path(@kase, guard), params: { extend_by: "2h" }
+
+    assert_redirected_to fd_case_path(@kase)
+    assert_equal first_end + 2.hours, guard.reload.expires_at
+    assert_equal "Lock extended · ends #{Fd::ShortDate.ending(first_end + 2.hours)}", flash[:notice]
+    assert Fd::AuditEntry.exists?(entity_type: "thread_guard", entity_id: guard.id, verb: "extended")
+  end
+
+  test "extend with a custom end sets that end" do
+    guard = guard!
+
+    patch fd_case_thread_lock_path(@kase, guard),
+      params: { extend_by: "custom", expires_on: 5.days.from_now.to_date.to_s, expires_time: "08:00" }
+
+    assert_equal 5.days.from_now.utc.change(hour: 8, min: 0), guard.reload.expires_at
+  end
+
+  test "extend without a choice is refused" do
+    guard = guard!
+
+    patch fd_case_thread_lock_path(@kase, guard)
+
+    assert_equal "Select how long to extend", flash[:alert]
+  end
+
+  test "unlock ends the lock and is audited" do
+    guard = guard!
+
+    delete fd_case_thread_lock_path(@kase, guard)
+
+    assert_equal "Thread unlocked", flash[:notice]
+    assert_equal "done", guard.reload.state
+    assert guard.finished_at
+    assert Fd::AuditEntry.exists?(entity_type: "thread_guard", entity_id: guard.id, verb: "lifted")
+  end
+
+  test "unlock on a lock that already ended is refused" do
+    guard = guard!(state: "done")
+
+    delete fd_case_thread_lock_path(@kase, guard)
+
+    assert_equal "Lock already ended", flash[:alert]
+  end
+
+  test "somebody without thread.guard cannot unlock" do
+    guard = guard!
+    drop_roles!("UME")
+    hold_role!("UME", "gardener")
+
+    delete fd_case_thread_lock_path(@kase, guard)
+
+    assert_equal "running", guard.reload.state
+  end
 end

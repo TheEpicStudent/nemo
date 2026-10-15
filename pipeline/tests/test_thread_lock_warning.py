@@ -46,6 +46,7 @@ def fake_session():
 def lock_submission(client):
     view = card.lock_view(CHANNEL_ID, THREAD_TS)
     view["state"] = {"values": {
+        card.LOCK_DURATION: {card.LOCK_DURATION: {"selected_option": {"value": "custom"}}},
         card.REASON: {card.REASON: {"value": "raid"}},
         card.UNTIL: {card.UNTIL: {"selected_date_time": LOCK_UNTIL}},
     }}
@@ -61,7 +62,7 @@ def finish_calls(monkeypatch):
     monkeypatch.setattr(guards, "refresh", lambda conn: 0)
     monkeypatch.setattr(
         guards, "finish",
-        lambda conn, guard_id, state, error=None, sha=None: calls.append((guard_id, state, error)),
+        lambda conn, guard_id, state, error=None, sha=None, by=None: calls.append((guard_id, state, error)),
     )
     return calls
 
@@ -108,5 +109,5 @@ def test_lock_warning_posted_keeps_guard_live(monkeypatch, finish_calls):
 
     assert thread_lock.confirmed(lock_submission(client)) == GUARD_ID
     assert finish_calls == []
-    assert client.ephemerals == []
+    assert [one["text"] for one in client.ephemerals] == ["Thread locked · ends 1 Jan 2100, 00:00 UTC · Reason: raid"]
     assert client.messages == []

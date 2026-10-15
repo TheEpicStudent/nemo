@@ -12,12 +12,6 @@ module Fd
     OLDEST = 365
 
     SECONDS_TO_START = 30
-
-    CUSTOM = "custom".freeze
-    DURATIONS = {
-      "15m" => 15.minutes, "30m" => 30.minutes, "1h" => 1.hour, "2h" => 2.hours,
-      "6h" => 6.hours, "12h" => 12.hours, "24h" => 24.hours
-    }.freeze
     DAYS_TO_START = 7
 
     has_many :allows, class_name: "Fd::ChannelGuardAllow", foreign_key: :guard_id,

@@ -141,7 +141,7 @@
         </div>
       </div>
       <% if @thread_guards.any? %>
-        <%= render "thread_guards", guards: @thread_guards, names: names %>
+        <%= render "thread_guards", guards: @thread_guards, names: names, kase: @case %>
       <% end %>
       <% if @actions.any? %>
         <%= render "actions", kase: @case, actions: @actions %>

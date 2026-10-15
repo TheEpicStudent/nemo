@@ -108,15 +108,7 @@ module FdChannelsHelper
     parts.join(" · ")
   end
 
-  DURATION_LABELS = {
-    "15m" => "15 minutes", "30m" => "30 minutes", "1h" => "1 hour", "2h" => "2 hours",
-    "6h" => "6 hours", "12h" => "12 hours", "24h" => "24 hours"
-  }.freeze
-
-  def duration_options(prefix = "")
-    DURATION_LABELS.map { |key, label| ["#{prefix}#{label}", key] } +
-      [["Custom end", Fd::ChannelGuard::CUSTOM]]
-  end
+  def duration_options(prefix = "") = Fd::Durations.options(prefix)
 
   def time_left_label(expires_at, now: Time.current)
     expires_at ? "ends #{time_left(expires_at, now: now)}" : "no end date"

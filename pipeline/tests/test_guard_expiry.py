@@ -168,6 +168,7 @@ def notify_handler(monkeypatch):
     monkeypatch.setattr(loop.loops, "sweeping", lambda *args, **kwargs: None)
     monkeypatch.setattr(loop.loops, "timed", lambda *args, **kwargs: (lambda: woken.append(1)))
     monkeypatch.setattr(loop.guard_actions, "run_destroy", lambda client, payload: None)
+    monkeypatch.setattr(loop.guard_actions, "after_guard_change", lambda client, payload: None)
     monkeypatch.setattr(loop, "seat_and_announce", lambda client, channel_id: None)
 
     loop.start(SimpleNamespace(client=None), threading.Event())

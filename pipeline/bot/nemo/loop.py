@@ -237,6 +237,7 @@ def once(case_channel, channel_id=None):
                lambda one=request_id: join_requests.run(client, one)))
     apart(
         ("clearing unremoved guard artifacts", lambda: guard_actions.sweep_removals(client)),
+        ("removing ended lock notices", lambda: guard_actions.remove_lock_warnings(client)),
         ("resetting sessions the guard has earned", guard_actions.sweep_strikes),
         ("lifting what has run out", lambda: sweep.sweep_lapsed(client)),
         ("lifting expired channel guards", lift_lapsed_channel_guards),
@@ -285,7 +286,7 @@ def start(case_channel, stopping, channel_id=None):
             with session() as conn:
                 guards.refresh(conn)
             threading.Thread(
-                target=guard_actions.run_destroy, args=(case_channel.client, payload),
+                target=guard_actions.after_guard_change, args=(case_channel.client, payload),
                 name=f"nemo-guard-{payload}", daemon=True,
             ).start()
             wake_lapses()

@@ -127,6 +127,7 @@ Rails.application.routes.draw do
       resources :reversals, only: [:create]
       resources :participants, only: [:create, :destroy]
       resources :tags, only: [:create, :destroy], controller: "case_tags"
+      resources :thread_locks, only: [:update, :destroy]
     end
   end
 

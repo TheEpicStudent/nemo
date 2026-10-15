@@ -1,22 +1,26 @@
 import json
 
 from bot.core import richtext
+from bot.nemo.views import lengths
 
 DESTROY_CALLBACK = "thread_destroy"
 LOCK_CALLBACK = "thread_lock"
+UNLOCKED_CALLBACK = "thread_unlocked"
 
 REASON = "guard_reason"
 UNTIL = "guard_until"
 NOTE = "guard_note"
 NOTE_TEXT = "guard_note_text"
+LOCK_DURATION = "lock_duration"
+LOCK_EXTEND = "lock_extend"
+UNLOCK = "lock_off"
+LOCK_TITLE = "Lock thread"
 
 REASON_LIMIT = 500
 NOTE_LABEL = "Post a note in the thread"
 TITLE_LIMIT = 24
 
 DESTROY_WARNING = "Saved to the case record, then deleted from Slack. Cannot be undone."
-
-LOCK_WARNING = "New replies are deleted until the lock ends."
 
 ASIDE = "Anyone who keeps posting is signed out of Slack."
 
@@ -115,25 +119,60 @@ def destroy_view(channel_id, thread_ts, values=None):
     }
 
 
-def lock_view(channel_id, thread_ts):
+def lock_modal(channel_id, thread_ts, submit, blocks):
     return {
         "type": "modal",
         "callback_id": LOCK_CALLBACK,
         "private_metadata": metadata(channel_id, thread_ts),
-        "title": {"type": "plain_text", "text": "Lock thread"[:TITLE_LIMIT]},
-        "submit": {"type": "plain_text", "text": "Lock"},
-        "close": {"type": "plain_text", "text": "Cancel"},
-        "blocks": [
-            section_block(LOCK_WARNING),
-            context_block(),
-            reason_block(),
-            {
-                "type": "input",
-                "block_id": UNTIL,
-                "label": {"type": "plain_text", "text": "Until"},
-                "element": {"type": "datetimepicker", "action_id": UNTIL},
-            },
-        ],
+        "title": lengths.plain(LOCK_TITLE),
+        "submit": lengths.plain(submit),
+        "close": lengths.plain("Cancel"),
+        "blocks": blocks,
+    }
+
+
+def lock_view(channel_id, thread_ts, custom=False):
+    blocks = [lengths.picker(LOCK_DURATION, "Duration", "No end", optional=True)]
+    if custom:
+        blocks.append(lengths.end_picker(UNTIL))
+    blocks.append(reason_block())
+    return lock_modal(channel_id, thread_ts, "Lock", blocks)
+
+
+def lock_status_block(current, now=None):
+    return {
+        "type": "section",
+        "text": {"type": "mrkdwn",
+                 "text": f"*Locked* · {lengths.remaining(current['expires_at'], now)} · "
+                         f"set by <@{current['opened_by']}>"},
+        "accessory": {
+            "type": "button", "action_id": UNLOCK, "style": "danger", "text": lengths.plain("Unlock"),
+            "confirm": {"title": lengths.plain("Unlock thread"),
+                        "text": {"type": "mrkdwn", "text": "Unlock this thread."},
+                        "confirm": lengths.plain("Unlock"), "deny": lengths.plain("Cancel"),
+                        "style": "danger"},
+        },
+    }
+
+
+def locked_view(channel_id, thread_ts, current, custom=False, now=None):
+    blocks = [
+        lock_status_block(current, now),
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Reason: {current['reason']}"}]},
+        lengths.picker(LOCK_EXTEND, "Extend by", "Select", optional=False, prefix="+"),
+    ]
+    if custom:
+        blocks.append(lengths.end_picker(UNTIL))
+    return lock_modal(channel_id, thread_ts, "Save", blocks)
+
+
+def unlocked_view():
+    return {
+        "type": "modal",
+        "callback_id": UNLOCKED_CALLBACK,
+        "title": lengths.plain(LOCK_TITLE),
+        "close": lengths.plain("Close"),
+        "blocks": [section_block("*Unlocked*")],
     }
 
 
@@ -142,7 +181,10 @@ def submitted_values(state):
     checked_options = values.get(NOTE, {}).get(NOTE, {}).get("selected_options") or []
     return {
         "reason": (values.get(REASON, {}).get(REASON, {}).get("value") or "").strip(),
-        "until": values.get(UNTIL, {}).get(UNTIL, {}).get("selected_date_time"),
+        "starting": LOCK_EXTEND not in values,
+        "duration": lengths.chosen(values, LOCK_DURATION),
+        "extend": lengths.chosen(values, LOCK_EXTEND),
+        "until": lengths.picked_time(values, UNTIL),
         "note": bool(checked_options),
         "note_body": values.get(NOTE_TEXT, {}).get(NOTE_TEXT, {}).get("rich_text_value"),
     }
@@ -152,11 +194,26 @@ def note_text(values):
     return richtext.flatten(values.get("note_body")) if values.get("note") else ""
 
 
-def validation_errors(values, needs_until=False):
+def lock_key(values):
+    return values["duration"] if values["starting"] else values["extend"]
+
+
+def lock_errors(values, now=None):
+    if values["starting"] and not values["reason"]:
+        return {REASON: "Add a reason."}
+    if not values["starting"] and values["extend"] not in (*lengths.DURATIONS, lengths.CUSTOM):
+        return {LOCK_EXTEND: "Select how long to extend."}
+    return lengths.end_errors(lock_key(values), values["until"], UNTIL, now)
+
+
+def lock_end(values, current=None, now=None):
+    start = None if values["starting"] or not current else current["expires_at"]
+    return lengths.end_from(lock_key(values), values["until"], start, now)
+
+
+def validation_errors(values):
     if not values.get("reason"):
         return {REASON: "Add a reason."}
-    if needs_until and not values.get("until"):
-        return {UNTIL: "Pick when the lock ends."}
     if values.get("note") and not note_text(values):
         return {NOTE_TEXT: "Write the note or untick it."}
     return None

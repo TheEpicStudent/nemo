@@ -72,18 +72,7 @@ module Fd
     end
 
     def slowmode_end(key, from: nil)
-      key = key.to_s
-      if ChannelGuard::DURATIONS.key?(key)
-        return [[from, Time.current].compact.max + ChannelGuard::DURATIONS.fetch(key), nil]
-      end
-      return [nil, nil] unless key == ChannelGuard::CUSTOM
-
-      ends, error = EndTime.read(params[:expires_on], params[:expires_time])
-      return [nil, error] if error
-      return [nil, "Enter the end date"] if ends.nil?
-      return [nil, "End must be in the future"] if ends <= Time.current
-
-      [ends, nil]
+      Durations.read(key, params[:expires_on], params[:expires_time], from: from)
     end
 
     def starting_end = @starting_end ||= slowmode_end(params[:duration])

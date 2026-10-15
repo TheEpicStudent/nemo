@@ -52,7 +52,12 @@ def confirmed(ctx):
     if not channel_id or not thread_ts:
         return None
 
+    replaced_lock = None
     with session() as conn:
+        live = guards.live_on_thread(conn, channel_id, thread_ts)
+        if live and live["kind"] == guards.LOCK:
+            guards.finish(conn, live["id"], "done", "replaced by a destroy", by=ctx.user_id)
+            replaced_lock = live["id"]
         guard_id = guards.open_guard(
             conn, guards.DESTROY, channel_id, thread_ts, ctx.user_id, values["reason"]
         )
@@ -60,7 +65,9 @@ def confirmed(ctx):
             guards.set_note(conn, guard_id, values["note_body"], card.note_text(values))
 
     if guard_id is None:
-        return ctx.post_ephemeral("That thread is already locked or being destroyed.", channel_id, thread_ts)
+        return ctx.post_ephemeral("Thread already being destroyed", channel_id, thread_ts)
+    if replaced_lock:
+        log.info("nemo: destroy guard %s replaced lock %s on %s", guard_id, replaced_lock, thread_ts)
 
     ctx.join(channel_id)
     with session() as conn:

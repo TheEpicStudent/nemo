@@ -57,7 +57,7 @@
                 class: "select", id: nil, required: true,
                 data: { duration_target: "select", action: "change->duration#toggle" } %>
         </label>
-        <%= render "slowmode_custom_end" %>
+        <%= render "fd/custom_end" %>
       </div>
       <div class="modal-foot">
         <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
@@ -76,7 +76,7 @@
                 class: "select", id: nil,
                 data: { duration_target: "select", action: "change->duration#toggle" } %>
         </label>
-        <%= render "slowmode_custom_end" %>
+        <%= render "fd/custom_end" %>
         <label class="field-label">
           Cooldown (seconds)
           <%= number_field_tag :seconds, Fd::ChannelGuard::SECONDS_TO_START, class: "input", id: nil,
