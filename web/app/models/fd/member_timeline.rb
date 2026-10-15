@@ -188,7 +188,7 @@ module Fd
       parts = ["on no case"]
       parts << "in #{channels[guard.channel_id]}" if guard.channel_scoped?
       parts << "by #{names[guard.opened_by]}"
-      parts << "lifts #{ShortDate.for(guard.expires_at)}" if guard.expires_at
+      parts << "lifts #{ShortDate.ending(guard.expires_at)}" if guard.expires_at
       parts << guard.reason if guard.reason.present?
       parts.join(" · ")
     end
@@ -198,7 +198,7 @@ module Fd
       channel = action.details.is_a?(Hash) ? action.details["channel_id"] : nil
       parts << "in #{channels[channel]}" if channel
       parts << "by #{names[action.decided_by]}"
-      parts << "lifts #{ShortDate.for(action.expires_at)}" if action.expires?
+      parts << "lifts #{ShortDate.ending(action.expires_at)}" if action.expires?
       parts << action.reason if action.reason.present?
       parts.join(" · ")
     end

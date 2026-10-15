@@ -17,10 +17,13 @@
         <%= render "shared/combobox", kind: "channel", name: :channel_id, label: "search for a channel" %>
       </div>
 
-      <label class="field-label">
-        Until when
-        <%= date_field_tag :expires_on, nil, class: "input", id: nil %>
-      </label>
+      <div class="field-label">
+        <span>End (UTC, optional)</span>
+        <span class="field-pair">
+          <%= date_field_tag :expires_on, nil, class: "input", id: nil, aria: { label: "End date" } %>
+          <%= time_field_tag :expires_time, nil, class: "input", id: nil, aria: { label: "End time (UTC)" } %>
+        </span>
+      </div>
 
       <label class="field-label">
         Why

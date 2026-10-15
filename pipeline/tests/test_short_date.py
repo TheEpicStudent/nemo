@@ -1,13 +1,12 @@
 import datetime as dt
 
-from bot.core.formatting import short_date
+from bot.core.formatting import short_date, short_end
 from bot.nemo import command, record
 from bot.nemo.enforcement import notify, sweep
 from bot.nemo.views import action, resolve
 
 TODAY = dt.date(2026, 10, 15)
 NEXT_YEAR = dt.date.today().year + 1
-NEXT_YEAR_DATE = dt.date(NEXT_YEAR, 10, 15)
 NEXT_YEAR_TIMESTAMP = dt.datetime(NEXT_YEAR, 10, 15, 23, 59, 59, tzinfo=dt.UTC)
 NEXT_YEAR_LABEL = f"15 Oct {NEXT_YEAR}"
 
@@ -27,8 +26,25 @@ def test_short_date_accepts_timestamps():
 
 
 def test_shush_and_channel_ban_replies_show_next_year():
-    assert NEXT_YEAR_LABEL in command.shushed("U1", NEXT_YEAR_DATE)
-    assert NEXT_YEAR_LABEL in command.banned("U1", "C1", NEXT_YEAR_DATE)
+    assert NEXT_YEAR_LABEL in command.shushed("U1", NEXT_YEAR_TIMESTAMP, "spamming")
+    assert NEXT_YEAR_LABEL in command.banned("U1", "C1", NEXT_YEAR_TIMESTAMP, "spamming")
+
+
+def test_short_end_end_of_day_shows_date_only():
+    assert short_end(dt.datetime(2026, 11, 3, 23, 59, 59, tzinfo=dt.UTC), today=TODAY) == "3 Nov"
+
+
+def test_short_end_other_time_shows_utc_time():
+    assert short_end(dt.datetime(2026, 11, 3, 14, 5, tzinfo=dt.UTC), today=TODAY) == "3 Nov, 14:05 UTC"
+
+
+def test_short_end_converts_other_zones_to_utc():
+    cairo = dt.timezone(dt.timedelta(hours=3))
+    assert short_end(dt.datetime(2026, 11, 3, 17, 5, tzinfo=cairo), today=TODAY) == "3 Nov, 14:05 UTC"
+
+
+def test_short_end_date_shows_date_only():
+    assert short_end(dt.date(2026, 11, 3), today=TODAY) == "3 Nov"
 
 
 def test_member_dm_shows_next_year():

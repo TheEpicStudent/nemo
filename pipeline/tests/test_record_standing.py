@@ -2,7 +2,7 @@ import datetime as dt
 
 from bot.nemo import record
 
-EXPIRES_AT = dt.datetime(2026, 3, 10, 12, tzinfo=dt.UTC)
+EXPIRES_AT = dt.datetime(2026, 3, 10, 23, 59, 59, tzinfo=dt.UTC)
 
 
 def standing_row(**over):

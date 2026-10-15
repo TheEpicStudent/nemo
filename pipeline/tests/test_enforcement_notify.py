@@ -8,7 +8,7 @@ from bot.nemo.enforcement import notify
 USER_ID = "U1"
 CHANNEL_ID = "C1"
 TS = "1700000000.000100"
-EXPIRES_AT = dt.datetime(2026, 3, 10, 12, tzinfo=dt.UTC)
+EXPIRES_AT = dt.datetime(2026, 3, 10, 23, 59, 59, tzinfo=dt.UTC)
 
 
 class Conn:
@@ -68,6 +68,11 @@ def event(**over):
     row = {"channel": CHANNEL_ID, "user": USER_ID, "ts": TS, "subtype": None}
     row.update(over)
     return row
+
+
+def test_ending_with_a_time_shows_the_time_in_utc():
+    assert notify.ending(guard(expires_at=dt.datetime(2026, 3, 10, 14, 30, tzinfo=dt.UTC))) == \
+        "until 10 Mar, 14:30 UTC"
 
 
 def test_a_date_reads_as_a_date_and_none_says_so():

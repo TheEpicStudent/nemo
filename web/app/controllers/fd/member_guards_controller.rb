@@ -36,7 +36,7 @@ module Fd
 
       if expiry.nil?
         return redirect_to fd_member_path(guard.subject_id),
-          alert: "Enter the date it should run until"
+          alert: expiry_error || "Enter an end date"
       end
 
       previous_expiry = guard.expires_at
@@ -47,7 +47,7 @@ module Fd
       end
 
       redirect_to fd_member_path(guard.subject_id),
-        notice: "#{label(guard.kind)} now runs until #{ShortDate.for(expiry)}"
+        notice: "#{label(guard.kind)} now runs until #{ShortDate.ending(expiry)}"
     end
 
     def destroy
@@ -104,15 +104,11 @@ module Fd
 
     def display_name(user_id) = Names.for([user_id])[user_id]
 
-    def expires_on_param = params[:expires_on].to_s.strip
+    def end_time = @end_time ||= EndTime.read(params[:expires_on], params[:expires_time])
 
-    def expiry
-      return nil if expires_on_param.blank?
+    def expiry = end_time.first
 
-      Date.strptime(expires_on_param, "%Y-%m-%d").end_of_day
-    rescue Date::Error
-      nil
-    end
+    def expiry_error = end_time.last
 
     def guard_error
       return "pick what to hold" unless MemberGuard::KINDS.include?(kind)
@@ -120,10 +116,7 @@ module Fd
       if kind == MemberGuard::CHANNEL_BAN && !channel_id.match?(SlackLink::CHANNEL)
         return "a channel ban needs a channel"
       end
-      return "#{expires_on_param} is not a date" if expiry.nil? && expires_on_param.present?
-      if expiry.nil? && !MemberGuard::DATELESS.include?(kind)
-        return "say the date it runs until"
-      end
+      return expiry_error if expiry_error
       if params[:reason].to_s.strip.blank?
         return wrong!(:reason, "Enter why this is being held", params[:reason])
       end

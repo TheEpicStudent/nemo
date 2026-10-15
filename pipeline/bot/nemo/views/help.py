@@ -32,6 +32,8 @@ GUARDS = (
     "Shush and channel ban",
     (
         ("member.guard", "/nemo shush @member 3d reason", "shush for 3 days, no case"),
+        ("member.guard", "/nemo shush @member 2h reason", "shush for 2 hours, no case"),
+        ("member.guard", "/nemo shush @member reason", "shush with no end date, no case"),
         ("member.guard", "/nemo channelban @member #channel 3d reason",
          "channel ban for 3 days, no case"),
     ),

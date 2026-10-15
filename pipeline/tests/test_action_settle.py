@@ -42,9 +42,12 @@ def standing(guard_row, reads, case_id=412, enforceable=True):
     return {"enforceable": enforceable, "guard": guard_row, "reads": reads, "case_id": case_id}
 
 
+FUTURE = (dt.date.today() + dt.timedelta(days=30)).isoformat()
+
+
 def submission(**over):
     row = {"type_key": "shush", "target_user_id": USER_ID, "reason": "being awful",
-           "expires_on": "2026-03-10"}
+           "expires_on": FUTURE}
     row.update(over)
     return row
 
@@ -174,7 +177,8 @@ def test_extending_moves_the_date_on_the_guard_that_already_exists():
     conn = Conn({"UPDATE fd.member_guards SET expires_at": (7,), "UPDATE fd.actions": (1,)})
     memberguards.settled(conn, 1, submission(settle=action.EXTEND, expires_on="2026-04-01"),
                          standing(guard(case_id=318), action.ELSEWHERE), MOD)
-    assert conn.args_for("UPDATE fd.member_guards SET expires_at")[0] == ("2026-04-01 23:59:59", 7)
+    assert conn.args_for("UPDATE fd.member_guards SET expires_at")[0] == \
+        (dt.datetime(2026, 4, 1, 23, 59, 59, tzinfo=dt.UTC), 7)
 
 
 def test_a_guard_under_another_case_left_alone_is_not_claimed():

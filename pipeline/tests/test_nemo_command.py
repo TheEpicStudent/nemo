@@ -1,5 +1,7 @@
 import datetime as dt
 
+import pytest
+
 from bot.nemo import command
 
 USER_ID = "U1ABC"
@@ -18,47 +20,59 @@ def test_shush_needs_the_member_guard_capability():
     assert command.NEEDED[command.SHUSH] == "member.guard"
 
 
-def test_days_and_weeks_both_read_as_a_date():
-    today = dt.date.today()
-
-    assert command.ends_on("3d") == today + dt.timedelta(days=3)
-    assert command.ends_on("2w") == today + dt.timedelta(days=14)
-    assert command.ends_on("1D") == today + dt.timedelta(days=1)
+NOW = dt.datetime(2026, 10, 16, 9, 30, tzinfo=dt.UTC)
 
 
-def test_a_date_is_taken_as_it_stands():
-    expires_on = dt.date.today() + dt.timedelta(days=40)
-
-    assert command.ends_on(expires_on.strftime("%Y-%m-%d")) == expires_on
-
-
-def test_what_is_not_a_length_reads_as_none():
-    for text in ("0d", "999d", "soon", "", "2026-13-01", "-3d"):
-        assert command.ends_on(text) is None, text
-
-
-def test_a_date_already_gone_reads_as_none():
-    yesterday = dt.date.today() - dt.timedelta(days=1)
-
-    assert command.ends_on(yesterday.strftime("%Y-%m-%d")) is None
+@pytest.mark.parametrize(("text", "length"), [
+    ("30m", dt.timedelta(minutes=30)),
+    ("2h", dt.timedelta(hours=2)),
+    ("3d", dt.timedelta(days=3)),
+    ("2w", dt.timedelta(weeks=2)),
+    ("1D", dt.timedelta(days=1)),
+])
+def test_ends_at_length_adds_to_now(text, length):
+    assert command.ends_at(text, NOW) == NOW + length
 
 
-def test_the_length_is_split_off_the_reason():
-    expires_on, reason = command.for_how_long("2w  flooding   #lounge")
-
-    assert expires_on == dt.date.today() + dt.timedelta(days=14)
-    assert reason == "flooding #lounge"
+def test_ends_at_date_ends_at_end_of_day():
+    assert command.ends_at("2026-11-20", NOW) == dt.datetime(2026, 11, 20, 23, 59, 59, tzinfo=dt.UTC)
 
 
-def test_a_reason_with_no_length_is_held_back():
-    assert command.for_how_long("flooding the channel") == (None, None)
+@pytest.mark.parametrize("text", ["0m", "366d", "53w", "soon", "", "-3d", "2026-13-01",
+                                  "2026-10-16", "2026-10-15", "2027-12-01"])
+def test_ends_at_out_of_range_reads_as_none(text):
+    assert command.ends_at(text, NOW) is None
 
 
-def test_a_length_with_no_reason_leaves_nothing_to_write_down():
-    expires_on, reason = command.for_how_long("3d")
+def test_for_how_long_splits_length_off_reason():
+    assert command.for_how_long("2w  flooding   #lounge", NOW) == \
+        (True, NOW + dt.timedelta(weeks=2), "flooding #lounge")
 
-    assert expires_on == dt.date.today() + dt.timedelta(days=3)
-    assert reason is None
+
+def test_for_how_long_without_length_has_no_end():
+    assert command.for_how_long("flooding the channel", NOW) == (True, None, "flooding the channel")
+
+
+def test_for_how_long_reason_starting_with_number_has_no_end():
+    assert command.for_how_long("3 spam messages", NOW) == (True, None, "3 spam messages")
+
+
+def test_for_how_long_bad_length_is_invalid():
+    assert command.for_how_long("400d spamming", NOW) == (False, None, "spamming")
+
+
+def test_for_how_long_length_without_reason_has_no_reason():
+    assert command.for_how_long("3d", NOW) == (True, NOW + dt.timedelta(days=3), None)
+
+
+def test_shushed_with_no_end_says_so():
+    assert command.shushed("U1", None, "spamming") == \
+        "<@U1> has been shushed with no end date. Reason: spamming"
+
+
+def test_banned_with_time_shows_utc_time():
+    assert command.banned("U1", "C1", dt.datetime(2026, 10, 16, 11, 30, tzinfo=dt.UTC), "spamming") == \
+        "<@U1> has been banned from <#C1> until 16 Oct, 11:30 UTC. Reason: spamming"
 
 
 def test_channelban_is_asked_for_like_the_other_verbs():
@@ -83,11 +97,9 @@ def test_a_ban_with_no_channel_is_held_back():
 
 def test_the_length_still_reads_after_the_channel_comes_out():
     channel_id, remainder = command.in_a_channel(f"{CHANNEL_MENTION} 2w flooding it")
-    expires_on, reason = command.for_how_long(remainder)
 
     assert channel_id == CHANNEL_ID
-    assert expires_on == dt.date.today() + dt.timedelta(days=14)
-    assert reason == "flooding it"
+    assert command.for_how_long(remainder, NOW) == (True, NOW + dt.timedelta(weeks=2), "flooding it")
 
 
 def test_the_help_card_lists_shush_only_for_who_holds_it():

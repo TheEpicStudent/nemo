@@ -1,7 +1,7 @@
 import yaml
 
 from bot.core import richtext
-from bot.core.formatting import short_date
+from bot.core.formatting import short_end
 from bot.nemo.views import action, lines
 from lib.paths import RESOLUTIONS_FILE
 
@@ -49,7 +49,7 @@ def forced(live_actions):
 
 
 def until(at):
-    return short_date(at) if at else None
+    return short_end(at) if at else None
 
 
 def line(one):

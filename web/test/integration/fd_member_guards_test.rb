@@ -47,12 +47,22 @@ class FdMemberGuardsTest < ActionDispatch::IntegrationTest
     assert_nil guards.find_by(kind: "shush").channel_id
   end
 
-  test "it will not hold without a date or a reason" do
-    hold(expires_on: "")
-    assert_empty guards
-
+  test "it will not hold without a reason" do
     hold(reason: "  ")
     assert_empty guards
+  end
+
+  test "a hold with a date and time ends at that time in utc" do
+    hold(expires_on: "2026-11-02", expires_time: "08:15")
+
+    assert_equal Time.utc(2026, 11, 2, 8, 15), guards.sole.expires_at
+  end
+
+  test "a hold with a time that is not a time is refused" do
+    hold(expires_time: "25:00")
+
+    assert_empty guards
+    assert_equal "25:00 is not a time", flash[:alert]
   end
 
   test "a kind nobody declared is refused" do

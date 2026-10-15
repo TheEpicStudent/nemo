@@ -22,10 +22,13 @@
           id: nil %>
   </label>
   <%= render "thread_lock_pick", locks: thread_locks, kase: kase, logged: locks_logged %>
-  <label class="field-label" data-action-standing-target="expiry" hidden>
-    Until when
-    <%= date_field_tag :expires_on, nil, class: "input", id: nil %>
-  </label>
+  <div class="field-label" data-action-standing-target="expiry" hidden>
+    <span>End (UTC)</span>
+    <span class="field-pair">
+      <%= date_field_tag :expires_on, nil, class: "input", id: nil, aria: { label: "End date" } %>
+      <%= time_field_tag :expires_time, nil, class: "input", id: nil, aria: { label: "End time (UTC)" } %>
+    </span>
+  </div>
   <div class="field-label" data-action-standing-target="channel" hidden>
     <span>Which channel</span>
     <%= render "shared/combobox", kind: "channel", name: :channel_id, label: "search for a channel" %>

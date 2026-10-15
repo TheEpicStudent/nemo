@@ -3,7 +3,7 @@ import logging
 import re
 
 from bot.core import access, audit, richtext, session
-from bot.core.formatting import short_date
+from bot.core.formatting import short_end
 from bot.nemo import case_actions, case_queue, channel, memberguards, purge_requests, record
 from bot.nemo.views import help as helping
 from bot.nemo.views import merge, queued, report
@@ -28,10 +28,13 @@ WHO = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
 WHERE = re.compile(r"<#(C[A-Z0-9]+)(?:\|[^>]*)?>")
 CASE = re.compile(r"\A#?(\d+)\Z")
 MEMBER_ID = re.compile(r"\A[UW][A-Z0-9]{2,}\Z")
-FOR_A_WHILE = re.compile(r"\A(\d{1,3})([dw])\Z", re.IGNORECASE)
+LENGTH = re.compile(r"\A(\d{1,6})([mhdw])\Z", re.IGNORECASE)
 ON_A_DATE = re.compile(r"\A(\d{4})-(\d{2})-(\d{2})\Z")
+UNITS = {"m": "minutes", "h": "hours", "d": "days", "w": "weeks"}
 
 LONGEST_DAYS = 365
+SHORTEST = dt.timedelta(minutes=1)
+LONGEST = dt.timedelta(days=LONGEST_DAYS)
 
 SUBJECT_USAGE = {
     LOOKUP: "Name the member: */nemo lookup @member*",
@@ -43,13 +46,13 @@ SUBJECT_USAGE = {
 TEXT_USAGE = {
     NOTE: "Add the note: */nemo note @member text*",
     OPEN: "Add a summary: */nemo open @member summary*",
-    SHUSH: "Add a duration and reason: */nemo shush @member 3d reason*",
-    CHANNEL_BAN: "Add a duration and reason: */nemo channelban @member #channel 3d reason*",
+    SHUSH: "Add a reason: */nemo shush @member 3d reason*",
+    CHANNEL_BAN: "Add a reason: */nemo channelban @member #channel 3d reason*",
 }
 
 HOW_LONG = (
-    "Put the duration first: *{example}*. "
-    f"Use days (3d), weeks (2w) or a date (2026-10-15), up to {LONGEST_DAYS} days."
+    "Duration: 30m, 2h, 3d, 2w or a date (2026-10-15), up to "
+    f"{LONGEST_DAYS} days. Omit it for no end date: *{{example}}*"
 )
 
 DURATION_USAGE = {
@@ -83,13 +86,22 @@ def parse_command(text):
     return verb, (who if MEMBER_ID.match(who) else None), body or None
 
 
-def ends_on(text):
-    match = FOR_A_WHILE.match(text)
+def end_of_day(on):
+    return dt.datetime.combine(on, dt.time(23, 59, 59), dt.timezone.utc)
+
+
+def is_length(text):
+    return bool(LENGTH.match(text) or ON_A_DATE.match(text))
+
+
+def ends_at(text, now=None):
+    now = now or dt.datetime.now(dt.timezone.utc)
+    match = LENGTH.match(text)
     if match:
-        days = int(match.group(1)) * (7 if match.group(2).lower() == "w" else 1)
-        if not 1 <= days <= LONGEST_DAYS:
+        length = dt.timedelta(**{UNITS[match.group(2).lower()]: int(match.group(1))})
+        if not SHORTEST <= length <= LONGEST:
             return None
-        return dt.date.today() + dt.timedelta(days=days)
+        return now + length
 
     match = ON_A_DATE.match(text)
     if not match:
@@ -99,15 +111,18 @@ def ends_on(text):
         on = dt.date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
     except ValueError:
         return None
-    return on if on > dt.date.today() else None
+    if not now.date() < on <= (now + LONGEST).date():
+        return None
+    return end_of_day(on)
 
 
-def for_how_long(body):
-    first, _, remainder = (body or "").partition(" ")
-    on = ends_on(first)
-    if on is None:
-        return None, None
-    return on, re.sub(r"\s+", " ", remainder).strip() or None
+def for_how_long(body, now=None):
+    text = re.sub(r"\s+", " ", body or "").strip()
+    first, _, remainder = text.partition(" ")
+    if not is_length(first):
+        return True, None, text or None
+    expires_at = ends_at(first, now)
+    return expires_at is not None, expires_at, remainder or None
 
 
 def in_a_channel(body):
@@ -213,23 +228,20 @@ def already_open(user_id, numbers):
     return f"<@{user_id}> already has an open case: {text}. Add to that one instead."
 
 
-def shushed(user_id, on):
-    return (
-        f"<@{user_id}> is shushed until {short_date(on)}, with no case. "
-        "Log it on a case if there is one."
-    )
+def ending(expires_at):
+    return f"until {short_end(expires_at)}" if expires_at else "with no end date"
+
+
+def shushed(user_id, expires_at, why):
+    return f"<@{user_id}> has been shushed {ending(expires_at)}. Reason: {why}"
 
 
 def already_shushed(user_id):
     return f"<@{user_id}> is already shushed. Lift or extend it in Fire Engine."
 
 
-def banned(user_id, channel_id, on):
-    return (
-        f"<@{user_id}> is banned from <#{channel_id}> "
-        f"until {short_date(on)}, with no case. "
-        "Log it on a case if there is one."
-    )
+def banned(user_id, channel_id, expires_at, why):
+    return f"<@{user_id}> has been banned from <#{channel_id}> {ending(expires_at)}. Reason: {why}"
 
 
 def already_banned(user_id, channel_id):
@@ -321,35 +333,36 @@ def register(app):
                 case_actions.member_note(conn, target_id, body, user_id)
                 answer = message_only(f"Note added to <@{target_id}>.")
             elif verb == SHUSH:
-                on, why = for_how_long(body)
-                if on is None:
+                valid, expires_at, why = for_how_long(body)
+                if not valid:
                     answer = message_only(DURATION_USAGE[SHUSH])
                 elif not why:
                     answer = message_only(TEXT_USAGE[SHUSH])
                 else:
                     guard_id = memberguards.open_guard(
                         conn, memberguards.SHUSH, target_id, user_id, why,
-                        expires_at=f"{on} 23:59:59",
+                        expires_at=expires_at,
                     )
                     answer = message_only(
-                        shushed(target_id, on) if guard_id else already_shushed(target_id)
+                        shushed(target_id, expires_at, why) if guard_id
+                        else already_shushed(target_id)
                     )
             elif verb == CHANNEL_BAN:
                 where, remainder = in_a_channel(body)
-                on, why = for_how_long(remainder)
+                valid, expires_at, why = for_how_long(remainder)
                 if where is None:
                     answer = message_only(CHANNEL_USAGE)
-                elif on is None:
+                elif not valid:
                     answer = message_only(DURATION_USAGE[CHANNEL_BAN])
                 elif not why:
                     answer = message_only(TEXT_USAGE[CHANNEL_BAN])
                 else:
                     guard_id = memberguards.open_guard(
                         conn, memberguards.CHANNEL_BAN, target_id, user_id, why,
-                        channel_id=where, expires_at=f"{on} 23:59:59",
+                        channel_id=where, expires_at=expires_at,
                     )
                     answer = message_only(
-                        banned(target_id, where, on) if guard_id
+                        banned(target_id, where, expires_at, why) if guard_id
                         else already_banned(target_id, where)
                     )
             elif verb == PURGE:

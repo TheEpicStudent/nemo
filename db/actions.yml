@@ -4,7 +4,7 @@ actions:
     weight: 6
   shush:
     label: Shush
-    expires: true
+    expires: optional
     weight: 5
     enforce:
       guard: shush
@@ -12,7 +12,7 @@ actions:
       carry: reactive
   temp_ban:
     label: Temporary ban
-    expires: true
+    expires: required
     weight: 3
     enforce:
       guard: deactivation
@@ -34,7 +34,7 @@ actions:
       carry: applied
   channel_ban:
     label: Channel ban
-    expires: true
+    expires: optional
     channel: required
     weight: 4
     enforce:

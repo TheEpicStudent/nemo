@@ -23,7 +23,7 @@
               <td><%= guard_line(guard) %></td>
               <td><%= Fd::ShortDate.for(guard.opened_at) %></td>
               <td class="<%= "is-none" unless guard.expires_at %>">
-                <%= guard.expires_at ? Fd::ShortDate.for(guard.expires_at) : "no end date" %>
+                <%= guard.expires_at ? Fd::ShortDate.ending(guard.expires_at) : "no end date" %>
               </td>
               <td>
                 <% if guard.case_id %>

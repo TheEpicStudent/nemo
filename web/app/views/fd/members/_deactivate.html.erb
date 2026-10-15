@@ -12,10 +12,13 @@
       </label>
       <%= field_wrong(:reason) %>
 
-      <label class="field-label">
-        Until when (optional)
-        <%= date_field_tag :expires_on, nil, class: "input", id: nil %>
-      </label>
+      <div class="field-label">
+        <span>End (UTC, optional)</span>
+        <span class="field-pair">
+          <%= date_field_tag :expires_on, nil, class: "input", id: nil, aria: { label: "End date" } %>
+          <%= time_field_tag :expires_time, nil, class: "input", id: nil, aria: { label: "End time (UTC)" } %>
+        </span>
+      </div>
 
       <% if current_account.may?("member.purge") %>
         <label class="tickline">

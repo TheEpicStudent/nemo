@@ -120,15 +120,22 @@ class Fd::CaseTimelineTest < ActiveSupport::TestCase
 
   test "action_chips with expiry in current year shows day and month" do
     travel_to OPENED do
-      entry = build(kase, actions: [action(type_key: "shush", expires_at: OPENED + 7.days)]).last
+      entry = build(kase, actions: [action(type_key: "shush", expires_at: (OPENED + 7.days).end_of_day)]).last
       assert_equal ["expires 8 Mar"], entry.chips
     end
   end
 
   test "action_chips with expiry in next year includes year" do
     travel_to OPENED do
-      entry = build(kase, actions: [action(type_key: "shush", expires_at: OPENED + 1.year + 7.days)]).last
+      entry = build(kase, actions: [action(type_key: "shush", expires_at: (OPENED + 1.year + 7.days).end_of_day)]).last
       assert_equal ["expires 8 Mar 2027"], entry.chips
+    end
+  end
+
+  test "action_chips with expiry at a set time shows the time in utc" do
+    travel_to OPENED do
+      entry = build(kase, actions: [action(type_key: "shush", expires_at: OPENED + 2.hours)]).last
+      assert_equal ["expires 1 Mar, 11:00 UTC"], entry.chips
     end
   end
 

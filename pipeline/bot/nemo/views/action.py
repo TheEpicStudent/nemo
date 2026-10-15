@@ -2,7 +2,7 @@ import datetime as dt
 
 import yaml
 
-from bot.core.formatting import short_date
+from bot.core.formatting import short_date, short_end
 from bot.nemo.views import edit
 from lib.paths import ACTIONS_FILE
 
@@ -12,6 +12,7 @@ TARGET = "action_target"
 KIND = "action_kind"
 RESOLUTION_NOTE = "action_resolution_note"
 UNTIL = "action_until"
+UNTIL_TIME = "action_until_time"
 WHERE = "action_where"
 REASON = "action_reason"
 CATEGORY = "action_category"
@@ -37,6 +38,9 @@ SETTLE_DEFAULT = {
 
 REASON_LIMIT = 2000
 
+REQUIRED = "required"
+END_OF_DAY = dt.time(23, 59, 59)
+
 TABLE = None
 
 
@@ -52,8 +56,12 @@ def label(key):
     return row["label"] if row else key.replace("_", " ")
 
 
-def needs_expiry(key):
+def takes_expiry(key):
     return bool(table().get(key, {}).get("expires"))
+
+
+def needs_expiry(key):
+    return table().get(key, {}).get("expires") == REQUIRED
 
 
 def enforce(key):
@@ -103,15 +111,19 @@ def kind_initial_option(selected_key):
 
 def expiry(values):
     on = values.get("expires_on")
-    return f"{on} 23:59:59" if on else None
+    if not on:
+        return None
+    at = values.get("expires_time")
+    hour_minute = dt.time.fromisoformat(at) if at else END_OF_DAY
+    return dt.datetime.combine(dt.date.fromisoformat(on), hour_minute, dt.timezone.utc)
 
 
 def format_date(at):
     return short_date(at) if at else None
 
 
-def format_expiry(expires_on):
-    return format_date(dt.date.fromisoformat(expires_on)) if expires_on else None
+def format_end(at):
+    return short_end(at) if at else None
 
 
 def header_text(values, channel_name=None):
@@ -119,8 +131,8 @@ def header_text(values, channel_name=None):
     parts = [label(key)]
     if needs_channel(key) and values.get("channel_id"):
         parts.append(f"from #{channel_name}" if channel_name else f"from {values['channel_id']}")
-    until = format_expiry(values.get("expires_on"))
-    if needs_expiry(key) and until:
+    until = format_end(expiry(values))
+    if takes_expiry(key) and until:
         parts.append(f"until {until}")
     return " ".join(parts)
 
@@ -145,7 +157,7 @@ def footnote(guard):
     since = format_date(guard.get("opened_at"))
     if since:
         parts.append(f"since {since}")
-    until = format_date(guard.get("expires_at"))
+    until = format_end(guard.get("expires_at"))
     parts.append(f"until {until}" if until else "no end date")
     if guard.get("enforced_by") == "by_hand":
         parts.append("manual")
@@ -194,7 +206,7 @@ def settle_options(values, guard_status):
         ]
 
     built = []
-    if needs_expiry(values.get("type_key")):
+    if takes_expiry(values.get("type_key")):
         built.append((EXTEND, "Change its end date to the date above"))
     built.append((RECORD, "Only log this action"))
     return built if len(built) > 1 else []
@@ -295,18 +307,36 @@ def build_blocks(case_id, values, guard_status=None):
 
     built += existing_guard_blocks(guard_status)
 
-    if needs_expiry(key):
+    if takes_expiry(key):
         built.append(
             {
                 "type": "input",
                 "block_id": UNTIL,
-                "label": {"type": "plain_text", "text": "Until"},
+                "optional": not needs_expiry(key),
+                "label": {"type": "plain_text", "text": "End date"},
                 "element": {
                     "type": "datepicker",
                     "action_id": UNTIL,
                     **(
                         {"initial_date": values["expires_on"]}
                         if values.get("expires_on")
+                        else {}
+                    ),
+                },
+            }
+        )
+        built.append(
+            {
+                "type": "input",
+                "block_id": UNTIL_TIME,
+                "optional": True,
+                "label": {"type": "plain_text", "text": "End time (UTC)"},
+                "element": {
+                    "type": "timepicker",
+                    "action_id": UNTIL_TIME,
+                    **(
+                        {"initial_time": values["expires_time"]}
+                        if values.get("expires_time")
                         else {}
                     ),
                 },
@@ -415,7 +445,7 @@ def echo_blocks(values, by, channel_name=None):
 
 def requires_refresh(values, block_ids, guard_status=None):
     key = values.get("type_key")
-    if needs_expiry(key) and UNTIL not in block_ids:
+    if takes_expiry(key) and UNTIL not in block_ids:
         return True
     if needs_channel(key) and WHERE not in block_ids:
         return True
@@ -435,6 +465,7 @@ def submitted_values(view_state):
             values.get(RESOLUTION_NOTE, {}).get(RESOLUTION_NOTE, {}).get("value") or ""
         ).strip(),
         "expires_on": values.get(UNTIL, {}).get(UNTIL, {}).get("selected_date"),
+        "expires_time": values.get(UNTIL_TIME, {}).get(UNTIL_TIME, {}).get("selected_time"),
         "channel_id": values.get(WHERE, {}).get(WHERE, {}).get("selected_conversation"),
         "settle": (
             (values.get(SETTLE, {}).get(SETTLE, {}).get("selected_option") or {}).get("value")
@@ -455,6 +486,8 @@ def validation_errors(values):
         return {TARGET: "Pick a member."}
     if needs_expiry(key) and not values.get("expires_on"):
         return {UNTIL: f"A {label(key).lower()} needs an end date."}
+    if values.get("expires_time") and not values.get("expires_on"):
+        return {UNTIL: "Pick a date for the end time."}
     if needs_channel(key) and not values.get("channel_id"):
         return {WHERE: f"A {label(key).lower()} needs a channel."}
     if values.get("settle") == EXTEND and not values.get("expires_on"):

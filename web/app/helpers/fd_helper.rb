@@ -547,7 +547,7 @@ module FdHelper
 
   def guard_ends(guard)
     return "Lifted #{on_day(guard.lifted_at)}" if guard.lifted_at
-    return on_day(guard.expires_at) if guard.expires_at
+    return Fd::ShortDate.ending(guard.expires_at) if guard.expires_at
 
     "No end date"
   end
@@ -973,7 +973,7 @@ module FdHelper
   def action_options
     ACTION_LABELS.map do |key, label|
       [label, key, { data: {
-        expires: Fd::Action::NEEDS_EXPIRY.include?(key),
+        expires: Fd::Action::TAKES_EXPIRY.include?(key),
         channel: Fd::Action::TAKES_CHANNEL.include?(key),
         lock: Fd::Action.from_thread_lock?(key)
       } }]
@@ -1408,7 +1408,7 @@ module FdHelper
 
   def action_state_chip(action)
     return tag.span("reversed", class: "chip chip-off") if action.reversed?
-    return tag.span("expired #{on_day(action.expires_at)}", class: "chip chip-off") if action.expired?
+    return tag.span("expired #{Fd::ShortDate.ending(action.expires_at)}", class: "chip chip-off") if action.expired?
 
     return nil unless action.expires?
 
@@ -1433,7 +1433,7 @@ module FdHelper
     channel = action.details["channel_id"]
     parts = action.targets_member? ? ["On ", member_face(action.target_user_id, small: true)] : ["On a thread"]
     parts << " in #{channel_label(channel)}" if channel.present?
-    parts << ", until #{on_day(action.expires_at)}" if action.expires?
+    parts << ", until #{Fd::ShortDate.ending(action.expires_at)}" if action.expires?
     parts << ". Set by "
     parts << member_face(action.decided_by, small: true)
     parts << " on #{on_day(action.performed_at)}."
@@ -1759,7 +1759,7 @@ module FdHelper
 
   def thread_lock_note(guard, case_id)
     parts = [guard_standing_where(guard, case_id)]
-    parts << (guard.expires_at ? "lifts #{Fd::ShortDate.for(guard.expires_at)}" : "no end date")
+    parts << (guard.expires_at ? "lifts #{Fd::ShortDate.ending(guard.expires_at)}" : "no end date")
     parts << guard.reason.to_s.truncate(60)
     parts.join("  ·  ")
   end
@@ -1784,7 +1784,7 @@ module FdHelper
 
   def guard_option_note(guard, case_id)
     parts = [guard_standing_where(guard, case_id)]
-    parts << (guard.expires_at ? "until #{Fd::ShortDate.for(guard.expires_at)}" : "no end date")
+    parts << (guard.expires_at ? "until #{Fd::ShortDate.ending(guard.expires_at)}" : "no end date")
     parts.join("  ·  ")
   end
 
@@ -1847,7 +1847,7 @@ module FdHelper
     opener = names.unknown?(guard.opened_by) ? tag.span(names[guard.opened_by], data: { cachet_name: guard.opened_by }) : names[guard.opened_by]
     parts = [safe_join(["Opened by ", opener])]
     parts << "since #{Fd::ShortDate.for(guard.opened_at)}" if guard.opened_at
-    parts << (guard.expires_at ? "until #{Fd::ShortDate.for(guard.expires_at)}" : "with no end date")
+    parts << (guard.expires_at ? "until #{Fd::ShortDate.ending(guard.expires_at)}" : "with no end date")
     parts << if guard.by_hand?
       "done by hand"
     else

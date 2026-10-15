@@ -5,7 +5,8 @@ module Fd
     TABLE = YAML.load_file(Rails.root.join("../db/actions.yml")).fetch("actions").freeze
     TYPES = TABLE.keys.freeze
     LABELS = TABLE.transform_values { |row| row.fetch("label") }.freeze
-    NEEDS_EXPIRY = TABLE.select { |_key, row| row["expires"] }.keys.freeze
+    TAKES_EXPIRY = TABLE.select { |_key, row| row["expires"] }.keys.freeze
+    NEEDS_EXPIRY = TABLE.select { |_key, row| row["expires"] == "required" }.keys.freeze
     NEEDS_CHANNEL = TABLE.select { |_key, row| row["channel"] == "required" }.keys.freeze
     TAKES_CHANNEL = TABLE.select { |_key, row| row["channel"].present? }.keys.freeze
     WORST_FIRST = TABLE.sort_by { |_key, row| row.fetch("weight") }.map(&:first).freeze

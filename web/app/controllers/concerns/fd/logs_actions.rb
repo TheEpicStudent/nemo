@@ -1,6 +1,7 @@
 module Fd
   module LogsActions
     NEEDS_EXPIRY = Action::NEEDS_EXPIRY
+    TAKES_EXPIRY = Action::TAKES_EXPIRY
     NEEDS_CHANNEL = Action::NEEDS_CHANNEL
     TAKES_CHANNEL = Action::TAKES_CHANNEL
     MEMBER_ID = /\A[UW][A-Z0-9]{2,}\z/
@@ -39,10 +40,10 @@ module Fd
       return "say who it was directed at" if target_user_id.blank?
       return "#{target_user_id} is not a member id" unless target_user_id.match?(MEMBER_ID)
       return "#{type_name.downcase} is not yours to log" if deactivates? && !may_deactivate?
-      if NEEDS_EXPIRY.include?(type_key)
-        return "#{type_name.downcase} needs a date it runs until" if params[:expires_on].blank?
-        return "#{params[:expires_on]} is not a date" if expiry.nil?
+      if NEEDS_EXPIRY.include?(type_key) && params[:expires_on].blank?
+        return "#{type_name} needs an end date"
       end
+      return expiry_error if expiry_error
       if NEEDS_CHANNEL.include?(type_key) && channel_id.blank?
         return "#{type_name.downcase} needs a channel"
       end
@@ -175,16 +176,17 @@ module Fd
       kase.category_key
     end
 
-    def expiry
-      return nil unless NEEDS_EXPIRY.include?(type_key)
-
-      expires_on = params[:expires_on].to_s.strip
-      return nil if expires_on.blank?
-
-      Date.strptime(expires_on, "%Y-%m-%d").end_of_day
-    rescue Date::Error
-      nil
+    def end_time
+      @end_time ||= if TAKES_EXPIRY.include?(type_key)
+        EndTime.read(params[:expires_on], params[:expires_time])
+      else
+        [nil, nil]
+      end
     end
+
+    def expiry = end_time.first
+
+    def expiry_error = end_time.last
 
     def channel
       return {} unless TAKES_CHANNEL.include?(type_key)

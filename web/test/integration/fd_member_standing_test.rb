@@ -136,11 +136,10 @@ class FdMemberStandingTest < ActionDispatch::IntegrationTest
     assert_match(/not a date/, flash[:alert])
   end
 
-  test "a shush still has to say when it runs until" do
+  test "a shush without an end date has no end" do
     post fd_member_guards_path(WHO), params: { kind: "shush", reason: "spam" }
 
-    assert_nil Fd::MemberGuard.find_by(subject_id: WHO, kind: "shush")
-    assert_match(/say the date it runs until/, flash[:alert])
+    assert_nil Fd::MemberGuard.find_by!(subject_id: WHO, kind: "shush").expires_at
   end
 
   test "the notify payload names the member the guard is about" do

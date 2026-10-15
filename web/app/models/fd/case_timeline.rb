@@ -167,7 +167,7 @@ module Fd
 
     def action_chips(action)
       chips = []
-      chips << "expires #{ShortDate.for(action.expires_at)}" if action.expires?
+      chips << "expires #{ShortDate.ending(action.expires_at)}" if action.expires?
       chips << "reversed" if action.reversed?
       chips << from_chip(action)
       chips.compact

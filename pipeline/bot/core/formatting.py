@@ -36,3 +36,12 @@ def short_date(value, today=None):
     if value.year == (today or dt.date.today()).year:
         return value.strftime("%-d %b")
     return value.strftime("%-d %b %Y")
+
+
+def short_end(value, today=None):
+    if not isinstance(value, dt.datetime):
+        return short_date(value, today)
+    at = value.astimezone(dt.timezone.utc) if value.tzinfo else value
+    if (at.hour, at.minute) == (23, 59):
+        return short_date(at, today)
+    return f"{short_date(at, today)}, {at:%H:%M} UTC"

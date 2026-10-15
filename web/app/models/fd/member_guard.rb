@@ -8,7 +8,6 @@ module Fd
     KINDS = [SHUSH, CHANNEL_BAN, DEACTIVATION].freeze
 
     UNDONE_IN_SLACK = [DEACTIVATION].freeze
-    DATELESS = [DEACTIVATION].freeze
     NON_DEACTIVATION_KINDS = (KINDS - [DEACTIVATION]).freeze
     WORST_KINDS = [DEACTIVATION, CHANNEL_BAN, SHUSH].freeze
 
@@ -128,8 +127,6 @@ module Fd
     def undone_in_slack?
       UNDONE_IN_SLACK.include?(kind) && !by_hand?
     end
-
-    def dateless? = DATELESS.include?(kind)
 
     def live? = state == LIVE
     def lifting? = state == LIFTING

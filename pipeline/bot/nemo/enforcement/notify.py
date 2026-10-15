@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import privileged
-from bot.core.formatting import short_date
+from bot.core.formatting import short_end
 from bot.nemo import memberguards, userbots
 
 log = logging.getLogger("bot.nemo")
@@ -17,7 +17,7 @@ HANDLED_SUBTYPES = (None, "file_share", "thread_broadcast", "me_message")
 
 def ending(guard):
     at = guard.get("expires_at")
-    return UNTIL.format(when=short_date(at)) if at else ENDLESS
+    return UNTIL.format(when=short_end(at)) if at else ENDLESS
 
 
 def dm_subject(client, conn, guard, message):

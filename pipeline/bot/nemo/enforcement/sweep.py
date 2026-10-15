@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import session
-from bot.core.formatting import short_date
+from bot.core.formatting import short_end
 from bot.nemo import channel, channels, memberguards
 from bot.nemo.enforcement import ENFORCEMENTS
 
@@ -137,7 +137,7 @@ def line_about(guard):
     case = f" (case {guard['case_id']})" if guard.get("case_id") else ", no case"
     return LINE.format(
         who=guard["subject_id"], what=guard["kind"].replace("_", " "), where=where,
-        when=short_date(guard["expires_at"]), case=case,
+        when=short_end(guard["expires_at"]), case=case,
     )
 
 

@@ -56,13 +56,13 @@ class FdResolutionsTest < ActionDispatch::IntegrationTest
     assert_not_nil ids.first
   end
 
-  test "a shush without an end date is refused, and nothing is written" do
+  test "a temporary ban without an end date is refused, and nothing is written" do
     sign_in_as(@me)
-    act(type_key: "shush")
+    act(type_key: "temp_ban")
 
     assert_nil @kase.reload.resolved_at
     assert_equal 0, actions.count
-    assert_match(/needs a date it runs until/, flash[:alert])
+    assert_equal "Temporary ban needs an end date", flash[:alert]
   end
 
   test "a shush with an end date records when it lifts" do

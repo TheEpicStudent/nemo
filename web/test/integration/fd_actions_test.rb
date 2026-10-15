@@ -117,9 +117,9 @@ class FdActionsTest < ActionDispatch::IntegrationTest
 
   test "the same validation as filing a report applies here" do
     sign_in_as(@me)
-    log(type_key: "shush")
+    log(type_key: "temp_ban")
     assert_equal 0, actions.count
-    assert_match(/needs a date it runs until/, flash[:alert])
+    assert_equal "Temporary ban needs an end date", flash[:alert]
 
     log(type_key: "channel_ban", expires_on: "2026-09-01")
     assert_equal 0, actions.count
@@ -171,11 +171,33 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_equal "reason", flash[:field_error]["field"]
   end
 
+  test "shush without an end date is logged with no end" do
+    sign_in_as(@me)
+    log(type_key: "shush")
+
+    assert_nil actions.sole.expires_at
+  end
+
+  test "shush with a date and time ends at that time in utc" do
+    sign_in_as(@me)
+    log(type_key: "shush", expires_on: "2026-11-02", expires_time: "14:30")
+
+    assert_equal Time.utc(2026, 11, 2, 14, 30), actions.sole.expires_at
+  end
+
+  test "shush with a time and no date is refused" do
+    sign_in_as(@me)
+    log(type_key: "shush", expires_time: "14:30")
+
+    assert_empty actions
+    assert_equal "Enter a date for the end time", flash[:alert]
+  end
+
   test "the reason is kept so it does not have to be typed twice" do
     sign_in_as(@me)
-    log(type_key: "shush", reason: "")
+    log(type_key: "temp_ban", reason: "")
 
-    assert_equal "shush needs a date it runs until", flash[:alert],
+    assert_equal "Temporary ban needs an end date", flash[:alert],
       "the first objection still wins"
   end
 
