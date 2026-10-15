@@ -135,6 +135,7 @@ def flush_pending(client):
         memberguards.refresh(conn)
         taking_up = memberguards.unenforced(conn)
         finishing = memberguards.still_lifting(conn)
+        lifted = memberguards.lifted_not_notified(conn, sweep.LIFT_LOOKBACK)
 
     for guard in taking_up:
         apart((f"taking up {guard['kind']} {guard['id']}",
@@ -142,6 +143,9 @@ def flush_pending(client):
     for guard in finishing:
         apart((f"finishing the lift of {guard['kind']} {guard['id']}",
                lambda one=guard: sweep.release_now(client, one)))
+    for guard in lifted:
+        apart((f"releasing the lifted {guard['kind']} {guard['id']}",
+               lambda one=guard: sweep.release_lifted(client, one)))
 
 
 def each(cases, doing, work, client, channel_id):

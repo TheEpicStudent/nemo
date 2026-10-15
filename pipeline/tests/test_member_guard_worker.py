@@ -16,7 +16,7 @@ def guard(guard_id, kind="shush"):
             "reason": "spam", "expires_at": None}
 
 
-def install_fakes(monkeypatch, pending=(), lifting=(), failing=()):
+def install_fakes(monkeypatch, pending=(), lifting=(), failing=(), lifted=()):
     enforced_ids, released = [], []
 
     def fake_take_up(client, one):
@@ -28,6 +28,9 @@ def install_fakes(monkeypatch, pending=(), lifting=(), failing=()):
     monkeypatch.setattr(loop.memberguards, "refresh", lambda conn: 0)
     monkeypatch.setattr(loop.memberguards, "unenforced", lambda conn: list(pending))
     monkeypatch.setattr(loop.memberguards, "still_lifting", lambda conn: list(lifting))
+    monkeypatch.setattr(loop.memberguards, "lifted_not_notified", lambda conn, within: list(lifted))
+    monkeypatch.setattr(loop.sweep, "release_lifted",
+                        lambda client, one: released.append(("lifted", one["id"])))
     monkeypatch.setattr(loop, "take_up", fake_take_up)
     monkeypatch.setattr(loop.sweep, "release_now",
                         lambda client, one: released.append(one["id"]))
@@ -71,3 +74,13 @@ def test_a_member_guard_notification_wakes_the_worker_instead_of_a_thread():
 
     assert 'loops.draining(f"{NAME}-member-guards"' in start_source
     assert "target=flush_pending" not in start_source
+
+
+def test_flush_pending_releases_guards_lifted_in_the_dashboard(monkeypatch):
+    _enforced_ids, released = install_fakes(monkeypatch, lifting=[guard(3, "deactivation")],
+                                            lifted=[guard(4), guard(5, "channel_ban")])
+
+    loop.flush_pending(object())
+
+    assert released == [3, ("lifted", 4), ("lifted", 5)]
+

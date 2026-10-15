@@ -91,19 +91,28 @@ def sweep_lapsed(client):
 LIFT_LOOKBACK = "2 hours"
 
 
+def release_lifted(client, guard):
+    with session() as conn:
+        if not memberguards.claim(conn, guard["id"]) or memberguards.released_already(conn, guard["id"]):
+            return False
+        memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], guard["channel_id"],
+                                        memberguards.RELEASED, detail=memberguards.LIFTED_BY_HAND)
+        try:
+            release(client, conn, guard)
+        except Exception as failure:
+            log.warning("nemo: could not say that %s was lifted: %s", guard["id"], failure)
+    return True
+
+
 def sweep_lifted(client):
     with session() as conn:
         waiting = memberguards.lifted_not_notified(conn, LIFT_LOOKBACK)
 
     for guard in waiting:
-        with session() as conn:
-            try:
-                memberguards.record_enforcement(conn, guard["id"], guard["subject_id"],
-                                      guard["channel_id"], memberguards.RELEASED,
-                                      detail=memberguards.LIFTED_BY_HAND)
-                release(client, conn, guard)
-            except Exception as failure:
-                log.warning("nemo: could not say that %s was lifted: %s", guard["id"], failure)
+        try:
+            release_lifted(client, guard)
+        except Exception as failure:
+            log.warning("nemo: could not say that %s was lifted: %s", guard["id"], failure)
     return len(waiting)
 
 

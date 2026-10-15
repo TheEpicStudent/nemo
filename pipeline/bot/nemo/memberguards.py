@@ -316,6 +316,21 @@ def record_enforcement(conn, guard_id, subject_id, channel_id, verb,
     ).fetchone()[0]
 
 
+RELEASED_ALREADY = """
+SELECT 1 FROM fd.member_guard_events WHERE guard_id = %s AND verb = 'released' LIMIT 1
+"""
+
+CLAIM_GUARD = "SELECT id FROM fd.member_guards WHERE id = %s FOR UPDATE"
+
+
+def released_already(conn, guard_id):
+    return conn.execute(RELEASED_ALREADY, (guard_id,)).fetchone() is not None
+
+
+def claim(conn, guard_id):
+    return conn.execute(CLAIM_GUARD, (guard_id,)).fetchone() is not None
+
+
 def lately(conn, guard_id, verb, within):
     return conn.execute(LATELY, (guard_id, verb, within)).fetchone()[0]
 

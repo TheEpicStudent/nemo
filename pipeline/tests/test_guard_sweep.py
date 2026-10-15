@@ -12,9 +12,10 @@ EXPIRES_AT = dt.datetime(2026, 3, 10, 12, tzinfo=dt.UTC)
 
 
 class Conn:
-    def __init__(self, lift_returns_row=True, settings=None):
+    def __init__(self, lift_returns_row=True, settings=None, released=False):
         self.lift_returns_row = lift_returns_row
         self.settings = settings or {}
+        self.released = released
         self.statements = []
 
     def execute(self, sql, args=None):
@@ -23,6 +24,8 @@ class Conn:
 
     def fetchone(self):
         sql, args = self.statements[-1]
+        if sql == memberguards.RELEASED_ALREADY:
+            return (1,) if self.released else None
         if "SET state = 'lifted'" in sql:
             return (7,) if self.lift_returns_row else None
         if "FROM fd.app_settings" in sql:
@@ -237,4 +240,51 @@ def test_a_lapse_says_nothing_when_notifying_is_off():
 
     assert client.posted == []
     assert "released" in conn.verbs()
+
+
+class FailingSlack(Slack):
+    def chat_postMessage(self, **kwargs):
+        raise RuntimeError("cannot_dm_bot")
+
+
+def release_lifted_with(monkeypatch, conn, client):
+    monkeypatch.setattr(sweep, "session", lambda: SessionOf(conn))
+    monkeypatch.setattr(sweep, "notifies_member", lambda _conn: True)
+    return sweep.release_lifted(client, guard())
+
+
+class SessionOf:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __enter__(self):
+        return self.conn
+
+    def __exit__(self, *_):
+        return False
+
+
+def test_release_lifted_claims_guard_row_before_releasing(monkeypatch):
+    conn, client = Conn(), Slack()
+
+    assert release_lifted_with(monkeypatch, conn, client) is True
+    statements = [sql for sql, _ in conn.statements]
+    assert statements.index(memberguards.CLAIM_GUARD) < statements.index(memberguards.RELEASED_ALREADY)
+    assert conn.verbs()[0] == memberguards.RELEASED
+    assert "can post again" in client.posted[0]["text"]
+
+
+def test_release_lifted_skips_guard_already_released(monkeypatch):
+    conn, client = Conn(released=True), Slack()
+
+    assert release_lifted_with(monkeypatch, conn, client) is False
+    assert conn.verbs() == []
+    assert client.posted == []
+
+
+def test_release_lifted_keeps_released_event_when_dm_fails(monkeypatch):
+    conn = Conn()
+
+    assert release_lifted_with(monkeypatch, conn, FailingSlack()) is True
+    assert memberguards.RELEASED in conn.verbs()
 
