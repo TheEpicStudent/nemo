@@ -2,7 +2,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from bot.nemo import guards
+from bot.nemo import guard_actions, guards
 from bot.nemo.surface import Ctx, thread_lock
 from bot.nemo.views import guard as card
 
@@ -60,6 +60,8 @@ def finish_calls(monkeypatch):
     monkeypatch.setattr(thread_lock, "session", fake_session)
     monkeypatch.setattr(guards, "open_guard", lambda *args, **kwargs: GUARD_ID)
     monkeypatch.setattr(guards, "refresh", lambda conn: 0)
+    monkeypatch.setattr(guard_actions, "lock_notice",
+                        lambda conn, expires_at, reason, by: {"text": "*Thread locked*"})
     monkeypatch.setattr(
         guards, "finish",
         lambda conn, guard_id, state, error=None, sha=None, by=None: calls.append((guard_id, state, error)),

@@ -2,7 +2,9 @@ import logging
 
 from bot.core import session
 from bot.nemo import guards, guard_actions, userbots
+from bot.nemo.enforcement import notify
 from bot.nemo.surface import on_event
+from bot.nemo.views import guard as card
 
 log = logging.getLogger("bot.nemo")
 
@@ -44,5 +46,9 @@ def watched(ctx):
         return None
 
     guard_actions.delete_notice(ctx.client, guard[0], channel_id, ts)
+    if guard[1] == guards.LOCK:
+        told = card.lock_held_back(guard[7], event.get("text") or "")
+        notify.post_ephemeral(ctx.client, channel_id, who, told["text"], thread_ts=thread_ts,
+                              blocks=told["blocks"])
     log.info("nemo: guard %s noted %s from %s", guard[0], ts, who)
     return guard_actions.threshold_met(guard, who) or "noted"

@@ -245,7 +245,7 @@ class WarningConn:
 @pytest.mark.parametrize(("error", "removed"), [(None, [5]), ("message_not_found", [5]),
                                                 ("channel_not_found", [5]), ("ratelimited", [])])
 def test_remove_lock_warnings_marks_removed_or_retries(monkeypatch, error, removed):
-    conn = WarningConn([(5, CHANNEL_ID, "1700000000.000500")])
+    conn = WarningConn([(5, CHANNEL_ID, THREAD, "1700000000.000500")])
     monkeypatch.setattr(guard_actions, "session", lambda: session_of(conn))
     client = Client(delete_error=error)
 

@@ -47,8 +47,15 @@ WHERE id = %s AND kind = 'lock' AND state IN ('warned', 'running')
 RETURNING id
 """
 
+LOCK_REACTION = "lock"
+
+LOCK_NOTICE = """
+SELECT channel_id, warned_ts, expires_at, reason, opened_by FROM fd.thread_guards
+WHERE id = %s AND kind = 'lock' AND state IN ('warned', 'running') AND warned_ts IS NOT NULL
+"""
+
 WARNINGS_TO_REMOVE = """
-SELECT id, channel_id, warned_ts FROM fd.thread_guards
+SELECT id, channel_id, thread_ts, warned_ts FROM fd.thread_guards
 WHERE kind = 'lock' AND state IN ('done', 'failed') AND warned_ts IS NOT NULL
   AND warning_removed_at IS NULL
 ORDER BY finished_at
@@ -245,6 +252,13 @@ def warning_removed(conn, guard_id):
     conn.execute(WARNING_REMOVED, (guard_id,))
 
 
+def lock_notice_row(conn, guard_id):
+    row = conn.execute(LOCK_NOTICE, (guard_id,)).fetchone()
+    if row is None:
+        return None
+    return dict(zip(("channel_id", "warned_ts", "expires_at", "reason", "opened_by"), row))
+
+
 def case_of(conn, channel_id, thread_ts):
     row = conn.execute(ON_A_CASE, (channel_id, thread_ts)).fetchone()
     return row[0] if row else None
@@ -282,11 +296,16 @@ def open_guard(conn, kind, channel_id, thread_ts, by, reason, expires_at=None, c
     return guard_id
 
 
-def warn(client, conn, guard_id, channel_id, thread_ts, kind):
+def warn(client, conn, guard_id, channel_id, thread_ts, kind, notice=None):
     sent = client.chat_postMessage(
-        channel=channel_id, thread_ts=thread_ts, text=WARNING[kind], unfurl_links=False
+        channel=channel_id, thread_ts=thread_ts, unfurl_links=False, **(notice or {"text": WARNING[kind]})
     )
     conn.execute(WARNED, (sent["ts"], guard_id))
+    if kind == LOCK:
+        try:
+            client.reactions_add(channel=channel_id, timestamp=thread_ts, name=LOCK_REACTION)
+        except Exception as failure:
+            log.info("nemo: guard %s could not mark the root of %s: %s", guard_id, thread_ts, failure)
     return sent["ts"]
 
 

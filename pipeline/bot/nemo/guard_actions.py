@@ -3,6 +3,7 @@ import threading
 
 from bot.core import privileged, session
 from bot.nemo import channel, guards, profile
+from bot.nemo.views import guard as card
 
 log = logging.getLogger("bot.nemo")
 
@@ -225,22 +226,45 @@ def remove_lock_warnings(client):
         waiting = guards.warnings_to_remove(conn, WARNINGS_PER_PASS)
 
     removed_count = 0
-    for guard_id, channel_id, warned_ts in waiting:
+    for guard_id, channel_id, thread_ts, warned_ts in waiting:
         try:
             client.chat_delete(channel=channel_id, ts=warned_ts)
         except Exception as failure:
             if not (privileged.already_deleted(failure) or privileged.absent(failure)):
                 log.warning("nemo: guard %s lock notice not removed yet: %s", guard_id, failure)
                 continue
+        try:
+            client.reactions_remove(channel=channel_id, timestamp=thread_ts, name=guards.LOCK_REACTION)
+        except Exception as failure:
+            log.info("nemo: guard %s lock mark not removed from %s: %s", guard_id, thread_ts, failure)
         with session() as conn:
             guards.warning_removed(conn, guard_id)
         removed_count += 1
     return removed_count
 
 
+def lock_notice(conn, expires_at, reason, by):
+    return card.lock_notice(expires_at, reason, by, signs_out=privileged.mode(conn) == privileged.ON)
+
+
+def update_lock_notice(client, guard_id):
+    with session() as conn:
+        row = guards.lock_notice_row(conn, guard_id)
+        if row is None:
+            return None
+        notice = lock_notice(conn, row["expires_at"], row["reason"], row["opened_by"])
+    try:
+        client.chat_update(channel=row["channel_id"], ts=row["warned_ts"], **notice)
+    except Exception as failure:
+        log.warning("nemo: guard %s lock notice not updated: %s", guard_id, failure)
+        return None
+    return row["warned_ts"]
+
+
 def after_guard_change(client, guard_id):
     run_destroy(client, guard_id)
     remove_lock_warnings(client)
+    update_lock_notice(client, guard_id)
 
 
 def note_it(conn, guard, user_id, ts):

@@ -194,6 +194,29 @@ def note_text(values):
     return richtext.flatten(values.get("note_body")) if values.get("note") else ""
 
 
+SIGNS_OUT = "Repeated replies sign you out of Slack"
+
+
+def lock_notice(expires_at, reason, by, signs_out=False):
+    text = f"*Thread locked* · {lengths.ends(expires_at)} · Reason: {reason}"
+    signature = f"Fire Department · <@{by}>" + (f" · {SIGNS_OUT}" if signs_out else "")
+    return {
+        "text": text,
+        "blocks": [section_block(text),
+                   {"type": "context", "elements": [{"type": "mrkdwn", "text": signature}]}],
+    }
+
+
+def lock_held_back(expires_at, body):
+    text = f"*Thread locked* · {lengths.ends(expires_at)}"
+    blocks = [section_block(text)]
+    if body:
+        blocks.append({"type": "rich_text", "elements": [{
+            "type": "rich_text_preformatted", "elements": [{"type": "text", "text": body}],
+        }]})
+    return {"text": text, "blocks": blocks}
+
+
 def lock_key(values):
     return values["duration"] if values["starting"] else values["extend"]
 

@@ -106,8 +106,9 @@ def lock(ctx, channel_id, thread_ts, values):
     ctx.join(channel_id)
     error_code = None
     with session() as conn:
+        notice = guard_actions.lock_notice(conn, expires_at, values["reason"], ctx.user_id)
         try:
-            guards.warn(ctx.client, conn, guard_id, channel_id, thread_ts, guards.LOCK)
+            guards.warn(ctx.client, conn, guard_id, channel_id, thread_ts, guards.LOCK, notice=notice)
         except Exception as failure:
             error_code = channels.refusal(failure)
             guards.finish(conn, guard_id, "failed", f"warning not posted: {error_code}")
@@ -135,6 +136,7 @@ def extend(ctx, channel_id, thread_ts, values):
 
     if guard_id is None:
         return ctx.post_ephemeral(ALREADY_ENDED, channel_id, thread_ts)
+    guard_actions.update_lock_notice(ctx.client, guard_id)
     ctx.post_ephemeral(f"Lock extended · {lengths.ends(expires_at)}", channel_id, thread_ts)
     log.info("nemo: %s extended lock %s to %s", ctx.user_id, guard_id, expires_at)
     return guard_id
