@@ -89,6 +89,14 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert_equal 1, Fd::AuditEntry.where(entity_type: "app_setting", verb: "tuned").count
   end
 
+  test "join_mode off still joins configured channels" do
+    post admin_settings_join_mode_path, params: { mode: "off" }
+
+    assert_equal "nemo joins configured channels only", flash[:notice]
+    follow_redirect!
+    assert_select "p.card-sub", "Configured channels only"
+  end
+
   test "a join mode that is not one is refused" do
     post admin_settings_join_mode_path, params: { mode: "sideways" }
 

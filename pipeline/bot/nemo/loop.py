@@ -69,7 +69,18 @@ def every_join_sweep():
 
 
 def join_sweep(case_channel):
-    channels.reconcile(case_channel.client)
+    client = case_channel.client
+    apart(("joining configured channels", lambda: channels.join_configured(client)),
+          ("joining channels", lambda: channels.reconcile(client)))
+
+
+def join_configured(client):
+    apart(("joining configured channels", lambda: channels.join_configured(client)))
+
+
+def start_configured_joins(client):
+    threading.Thread(target=join_configured, args=(client,), name="nemo-configured-joins",
+                     daemon=True).start()
 
 
 def join_channel(client, channel_id):
@@ -243,6 +254,7 @@ def start(case_channel, stopping, channel_id=None):
             with session() as conn:
                 channel.refresh_channels(conn)
                 responses.refresh(conn)
+            start_configured_joins(case_channel.client)
         elif channel_name == AUTOMOD_WORD:
             with session() as conn:
                 automod.refresh(conn)

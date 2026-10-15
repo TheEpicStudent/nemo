@@ -4,8 +4,8 @@ module Admin
 
     JOIN_MODE_NOTICES = {
       Fd::AppSetting::ON => "nemo joins every public channel",
-      Fd::AppSetting::GUARDED => "nemo joins guarded channels only",
-      Fd::AppSetting::OFF => "nemo joins nothing new"
+      Fd::AppSetting::GUARDED => "nemo joins guarded and configured channels",
+      Fd::AppSetting::OFF => "nemo joins configured channels only"
     }.freeze
 
     def show

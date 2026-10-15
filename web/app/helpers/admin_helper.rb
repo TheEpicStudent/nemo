@@ -114,8 +114,8 @@ module AdminHelper
 
   JOIN_NOTES = {
     Fd::AppSetting::ON => "Every public channel",
-    Fd::AppSetting::GUARDED => "Only channels with a guard",
-    Fd::AppSetting::OFF => "No channel"
+    Fd::AppSetting::GUARDED => "Guarded and configured channels",
+    Fd::AppSetting::OFF => "Configured channels only"
   }.freeze
 
   def admin_join_mode_switch(mode)

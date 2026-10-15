@@ -3,6 +3,7 @@ import os
 import time
 
 from bot.core import session
+from bot.nemo import responses
 from lib import channel_dim
 
 log = logging.getLogger("bot.nemo")
@@ -58,6 +59,12 @@ INSIDE = "SELECT inside FROM fd.channel_membership WHERE channel_id = %s"
 
 KNOWN_PRIVATE = "SELECT 1 FROM raw.channel_dim WHERE channel_id = %s AND visibility = %s"
 
+SETTINGS = "SELECT key, value FROM fd.app_settings WHERE key = ANY(%s)"
+
+LATEST_JOIN = """
+SELECT verb, why FROM fd.channel_joins WHERE channel_id = %s ORDER BY at DESC, id DESC LIMIT 1
+"""
+
 
 def pace():
     try:
@@ -89,6 +96,12 @@ def listed(value):
 
 def react_channels(conn):
     return set(listed(setting(conn, REACT_CHANNELS)))
+
+
+def configured_channels(conn):
+    keys = [FIREHOUSE, REPORTS, LOGS, REACT_CHANNELS, responses.AUTORESPONSE_CHANNEL]
+    values = dict(conn.execute(SETTINGS, (keys,)).fetchall())
+    return {channel_id for key in keys for channel_id in listed(values.get(key))}
 
 
 def mode(conn):
@@ -141,11 +154,12 @@ def joined_channels(client):
 
 def target_channels(client, conn, how=None):
     how = how or mode(conn)
+    configured = configured_channels(conn)
     if how == OFF:
-        return set()
+        return configured
     if how == GUARDED:
-        return guarded_channels(conn)
-    return public_channels(client)
+        return guarded_channels(conn) | configured
+    return public_channels(client) | configured
 
 
 def noted(conn, channel_id, verb, why=None, by=None):
@@ -216,6 +230,29 @@ def join(client, conn, channel_id, by=None, verb="joined"):
     return True
 
 
+def waits_for_invite(conn, channel_id):
+    row = conn.execute(LATEST_JOIN, (channel_id,)).fetchone()
+    return bool(row) and tuple(row) == ("refused", NEEDS_INVITE)
+
+
+def join_configured(client):
+    with session() as conn:
+        absent = sorted(channel_id for channel_id in configured_channels(conn)
+                        if not inside(conn, channel_id) and not waits_for_invite(conn, channel_id))
+
+    joined = 0
+    for channel_id in absent:
+        with session() as conn:
+            if not joinable(conn, channel_id):
+                mark_private(client, conn, channel_id, None)
+            elif join(client, conn, channel_id):
+                joined += 1
+
+    if absent:
+        log.info("nemo: joined %s of %s configured channel(s) it was not in", joined, len(absent))
+    return joined
+
+
 def sync_membership(conn, joined_ids):
     previous_ids = {row[0] for row in conn.execute(WAS_INSIDE).fetchall()}
 
@@ -239,7 +276,7 @@ def missing(client):
     if added or removed:
         log.info("nemo: sits in %s channel(s), %s new, %s gone", len(joined_ids), added, removed)
 
-    if how == OFF or not target_ids:
+    if not target_ids:
         return how, []
 
     return how, sorted(target_ids - joined_ids)
