@@ -88,7 +88,7 @@ def opened(ctx):
     channel_id, thread_ts, message, who = target
 
     with session() as conn:
-        existing_case_id = case_queue.case_on(conn, channel_id, thread_ts)
+        existing_case_id = case_queue.case_for_thread(conn, channel_id, thread_ts)
         if existing_case_id is not None:
             log.info("nemo: %s in %s is already case %s", thread_ts, channel_id, existing_case_id)
             return existing_case_id
@@ -216,7 +216,7 @@ def banned(ctx):
         thread_ts, message = root_of(ctx.client, channel_id, ts)
         target = message.get("user")
         with session() as conn:
-            case_id = case_queue.case_on(conn, channel_id, thread_ts)
+            case_id = case_queue.case_for_thread(conn, channel_id, thread_ts)
             if case_id is None:
                 opens, _why = access.may(conn, who, "case.open")
                 if not opens:

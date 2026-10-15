@@ -40,6 +40,12 @@ ON_THREAD = """
 SELECT id FROM fd.cases WHERE card_channel_id = %s AND card_thread_ts = %s LIMIT 1
 """
 
+ON_REPORT_THREAD = """
+SELECT case_id FROM fd.case_reports
+WHERE card_channel_id = %s AND forwarded_ts = %s
+ORDER BY id LIMIT 1
+"""
+
 CLAIM_CARD = """
 SELECT card_ts FROM fd.cases WHERE id = %s FOR UPDATE
 """
@@ -64,6 +70,14 @@ UPDATE fd.cases SET card_digest = %s, updated_at = now() WHERE id = %s
 
 def case_on(conn, channel_id, thread_ts):
     row = conn.execute(ON_THREAD, (channel_id, thread_ts)).fetchone()
+    return row[0] if row else None
+
+
+def case_for_thread(conn, channel_id, thread_ts):
+    case_id = case_on(conn, channel_id, thread_ts)
+    if case_id is not None:
+        return case_id
+    row = conn.execute(ON_REPORT_THREAD, (channel_id, thread_ts)).fetchone()
     return row[0] if row else None
 
 
