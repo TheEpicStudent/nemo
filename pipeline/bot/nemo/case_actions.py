@@ -3,6 +3,7 @@ import logging
 from psycopg.types.json import Jsonb
 
 from bot.core import audit
+from bot.core.case import reopen_reports
 from bot.nemo import views, memberguards
 
 log = logging.getLogger("bot.nemo")
@@ -255,6 +256,7 @@ def reopen(conn, case_id, by):
         return False
 
     cleared_assignees = [one[0] for one in conn.execute(CLEAR_ASSIGNEES, (case_id,)).fetchall()]
+    reopen_reports(conn, case_id, by)
     audit.record(
         conn, "case", case_id, "reopened", by,
         before={"resolution": row[0], "assignees": cleared_assignees},

@@ -35,6 +35,28 @@ SET resolved_at = NULL, resolution = NULL, updated_at = now(),
 WHERE id = %s AND resolved_at IS NOT NULL AND duplicate_of IS NULL
 """
 
+REOPEN_REPORTS = """
+UPDATE fd.case_reports r
+SET closed_at = NULL, closed_by = NULL
+FROM (
+    SELECT id, closed_at, closed_by FROM fd.case_reports
+    WHERE case_id = %s AND closed_at IS NOT NULL
+) previous
+WHERE r.id = previous.id
+RETURNING r.id, previous.closed_at, previous.closed_by
+"""
+
+
+def reopen_reports(conn, case_id, by):
+    rows = conn.execute(REOPEN_REPORTS, (case_id,)).fetchall()
+    for report_id, closed_at, closed_by in rows:
+        audit.record(
+            conn, "report", report_id, "reopened", by,
+            before={"closed_at": str(closed_at), "closed_by": closed_by},
+            after={"closed_at": None, "closed_by": None, "case_id": case_id},
+        )
+    return [row[0] for row in rows]
+
 
 def reopen(conn, case_id, by):
     row = conn.execute(CASE_RESOLUTION, (case_id,)).fetchone()
@@ -43,6 +65,7 @@ def reopen(conn, case_id, by):
 
     was = row[1]
     conn.execute(WAKE, (was, case_id))
+    reopen_reports(conn, case_id, by)
     audit.record(
         conn,
         "case",
