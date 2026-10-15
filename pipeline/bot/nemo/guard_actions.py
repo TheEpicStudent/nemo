@@ -63,10 +63,13 @@ def post_destroy_notice(client, conn, channel_id, thread_ts, by):
     if url:
         notice += f"\nArchive: {url}"
 
+    log_channel_id = channel.internal_log_channel(conn)
+    if not log_channel_id:
+        log.warning("nemo: no nemo.firehouse_channel to say that %s was destroyed", channel_id)
+        return
+
     try:
-        client.chat_postMessage(
-            channel=channel.internal_log_channel(conn), text=notice, unfurl_links=False
-        )
+        client.chat_postMessage(channel=log_channel_id, text=notice, unfurl_links=False)
     except Exception as failure:
         log.warning("nemo: could not say that %s was destroyed: %s", channel_id, failure)
 

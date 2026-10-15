@@ -193,6 +193,8 @@ class CaseChannel:
 
         for outbox_id, channel_id, ts, failed_at, error in waiting:
             target_channel_id = channel_id or channel.internal_log_channel()
+            if not target_channel_id:
+                continue
             self.mark((target_channel_id, ts), answer.STUCK if failed_at else answer.SENT)
             if failed_at:
                 self.post_refusal(target_channel_id, ts, error)

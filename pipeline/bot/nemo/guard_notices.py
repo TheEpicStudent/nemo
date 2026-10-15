@@ -158,6 +158,9 @@ def drain_group(client, guard_id, subject_id):
 
 def drain(client):
     with session() as conn:
+        if not channel.internal_log_channel(conn):
+            log.warning("nemo: guard notices wait for nemo.firehouse_channel to be set")
+            return False
         groups = channelguards.notice_groups(conn, GIVE_UP_AFTER, GROUPS_PER_DRAIN)
 
     for guard_id, subject_id in groups:

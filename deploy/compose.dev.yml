@@ -56,7 +56,6 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB}
-      INTERNAL_LOG_CHANNEL_ID: ${INTERNAL_LOG_CHANNEL_ID:-}
       TZ: ${TZ:-UTC}
     extra_hosts:
       - "host.docker.internal:host-gateway"

@@ -210,6 +210,8 @@ def start(case_channel, stopping, channel_id=None):
                  memberguards.refresh(conn), automod.refresh(conn))
         responses.refresh(conn)
         screening.refresh(conn)
+        channel.internal_log_channel(conn)
+        channel.react_channels(conn)
         stranded = purge.requeue_stranded(conn)
     if stranded:
         log.info("nemo: %s purge(s) were cut off by a restart and go again: %s",

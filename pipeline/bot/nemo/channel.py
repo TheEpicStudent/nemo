@@ -216,7 +216,7 @@ _internal_log = {}
 def internal_log_channel(conn=None):
     if conn is not None:
         _internal_log["id"] = channels.setting(conn, channels.INTERNAL_LOG) or None
-    return _internal_log.get("id") or os.environ["INTERNAL_LOG_CHANNEL_ID"]
+    return _internal_log.get("id")
 
 
 _react = {}
@@ -229,7 +229,7 @@ def react_channels(conn=None):
 
 
 def case_channels(conn=None):
-    return {internal_log_channel(conn)} | react_channels(conn)
+    return ({internal_log_channel(conn)} | react_channels(conn)) - {None}
 
 
 def card_channel(case, channel_id=None, conn=None):
@@ -590,13 +590,17 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
         log.info("nemo: case %s is already in the internal_log", case_id)
         return case["forwarded_ts"]
 
+    card_channel_id = channel_id or internal_log_channel(conn)
+    if not card_channel_id:
+        log.warning("nemo: case %s waits for nemo.firehouse_channel to be set", case_id)
+        return None
+
     row = conn.execute(CLAIM_CARD, (case["report_id"],)).fetchone()
     if row and row[0]:
         log.info("nemo: case %s went up while we were asking, leaving it", case_id)
         return row[0]
 
     built = views.report.build_blocks(case)
-    card_channel_id = channel_id or internal_log_channel(conn)
     sent = client.chat_postMessage(
         channel=card_channel_id,
         thread_ts=thread_ts,
@@ -916,6 +920,11 @@ def post_reopen_announcement(client, conn, case_id, was, channel_id=None):
 
 
 def echo(client, thread_ts, sent_by, body, signed, channel_id=None):
+    target_channel_id = channel_id or internal_log_channel()
+    if not target_channel_id:
+        log.warning("nemo: a reply waits for nemo.firehouse_channel to be set")
+        return None
+
     member_profile = profile.profile(client, sent_by)
     author_fields = {"username": member_profile["name"]}
     if member_profile["icon"]:
@@ -929,7 +938,6 @@ def echo(client, thread_ts, sent_by, body, signed, channel_id=None):
     if not signed:
         text = f"{answer.ANON}{text}"
 
-    target_channel_id = channel_id or internal_log_channel()
     try:
         sent = client.chat_postMessage(
             channel=target_channel_id,

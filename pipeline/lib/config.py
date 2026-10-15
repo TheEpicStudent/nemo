@@ -147,7 +147,6 @@ ROLES = {
             "RELAY_APP_TOKEN",
             "NEMO_BOT_TOKEN",
             "NEMO_APP_TOKEN",
-            "INTERNAL_LOG_CHANNEL_ID",
             "SLACK_TEAM_ID",
         ],
         "optional": BOT_OPTIONAL,
@@ -157,7 +156,6 @@ ROLES = {
         "optional": BOT_OPTIONAL + [
             "NEMO_BOT_TOKEN",
             "NEMO_APP_TOKEN",
-            "INTERNAL_LOG_CHANNEL_ID",
             "SLACK_TEAM_ID",
         ],
     },
@@ -165,7 +163,6 @@ ROLES = {
         "required": DATABASE + [
             "NEMO_BOT_TOKEN",
             "NEMO_APP_TOKEN",
-            "INTERNAL_LOG_CHANNEL_ID",
             "SLACK_TEAM_ID",
         ],
         "optional": BOT_OPTIONAL + ["RELAY_BOT_TOKEN", "RELAY_APP_TOKEN"],

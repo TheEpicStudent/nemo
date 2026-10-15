@@ -12,6 +12,22 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     post admin_settings_sweep_path, params: { soon_hours: "12", tells: "1" }.merge(over)
   end
 
+  test "settings page without firehouse_channel shows warning" do
+    Fd::AppSetting.where(key: Fd::AppSetting::FIREHOUSE).delete_all
+
+    get admin_settings_path
+
+    assert_select "p.empty-title.sev-crit", "No firehouse picked, Nemo posts no case cards or notices"
+  end
+
+  test "settings page with firehouse_channel shows no warning" do
+    Fd::AppSetting.set_firehouse_channel("C0FIRE", by: "UME")
+
+    get admin_settings_path
+
+    assert_select "p.sev-crit", count: 0
+  end
+
   test "the settings page carries both" do
     get admin_settings_path
 

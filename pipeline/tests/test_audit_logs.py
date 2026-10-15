@@ -630,7 +630,15 @@ def test_member_channel_join_migration_backfills_org_wide():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
             / "0148_member_channel_joins.sql").read_text()
     assert "FROM slack.audit_event" in sql, "the history already landed must be projected too"
-    assert "member_channel_join_room_idx" in sql, "fan-out is read by channel and time"
+    assert "ON fd.member_channel_join (channel_id, at DESC)" in sql, "fan-out is read by channel and time"
+
+
+def test_rename_room_to_channel_migration_renames_index_and_trigger_variable():
+    sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
+            / "0234_rename_room_to_channel.sql").read_text()
+    assert "RENAME TO member_channel_join_channel_idx" in sql
+    assert "CREATE OR REPLACE FUNCTION fd.channel_guard_allow_changed()" in sql
+    assert "room" not in sql.split("RENAME TO", 1)[1]
 
 
 @pytest.mark.parametrize(("agent", "app", "system"), [
