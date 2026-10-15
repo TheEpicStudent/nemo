@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import session
-from bot.nemo import channelguards, guard_actions
+from bot.nemo import channelguards, exemptions, guard_actions
 from bot.nemo.enforcement import notify
 from bot.nemo.surface import on_event
 
@@ -34,6 +34,9 @@ def on_message(ctx):
         return None
     if in_a_thread(event) and not guard.threads():
         return None
+    with session() as conn:
+        if exemptions.is_exempt(conn, subject_id):
+            return None
 
     body = event.get("text") or ""
     try:

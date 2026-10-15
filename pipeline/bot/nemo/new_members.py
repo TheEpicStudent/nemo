@@ -4,9 +4,10 @@ log = logging.getLogger("bot.nemo")
 
 MEMBER = """
 INSERT INTO fd.member (user_id, handle, display_name, avatar_url, avatar_hash,
-                       tz, tz_offset, is_bot, is_deleted, is_admin, is_owner, is_restricted,
-                       is_ultra_restricted, profile_updated_at, synced_at)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s), now())
+                       tz, tz_offset, is_bot, is_deleted, is_admin, is_owner, is_org_admin,
+                       is_org_owner, is_restricted, is_ultra_restricted, profile_updated_at,
+                       synced_at)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, to_timestamp(%s), now())
 ON CONFLICT (user_id) DO UPDATE SET
     handle = coalesce(EXCLUDED.handle, fd.member.handle),
     display_name = coalesce(EXCLUDED.display_name, fd.member.display_name),
@@ -18,14 +19,16 @@ ON CONFLICT (user_id) DO UPDATE SET
     is_deleted = EXCLUDED.is_deleted,
     is_admin = EXCLUDED.is_admin,
     is_owner = EXCLUDED.is_owner,
+    is_org_admin = EXCLUDED.is_org_admin,
+    is_org_owner = EXCLUDED.is_org_owner,
     is_restricted = EXCLUDED.is_restricted,
     is_ultra_restricted = EXCLUDED.is_ultra_restricted,
     profile_updated_at = coalesce(EXCLUDED.profile_updated_at, fd.member.profile_updated_at),
     synced_at = now()
 WHERE (fd.member.handle, fd.member.display_name, fd.member.avatar_url, fd.member.avatar_hash,
        fd.member.tz, fd.member.tz_offset, fd.member.is_bot, fd.member.is_deleted,
-       fd.member.is_admin, fd.member.is_owner, fd.member.is_restricted,
-       fd.member.is_ultra_restricted, fd.member.profile_updated_at)
+       fd.member.is_admin, fd.member.is_owner, fd.member.is_org_admin, fd.member.is_org_owner,
+       fd.member.is_restricted, fd.member.is_ultra_restricted, fd.member.profile_updated_at)
       IS DISTINCT FROM (coalesce(EXCLUDED.handle, fd.member.handle),
                         coalesce(EXCLUDED.display_name, fd.member.display_name),
                         coalesce(EXCLUDED.avatar_url, fd.member.avatar_url),
@@ -34,6 +37,7 @@ WHERE (fd.member.handle, fd.member.display_name, fd.member.avatar_url, fd.member
                         coalesce(EXCLUDED.tz_offset, fd.member.tz_offset),
                         EXCLUDED.is_bot, EXCLUDED.is_deleted,
                         EXCLUDED.is_admin, EXCLUDED.is_owner,
+                        EXCLUDED.is_org_admin, EXCLUDED.is_org_owner,
                         EXCLUDED.is_restricted, EXCLUDED.is_ultra_restricted,
                         coalesce(EXCLUDED.profile_updated_at, fd.member.profile_updated_at))
 """
@@ -79,6 +83,7 @@ def valid_user(user):
 
 def member_row(user):
     profile = user.get("profile") or {}
+    org = user.get("enterprise_user") or {}
     return (
         user["id"],
         normalized(user.get("name")),
@@ -91,6 +96,8 @@ def member_row(user):
         bool(user.get("deleted")),
         bool(user.get("is_admin")),
         bool(user.get("is_owner")),
+        bool(org.get("is_admin")),
+        bool(org.get("is_owner")),
         bool(user.get("is_restricted")),
         bool(user.get("is_ultra_restricted")),
         user.get("updated"),

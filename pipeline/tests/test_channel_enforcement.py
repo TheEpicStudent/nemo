@@ -1,6 +1,6 @@
 import pytest
 
-from bot.nemo import channelguards, userbots
+from bot.nemo import channelguards, exemptions, userbots
 from bot.nemo.enforcement import account_age, readonly, slowmode
 
 USER_ID = "U1"
@@ -10,9 +10,10 @@ THREAD = "1700000000.000000"
 
 
 class Conn:
-    def __init__(self, tick=None, remaining=None):
+    def __init__(self, tick=None, remaining=None, exempt=False):
         self.tick = tick
         self.remaining = remaining
+        self.exempt = exempt
         self.executed = []
 
     def execute(self, sql, args=None):
@@ -21,6 +22,8 @@ class Conn:
 
     def fetchone(self):
         sql, _ = self.executed[-1]
+        if sql == exemptions.EXEMPT:
+            return (self.exempt,)
         if "INSERT INTO fd.slowmode_clock" in sql:
             return self.tick
         if "FROM fd.slowmode_clock" in sql:
@@ -135,6 +138,16 @@ def test_readonly_bot_user_post_is_left_alone(monkeypatch):
     assert removed == []
 
 
+def test_readonly_exempt_member_post_is_left_alone(monkeypatch):
+    guard(channelguards.READONLY)
+    conn = Conn(exempt=True)
+    removed = install_fakes(monkeypatch, readonly, conn)
+
+    assert readonly.on_message(Ctx(message())) is None
+    assert removed == []
+    assert conn.args_for(exemptions.EXEMPT) == [(USER_ID, exemptions.STAFF, USER_ID)]
+
+
 def test_readonly_echoes_the_message_back(monkeypatch):
     guard(channelguards.READONLY)
     client = Slack()
@@ -204,6 +217,16 @@ def test_slowmode_removes_one_that_is_too_soon(monkeypatch):
     assert slowmode.on_message(Ctx(message(), client)) is True
     assert removed == [(CHANNEL_ID, TS)]
     assert "12 seconds" in client.ephemeral[0]["text"]
+
+
+def test_slowmode_exempt_member_post_skips_clock(monkeypatch):
+    guard(channelguards.SLOWMODE, {"seconds": 30})
+    conn = Conn(tick=None, remaining=12, exempt=True)
+    removed = install_fakes(monkeypatch, slowmode, conn)
+
+    assert slowmode.on_message(Ctx(message())) is None
+    assert removed == []
+    assert not conn.args_for("INSERT INTO fd.slowmode_clock")
 
 
 def test_slowmode_skips_threads_unless_it_is_told_to(monkeypatch):
@@ -285,6 +308,15 @@ def test_account_age_removes_a_member_who_is_too_new(monkeypatch):
     assert account_age.on_message(Ctx(message(), client)) is True
     assert removed == [(CHANNEL_ID, TS)]
     assert "3 days" in client.ephemeral[0]["text"]
+
+
+def test_account_age_exempt_member_post_is_left_alone(monkeypatch):
+    guard(channelguards.ACCOUNT_AGE, {"min_age_days": 7})
+    conn = Conn(remaining=3, exempt=True)
+    removed = install_fakes(monkeypatch, account_age, conn)
+
+    assert account_age.on_message(Ctx(message())) is None
+    assert removed == []
 
 
 def test_account_age_lets_an_old_enough_member_post(monkeypatch):

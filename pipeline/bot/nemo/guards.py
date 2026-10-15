@@ -4,6 +4,7 @@ import logging
 import threading
 
 from bot.core import audit
+from bot.nemo import exemptions
 
 log = logging.getLogger("bot.nemo")
 
@@ -160,12 +161,7 @@ SELECT count(*) FROM fd.thread_guard_strikes
 WHERE guard_id = %s AND reset_at IS NOT NULL AND reset_outcome IN ('reset', 'would')
 """
 
-PRIVILEGED_MEMBER = """
-SELECT coalesce(bool_or(m.is_bot OR m.is_admin OR m.is_owner), false)
-FROM fd.member m WHERE m.user_id = %s
-"""
-
-FD = "SELECT app.holds_capability(%s, 'case.read')"
+BOT_MEMBER = "SELECT coalesce(bool_or(m.is_bot), false) FROM fd.member m WHERE m.user_id = %s"
 
 _watched = set()
 _loaded = False
@@ -245,9 +241,9 @@ def warn(client, conn, guard_id, channel_id, thread_ts, kind):
 def exempt(conn, user_id, opened_by):
     if not user_id or user_id == opened_by:
         return True
-    if conn.execute(PRIVILEGED_MEMBER, (user_id,)).fetchone()[0]:
+    if conn.execute(BOT_MEMBER, (user_id,)).fetchone()[0]:
         return True
-    return bool(conn.execute(FD, (user_id,)).fetchone()[0])
+    return exemptions.is_exempt(conn, user_id)
 
 
 def record_message(conn, guard_id, channel_id, user_id, message_ts):

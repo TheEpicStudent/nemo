@@ -161,6 +161,14 @@ def test_users_list_member_row_reads_admin_and_owner_flags():
     assert plain[7:9] == (False, False)
 
 
+def test_users_list_member_row_reads_org_admin_and_owner_flags():
+    org = users_list_pull.member_row({"id": "U1", "is_admin": False,
+                                      "enterprise_user": {"is_admin": True, "is_owner": True}})
+    plain = users_list_pull.member_row({"id": "U2"})
+    assert org[7:11] == (False, False, True, True)
+    assert plain[9:11] == (False, False)
+
+
 def test_users_list_member_sql_takes_one_value_per_row_field():
     row = users_list_pull.member_row({"id": "U1"})
     assert users_list_pull.MEMBER_SQL.count("%s") == len(row)
@@ -171,6 +179,13 @@ def test_new_members_member_row_reads_admin_and_owner_flags():
     plain = new_members.member_row({"id": "U2"})
     assert flagged[9:11] == (True, False)
     assert plain[9:11] == (False, False)
+
+
+def test_new_members_member_row_reads_org_admin_and_owner_flags():
+    org = new_members.member_row({"id": "U1", "enterprise_user": {"is_admin": True, "is_owner": False}})
+    plain = new_members.member_row({"id": "U2"})
+    assert org[9:13] == (False, False, True, False)
+    assert plain[11:13] == (False, False)
 
 
 def test_new_members_member_sql_takes_one_value_per_row_field():

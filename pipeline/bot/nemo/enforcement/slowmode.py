@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import session
-from bot.nemo import channelguards, guard_actions
+from bot.nemo import channelguards, exemptions, guard_actions
 from bot.nemo.enforcement import notify
 from bot.nemo.surface import on_event
 
@@ -74,6 +74,8 @@ def on_message(ctx):
         return None
 
     with session() as conn:
+        if exemptions.is_exempt(conn, subject_id):
+            return None
         if record_post(conn, channel_id, thread_ts, subject_id, seconds):
             return None
         seconds_remaining = left_to_go(conn, channel_id, thread_ts, subject_id, seconds)

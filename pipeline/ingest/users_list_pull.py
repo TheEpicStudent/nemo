@@ -37,9 +37,10 @@ WHERE (raw.member_dim.is_deleted, raw.member_dim.invite_pending, raw.member_dim.
 MEMBER_SQL = """
 INSERT INTO fd.member (
     user_id, handle, display_name, avatar_url, avatar_hash,
-    is_bot, is_deleted, is_admin, is_owner, profile_updated_at, synced_at
+    is_bot, is_deleted, is_admin, is_owner, is_org_admin, is_org_owner, profile_updated_at,
+    synced_at
 )
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
 ON CONFLICT (user_id) DO UPDATE SET
     handle = EXCLUDED.handle,
     display_name = EXCLUDED.display_name,
@@ -49,14 +50,17 @@ ON CONFLICT (user_id) DO UPDATE SET
     is_deleted = EXCLUDED.is_deleted,
     is_admin = EXCLUDED.is_admin,
     is_owner = EXCLUDED.is_owner,
+    is_org_admin = EXCLUDED.is_org_admin,
+    is_org_owner = EXCLUDED.is_org_owner,
     profile_updated_at = EXCLUDED.profile_updated_at,
     synced_at = now()
 WHERE (fd.member.handle, fd.member.display_name, fd.member.avatar_url, fd.member.avatar_hash,
        fd.member.is_bot, fd.member.is_deleted, fd.member.is_admin, fd.member.is_owner,
-       fd.member.profile_updated_at)
+       fd.member.is_org_admin, fd.member.is_org_owner, fd.member.profile_updated_at)
       IS DISTINCT FROM (EXCLUDED.handle, EXCLUDED.display_name, EXCLUDED.avatar_url,
                         EXCLUDED.avatar_hash, EXCLUDED.is_bot, EXCLUDED.is_deleted,
-                        EXCLUDED.is_admin, EXCLUDED.is_owner, EXCLUDED.profile_updated_at)
+                        EXCLUDED.is_admin, EXCLUDED.is_owner, EXCLUDED.is_org_admin,
+                        EXCLUDED.is_org_owner, EXCLUDED.profile_updated_at)
 """
 
 IDENTITY_NAME_SQL = """
@@ -99,6 +103,7 @@ def profile_of(user):
 
 def member_row(user):
     profile = profile_of(user)
+    org = user.get("enterprise_user") or {}
     updated = user.get("updated")
     return (
         user["id"],
@@ -110,6 +115,8 @@ def member_row(user):
         bool(user.get("deleted")),
         bool(user.get("is_admin")),
         bool(user.get("is_owner")),
+        bool(org.get("is_admin")),
+        bool(org.get("is_owner")),
         datetime.fromtimestamp(updated, tz=timezone.utc) if updated else None,
     )
 
