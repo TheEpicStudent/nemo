@@ -1,3 +1,4 @@
+from bot.core.formatting import short_date
 from bot.nemo.views import action, report
 
 ROWS = 8
@@ -129,7 +130,7 @@ def in_force_line(guard):
     if where:
         text += f" in <#{where}>"
     if guard.get("expires_at"):
-        text += f" until {guard['expires_at'].strftime('%-d %b')}"
+        text += f" until {short_date(guard['expires_at'])}"
     else:
         text += ", no end date"
 

@@ -2,6 +2,7 @@ import datetime as dt
 
 import yaml
 
+from bot.core.formatting import short_date
 from bot.nemo.views import edit
 from lib.paths import ACTIONS_FILE
 
@@ -106,7 +107,7 @@ def expiry(values):
 
 
 def format_date(at):
-    return at.strftime("%-d %b") if at else None
+    return short_date(at) if at else None
 
 
 def format_expiry(expires_on):

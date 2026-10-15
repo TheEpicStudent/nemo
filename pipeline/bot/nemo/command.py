@@ -3,6 +3,7 @@ import logging
 import re
 
 from bot.core import access, audit, richtext, session
+from bot.core.formatting import short_date
 from bot.nemo import case_actions, case_queue, channel, memberguards, purge_requests, record
 from bot.nemo.views import help as helping
 from bot.nemo.views import merge, queued, report
@@ -214,7 +215,7 @@ def already_open(user_id, numbers):
 
 def shushed(user_id, on):
     return (
-        f"<@{user_id}> is shushed until {on.strftime('%-d %b')}, with no case. "
+        f"<@{user_id}> is shushed until {short_date(on)}, with no case. "
         "Log it on a case if there is one."
     )
 
@@ -226,7 +227,7 @@ def already_shushed(user_id):
 def banned(user_id, channel_id, on):
     return (
         f"<@{user_id}> is banned from <#{channel_id}> "
-        f"until {on.strftime('%-d %b')}, with no case. "
+        f"until {short_date(on)}, with no case. "
         "Log it on a case if there is one."
     )
 

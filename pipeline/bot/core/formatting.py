@@ -1,3 +1,4 @@
+import datetime as dt
 import re
 
 LINK = re.compile(r"(<https?://[^\s<>]+?(?:\|[^>]*)?>)")
@@ -29,3 +30,9 @@ def quote_text(body, cut=CUT):
 
 def to_member(body):
     return escape_but_links(quote_text(body, REPORTER_CUT))
+
+
+def short_date(value, today=None):
+    if value.year == (today or dt.date.today()).year:
+        return value.strftime("%-d %b")
+    return value.strftime("%-d %b %Y")
