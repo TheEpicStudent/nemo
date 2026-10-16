@@ -222,6 +222,17 @@ def lift_lock(client, guard_id, by=None):
 WARNINGS_PER_PASS = 50
 
 
+CANT_DELETE = "cant_delete_message"
+
+
+def delete_with_admin(guard_id, channel_id, ts):
+    try:
+        privileged.delete_message(channel_id, ts, max_retries=1)
+    except Exception as failure:
+        if not (privileged.already_deleted(failure) or privileged.channel_missing(failure)):
+            log.warning("nemo: guard %s lock notice could not be deleted, leaving it: %s", guard_id, failure)
+
+
 def remove_lock_warnings(client):
     with session() as conn:
         waiting = guards.warnings_to_remove(conn, WARNINGS_PER_PASS)
@@ -231,7 +242,9 @@ def remove_lock_warnings(client):
         try:
             client.chat_delete(channel=channel_id, ts=warned_ts)
         except Exception as failure:
-            if not (privileged.already_deleted(failure) or privileged.channel_missing(failure)):
+            if CANT_DELETE in str(failure):
+                delete_with_admin(guard_id, channel_id, warned_ts)
+            elif not (privileged.already_deleted(failure) or privileged.channel_missing(failure)):
                 log.warning("nemo: guard %s lock notice not removed yet: %s", guard_id, failure)
                 continue
         try:

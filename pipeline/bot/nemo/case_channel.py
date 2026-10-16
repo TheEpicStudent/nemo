@@ -62,7 +62,8 @@ class CaseChannel:
         try:
             self.client.reactions_add(channel=channel_id, timestamp=ts, name=emoji)
         except Exception as failure:
-            log.warning("nemo: could not mark %s with %s: %s", ts, emoji, failure)
+            if not any(code in str(failure) for code in channel.IGNORED_REACTION_ERRORS):
+                log.warning("nemo: could not mark %s with %s: %s", ts, emoji, failure)
 
     def refuse_reply(self, at, sent_by, message):
         self.add_reaction(at, answer.FAILED_REACTION)
