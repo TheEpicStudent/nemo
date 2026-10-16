@@ -16,10 +16,6 @@ module Fd
       params[:channel_id].to_s.strip
     end
 
-    def resolution_note
-      params[:resolution_note].to_s.strip.presence
-    end
-
     def type_key
       params[:type_key].to_s
     end
@@ -68,7 +64,6 @@ module Fd
         source_app: Audit::SOURCE_APP,
         expires_at: expiry,
         reason: params[:reason].to_s.strip,
-        resolution_note: resolution_note,
         category_key: selected_category(kase),
         details: channel
       )

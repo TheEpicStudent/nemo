@@ -218,7 +218,7 @@ def echo_blocks(resolution, member_note, by, actions=(), case_id=None):
                 "type": "context",
                 "elements": [{
                     "type": "mrkdwn",
-                    "text": f"*Outcome:* {member_note}",
+                    "text": f"*Summary:* {member_note}",
                 }],
             })
     elif member_note:

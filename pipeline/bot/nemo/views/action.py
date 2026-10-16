@@ -10,7 +10,6 @@ CALLBACK = "case_action_log"
 
 TARGET = "action_target"
 KIND = "action_kind"
-RESOLUTION_NOTE = "action_resolution_note"
 UNTIL = "action_until"
 UNTIL_TIME = "action_until_time"
 WHERE = "action_where"
@@ -285,24 +284,6 @@ def build_blocks(case_id, values, guard_status=None):
                 **kind_initial_option(key),
             },
         },
-        {
-            "type": "input",
-            "block_id": RESOLUTION_NOTE,
-            "optional": True,
-            "label": {"type": "plain_text", "text": "Outcome"},
-            "element": {
-                "type": "plain_text_input",
-                "action_id": RESOLUTION_NOTE,
-                "multiline": True,
-                "max_length": REASON_LIMIT,
-                "placeholder": {"type": "plain_text", "text": "what fixed it, if anything"},
-                **(
-                    {"initial_value": values["resolution_note"]}
-                    if values.get("resolution_note")
-                    else {}
-                ),
-            },
-        },
     ]
 
     built += existing_guard_blocks(guard_status)
@@ -432,14 +413,6 @@ def echo_blocks(values, by, channel_name=None):
             "text": {"type": "mrkdwn", "text": f"> {values['reason']}"},
         },
     ]
-    if values.get("resolution_note"):
-        built.append({
-            "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": f"*Outcome:* {values['resolution_note']}",
-            }],
-        })
     return built
 
 
@@ -461,9 +434,6 @@ def submitted_values(view_state):
         "type_key": (
             (values.get(KIND, {}).get(KIND, {}).get("selected_option") or {}).get("value")
         ),
-        "resolution_note": (
-            values.get(RESOLUTION_NOTE, {}).get(RESOLUTION_NOTE, {}).get("value") or ""
-        ).strip(),
         "expires_on": values.get(UNTIL, {}).get(UNTIL, {}).get("selected_date"),
         "expires_time": values.get(UNTIL_TIME, {}).get(UNTIL_TIME, {}).get("selected_time"),
         "channel_id": values.get(WHERE, {}).get(WHERE, {}).get("selected_conversation"),

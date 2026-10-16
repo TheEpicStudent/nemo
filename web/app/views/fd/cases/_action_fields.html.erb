@@ -16,11 +16,6 @@
           class: "select action-type", id: nil,
           data: { action: "change->action-standing#toggleKindFields" } %>
   </label>
-  <label class="field-label">
-    How was this solved? (optional)
-    <%= text_area_tag :resolution_note, submitted_value(:resolution_note), rows: 2, class: "textarea",
-          id: nil %>
-  </label>
   <%= render "thread_lock_pick", locks: thread_locks, kase: kase, logged: locks_logged %>
   <div class="field-label" data-action-standing-target="expiry" hidden>
     <span>End (UTC)</span>

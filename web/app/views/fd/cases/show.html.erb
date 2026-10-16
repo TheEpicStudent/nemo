@@ -231,6 +231,32 @@
   </div>
 </div>
 
+<% @actions.each do |action| %>
+  <%= render layout: "fd/modal", locals: { id: "edit-action-#{action.id}",
+        title: "Edit action", sub: action_option_label(action),
+        open: params[:do] == "edit-action-#{action.id}" } do %>
+    <%= form_with url: fd_case_action_path(@case, action), method: :patch, html: { autocomplete: "off" } do %>
+      <div class="modal-body">
+        <label class="field-label">
+          Category
+          <%= select_tag :category_key, options_for_select(action_category_options(action), action.category_key),
+                class: "select", id: nil %>
+        </label>
+        <label class="field-label">
+          Reason
+          <%= text_area_tag :reason, submitted_value(:edit_reason, action.reason), rows: 3,
+                class: "textarea", id: nil %>
+        </label>
+        <%= field_wrong(:edit_reason) %>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
+        <%= submit_tag "Save", class: "btn btn-primary" %>
+      </div>
+    <% end %>
+  <% end %>
+<% end %>
+
 <% @live_actions.each do |action| %>
   <%= render layout: "fd/modal", locals: { id: "reverse-#{action.id}",
         title: "Reverse this action", sub: action_option_label(action),

@@ -132,7 +132,7 @@ SELECT count(*) FROM fd.case_reports WHERE case_id = %s AND closed_at IS NULL
 
 
 RESOLUTION_ECHO_ACTIONS = """
-SELECT target_user_id, type_key, reason, resolution_note FROM fd.actions
+SELECT target_user_id, type_key, reason FROM fd.actions
 WHERE case_id = %s AND reversed_at IS NULL
 ORDER BY performed_at, id
 """
@@ -169,8 +169,8 @@ CASE_CATEGORY = "SELECT category_key FROM fd.cases WHERE id = %s"
 LOG_ACTION = """
 INSERT INTO fd.actions
     (case_id, type_key, target_user_id, decided_by, performed_by, performed_at,
-     source_app, expires_at, details, reason, resolution_note, category_key)
-VALUES (%s, %s, %s, %s, %s, now(), %s, %s, %s, %s, %s,
+     source_app, expires_at, details, reason, category_key)
+VALUES (%s, %s, %s, %s, %s, now(), %s, %s, %s, %s,
         coalesce(%s, (SELECT category_key FROM fd.cases WHERE id = %s)))
 RETURNING id, performed_at, category_key
 """
@@ -314,7 +314,6 @@ def resolution_echo_actions(conn, case_id):
             "target_user_id": row[0],
             "type_key": row[1],
             "reason": row[2],
-            "resolution_note": row[3],
         }
         for row in conn.execute(RESOLUTION_ECHO_ACTIONS, (case_id,)).fetchall()
     ]
@@ -397,7 +396,6 @@ def log_action(conn, case_id, values, user_id):
             expires,
             Jsonb(views.action.details(values)),
             values["reason"],
-            values.get("resolution_note") or None,
             values.get("category_key"),
             case_id,
         ),

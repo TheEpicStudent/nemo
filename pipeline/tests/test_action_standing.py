@@ -114,40 +114,11 @@ def test_a_permanent_ban_has_no_end_date_to_name():
     assert built[0]["text"]["text"] == "Permanent ban"
 
 
-def test_echo_blocks_adds_a_resolution_note_only_when_given():
-    without = action.echo_blocks(submission(), MOD)
-    assert all(
-        "Outcome" not in element.get("text", "")
-        for block in without for element in block.get("elements", [])
-    )
-
-    blocks = action.echo_blocks(submission(resolution_note="walked them through the rules in a DM"), MOD)
-    footer = blocks[-1]["elements"][0]["text"]
-    assert footer == "*Outcome:* walked them through the rules in a DM"
-
-
-def test_the_modal_always_offers_a_resolution_note():
+def test_action_modal_has_no_outcome_field():
     built = action.build_blocks(412, {"type_key": "shush", "target_user_id": USER_ID}, None)
-    assert action.RESOLUTION_NOTE in ids(built)
-
-
-def test_the_resolution_note_is_optional():
-    built = action.build_blocks(412, {"type_key": "shush", "target_user_id": USER_ID}, None)
-    field = next(one for one in built if one.get("block_id") == action.RESOLUTION_NOTE)
-    assert field["optional"] is True
-
-
-def test_the_resolution_note_sits_right_under_the_action_kind():
-    built = action.build_blocks(412, {"type_key": "shush", "target_user_id": USER_ID}, None)
-    block_ids = [one.get("block_id") for one in built]
-    assert block_ids.index(action.KIND) + 1 == block_ids.index(action.RESOLUTION_NOTE)
-
-
-def test_submitted_values_reads_and_strips_the_resolution_note():
-    state = {"values": {action.RESOLUTION_NOTE: {action.RESOLUTION_NOTE: {
-        "value": "  talked it through  "
-    }}}}
-    assert action.submitted_values(state)["resolution_note"] == "talked it through"
+    labels = [one.get("label", {}).get("text") for one in built]
+    assert "Outcome" not in labels
+    assert "resolution_note" not in action.submitted_values({"values": {}})
 
 
 def test_an_orphaned_guard_says_it_has_no_case():

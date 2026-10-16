@@ -131,7 +131,7 @@ Rails.application.routes.draw do
       resources :chats, only: [:create]
       resource :chat_log, only: [:show]
       resources :notes, only: [:create, :destroy]
-      resources :actions, only: [:create]
+      resources :actions, only: [:create, :update]
       resources :reversals, only: [:create]
       resources :participants, only: [:create, :destroy]
       resources :tags, only: [:create, :destroy], controller: "case_tags"

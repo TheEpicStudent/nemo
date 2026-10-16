@@ -41,7 +41,7 @@ module Fd
 
     VERBS = %w[
       opened lifted claimed unclaimed resolved reopened categorised
-      performed reversed received
+      performed reversed received edited
       noted deleted attached detached flagged unflagged closed answered extended
       added removed
       granted revoked refused

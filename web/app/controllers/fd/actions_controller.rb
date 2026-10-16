@@ -37,7 +37,43 @@ module Fd
         notice: notice_for(kase, guard: guard, lock: lock, adopted: adopted, subject_added: subject_added)
     end
 
+    def update
+      kase = Case.find(params[:case_id])
+      action = Action.find_by(id: params[:id], case_id: kase.family_ids)
+      return redirect_to(fd_case_path(kase, tab: "actions"), alert: "Action not found") if action.nil?
+
+      error = edit_error(action)
+      if error
+        return redirect_to(fd_case_path(kase, tab: "actions", do: "edit-action-#{action.id}"),
+          alert: (error unless flash[:field_error]))
+      end
+
+      action.assign_attributes(reason: params[:reason].to_s.strip.presence,
+        category_key: params[:category_key].to_s.presence)
+      return redirect_to(fd_case_path(kase, tab: "actions"), notice: "No changes") unless action.changed?
+
+      writing do
+        action.save!
+        audit(action, "edited")
+      end
+      redirect_to fd_case_path(kase, tab: "actions"), notice: "Action updated"
+    end
+
     private
+
+    def edit_error(action)
+      if params[:reason].to_s.strip.blank? && !action.from_thread_lock?
+        return wrong!(:edit_reason, "Enter a reason", params[:reason])
+      end
+
+      category_key = params[:category_key].to_s
+      if category_key.present? && category_key != action.category_key &&
+          !InfractionCategory.active_key?(category_key)
+        return "Select a category"
+      end
+
+      nil
+    end
 
     def notice_for(kase, guard:, lock:, adopted:, subject_added:)
       return attached_notice(kase, guard) if guard

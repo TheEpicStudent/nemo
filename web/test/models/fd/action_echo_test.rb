@@ -23,15 +23,4 @@ class Fd::ActionEchoTest < ActiveSupport::TestCase
     body = Fd::ActionEcho.body_for(action(reason: ""))
     assert_equal "Warning logged on <@USUB>", body
   end
-
-  test "a resolution note becomes its own line" do
-    body = Fd::ActionEcho.body_for(action(resolution_note: "talked it through"))
-    assert_equal "Warning logged on <@USUB>: kept at it\nOutcome: talked it through",
-      body
-  end
-
-  test "no resolution note recorded adds no second line" do
-    body = Fd::ActionEcho.body_for(action(resolution_note: ""))
-    assert_not_includes body, "Outcome"
-  end
 end

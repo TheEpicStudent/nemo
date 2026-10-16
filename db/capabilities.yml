@@ -121,6 +121,7 @@ capabilities:
     locked: true
     events:
       - action/performed
+      - action/edited
       - member_guard/opened
       - member_guard/attached
       - member_guard/extended

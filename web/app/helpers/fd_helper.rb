@@ -1012,6 +1012,14 @@ module FdHelper
     Fd::InfractionCategory.active_keys.map { |key| [category_label(key), key] }
   end
 
+  def action_category_options(action)
+    options = [["Not set", ""]] + category_options
+    current = action.category_key
+    return options if current.blank? || options.any? { |_label, key| key == current }
+
+    options + [[category_label(current), current]]
+  end
+
   def note_byline(note)
     safe_join([member_face(note.author, small: true), on_day(note.created_at)], " · ")
   end
@@ -1454,13 +1462,6 @@ module FdHelper
     tag.q(reason, class: "why-quote")
   end
 
-  def action_resolution_note(action)
-    note = action.resolution_note.presence
-    return nil if note.nil?
-
-    tag.span(note, class: "resolution-note")
-  end
-
   def action_performer_note(action)
     return "performed themselves" if action.performed_by_decider?
 
@@ -1535,6 +1536,7 @@ module FdHelper
     "citation/unflagged" => "Unflagged a message on",
     "action/performed" => "Logged an action on",
     "action/reversed" => "Reversed an action on",
+    "action/edited" => "Edited an action on",
     "member/looked_up" => "Looked up",
     "report/received" => "Took a report on",
     "report/closed" => "Told the reporter on",

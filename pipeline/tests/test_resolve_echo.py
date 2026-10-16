@@ -20,16 +20,15 @@ class Conn:
 
 def action(**over):
     row = {"target_user_id": USER_ID, "type_key": "warning",
-           "reason": "kept at it after being asked to stop", "resolution_note": None}
+           "reason": "kept at it after being asked to stop"}
     row.update(over)
     return row
 
 
 def test_resolution_echo_actions_reads_the_live_ones():
-    conn = Conn([(USER_ID, "warning", "kept at it", None)])
+    conn = Conn([(USER_ID, "warning", "kept at it")])
     assert case_actions.resolution_echo_actions(conn, 412) == [
-        {"target_user_id": USER_ID, "type_key": "warning", "reason": "kept at it",
-         "resolution_note": None},
+        {"target_user_id": USER_ID, "type_key": "warning", "reason": "kept at it"},
     ]
     assert conn.executed[0] == (case_actions.RESOLUTION_ECHO_ACTIONS, (412,))
 
@@ -75,4 +74,4 @@ def test_action_taken_lists_every_action_with_its_reason():
 def test_action_taken_with_a_summary_calls_it_out_separately_from_the_reasons():
     built = resolve.echo_blocks("action_taken", "both stopped after the ban", MOD, [action()])
     footer = built[-1]["elements"][0]["text"]
-    assert footer == "*Outcome:* both stopped after the ban"
+    assert footer == "*Summary:* both stopped after the ban"
