@@ -6,6 +6,20 @@ from bot.core.identity import ensure_member
 
 TRUSTED_SENDER = "relay:trusted sender"
 
+ANONYMOUS_FILE_NAME = r"""('file-' || f.id || coalesce(lower(substring(f.name from '\.[A-Za-z0-9]{1,10}$')), ''))"""
+
+RENAME_ANONYMOUS_FILES = f"""
+UPDATE fd.intake_files f
+SET name = {ANONYMOUS_FILE_NAME}, title = NULL
+FROM fd.intake_message_files mf
+JOIN fd.intake_messages m ON m.id = mf.message_id
+JOIN fd.intake_conversations c ON c.id = m.conversation_id
+JOIN fd.case_reports r ON r.id = c.report_id
+WHERE mf.file_id = f.id AND c.id = %s AND m.direction = 'inbound' AND r.is_anonymous
+  AND (f.name IS DISTINCT FROM {ANONYMOUS_FILE_NAME} OR f.title IS NOT NULL)
+RETURNING f.id
+"""
+
 
 def root_ts(event):
     return event.get("thread_ts") or event.get("ts")
@@ -28,6 +42,10 @@ def conversation(conn, channel_id, thread_ts, member_user_id=None):
         (channel_id, thread_ts, member_user_id),
     )
     return conn.execute(FIND, (channel_id, thread_ts)).fetchone()[0]
+
+
+def rename_anonymous_files(conn, conversation_id):
+    return [row[0] for row in conn.execute(RENAME_ANONYMOUS_FILES, (conversation_id,)).fetchall()]
 
 
 def close(conn, conversation_id, closed_by):

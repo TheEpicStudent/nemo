@@ -49,6 +49,7 @@ class MessageRelay:
         with session() as conn:
             already = case.existing(conn, conversation_id)
             case_id = case.open_case(conn, conversation_id, opener, anonymous)
+            intake.rename_anonymous_files(conn, conversation_id)
             evidence_blocks = evidence.promote(conn, case_id, conversation_id, opener)
             if already:
                 case.reopen(conn, case_id, opener)

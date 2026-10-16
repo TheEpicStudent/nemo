@@ -109,6 +109,7 @@ def register(app, on_handoff=None):
         with session() as conn:
             message_id, inserted = intake.record(conn, event)
             conversation_id = intake.conversation(conn, event["channel"], thread_ts)
+            intake.rename_anonymous_files(conn, conversation_id)
             handed_off, prompt_ts, saved_choice = conn.execute(
                 CONVERSATION_STATE, (consent.SUBTYPE, conversation_id)
             ).fetchone()
