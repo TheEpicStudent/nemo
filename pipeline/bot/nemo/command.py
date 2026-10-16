@@ -36,6 +36,7 @@ OPEN_RECORD = "open_record"
 OFF = "off"
 
 ABOUT_SOMEBODY = (LOOKUP, NOTE, SHUSH, CHANNEL_BAN, UNSHUSH, UNBAN)
+MEMBER_VERBS = (*ABOUT_SOMEBODY, OPEN, PURGE)
 VERBS = (*ABOUT_SOMEBODY, OPEN, MERGE, PURGE, SLOWMODE, QUEUE)
 NEEDS_WORDS = (NOTE, OPEN, SHUSH, CHANNEL_BAN, SLOWMODE)
 
@@ -106,7 +107,8 @@ def parse_command(text):
 
     mention = WHO.search(remainder)
     if not mention:
-        return verb, None, re.sub(r"\s+", " ", remainder).strip() or None
+        user_id, rest = richtext.leading_user_id(remainder) if verb in MEMBER_VERBS else (None, remainder)
+        return verb, user_id, re.sub(r"\s+", " ", rest).strip() or None
 
     who = mention.group(1)
     body = re.sub(r"\s+", " ", remainder[: mention.start()] + " " + remainder[mention.end() :]).strip()

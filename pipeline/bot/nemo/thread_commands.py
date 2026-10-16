@@ -1,7 +1,7 @@
 import logging
 import re
 
-from bot.core import access, privileged, session
+from bot.core import access, privileged, richtext, session
 from bot.nemo import answer, case_actions, channel, chat
 from bot.nemo.views import lines
 
@@ -85,13 +85,19 @@ def unassign(conn, case_id, user_id, args):
     return done(say=[lines.unassigned(user_id, case_id, to_remove)])
 
 
-def note(conn, case_id, user_id, args):
+def note_target(args):
     mention = WHO.match(args)
-    words = args[mention.end():].strip() if mention else args
+    if mention:
+        return mention.group(1), args[mention.end():].strip()
+    return richtext.leading_user_id(args)
+
+
+def note(conn, case_id, user_id, args):
+    member_id, words = note_target(args)
     if not words:
         return refused(lines.NOTE_USAGE)
-    if mention:
-        case_actions.member_note(conn, mention.group(1), words, user_id)
+    if member_id:
+        case_actions.member_note(conn, member_id, words, user_id)
     else:
         case_actions.add_note(conn, case_id, words, user_id)
     return done(react=SAVED, retain=True)
@@ -102,7 +108,7 @@ RUN = {CASE: case_link, CLAIM: claim, ASSIGN: assign, UNASSIGN: unassign, NOTE: 
 
 def needed(verb, args):
     if verb == NOTE:
-        return "member.note" if WHO.match(args) else "case.note"
+        return "member.note" if note_target(args)[0] else "case.note"
     return NEEDS[verb]
 
 

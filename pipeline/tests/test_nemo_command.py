@@ -339,3 +339,30 @@ def test_the_help_card_lists_unshush_and_unban():
 
     assert "/nemo unshush" in help_text
     assert "/nemo unban" in help_text
+
+
+@pytest.mark.parametrize(("text", "parsed"), [
+    ("lookup U0123ABCD", (command.LOOKUP, "U0123ABCD", None)),
+    ("note W0123ABCD  spammed  again", (command.NOTE, "W0123ABCD", "spammed again")),
+    ("shush U0123ABCD 3d flooding", (command.SHUSH, "U0123ABCD", "3d flooding")),
+    ("open U0123ABCD alt account", (command.OPEN, "U0123ABCD", "alt account")),
+    ("purge U0123ABCD", (command.PURGE, "U0123ABCD", None)),
+])
+def test_parse_command_accepts_a_bare_user_id(text, parsed):
+    assert command.parse_command(text) == parsed
+
+
+@pytest.mark.parametrize(("text", "parsed"), [
+    ("open URGENT raid in lounge", (command.OPEN, None, "URGENT raid in lounge")),
+    ("lookup U12", (command.LOOKUP, None, "U12")),
+    ("note u0123abcd text", (command.NOTE, None, "u0123abcd text")),
+    ("note spammed by U0123ABCD", (command.NOTE, None, "spammed by U0123ABCD")),
+    ("slowmode U0123ABCD 30s", (command.SLOWMODE, None, "U0123ABCD 30s")),
+])
+def test_parse_command_ignores_words_that_are_not_a_leading_user_id(text, parsed):
+    assert command.parse_command(text) == parsed
+
+
+def test_parse_command_prefers_a_mention_over_a_bare_user_id():
+    assert command.parse_command("note U0123ABCD about <@U9999ZZZZ>") == \
+        (command.NOTE, "U9999ZZZZ", "U0123ABCD about")

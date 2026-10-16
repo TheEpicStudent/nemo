@@ -1,6 +1,8 @@
 import html
 import re
 
+LEADING_USER_ID = re.compile(r"\A([UW](?=[A-Z0-9]*\d)[A-Z0-9]{6,})(?=\s|\Z)")
+
 MENTION = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>|<#(C[A-Z0-9]+)(?:\|[^>]*)?>")
 
 PIECE = re.compile(
@@ -9,6 +11,14 @@ PIECE = re.compile(
     r"|<(https?://[^|>\s]+)(?:\|([^>]*))?>"
     r"|(?<![<|])(https?://[^\s<>]+)"
 )
+
+
+def leading_user_id(text):
+    body = (text or "").lstrip()
+    match = LEADING_USER_ID.match(body)
+    if not match:
+        return None, text
+    return match.group(1), body[match.end():].strip()
 
 
 def link(url, label=None):

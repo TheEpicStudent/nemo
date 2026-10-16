@@ -136,7 +136,17 @@ def test_a_note_lands_on_the_case_or_the_member(harness):
     assert commands.run("!note", "<@UA>", 39, "UME")["refused"].startswith("Usage")
 
 
+def test_note_with_bare_user_id_lands_on_the_member(harness):
+    commands.run("!note", "U0123ABCD deactivated alt", 39, "UME")
+    commands.run("!note", "URGENT check this", 39, "UME")
+
+    assert harness["member"] == [("U0123ABCD", "deactivated alt")]
+    assert harness["noted"] == ["URGENT check this"]
+    assert commands.run("!note", "U0123ABCD", 39, "UME")["refused"].startswith("Usage")
+
+
 def test_each_command_asks_for_its_own_permission():
+    assert commands.needed("!note", "U0123ABCD text") == "member.note"
     assert commands.needed("!note", "<@UA> text") == "member.note"
     assert commands.needed("!note", "text") == "case.note"
     assert commands.needed("!claim", "") == "case.open"
