@@ -2,7 +2,7 @@ import logging
 
 from bot.core import blobs, intake, session
 from bot.relay import consent, file_notices, intake_files
-from bot.relay.reply import RECEIVE_FAILED, RECEIVED_REACTION, REPORTER_DELETE, nemo_delayed, receipt, submit_failed
+from bot.relay.reply import SENDING, RECEIVE_FAILED, RECEIVED_REACTION, REPORTER_DELETE, nemo_delayed, receipt, submit_failed
 
 log = logging.getLogger("bot.relay")
 
@@ -56,6 +56,12 @@ ORDER BY posted_at DESC, id DESC LIMIT 1
 SET_PROMPT_SUBTYPE = """
 UPDATE fd.intake_messages SET subtype = %s, last_seen_at = now()
 WHERE channel_id = %s AND ts = %s
+"""
+
+CLAIM_PROMPT = """
+UPDATE fd.intake_messages SET subtype = %s, last_seen_at = now()
+WHERE channel_id = %s AND ts = %s AND subtype = %s
+RETURNING conversation_id
 """
 
 STORE_CONSENT_CHOICE = """
@@ -138,9 +144,9 @@ def register(app, on_submit=None):
         )
 
         if handed_off:
+            react_received(client, event["channel"], event["ts"])
             if event.get("files"):
                 fetch_files(client)
-            react_received(client, event["channel"], event["ts"])
             if on_submit:
                 on_submit(conversation_id, message_id)
             return
@@ -252,10 +258,16 @@ def register(app, on_submit=None):
         prompt_ts = body["message"]["ts"]
 
         with session() as conn:
-            row = conn.execute(CONVERSATION_BY_MESSAGE, (channel_id, prompt_ts)).fetchone()
-            if not row:
-                return
-            conversation_id = row[0]
+            claimed = conn.execute(
+                CLAIM_PROMPT, (consent.DONE, channel_id, prompt_ts, consent.SUBTYPE)
+            ).fetchone()
+        if claimed is None:
+            return
+        conversation_id = claimed[0]
+        client.chat_update(channel=channel_id, ts=prompt_ts, text=SENDING,
+                           blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": SENDING}}])
+
+        with session() as conn:
             handed_off, _, saved_choice = conn.execute(
                 CONVERSATION_STATE, (consent.SUBTYPE, conversation_id)
             ).fetchone()
@@ -274,12 +286,10 @@ def register(app, on_submit=None):
                 "relay: nobody is taking reports, conversation %s stays with the reporter",
                 conversation_id,
             )
-            text, blocks = submit_failed()
-            client.chat_update(channel=channel_id, ts=prompt_ts, text=text, blocks=blocks)
+            show_submit_failed(client, channel_id, prompt_ts)
             return
 
         with session() as conn:
-            conn.execute(SET_PROMPT_SUBTYPE, (consent.DONE, channel_id, prompt_ts))
             conn.execute(CLEAR_CONSENT_CHOICE, (conversation_id,))
 
         log.info(
@@ -292,8 +302,7 @@ def register(app, on_submit=None):
                 "relay: conversation %s could not be handed over, telling them to try again",
                 conversation_id,
             )
-            text, blocks = submit_failed()
-            client.chat_update(channel=channel_id, ts=prompt_ts, text=text, blocks=blocks)
+            show_submit_failed(client, channel_id, prompt_ts)
             return
 
         with session() as conn:
@@ -303,6 +312,12 @@ def register(app, on_submit=None):
         client.chat_update(channel=channel_id, ts=prompt_ts, text=text, blocks=blocks)
         react_submitted_messages(client, conversation_id)
 
+    def show_submit_failed(client, channel_id, prompt_ts):
+        with session() as conn:
+            conn.execute(SET_PROMPT_SUBTYPE, (consent.SUBTYPE, channel_id, prompt_ts))
+        text, blocks = submit_failed()
+        client.chat_update(channel=channel_id, ts=prompt_ts, text=text, blocks=blocks)
+
     @app.action(consent.CANCEL)
     def on_cancel(ack, body, client):
         ack()
@@ -310,15 +325,17 @@ def register(app, on_submit=None):
         prompt_ts = body["message"]["ts"]
 
         with session() as conn:
-            conn.execute(SET_PROMPT_SUBTYPE, (consent.DONE, channel_id, prompt_ts))
-            row = conn.execute(CONVERSATION_BY_MESSAGE, (channel_id, prompt_ts)).fetchone()
-            if row:
-                purged, removed = blobs.purge_conversation(conn, row[0], DECLINED_BY)
-                if purged:
-                    log.info(
-                        "relay: conversation %s was declined, %s file(s) purged, "
-                        "%s blob(s) removed", row[0], purged, removed,
-                    )
+            row = conn.execute(
+                CLAIM_PROMPT, (consent.DONE, channel_id, prompt_ts, consent.SUBTYPE)
+            ).fetchone()
+            if row is None:
+                return
+            purged, removed = blobs.purge_conversation(conn, row[0], DECLINED_BY)
+            if purged:
+                log.info(
+                    "relay: conversation %s was declined, %s file(s) purged, "
+                    "%s blob(s) removed", row[0], purged, removed,
+                )
 
         client.chat_update(
             channel=channel_id, ts=prompt_ts, text=consent.CANCELLED, blocks=[]

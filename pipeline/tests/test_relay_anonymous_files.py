@@ -102,3 +102,30 @@ def test_dm_on_message_follow_up_renames_files_for_conversation(monkeypatch):
                            "user": "UREPORTER1", "text": "one more"}, client)
 
     assert renamed == [7]
+
+
+def test_submit_report_downloads_files_in_the_background(monkeypatch):
+    started = []
+
+    @contextlib.contextmanager
+    def fake_session():
+        yield object()
+
+    class FakeThread:
+        def __init__(self, target, args, name, daemon):
+            started.append((target.__name__, args, name, daemon))
+
+        def start(self):
+            started.append("started")
+
+    monkeypatch.setattr(messages, "session", fake_session)
+    monkeypatch.setattr(messages, "bot_user_id", lambda client, name: "URELAY")
+    monkeypatch.setattr(messages.case, "existing", lambda conn, conversation_id: None)
+    monkeypatch.setattr(messages.case, "open_case", lambda conn, conversation_id, opener, anonymous: 512)
+    monkeypatch.setattr(messages.intake, "rename_anonymous_files", lambda conn, conversation_id: [])
+    monkeypatch.setattr(messages.evidence, "promote",
+                        lambda conn, case_id, conversation_id, opener: {"threads": 0, "messages": 0})
+    monkeypatch.setattr(messages.threading, "Thread", FakeThread)
+
+    assert messages.MessageRelay().submit_report(7, 41) == 512
+    assert started == [("fetch_attachments", (7,), "relay-files-7", True), "started"]

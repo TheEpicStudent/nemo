@@ -1,4 +1,5 @@
 import logging
+import threading
 
 from bot.core import blobs, case, evidence, profiles, intake, outbox, session
 from bot.core.whoami import bot_user_id
@@ -63,7 +64,8 @@ class MessageRelay:
             if already:
                 case.reopen(conn, case_id, opener)
         log.info("relay: conversation %s is case %s", conversation_id, case_id)
-        self.fetch_attachments(conversation_id)
+        threading.Thread(target=self.fetch_attachments, args=(conversation_id,),
+                         name=f"relay-files-{conversation_id}", daemon=True).start()
         if evidence_blocks["threads"] or evidence_blocks["messages"]:
             log.info(
                 "relay: case %s came with %s thread(s) and %s message(s)",

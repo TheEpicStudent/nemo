@@ -27,6 +27,8 @@ def nemo_delayed(conn):
 
 SUBMITTED = "Your report was sent to the Fire Department."
 
+SENDING = "Sending"
+
 THREAD_HINT = "Replies arrive in this thread · Reply here to add details"
 
 
