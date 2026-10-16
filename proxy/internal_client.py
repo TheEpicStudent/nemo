@@ -62,7 +62,7 @@ class InternalClient:
         base = dict(params)
         base["count"] = page_size
         cursor = None
-        seen = 0
+        fetched = 0
         while True:
             page = dict(base)
             if cursor:
@@ -70,12 +70,12 @@ class InternalClient:
             data = self.call(method, page, max_retries=max_retries)
             items = data.get(items_key, [])
             yield from items
-            seen += len(items)
+            fetched += len(items)
             cursor = data.get("next_cursor_mark")
             num_found = data.get("num_found")
             if not cursor or not items:
                 break
-            if num_found is not None and seen >= num_found:
+            if num_found is not None and fetched >= num_found:
                 break
 
     def _request(self, url, body, headers, max_retries=0):

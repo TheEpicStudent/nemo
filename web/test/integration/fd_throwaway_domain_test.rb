@@ -3,43 +3,43 @@ require "test_helper"
 class FdThrowawayDomainTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
-  RING = "UTHROW1".freeze
-  PLAIN = "UTHROW2".freeze
+  THROWAWAY = "UTHROW1".freeze
+  REGULAR = "UTHROW2".freeze
 
   setup do
-    @manager = hold_role!("UTHROWBOSS", "community_manager")
-    member!(RING, email: "kid42@e.izie.top")
-    member!(PLAIN, email: "kid@gmail.com")
+    @manager = grant_role!("UTHROWBOSS", "community_manager")
+    member!(THROWAWAY, email: "kid42@e.izie.top")
+    member!(REGULAR, email: "kid@gmail.com")
     as_pipeline("INSERT INTO fd.throwaway_domain (domain, source) VALUES ('e.izie.top', 'curated') ON CONFLICT DO NOTHING")
     seeded!("fd.throwaway_domain", "domain", "e.izie.top")
   end
 
   def email_fact
-    css_select(".member-facts .fact").find { |one| one.at("dt").text.strip == "Email" }
+    css_select(".member-facts .fact").find { |fact| fact.at("dt").text.strip == "Email" }
   end
 
-  test "an email on a throwaway domain is marked beside the address" do
+  test "member show marks email on a throwaway domain" do
     sign_in_as(@manager)
 
-    get fd_member_path(RING)
+    get fd_member_path(THROWAWAY)
     assert_match "kid42@e.izie.top", email_fact.text
     assert_match "Throwaway domain", email_fact.text
 
-    get fd_member_path(PLAIN)
+    get fd_member_path(REGULAR)
     assert_no_match "Throwaway domain", email_fact.text
   end
 
-  test "the mark stays hidden with the address from those who cannot read identities" do
-    firefighter = hold_role!("UTHROWFF", "firefighter")
-    move_capability!("firefighter", "identity.read", false, by: "UTHROWBOSS")
+  test "member show without identity.read hides email and throwaway mark" do
+    firefighter = grant_role!("UTHROWFF", "firefighter")
+    override_capability!("firefighter", "identity.read", false, by: "UTHROWBOSS")
     sign_in_as(firefighter)
 
-    get fd_member_path(RING)
+    get fd_member_path(THROWAWAY)
     assert_no_match "e.izie.top", response.body
     assert_no_match "Throwaway domain", response.body
   end
 
-  test "the domain is read from the address in lower case" do
+  test "domain_of strips and downcases address and listed? ignores case" do
     assert_equal "e.izie.top", Fd::ThrowawayDomain.domain_of(" Kid@E.Izie.Top ")
     assert_nil Fd::ThrowawayDomain.domain_of("no-at-sign")
     assert Fd::ThrowawayDomain.listed?("x@E.IZIE.TOP")

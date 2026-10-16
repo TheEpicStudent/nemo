@@ -2,9 +2,12 @@ import datetime as dt
 import re
 
 LINK = re.compile(r"(<https?://[^\s<>]+?(?:\|[^>]*)?>)")
+MEMBER_TOKEN = re.compile(
+    r"(<https?://[^\s<>]+?(?:\|[^>]*)?>|<@[UW][A-Z0-9]+(?:\|[^>]*)?>|<#C[A-Z0-9]+(?:\|[^>]*)?>)"
+)
 
 QUOTE_LIMIT = 2400
-CUT = "\n[truncated; the full text is on the case page]"
+CUT = "\n[truncated]"
 MEMBER_PART_LIMIT = 3000
 SPLIT_POINTS = ("\n\n", "\n", " ")
 
@@ -20,6 +23,13 @@ def escape_but_links(text):
     )
 
 
+def escape_but_member_tokens(text):
+    return "".join(
+        part if MEMBER_TOKEN.fullmatch(part) else escape(part)
+        for part in MEMBER_TOKEN.split(text or "")
+    )
+
+
 def quote_text(body, cut=CUT):
     text = (body or "").strip()
     if not text:
@@ -31,35 +41,35 @@ def quote_text(body, cut=CUT):
 
 def split_point(window, limit):
     for separator in SPLIT_POINTS:
-        at = window.rfind(separator)
-        if at > limit // 2:
-            return at
+        index = window.rfind(separator)
+        if index > limit // 2:
+            return index
     return limit
 
 
 def outside_token(window, cut):
-    opened = window.rfind("<", 0, cut)
-    if opened > 0 and opened > window.rfind(">", 0, cut):
-        return opened
+    token_start = window.rfind("<", 0, cut)
+    if token_start > 0 and token_start > window.rfind(">", 0, cut):
+        return token_start
     return cut
 
 
 def split_text(text, limit=MEMBER_PART_LIMIT):
     parts = []
-    rest = text
-    while len(rest) > limit:
-        window = rest[:limit]
+    remaining = text
+    while len(remaining) > limit:
+        window = remaining[:limit]
         cut = outside_token(window, split_point(window, limit))
-        parts.append(rest[:cut].rstrip())
-        rest = rest[cut:].lstrip()
-    if rest:
-        parts.append(rest)
+        parts.append(remaining[:cut].rstrip())
+        remaining = remaining[cut:].lstrip()
+    if remaining:
+        parts.append(remaining)
     return parts
 
 
 def member_parts(body):
     text = (body or "").strip()
-    return [escape_but_links(part) for part in split_text(text)] if text else []
+    return [escape_but_member_tokens(part) for part in split_text(text)] if text else []
 
 
 def short_date(value, today=None):
@@ -71,7 +81,7 @@ def short_date(value, today=None):
 def short_end(value, today=None):
     if not isinstance(value, dt.datetime):
         return short_date(value, today)
-    at = value.astimezone(dt.timezone.utc) if value.tzinfo else value
-    if (at.hour, at.minute) == (23, 59):
-        return short_date(at, today)
-    return f"{short_date(at, today)}, {at:%H:%M} UTC"
+    utc_value = value.astimezone(dt.timezone.utc) if value.tzinfo else value
+    if (utc_value.hour, utc_value.minute) == (23, 59):
+        return short_date(utc_value, today)
+    return f"{short_date(utc_value, today)}, {utc_value:%H:%M} UTC"

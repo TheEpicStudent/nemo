@@ -20,7 +20,7 @@ REVERSE = "case_reverse"
 PROBLEM = "more_problem"
 BAN_LOG = "case_ban_log"
 
-WHAT = "category_what"
+CATEGORY_FIELD = "category_what"
 NOTE_BODY = "note_body"
 
 NOTE_LIMIT = 5000
@@ -37,13 +37,13 @@ def option(text, value):
 
 def choices(case):
     if case.get("resolved_at"):
-        return [option("Reopen", REOPEN), option("Add a note", NOTE), option("More…", MORE)]
+        return [option("Reopen", REOPEN), option("Add note", NOTE), option("More…", MORE)]
 
     out = [] if case.get("assignees") else [option("Claim", CLAIM)]
     return out + [
-        option("Log an action", LOG_ACTION),
+        option("Log action", LOG_ACTION),
         option("Resolve", RESOLVE),
-        option("Add a note", NOTE),
+        option("Add note", NOTE),
         option("More…", MORE),
     ]
 
@@ -64,7 +64,7 @@ def more_options(open_, category_key, live):
     if open_ and not category_key:
         options.append(("Set violation", CATEGORY))
     if live:
-        options.append(("Reverse an action", REVERSE))
+        options.append(("Reverse action", REVERSE))
     if open_:
         options.append(("Merge", MERGE))
     return options
@@ -120,7 +120,7 @@ def reopen_view(case_id):
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "This clears the resolution and unassigns everyone.",
+                "text": "*Cleared:* resolution, assignees",
             },
         }],
     }
@@ -142,11 +142,11 @@ def category_view(case_id):
         "blocks": [
             {
                 "type": "input",
-                "block_id": WHAT,
+                "block_id": CATEGORY_FIELD,
                 "label": {"type": "plain_text", "text": NO_LABEL},
                 "element": {
                     "type": "static_select",
-                    "action_id": WHAT,
+                    "action_id": CATEGORY_FIELD,
                     "options": [
                         option(label, key) for key, label in categories().items()
                     ],
@@ -173,10 +173,6 @@ def note_view(case_id):
                     "type": "rich_text_input",
                     "action_id": NOTE_BODY,
                     "min_lines": 3,
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "what you found, what you did",
-                    },
                 },
             }
         ],
@@ -184,7 +180,7 @@ def note_view(case_id):
 
 
 def selected_category(view_state):
-    selected = view_state.get("values", {}).get(WHAT, {}).get(WHAT, {}).get("selected_option")
+    selected = view_state.get("values", {}).get(CATEGORY_FIELD, {}).get(CATEGORY_FIELD, {}).get("selected_option")
     return (selected or {}).get("value")
 
 
@@ -193,9 +189,9 @@ def submitted_values(view_state):
     return richtext.flatten(values)[:NOTE_LIMIT]
 
 
-def note_objection(values):
+def note_errors(values):
     if not values:
-        return {NOTE_BODY: "Write a note."}
+        return {NOTE_BODY: "Enter a note"}
     return None
 
 

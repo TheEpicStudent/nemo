@@ -2,7 +2,7 @@ module AdminHelper
   def role_capability_switch(role, key, override)
     allowed = override ? override.allowed : Authz.baseline(role).include?(key)
     label = "#{Authz.role_label(role)}: #{key}"
-    disabled_reason = Authz.locked?(key) ? "#{key} is FD only, it cannot be moved" : why_not("access.grant")
+    disabled_reason = Authz.locked?(key) ? "FD only" : why_not("access.grant")
     if disabled_reason
       return tag.span(class: "switch", role: "switch", tabindex: "0",
         aria: { checked: allowed.to_s, disabled: "true", label: label, description: disabled_reason })
@@ -26,25 +26,14 @@ module AdminHelper
     safe_join(parts, " ")
   end
 
-  ROLE_NOTES = {
-    "community_manager" => "Everything, including handing access out",
-    "firefighter" => "Works cases",
-    "promethean" => "Reads the channels you name to them",
-    "gardener" => "Reads one shared set of channels"
-  }.freeze
-
-  def role_note(name)
-    ROLE_NOTES.fetch(name.to_s, "")
-  end
-
   AUDIENCE_TONE = { "public" => "chip chip-warn", "everyone" => "chip chip-warn" }.freeze
 
   AUDIENCE_NOTE = {
-    "granted" => "only the people you name",
-    "private" => "only the people you name",
-    "shared" => "only the people you name",
-    "public" => "anyone signed in, no grant needed",
-    "everyone" => "anyone signed in, no grant needed"
+    "granted" => "Named users",
+    "private" => "Named users",
+    "shared" => "Named users",
+    "public" => "All signed-in users",
+    "everyone" => "All signed-in users"
   }.freeze
 
   FACE_LIMIT = 4
@@ -54,12 +43,12 @@ module AdminHelper
   end
 
   def grant_faces(grants, kind)
-    return tag.span("Anyone signed in", class: "sub") if
+    return tag.span("All signed-in users", class: "sub") if
       Channels::Audience::OPEN.include?(kind)
 
     people = grants.select { |grant| grant.user_id.present? }
     roles = grants.filter_map { |grant| grant.role.presence }.uniq
-    return tag.span("Nobody", class: "sub") if people.empty? && roles.empty?
+    return tag.span("None", class: "sub") if people.empty? && roles.empty?
 
     safe_join([role_chips(roles), face_stack(people)].compact, " ")
   end
@@ -97,10 +86,10 @@ module AdminHelper
     end
   end
 
-  def acted_bar(count, busiest)
+  def action_count_bar(count, peak)
     return tag.span("Never", class: "sub") if count.to_i.zero?
 
-    width = busiest.to_i.positive? ? (count * 100.0 / busiest).round : 0
+    width = peak.to_i.positive? ? (count * 100.0 / peak).round : 0
     tag.span(class: "inbar") do
       tag.span(tag.i(nil, style: "width: #{width}%")) + tag.span(count)
     end

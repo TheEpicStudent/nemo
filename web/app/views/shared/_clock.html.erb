@@ -1,11 +1,11 @@
-<% title = local_assigns.fetch(:title, "Clock") %>
+<% title = local_assigns.fetch(:title, "Activity by hour") %>
 <% if clock.any? %>
   <div class="card">
     <div class="card-head">
       <h2 class="card-title"><%= title %></h2>
       <div class="card-tools">
         <span class="ramp" aria-hidden="true">
-          <span class="ramp-lo">Quiet</span>
+          <span class="ramp-lo">0</span>
           <% Community::Clock::RAMP.each do |tone| %>
             <i style="background: <%= tone %>"></i>
           <% end %>

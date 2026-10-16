@@ -2,7 +2,7 @@
   <%= render "layouts/sidebar_head", title: "Community", sub: "Hack Club Slack" %>
 
   <div class="cnav">
-    <p class="community-nav-label">Yours</p>
+    <p class="community-nav-label">Personal</p>
     <div class="community-nav-group">
       <%= link_to profile_path,
             aria: { current: ("page" if current_page?(profile_path)) } do %>
@@ -11,7 +11,7 @@
     </div>
 
     <% if may_community?("analytics.workspace.read") %>
-      <p class="community-nav-label">The journey</p>
+      <p class="community-nav-label">Journey</p>
       <div class="community-nav-group">
         <%= link_to community_path,
               aria: { current: ("page" if on_community_overview?) } do %>
@@ -36,7 +36,7 @@
       </div>
     <% end %>
 
-    <p class="community-nav-label">Places</p>
+    <p class="community-nav-label">Workspace</p>
     <div class="community-nav-group">
       <%= link_to channels_path,
             aria: { current: ("page" if controller_name == "channels") } do %>

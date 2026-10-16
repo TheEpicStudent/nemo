@@ -55,7 +55,7 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
 
   def a_png = Slack::ProxyClient::Body.new(bytes: PNG, kind: "image/png")
 
-  test "the author gets the bytes, inline, from the proxy" do
+  test "show serves proxy bytes inline and private to the post author" do
     enable_activity!
     sign_in_as(@me)
 
@@ -72,7 +72,7 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a type slack claims is html is never served as html" do
+  test "show serves a text/html file as octet-stream attachment with nosniff and CSP" do
     enable_activity!
     sign_in_as(@me)
     message = MESSAGE.merge("files" => [{ "id" => FILE_ID, "name" => "x.html",
@@ -90,7 +90,7 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "an svg is never rendered inline, whatever slack says it is" do
+  test "show serves an image/svg+xml file as octet-stream attachment" do
     enable_activity!
     sign_in_as(@me)
     message = MESSAGE.merge("files" => [{ "id" => FILE_ID, "name" => "x.svg",
@@ -106,7 +106,7 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "anything that is not an image comes down as an attachment" do
+  test "show serves a non-image file as attachment" do
     enable_activity!
     sign_in_as(@me)
 
@@ -117,7 +117,7 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a file that is not on that post is not served" do
+  test "show returns 404 and makes no proxy call for a file id not on the post" do
     enable_activity!
     sign_in_as(@me)
 
@@ -125,11 +125,11 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
       get path_for("F9ELSEWHERE")
 
       assert_response :not_found
-      assert_empty file_calls, "slack must not be asked for a file the post does not carry"
+      assert_empty file_calls, "no proxy file call for a file id not on the post"
     end
   end
 
-  test "somebody else is refused" do
+  test "show returns 403 and makes no proxy call for a non-author" do
     enable_activity!
     sign_in_as(Account.find_or_create_by!(user_id: "UMSGOTHER"))
 
@@ -141,7 +141,7 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a channel that does not show activity serves nothing" do
+  test "show returns 404 and makes no proxy call for a channel without activity setting" do
     sign_in_as(@me)
 
     stub_slack(file: a_png) do |file_calls|
@@ -152,7 +152,7 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a stranger is sent to the door" do
+  test "show signed out redirects" do
     enable_activity!
 
     stub_slack(file: a_png) do
@@ -162,7 +162,7 @@ class MessageFilesTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a proxy that will not answer is a bad gateway, not a crash" do
+  test "show returns 502 when the proxy file call raises UnavailableError" do
     enable_activity!
     sign_in_as(@me)
 

@@ -255,7 +255,7 @@ export default class extends Controller {
         values.total = row.gap ? null : this.sum(row, solid)
         display.total = this.format(values.total)
       }
-      const note = row.gap ? row.why || "not fetched" : partial.has(index) ? this.partialNoteValue || "period not complete" : null
+      const note = row.gap ? row.gapNote || "not fetched" : partial.has(index) ? this.partialNoteValue || "period not complete" : null
       return { index, values, display, note }
     })
     const footerValues = {}
@@ -428,7 +428,7 @@ export default class extends Controller {
       if (notes[i]) row.tip = notes[i]
       if (voidNotes.has(i)) {
         row.gap = true
-        row.why = voidNotes.get(i)
+        row.gapNote = voidNotes.get(i)
       }
       return row
     })
@@ -489,7 +489,7 @@ export default class extends Controller {
     const total = this.stack && !row.gap ? this.sum(row, solid) : null
     const dated = this.daysValue && ISO.test(row.key)
     const tags = []
-    if (row.gap) tags.push(row.why || "not fetched")
+    if (row.gap) tags.push(row.gapNote || "not fetched")
     if (this.hasPartialValue && this.partialValue.map(Number).includes(i)) {
       tags.push(this.partialNoteValue || "period not complete")
     }
@@ -606,7 +606,7 @@ export default class extends Controller {
     }
 
     if (!this.sparkValue && rows.every((r) => series.every((s) => !Number(r[s.k])))) {
-      this.element.innerHTML = `<div class="chart-empty" style="min-height:${this.height}px">Nothing in this range</div>`
+      this.element.innerHTML = `<div class="chart-empty" style="min-height:${this.height}px">No data in range</div>`
       return
     }
 
@@ -1052,7 +1052,7 @@ export default class extends Controller {
         ? `<path class="wash" data-series="${s.k}" fill="url(#${this.gid})" mask="url(#${this.gid}-fade)" d="${
           under(points)}"/>` : ""
       const dash = s.ghost ? ' stroke-dasharray="5 4"' : ' pathLength="1"'
-      return `${fill}${this.bridge(points, s, mid, y)}<path class="${s.ghost ? "" : "stroke-line "}${
+      return `${fill}${this.drawGapConnectors(points, s, mid, y)}<path class="${s.ghost ? "" : "stroke-line "}${
         this.seriesClass(s)}"${this.mark(s)} fill="none" stroke="currentColor"
         stroke-width="${s.ghost ? 1.5 : 2}"${dash} stroke-linejoin="round" stroke-linecap="round"
         d="${path(points)}"/>${this.isolatedDots(points, s, mid, y)}`
@@ -1080,7 +1080,7 @@ export default class extends Controller {
       `<circle cx="${x}" cy="${top - 4}" r="3"/></g>`
   }
 
-  bridge(points, s, mid, y) {
+  drawGapConnectors(points, s, mid, y) {
     const at = points.filter((d) => d.v != null)
     const spans = at.slice(1)
       .map((d, k) => [at[k], d])
@@ -1243,7 +1243,7 @@ export default class extends Controller {
 
     const lines = row.gap
       ? `<div class="row"><i class="donut-hole-dot"></i>${
-        esc(row.why || "not fetched")}<b>n/a</b></div>`
+        esc(row.gapNote || "not fetched")}<b>n/a</b></div>`
       : g.series.map((s) => row[s.k] == null ? "" :
         `<div class="row"><i class="${this.seriesClass(s)}"${this.tint(s)}></i>${esc(s.n)}<b><span>${
           this.format(row[s.k])}</span>${row[s.c] == null ? "" : `<u>${F(row[s.c])}</u>`}</b></div>`)
@@ -1303,7 +1303,7 @@ export default class extends Controller {
     }
 
     chart.querySelector(".chart-caption").textContent = row.gap
-      ? `${row.label}, ${row.why || "not fetched"}`
+      ? `${row.label}, ${row.gapNote || "not fetched"}`
       : `${row.label}, ${g.series.map((s) => `${s.n} ${this.format(row[s.k])}`).join(", ")}${
         this.stack ? `, total ${this.format(this.sum(row, g.bars))}` : ""}`
   }

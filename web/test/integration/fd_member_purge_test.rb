@@ -4,7 +4,7 @@ class FdMemberPurgeTest < ActionDispatch::IntegrationTest
   MEMBER = "UDEAC0001".freeze
 
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
   end
 
@@ -17,17 +17,17 @@ class FdMemberPurgeTest < ActionDispatch::IntegrationTest
 
   def guard = Fd::MemberGuard.where(subject_id: MEMBER).sole
 
-  test "ticking purge all messages queues a purge of every message, tied to the deactivation" do
+  test "create deactivation with purge_messages queues all-channel purge for the guard" do
     deactivate(purge_messages: "1")
-    one = purges.sole
+    purge = purges.sole
 
     assert_equal [nil, nil, "deactivation", guard.id, "asked", "a raid"],
-      [one.channel_id, one.wanted, one.source, one.guard_id, one.state, one.reason]
-    assert_match(/All their messages are purged once it goes through/, flash[:notice])
+      [purge.channel_id, purge.wanted, purge.source, purge.guard_id, purge.state, purge.reason]
+    assert_match(/Message purge queued/, flash[:notice])
     assert_equal 1, Fd::AuditEntry.where(entity_type: "member_purge", verb: "queued").count
   end
 
-  test "leaving it unticked purges nothing" do
+  test "create deactivation without purge_messages creates no purge" do
     deactivate
 
     assert guard
@@ -35,65 +35,65 @@ class FdMemberPurgeTest < ActionDispatch::IntegrationTest
     assert_no_match(/purged/, flash[:notice])
   end
 
-  test "the tickbox is offered to who may purge" do
+  test "member page renders purge_messages checkbox with member.purge" do
     get fd_member_path(MEMBER)
 
     assert_select %(input[name="purge_messages"][type="checkbox"])
     assert_match(/Purge all messages/, response.body)
   end
 
-  test "the tickbox is not offered to who may not purge" do
-    move_capability!("community_manager", "member.purge", false)
-    drop_roles!("UME")
-    hold_role!("UME", "firefighter")
-    move_capability!("firefighter", "member.purge", false)
+  test "member page without member.purge renders no purge_messages input" do
+    override_capability!("community_manager", "member.purge", false)
+    revoke_roles!("UME")
+    grant_role!("UME", "firefighter")
+    override_capability!("firefighter", "member.purge", false)
     get fd_member_path(MEMBER)
 
     assert_select %(input[name="purge_messages"]), count: 0
   end
 
-  test "somebody who may not purge cannot send the tickbox anyway" do
-    drop_roles!("UME")
-    hold_role!("UME", "firefighter")
-    move_capability!("firefighter", "member.purge", false)
+  test "create deactivation with purge_messages without member.purge creates no purge or guard" do
+    revoke_roles!("UME")
+    grant_role!("UME", "firefighter")
+    override_capability!("firefighter", "member.purge", false)
     deactivate(purge_messages: "1")
 
     assert_equal 0, purges.count
     assert_equal 0, Fd::MemberGuard.where(subject_id: MEMBER).count
   end
 
-  test "a purge of theirs already waiting is not doubled" do
+  test "create deactivation with an existing asked purge creates no second purge" do
     Fd::ChannelPurge.create!(member_id: MEMBER, state: "asked", source: "slack", asked_by: "UME")
     deactivate(purge_messages: "1")
 
     assert_equal 1, purges.count
     assert guard
-    assert_match(/A purge of their messages is already running/, flash[:notice])
+    assert_match(/Message purge already running/, flash[:notice])
   end
 
-  test "the member page lists their purges" do
-    everywhere = Fd::ChannelPurge.create!(member_id: MEMBER, state: "running", source: "deactivation",
+  test "member page purges tab lists purges with progress and links" do
+    all_channels_purge = Fd::ChannelPurge.create!(member_id: MEMBER, state: "running", source: "deactivation",
       asked_by: "UME", found: 40, purged: 12)
     channel = Analytics::DimChannel.where(archived: false).order(:channel_id).first
-    here = Fd::ChannelPurge.create!(member_id: MEMBER, channel_id: channel.channel_id, wanted: 5,
+    channel_purge = Fd::ChannelPurge.create!(member_id: MEMBER, channel_id: channel.channel_id, wanted: 5,
       state: "done", asked_by: "UME", purged: 5, finished_at: Time.current, left_after_check: 0)
     get fd_member_path(MEMBER, tab: "purges")
 
     assert_response :success
-    assert_match(/Every channel/, response.body)
+    assert_match(/All channels/, response.body)
     assert_match(/12 of 40 purged/, response.body)
     assert_match(/0 left after the check/, response.body)
-    assert_match(%r{href="#{fd_member_purge_path(MEMBER, everywhere)}"}, response.body)
-    assert_match(%r{href="#{fd_channel_purge_path(channel.channel_id, here)}"}, response.body)
+    assert_match(%r{href="#{fd_member_purge_path(MEMBER, all_channels_purge)}"}, response.body)
+    assert_match(%r{href="#{fd_channel_purge_path(channel.channel_id, channel_purge)}"}, response.body)
   end
 
-  test "a purge across every channel opens its own page with each message's channel" do
+  test "member purge show renders items for an all-channel purge" do
     channel = Analytics::DimChannel.where(archived: false).order(:channel_id).first
-    one = Fd::ChannelPurge.create!(member_id: MEMBER, state: "done", source: "deactivation",
+    purge = Fd::ChannelPurge.create!(member_id: MEMBER, state: "done", source: "deactivation",
       asked_by: "UME", purged: 1, finished_at: Time.current, left_after_check: 0)
-    Fd::PurgeItem.create!(purge_id: one.id, channel_id: channel.channel_id, ts: "1700000000.000100",
+    Fd::PurgeItem.create!(purge_id: purge.id, channel_id: channel.channel_id, ts: "1700000000.000100",
       author_id: MEMBER, text: "the raid", state: "deleted", done_at: Time.current)
-    get fd_member_purge_path(MEMBER, one)
+    get fd_member_purge_path(MEMBER, purge)
 
     assert_response :success
     assert_match(/Purged from/, response.body)
@@ -103,17 +103,17 @@ class FdMemberPurgeTest < ActionDispatch::IntegrationTest
     assert_includes response.body, %(href="#{fd_member_path(MEMBER, tab: "purges")}")
   end
 
-  test "a purge of somebody else is not found under this member" do
-    one = Fd::ChannelPurge.create!(member_id: "UOTHER001", state: "asked", asked_by: "UME")
-    get fd_member_purge_path(MEMBER, one)
+  test "member purge show for another member purge returns 404" do
+    purge = Fd::ChannelPurge.create!(member_id: "UOTHER001", state: "asked", asked_by: "UME")
+    get fd_member_purge_path(MEMBER, purge)
 
     assert_response :not_found
   end
 
-  test "the purges tab needs member purge" do
-    drop_roles!("UME")
-    hold_role!("UME", "firefighter")
-    move_capability!("firefighter", "member.purge", false)
+  test "member page purges tab without member.purge omits Purges tab" do
+    revoke_roles!("UME")
+    grant_role!("UME", "firefighter")
+    override_capability!("firefighter", "member.purge", false)
     get fd_member_path(MEMBER, tab: "purges")
 
     assert_no_match(/>Purges</, response.body)

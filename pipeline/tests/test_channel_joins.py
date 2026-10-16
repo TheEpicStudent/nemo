@@ -36,7 +36,7 @@ def configure(monkeypatch, configured, inside=(), waiting=(), private=()):
     calls = {"joined": [], "marked": []}
     monkeypatch.setattr(channels, "session", lambda: session_of(Conn()))
     monkeypatch.setattr(channels, "configured_channels", lambda conn: set(configured))
-    monkeypatch.setattr(channels, "inside", lambda conn, channel_id: channel_id in inside)
+    monkeypatch.setattr(channels, "is_inside", lambda conn, channel_id: channel_id in inside)
     monkeypatch.setattr(channels, "waits_for_invite", lambda conn, channel_id: channel_id in waiting)
     monkeypatch.setattr(channels, "joinable", lambda conn, channel_id: channel_id not in private)
     monkeypatch.setattr(channels, "join", lambda client, conn, channel_id, by=None, verb="joined":
@@ -46,7 +46,7 @@ def configure(monkeypatch, configured, inside=(), waiting=(), private=()):
     return calls
 
 
-def test_configured_channels_reads_every_channel_setting():
+def test_configured_channels_with_all_settings_returns_all_channel_ids():
     conn = Conn(rows=[(channels.FIREHOUSE, "C_FIRE"), (channels.REPORTS, "C_REPORTS"),
                       (channels.LOGS, "C_LOGS"), (channels.REACT_CHANNELS, "C_R1, C_R2"),
                       (responses.AUTORESPONSE_CHANNEL, "C_AUTO")])
@@ -61,7 +61,7 @@ def test_configured_channels_reads_every_channel_setting():
     (channels.GUARDED, {FIREHOUSE_ID, "C_GUARDED"}),
     (channels.ON, {FIREHOUSE_ID, "C_PUBLIC"}),
 ])
-def test_target_channels_include_configured_channels_in_every_mode(monkeypatch, how, expected):
+def test_target_channels_in_every_mode_includes_configured_channels(monkeypatch, how, expected):
     monkeypatch.setattr(channels, "configured_channels", lambda conn: {FIREHOUSE_ID})
     monkeypatch.setattr(channels, "guarded_channels", lambda conn: {"C_GUARDED"})
     monkeypatch.setattr(channels, "public_channels", lambda client: {"C_PUBLIC"})
@@ -69,31 +69,31 @@ def test_target_channels_include_configured_channels_in_every_mode(monkeypatch, 
     assert channels.target_channels(object(), Conn(), how) == expected
 
 
-def test_missing_in_off_mode_lists_absent_configured_channels(monkeypatch):
+def test_missing_channels_in_off_mode_lists_absent_configured_channels(monkeypatch):
     monkeypatch.setattr(channels, "session", lambda: session_of(Conn()))
     monkeypatch.setattr(channels, "mode", lambda conn: channels.OFF)
     monkeypatch.setattr(channels, "configured_channels", lambda conn: {FIREHOUSE_ID, "C_INSIDE"})
     monkeypatch.setattr(channels, "joined_channels", lambda client: {"C_INSIDE"})
     monkeypatch.setattr(channels, "sync_membership", lambda conn, joined_ids: (0, 0))
 
-    assert channels.missing(object()) == (channels.OFF, [FIREHOUSE_ID])
+    assert channels.missing_channels(object()) == (channels.OFF, [FIREHOUSE_ID])
 
 
-def test_join_configured_joins_absent_public_channel(monkeypatch):
+def test_join_configured_absent_public_channel_is_joined(monkeypatch):
     calls = configure(monkeypatch, {FIREHOUSE_ID, "C_INSIDE"}, inside={"C_INSIDE"})
 
     assert channels.join_configured(object()) == 1
     assert calls == {"joined": [FIREHOUSE_ID], "marked": []}
 
 
-def test_join_configured_marks_private_channel_as_needing_invite(monkeypatch):
+def test_join_configured_private_channel_calls_mark_private(monkeypatch):
     calls = configure(monkeypatch, {PRIVATE_ID}, private={PRIVATE_ID})
 
     assert channels.join_configured(object()) == 0
     assert calls == {"joined": [], "marked": [PRIVATE_ID]}
 
 
-def test_join_configured_skips_channel_already_waiting_for_invite(monkeypatch):
+def test_join_configured_channel_waiting_for_invite_is_skipped(monkeypatch):
     calls = configure(monkeypatch, {PRIVATE_ID}, waiting={PRIVATE_ID}, private={PRIVATE_ID})
 
     assert channels.join_configured(object()) == 0
@@ -106,11 +106,11 @@ def test_join_configured_skips_channel_already_waiting_for_invite(monkeypatch):
     (("joined", None), False),
     (None, False),
 ])
-def test_waits_for_invite_reads_latest_join(latest, waiting):
+def test_waits_for_invite_true_only_when_latest_join_needs_invite(latest, waiting):
     assert channels.waits_for_invite(Conn(row=latest), PRIVATE_ID) is waiting
 
 
-def test_join_sweep_joins_configured_channels_before_reconcile(monkeypatch):
+def test_join_sweep_runs_join_configured_before_reconcile(monkeypatch):
     order = []
     stopping = threading.Event()
     monkeypatch.setattr(loop.channels, "join_configured", lambda client: order.append("configured"))
@@ -122,26 +122,26 @@ def test_join_sweep_joins_configured_channels_before_reconcile(monkeypatch):
     assert order == ["configured", ("reconcile", stopping)]
 
 
-def test_app_setting_notify_starts_configured_joins(monkeypatch):
+def test_loop_start_app_setting_notify_starts_configured_joins(monkeypatch):
     client = object()
-    started, watched = [], {}
+    started_clients, listeners = [], {}
     monkeypatch.setattr(loop, "session", lambda: session_of(Conn()))
     for module in (loop.guards, loop.channelguards, loop.memberguards, loop.automod,
                    loop.responses, loop.screening, loop.categories):
         monkeypatch.setattr(module, "refresh", lambda conn: 0)
     monkeypatch.setattr(loop.channel, "refresh_channels", lambda conn: None)
-    monkeypatch.setattr(loop.purge, "requeue_stranded", lambda conn: [])
-    monkeypatch.setattr(loop.loops, "draining", lambda *args, **kwargs: (lambda: None))
-    monkeypatch.setattr(loop.loops, "watching",
-                        lambda name, names, on_notify, stopping: watched.update(on_notify=on_notify))
-    monkeypatch.setattr(loop.loops, "sweeping", lambda *args, **kwargs: None)
-    monkeypatch.setattr(loop.loops, "timed", lambda *args, **kwargs: (lambda: None))
-    monkeypatch.setattr(loop, "start_configured_joins", lambda one: started.append(one))
+    monkeypatch.setattr(loop.purge, "requeue_interrupted", lambda conn: [])
+    monkeypatch.setattr(loop.loops, "run_on_wake", lambda *args, **kwargs: (lambda: None))
+    monkeypatch.setattr(loop.loops, "start_listener",
+                        lambda name, names, on_notify, stopping: listeners.update(on_notify=on_notify))
+    monkeypatch.setattr(loop.loops, "run_periodically", lambda *args, **kwargs: None)
+    monkeypatch.setattr(loop.loops, "run_on_timer", lambda *args, **kwargs: (lambda: None))
+    monkeypatch.setattr(loop, "start_configured_joins", lambda target: started_clients.append(target))
 
     loop.start(SimpleNamespace(client=client), threading.Event())
-    watched["on_notify"](loop.APP_SETTING, "nemo.firehouse_channel")
+    listeners["on_notify"](loop.APP_SETTING, "nemo.firehouse_channel")
 
-    assert started == [client]
+    assert started_clients == [client]
 
 
 def live_guards(monkeypatch, *keys):
@@ -152,14 +152,14 @@ def live_guards(monkeypatch, *keys):
 
 
 @pytest.mark.parametrize("kind", channelguards.KINDS)
-def test_is_guarded_for_every_guard_kind(monkeypatch, kind):
+def test_is_guarded_every_guard_kind_returns_true_for_guarded_channel(monkeypatch, kind):
     live_guards(monkeypatch, (kind, "C_GUARDED"))
 
     assert channelguards.is_guarded("C_GUARDED") is True
     assert channelguards.is_guarded("C_OTHER") is False
 
 
-def test_is_guarded_before_first_refresh_is_false(monkeypatch):
+def test_is_guarded_before_first_refresh_returns_false(monkeypatch):
     monkeypatch.setattr(channelguards, "_guards", {(channelguards.READONLY, "C_GUARDED", channelguards.CHANNEL_WIDE): None})
     monkeypatch.setattr(channelguards, "_loaded", False)
 
@@ -170,7 +170,7 @@ def join_channel_calls(monkeypatch, how=channels.GUARDED, inside=False):
     joined = []
     monkeypatch.setattr(loop, "session", lambda: session_of(Conn()))
     monkeypatch.setattr(loop.channels, "mode", lambda conn: how)
-    monkeypatch.setattr(loop.channels, "inside", lambda conn, channel_id: inside)
+    monkeypatch.setattr(loop.channels, "is_inside", lambda conn, channel_id: inside)
     monkeypatch.setattr(loop.channels, "join", lambda client, conn, channel_id, by=None, verb="joined":
                         joined.append(channel_id) or True)
     return joined
@@ -178,7 +178,7 @@ def join_channel_calls(monkeypatch, how=channels.GUARDED, inside=False):
 
 @pytest.mark.parametrize("kind", [channelguards.READONLY, channelguards.SLOWMODE,
                                   channelguards.ACCOUNT_AGE, channelguards.BOT_ALLOWLIST])
-def test_join_channel_joins_for_every_guard_kind(monkeypatch, kind):
+def test_join_channel_every_guard_kind_joins_channel(monkeypatch, kind):
     live_guards(monkeypatch, (kind, "C_GUARDED"))
     joined = join_channel_calls(monkeypatch)
 
@@ -186,7 +186,7 @@ def test_join_channel_joins_for_every_guard_kind(monkeypatch, kind):
     assert joined == ["C_GUARDED"]
 
 
-def test_join_channel_skips_unguarded_channel(monkeypatch):
+def test_join_channel_unguarded_channel_is_skipped(monkeypatch):
     live_guards(monkeypatch)
     joined = join_channel_calls(monkeypatch)
 
@@ -194,7 +194,7 @@ def test_join_channel_skips_unguarded_channel(monkeypatch):
     assert joined == []
 
 
-def test_join_channel_skips_channel_nemo_is_in(monkeypatch):
+def test_join_channel_already_inside_channel_is_skipped(monkeypatch):
     live_guards(monkeypatch, (channelguards.READONLY, "C_GUARDED"))
     joined = join_channel_calls(monkeypatch, inside=True)
 
@@ -227,13 +227,13 @@ class Workspace:
 
 def run_reconcile(monkeypatch, workspace, cap, delay=0.0, stopping=None):
     monkeypatch.setattr(channels, "session", lambda: session_of(Conn()))
-    monkeypatch.setattr(channels, "missing", workspace.missing)
+    monkeypatch.setattr(channels, "missing_channels", workspace.missing)
     monkeypatch.setattr(channels, "join", workspace.join)
-    monkeypatch.setattr(channels, "pace", lambda: delay)
+    monkeypatch.setattr(channels, "join_delay_seconds", lambda: delay)
     return channels.reconcile(object(), cap=cap, stopping=stopping)
 
 
-def test_reconcile_joins_every_absent_channel_across_batches(monkeypatch):
+def test_reconcile_absent_channels_over_cap_joins_all_in_batches(monkeypatch):
     workspace = Workspace(["C1", "C2", "C3", "C4", "C5"])
 
     assert run_reconcile(monkeypatch, workspace, cap=2) == (channels.ON, 5, 0)
@@ -241,14 +241,14 @@ def test_reconcile_joins_every_absent_channel_across_batches(monkeypatch):
     assert workspace.reads == 4
 
 
-def test_reconcile_tries_a_refused_channel_once_per_run(monkeypatch):
+def test_reconcile_refused_channel_is_tried_once(monkeypatch):
     workspace = Workspace(["C_BAD", "C_OK"], refusing={"C_BAD"})
 
     assert run_reconcile(monkeypatch, workspace, cap=1) == (channels.ON, 1, 1)
     assert workspace.joins == ["C_BAD", "C_OK"]
 
 
-def test_reconcile_stops_when_stopping_is_set(monkeypatch):
+def test_reconcile_stopping_set_stops_joins(monkeypatch):
     stopping = threading.Event()
     workspace = Workspace(["C1", "C2", "C3"], stop_after=1, stopping=stopping)
 
@@ -256,7 +256,7 @@ def test_reconcile_stops_when_stopping_is_set(monkeypatch):
     assert workspace.joins == ["C1"]
 
 
-def test_reconcile_waits_on_stopping_between_joins(monkeypatch):
+def test_reconcile_delay_waits_on_stopping_between_joins(monkeypatch):
     waits = []
 
     class Stopping:

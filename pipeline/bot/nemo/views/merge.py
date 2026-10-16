@@ -26,7 +26,7 @@ def build_view(cases, target=None, duplicates=()):
     target_select = {
         "type": "static_select",
         "action_id": TARGET,
-        "placeholder": {"type": "plain_text", "text": "pick a case"},
+        "placeholder": {"type": "plain_text", "text": "Select a case"},
         "options": options,
     }
     if str(target) in by_id:
@@ -35,7 +35,7 @@ def build_view(cases, target=None, duplicates=()):
     duplicates_select = {
         "type": "multi_static_select",
         "action_id": DUPLICATES,
-        "placeholder": {"type": "plain_text", "text": "pick cases"},
+        "placeholder": {"type": "plain_text", "text": "Select cases"},
         "options": options,
     }
     selected_options = [by_id[str(one)] for one in duplicates if str(one) in by_id]
@@ -50,7 +50,7 @@ def build_view(cases, target=None, duplicates=()):
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": [
             {"type": "input", "block_id": TARGET,
-             "label": {"type": "plain_text", "text": "Case to keep"}, "element": target_select},
+             "label": {"type": "plain_text", "text": "Target case"}, "element": target_select},
             {"type": "input", "block_id": DUPLICATES,
              "label": {"type": "plain_text", "text": "Duplicates"}, "element": duplicates_select},
         ],
@@ -69,9 +69,9 @@ def submitted_values(state):
 
 def validation_errors(values):
     if not values.get("target"):
-        return {TARGET: "Pick the case to keep."}
+        return {TARGET: "Select a case"}
     if not values.get("duplicates"):
-        return {DUPLICATES: "Pick at least one duplicate."}
+        return {DUPLICATES: "Select a duplicate"}
     if values["target"] in values["duplicates"]:
         return {DUPLICATES: "A case cannot be merged into itself."}
     return None

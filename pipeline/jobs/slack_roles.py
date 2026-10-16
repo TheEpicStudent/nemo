@@ -29,7 +29,7 @@ def exit_with_error(message):
 
 def api(token):
     if not token:
-        exit_with_error("no token. pass one as an argument or set SLACK_TOKEN to an xoxp user token")
+        exit_with_error("no token, pass one as an argument or set SLACK_TOKEN (xoxp user token)")
     return WebClient(token=token)
 
 
@@ -48,7 +48,7 @@ def call(client, **params):
         error = exc.response.get("error", "unknown_error")
         if error == "missing_scope":
             needed = exc.response.get("needed", "admin.roles:read")
-            exit_with_error(f"the token is missing {needed}. add it and reinstall the app")
+            exit_with_error(f"token missing scope {needed}")
         if error in BLOCKING:
             exit_with_error(f"admin.roles.listAssignments refused this token: {error}")
         exit_with_error(f"admin.roles.listAssignments failed: {error}")
@@ -71,7 +71,7 @@ def kind_of(entity_id):
     return KINDS.get(entity_id[:1], entity_id[:1] or "?")
 
 
-def gather(client, pages):
+def collect_roles(client, pages):
     roles = defaultdict(lambda: {"count": 0, "entities": set(), "kinds": set(), "users": set()})
     for one in walk(client, pages=pages):
         entity = one.get("entity_id", "")
@@ -91,7 +91,7 @@ def report(roles, capped):
         samples = ", ".join(sorted(one["entities"])[:SAMPLES])
         print(f"  {role_id:<10}{one['count']:>10}{len(one['entities']):>10}  {kinds:<14}{samples}")
     if capped:
-        print(f"\n  counts cover the first {capped} pages only. pass --all to sweep everything.")
+        print(f"\n  counts cover the first {capped} pages only, use --all for every page")
 
 
 def channel_role(roles):
@@ -99,10 +99,10 @@ def channel_role(roles):
     if len(candidates) == 1:
         return candidates[0]
     if not candidates:
-        print("\n  no role has channel entities. nothing here maps to channel manager.")
+        print("\n  no role has channel entities")
         return None
     print(f"\n  more than one role has channel entities: {', '.join(sorted(candidates))}")
-    print("  pass --role to check one of them against a channel you know.")
+    print("  pass --role to check one")
     return None
 
 
@@ -110,23 +110,23 @@ def check_filter(client, role_id, channel_id):
     print(f"\n  filter check: role_ids={role_id} entity_ids={channel_id}")
     rows = list(walk(client, role_ids=[role_id], entity_ids=[channel_id]))
     if not rows:
-        print("  nothing came back. the filter may not combine, or nobody manages that channel.")
+        print("  no assignments returned")
         return
     unexpected = {row.get("entity_id") for row in rows} - {channel_id}
     users = sorted({row.get("user_id", "") for row in rows})
     print(f"  {len(rows)} assignments, {len(users)} people")
     print(f"  managers: {', '.join(users[:8])}{' ...' if len(users) > 8 else ''}")
     if unexpected:
-        print(f"  WARNING entity_ids did not narrow it. also returned: {', '.join(sorted(unexpected)[:5])}")
+        print(f"  entity_ids did not narrow the result, also returned: {', '.join(sorted(unexpected)[:5])}")
     else:
-        print("  every row is on that channel, so one call answers one channel")
+        print("  every row is on that channel")
 
 
 def main():
     parser = argparse.ArgumentParser(
         prog="slack_roles",
-        description="find which Slack role id means channel manager, and prove that "
-                    "role_ids and entity_ids together answer one channel in one call",
+        description="find the Slack role id for channel manager and verify the role_ids and "
+                    "entity_ids filter",
     )
     parser.add_argument("token", nargs="?", help="an xoxp user token, else SLACK_TOKEN is used")
     parser.add_argument("--all", action="store_true", help="scan all pages instead of a sample")
@@ -146,20 +146,20 @@ def main():
 
     if role_id is None:
         pages = None if args.all else args.pages
-        roles = gather(client, pages)
+        roles = collect_roles(client, pages)
         if not roles:
-            exit_with_error("no role assignments came back at all")
+            exit_with_error("no role assignments returned")
         report(roles, None if args.all else args.pages)
         role_id = channel_role(roles)
         if role_id is None:
             return
         if channel_id is None:
             channel_id = sorted(roles[role_id]["entities"])[0]
-        print(f"\n  channel manager looks like {role_id}")
-        print(f"  pin it:  SLACK_CHANNEL_MANAGER_ROLE_ID={role_id}")
+        print(f"\n  channel manager role: {role_id}")
+        print(f"  set SLACK_CHANNEL_MANAGER_ROLE_ID={role_id}")
 
     if channel_id is None:
-        exit_with_error("pass --channel with --role so the filter can be checked")
+        exit_with_error("--channel is required with --role")
 
     check_filter(client, role_id, channel_id)
 

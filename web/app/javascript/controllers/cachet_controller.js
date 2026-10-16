@@ -1,8 +1,8 @@
 import { Controller } from "@hotwired/stimulus"
 
 const HOST = "https://cachet.hackclub.com"
-const TTL = 12 * 60 * 60 * 1000
-const LANES = 8
+const CACHE_TTL_MS = 12 * 60 * 60 * 1000
+const MAX_CONCURRENT_REQUESTS = 8
 const NAME = "[data-cachet-name]"
 const AVATAR = "img[data-cachet-face]"
 
@@ -17,7 +17,7 @@ function cachedProfile(id) {
     const raw = sessionStorage.getItem(`cachet:${id}`)
     if (!raw) return null
     const row = JSON.parse(raw)
-    if (Date.now() - row.at > TTL) return null
+    if (Date.now() - row.at > CACHE_TTL_MS) return null
     profileCache.set(id, row.profile)
     return row.profile
   } catch {
@@ -34,8 +34,8 @@ function cacheProfile(id, profile) {
   }
 }
 
-function drain() {
-  while (activeRequests < LANES && queue.length > 0) {
+function processQueue() {
+  while (activeRequests < MAX_CONCURRENT_REQUESTS && queue.length > 0) {
     const { id, resolve } = queue.shift()
     activeRequests += 1
     fetch(`${HOST}/users/${encodeURIComponent(id)}`, { headers: { Accept: "application/json" } })
@@ -50,7 +50,7 @@ function drain() {
       .finally(() => {
         activeRequests -= 1
         pendingRequests.delete(id)
-        drain()
+        processQueue()
       })
   }
 }
@@ -62,11 +62,11 @@ export function profile(id) {
 
   const request = new Promise((resolve) => queue.push({ id, resolve }))
   pendingRequests.set(id, request)
-  drain()
+  processQueue()
   return request
 }
 
-function fallback(img) {
+function replaceWithInitial(img) {
   const span = document.createElement("span")
   span.className = `${img.className} ${img.dataset.cachetTone || "avatar-none"}`.trim()
   span.textContent = img.dataset.cachetInitial || "?"
@@ -77,15 +77,15 @@ function fallback(img) {
   img.replaceWith(span)
 }
 
-function fill(node) {
+function hydrateNode(node) {
   if (node.dataset.cachetDone) return
   node.dataset.cachetDone = "1"
 
   if (node.matches(AVATAR)) {
     const id = node.dataset.cachetFace
-    node.addEventListener("error", () => fallback(node), { once: true })
+    node.addEventListener("error", () => replaceWithInitial(node), { once: true })
     profile(id).then((result) => {
-      if (result && result.name === null && node.isConnected) fallback(node)
+      if (result && result.name === null && node.isConnected) replaceWithInitial(node)
     })
     return
   }
@@ -98,8 +98,8 @@ function fill(node) {
 
 export function hydrate(root) {
   if (!(root instanceof Element)) return
-  if (root.matches(`${NAME}, ${AVATAR}`)) fill(root)
-  for (const node of root.querySelectorAll(`${NAME}, ${AVATAR}`)) fill(node)
+  if (root.matches(`${NAME}, ${AVATAR}`)) hydrateNode(root)
+  for (const node of root.querySelectorAll(`${NAME}, ${AVATAR}`)) hydrateNode(node)
 }
 
 export default class extends Controller {

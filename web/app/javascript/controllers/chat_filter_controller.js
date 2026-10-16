@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
-const ONLY = "only-replies"
-const INTERNAL = "chat"
+const ONLY_REPLIES_CLASS = "only-replies"
+const INTERNAL_KIND = "chat"
 
 export default class extends Controller {
   static targets = ["all", "replies"]
@@ -36,13 +36,13 @@ export default class extends Controller {
   apply() {
     if (!this.hasAllTarget || !this.hasRepliesTarget) return
 
-    this.element.classList.toggle(ONLY, this.only)
+    this.element.classList.toggle(ONLY_REPLIES_CLASS, this.only)
     this.allTarget.setAttribute("aria-pressed", String(!this.only))
     this.repliesTarget.setAttribute("aria-pressed", String(this.only))
-    this.tidyDays()
+    this.syncDayRules()
   }
 
-  tidyDays() {
+  syncDayRules() {
     const log = this.log
     if (!log) return
 
@@ -70,7 +70,7 @@ export default class extends Controller {
   }
 
   isHidden(node) {
-    return this.only && node.dataset.kind === INTERNAL
+    return this.only && node.dataset.kind === INTERNAL_KIND
   }
 
   scrollToBottom() {

@@ -59,7 +59,7 @@ def skipped_when_shared(assertion):
     return (assertion, "skipped", f"{SHARED_MODE}: no grant separation to measure", "n/a")
 
 
-def dbt_denied_conduct(conn):
+def dbt_denied_fd(conn):
     if not separated(conn):
         return skipped_when_shared("dbt cannot read conduct")
 
@@ -77,7 +77,7 @@ def rails_denied_archive(conn):
             f"{count} archive table(s) readable by rails_app", "0")
 
 
-def dbt_denied_rails_state(conn):
+def dbt_denied_app(conn):
     if not separated(conn):
         return skipped_when_shared("dbt cannot read rails state")
 
@@ -106,9 +106,9 @@ def pipeline_denied_analytics_write(conn):
 
 CHECKS = (
     deployment_mode_declared,
-    dbt_denied_conduct,
+    dbt_denied_fd,
     rails_denied_archive,
-    dbt_denied_rails_state,
+    dbt_denied_app,
     rails_denied_analytics_write,
     pipeline_denied_analytics_write,
 )

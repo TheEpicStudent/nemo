@@ -41,27 +41,27 @@ module Fd
 
     def claim_notice(kase)
       others = kase.assignee_user_ids - [current_account.user_id]
-      return "case #{kase.id} is yours" if others.empty?
+      return "Case #{kase.id} claimed" if others.empty?
 
-      "case #{kase.id} is yours, alongside #{others.map { |id| "@#{id}" }.to_sentence}"
+      "Case #{kase.id} claimed · also assigned to #{others.map { |id| "@#{id}" }.to_sentence}"
     end
 
     def claim_refusal(kase)
-      return "case #{kase.id} is already resolved" if kase.resolved?
+      return "Case #{kase.id} is already resolved" if kase.resolved?
 
-      "case #{kase.id} is already yours"
+      "Case #{kase.id} is already claimed"
     end
 
     def release_notice(kase)
-      return "case #{kase.id} is back in the queue" unless kase.assigned?
+      return "Case #{kase.id} released" unless kase.assigned?
 
-      "case #{kase.id} is off your list, still with #{kase.assignee_handles}"
+      "Case #{kase.id} released · still assigned to #{kase.assignee_handles}"
     end
 
     def release_refusal(kase)
-      return "case #{kase.id} is not assigned to anybody" unless kase.assigned?
+      return "Case #{kase.id} has no assignee" unless kase.assigned?
 
-      "case #{kase.id} is assigned to #{kase.assignee_handles}, not to you"
+      "Case #{kase.id} is assigned to #{kase.assignee_handles}"
     end
   end
 end

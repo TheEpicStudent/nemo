@@ -31,7 +31,7 @@ class Slack::MessageTest < ActiveSupport::TestCase
 
   def one_message = ->(*) { { "ok" => true, "messages" => [MESSAGE] } }
 
-  test "a post is asked for by the one timestamp, on the admin credential" do
+  test "at requests one message by ts with the admin credential" do
     with_memory_cache do
       stub_slack(one_message) do |calls|
         result = Slack::Message.at(CHANNEL_ID, TS)
@@ -50,19 +50,19 @@ class Slack::MessageTest < ActiveSupport::TestCase
     end
   end
 
-  test "a second look at the same post does not ask slack again" do
+  test "at does not call Slack again for a cached message" do
     with_memory_cache do
       stub_slack(one_message) do |calls|
         Slack::Message.at(CHANNEL_ID, TS)
         cached = Slack::Message.at(CHANNEL_ID, TS)
 
-        assert_equal 1, calls.size, "the second look must come from the cache"
+        assert_equal 1, calls.size, "the second lookup must be served from the cache"
         assert_equal "big news", cached.message["text"]
       end
     end
   end
 
-  test "a post slack no longer has reads as not found" do
+  test "at returns :not_found when messages is empty" do
     with_memory_cache do
       stub_slack(->(*) { { "ok" => true, "messages" => [] } }) do
         result = Slack::Message.at(CHANNEL_ID, TS)
@@ -73,7 +73,7 @@ class Slack::MessageTest < ActiveSupport::TestCase
     end
   end
 
-  test "a neighbour slack hands back instead is not taken for the post" do
+  test "at returns :not_found when the returned ts differs" do
     with_memory_cache do
       stub_slack(->(*) { { "ok" => true, "messages" => [MESSAGE.merge("ts" => "1790700000.000001")] } }) do
         assert_equal :not_found, Slack::Message.at(CHANNEL_ID, TS).error
@@ -81,7 +81,7 @@ class Slack::MessageTest < ActiveSupport::TestCase
     end
   end
 
-  test "ok false is not mistaken for a post" do
+  test "at returns :not_found when the response has ok false" do
     with_memory_cache do
       stub_slack(->(*) { { "ok" => false, "error" => "channel_not_found" } }) do
         assert_equal :not_found, Slack::Message.at(CHANNEL_ID, TS).error
@@ -89,7 +89,7 @@ class Slack::MessageTest < ActiveSupport::TestCase
     end
   end
 
-  test "a proxy that is down leaves the page standing" do
+  test "at returns :unavailable on UnavailableError" do
     with_memory_cache do
       stub_slack(->(*) { raise Slack::ProxyClient::UnavailableError, "proxy returned 503" }) do
         assert_equal :unavailable, Slack::Message.at(CHANNEL_ID, TS).error
@@ -97,7 +97,7 @@ class Slack::MessageTest < ActiveSupport::TestCase
     end
   end
 
-  test "a session that needs refreshing says so" do
+  test "at returns :reauth on AuthError" do
     with_memory_cache do
       stub_slack(->(*) { raise Slack::ProxyClient::AuthError, "invalid_auth" }) do
         assert_equal :reauth, Slack::Message.at(CHANNEL_ID, TS).error
@@ -105,7 +105,7 @@ class Slack::MessageTest < ActiveSupport::TestCase
     end
   end
 
-  test "a proxy that is not set up says so" do
+  test "at returns :not_configured on NotConfiguredError" do
     with_memory_cache do
       stub_slack(->(*) { raise Slack::ProxyClient::NotConfiguredError, "INTERNAL_PROXY_URL is not set" }) do
         assert_equal :not_configured, Slack::Message.at(CHANNEL_ID, TS).error
@@ -113,7 +113,7 @@ class Slack::MessageTest < ActiveSupport::TestCase
     end
   end
 
-  test "a failure is never cached, so a blip does not sticky for ten minutes" do
+  test "at does not cache an UnavailableError result" do
     with_memory_cache do
       attempts = 0
       stub_slack(lambda { |*|

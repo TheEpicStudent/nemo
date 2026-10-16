@@ -1,7 +1,7 @@
 <div class="field-label" data-action-standing-target="targetFields">
   <%= render "shared/combobox", name: "target_user_id", single: true,
         url: fd_member_search_path(case_id: kase.id),
-        label: "search for who this is about", preset: preset_faces(target) %>
+        label: "Search members", preset: preset_faces(target) %>
 </div>
 
 <div class="standing-slot" data-action-standing-target="standing">
@@ -25,18 +25,18 @@
     </span>
   </div>
   <div class="field-label" data-action-standing-target="channel" hidden>
-    <span>Which channel</span>
-    <%= render "shared/combobox", kind: "channel", name: :channel_id, label: "search for a channel" %>
+    <span>Channel</span>
+    <%= render "shared/combobox", kind: "channel", name: :channel_id, label: "Search channels" %>
   </div>
   <label class="field-label">
-    What it is about
+    Category
     <%= select_tag :category_key,
-          options_for_select([["not set", ""]] + category_options, kase.category_key),
+          options_for_select([["Not set", ""]] + category_options, kase.category_key),
           class: "select", id: nil %>
   </label>
   <div data-action-standing-target="why">
     <label class="field-label">
-      What did they do?
+      Reason
       <%= text_area_tag :reason, submitted_value(:reason), rows: 3, class: "textarea", id: nil %>
     </label>
     <%= field_wrong(:reason) %>

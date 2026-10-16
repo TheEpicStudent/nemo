@@ -20,7 +20,7 @@
             <% if guard.deactivation? %>
               <span class="enforcement-state"><%= guard_enforcement_label(guard) %></span>
               <span class="enforcement-slow" data-deactivate-target="slow" hidden>
-                Slack has not answered yet.
+                Awaiting Slack
               </span>
               <% if guard.failed? && guard.last_error.present? %>
                 <span class="enforcement-why"><%= guard.last_error %></span>
@@ -50,12 +50,9 @@
                   html: { autocomplete: "off" } do %>
               <div class="modal-body">
                 <% unless guard.deactivation? %>
-                  <p class="modal-note">
-                    It stops standing. The record keeps it, and what it was for.
-                  </p>
                 <% end %>
                 <label class="field-label">
-                  Why it is being lifted
+                  Reason
                   <%= text_area_tag :lift_reason, nil, rows: 3, class: "textarea", id: nil %>
                 </label>
               </div>

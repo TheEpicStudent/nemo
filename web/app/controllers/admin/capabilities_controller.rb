@@ -22,7 +22,7 @@ module Admin
       Authz::Grant.live.for_person(person_user_id).capabilities.where(name: key)
         .find_each { |grant| revoke(grant, key) }
       Current.forget_roles
-      redirect_to admin_person_path(person_user_id), notice: "#{Authz.label(key)} reset to the role default"
+      redirect_to admin_person_path(person_user_id), notice: "#{Authz.label(key)} reset to role default"
     end
 
     private
@@ -59,7 +59,7 @@ module Admin
     end
 
     def notice_for(key, effect)
-      effect == "deny" ? "#{Authz.label(key)} taken off them" : "#{Authz.label(key)} given to them"
+      effect == "deny" ? "#{Authz.label(key)} denied" : "#{Authz.label(key)} allowed"
     end
 
     def redirect_with_alert(message = nil)

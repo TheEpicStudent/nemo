@@ -12,10 +12,7 @@ class WalkMismatchError(RuntimeError):
 
 def check_walk(what, walked_rows, expected, page_size, short_at=SHORT_AT):
     if short_at is not NO_FLOOR and short_at <= 0:
-        raise ValueError(
-            f"{what}: short_at={short_at} leaves no floor, so no walk can ever read short. "
-            "Pass a fraction above 0, or pass walk.NO_FLOOR to say the endpoint has no usable count"
-        )
+        raise ValueError(f"{what}: short_at={short_at} sets no floor, use a fraction above 0 or walk.NO_FLOOR")
 
     if expected is None:
         return None
@@ -31,7 +28,7 @@ def check_walk(what, walked_rows, expected, page_size, short_at=SHORT_AT):
 
     floor = int(expected * short_at)
     if expected > 0 and walked_rows < floor:
-        print(f"{what}: walked {walked_rows} rows against a num_found of {expected}, under the {floor} floor, short")
+        print(f"{what}: walked {walked_rows} rows, num_found {expected}, below floor {floor}, short")
         return SHORT
 
     return COMPLETE

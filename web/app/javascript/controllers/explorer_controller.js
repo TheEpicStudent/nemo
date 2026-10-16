@@ -175,7 +175,7 @@ export default class extends Controller {
     this.opener = trigger || document.activeElement
     this.fillHeader(card, trigger)
     this.dialog.hidden = false
-    this.coverPage()
+    this.makePageInert()
     this.mountChart(trigger?.closest("[data-explore-scope]") || card)
     if (animate) this.animateOpen()
     this.panelTarget.focus({ preventScroll: true })
@@ -206,8 +206,8 @@ export default class extends Controller {
   onMorph() {
     if (!this.isOpen || this.closing) return
 
-    this.uncoverPage()
-    this.coverPage()
+    this.restorePageInteraction()
+    this.makePageInert()
     this.syncWithPage()
   }
 
@@ -336,18 +336,18 @@ export default class extends Controller {
   hide() {
     this.closing = false
     this.dialog.hidden = true
-    this.uncoverPage()
+    this.restorePageInteraction()
   }
 
-  coverPage() {
+  makePageInert() {
     const area = this.dialog.parentElement
-    this.covered = [...area.children].filter((element) => element !== this.dialog && !element.inert)
-    this.covered.forEach((element) => { element.inert = true })
+    this.inertElements = [...area.children].filter((element) => element !== this.dialog && !element.inert)
+    this.inertElements.forEach((element) => { element.inert = true })
   }
 
-  uncoverPage() {
-    this.covered?.forEach((element) => { element.inert = false })
-    this.covered = []
+  restorePageInteraction() {
+    this.inertElements?.forEach((element) => { element.inert = false })
+    this.inertElements = []
   }
 
   layerAbove() {

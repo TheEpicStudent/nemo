@@ -25,7 +25,7 @@
         <%= opens_modal "case.act", "Edit", opens: "edit-action-#{action.id}",
               on: kase, css: "btn btn-sm" %>
         <% unless action.reversed? %>
-          <%= opens_modal "case.reverse", "Reverse it", opens: "reverse-#{action.id}",
+          <%= opens_modal "case.reverse", "Reverse", opens: "reverse-#{action.id}",
                 on: kase, css: "btn btn-sm btn-danger" %>
         <% end %>
       </span>

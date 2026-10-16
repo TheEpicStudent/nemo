@@ -31,10 +31,10 @@ module ApplicationHelper
   end
 
   JOURNEY = [
-    ["Joining", "joining"],
-    ["Getting replies", "replies"],
-    ["Coming back", "returning"],
-    ["Who is active", "active"]
+    ["Acquisition", "joining"],
+    ["Replies", "replies"],
+    ["Retention", "returning"],
+    ["Activity", "active"]
   ].freeze
 
   ACTIONS = {
@@ -136,17 +136,17 @@ module ApplicationHelper
     end
   end
 
-  LEDE_ICONS = {
+  NOTICE_ICONS = {
     info: ["M12 16v-4", "M12 8h.01"],
     warn: ["M12 8v4", "M12 16h.01"]
   }.freeze
 
-  def lede_icon(kind = :info)
+  def notice_icon(kind = :info)
     tag.svg(class: "lede-icon", width: 16, height: 16, viewBox: "0 0 24 24", fill: "none",
       stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round",
       "stroke-linejoin": "round", "aria-hidden": "true") do
       concat tag.circle(cx: 12, cy: 12, r: 10)
-      LEDE_ICONS.fetch(kind).each { |d| concat tag.path(d: d) }
+      NOTICE_ICONS.fetch(kind).each { |d| concat tag.path(d: d) }
     end
   end
 

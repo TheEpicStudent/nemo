@@ -35,7 +35,7 @@
                   <b class="font-mono text-xs"><%= step.source %></b>
                   <% notes = [] %>
                   <% notes << pluralize(step.children, "worker") if step.children > 1 %>
-                  <% notes << "#{number_to_percentage(step.pct, precision: 1)} through" if step.running? && step.pct %>
+                  <% notes << number_to_percentage(step.pct, precision: 1) if step.running? && step.pct %>
                   <% if notes.any? %>
                     <span><%= safe_join(notes, " · ") %></span>
                   <% end %>
@@ -81,6 +81,6 @@
       </details>
     <% end %>
   <% else %>
-    <div class="empty"><p class="empty-title">No stage wrote output</p></div>
+    <div class="empty"><p class="empty-title">No output</p></div>
   <% end %>
 </div>

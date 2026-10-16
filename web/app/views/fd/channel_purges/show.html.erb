@@ -8,10 +8,10 @@
 <% end %>
 <% content_for :head_actions do %>
   <% if everywhere %>
-    <%= link_to "Back to the member", fd_member_path(@purge.member_id, tab: "purges"),
+    <%= link_to "Member", fd_member_path(@purge.member_id, tab: "purges"),
           class: "btn btn-ghost" %>
   <% else %>
-    <%= link_to "Back to the channel", fd_channel_path(@purge.channel_id, tab: "purge"),
+    <%= link_to "Channel", fd_channel_path(@purge.channel_id, tab: "purge"),
           class: "btn btn-ghost" %>
   <% end %>
 <% end %>
@@ -28,7 +28,7 @@
       <% end %>
     </h2>
     <p class="card-note">
-      asked by <%= member_face(@purge.asked_by, small: true) %> &middot; <%= at_minute(@purge.asked_at) %>
+      requested by <%= member_face(@purge.asked_by, small: true) %> &middot; <%= at_minute(@purge.asked_at) %>
       <% if purge_source(@purge) %>
         &middot; <%= purge_source(@purge) %>
       <% end %>
@@ -50,7 +50,7 @@
 <% if @failed.any? %>
   <div class="card card-flush">
     <div class="card-head">
-      <h2 class="card-title">Could not be deleted</h2>
+      <h2 class="card-title">Failed</h2>
     </div>
     <div class="card-body">
       <% @failed.each do |message, error| %>
@@ -83,7 +83,7 @@
 
       <% if @threads.orphans.any? %>
         <details class="purge-thread">
-          <summary><%= pluralize(@threads.orphans.size, "reply") %>, the top was not purged</summary>
+          <summary><%= pluralize(@threads.orphans.size, "reply") %> &middot; parent not purged</summary>
           <% @threads.orphans.each do |message| %>
             <%= render "fd/channel_purges/message", message: message, names: @names, show_channel: everywhere %>
           <% end %>
@@ -92,7 +92,7 @@
     </div>
   <% else %>
     <div class="empty">
-      <p class="empty-title">Nothing kept</p>
+      <p class="empty-title">No messages</p>
     </div>
   <% end %>
 </div>

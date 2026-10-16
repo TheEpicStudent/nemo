@@ -26,7 +26,7 @@
   <% upto = before ? Date.iso8601(before[0, 10]) - (before.include?("T") ? 0 : 1) : (from && Date.current) %>
   <%= render "shared/date_range", url: fd_audit_path, title: "Time",
         start_on: from, end_on: upto, min: AuditHelper::FIRST_DAY, max: Date.current,
-        carry: @query.set_params(%w[after before last]),
+        hidden_params: @query.set_params(%w[after before last]),
         presets: [{ label: "Any time", href: fd_audit_path(@query.set_params(%w[after before last])),
                     current: after.nil? && before.nil? && last.nil? }] +
           AuditHelper::WINDOWS.map { |label, window|

@@ -17,22 +17,22 @@ def rec(cid, name):
     return {"channel_id": cid, "name": name}
 
 
-def test_token_heads_take_the_first_letter_of_every_token():
+def test_token_heads_returns_first_character_of_each_token():
     assert cm.token_heads("welcome-to-hack-club") == {"w", "t", "h", "c"}
     assert cm.token_heads("2026-hackathon") == {"2", "h"}
 
 
-def test_only_latin_letters_and_digits_are_queryable_shards():
+def test_queryable_shards_non_latin_prefixes_are_dropped():
     prefixes = {"a", "z", "0", "9", "é", "ø", "α", "в", "中", "か"}
     assert cm.queryable_shards(prefixes) == ["0", "9", "a", "z"]
 
 
-def test_astral_plane_names_yield_no_shard_at_all():
+def test_token_heads_astral_plane_name_returns_no_shards():
     assert cm.token_heads("𒈙𒈙𒈙") == set()
     assert cm.queryable_shards(cm.token_heads("𒈙𒈙𒈙")) == []
 
 
-def test_sweep_dedupes_overlapping_shards_and_lands_only_fresh_records():
+def test_sweep_overlapping_shards_batches_only_new_records():
     client = FakeClient({
         ("a", "asc"): [rec("C1", "alpha"), rec("C2", "banana")],
         ("b", "asc"): [rec("C2", "banana"), rec("C3", "bravo")],
@@ -45,7 +45,7 @@ def test_sweep_dedupes_overlapping_shards_and_lands_only_fresh_records():
     assert [[r["channel_id"] for r in batch] for batch in batches] == [["C1", "C2"], ["C3"]]
 
 
-def test_a_shard_whose_num_found_exceeds_its_page_is_reported_truncated():
+def test_sweep_num_found_over_page_size_returns_truncated_shard():
     class Truncating(FakeClient):
         def call(self, method, params, max_retries=3):
             return {"channel_analytics": [rec("C1", "a")], "num_found": 900}
@@ -58,7 +58,7 @@ def test_a_shard_whose_num_found_exceeds_its_page_is_reported_truncated():
     assert truncated == ["a"]
 
 
-def test_tail_sweep_adds_only_channels_the_shards_missed():
+def test_tail_sweep_adds_only_channels_missing_from_records():
     client = FakeClient({
         (None, "desc"): [rec("C9", "鏡音レン"), rec("C1", "alpha")],
     })
@@ -72,6 +72,6 @@ def test_tail_sweep_adds_only_channels_the_shards_missed():
     assert "query" not in client.calls[0]
 
 
-def test_absorb_reports_zero_when_nothing_is_new():
+def test_merge_records_without_new_records_returns_zero():
     records = {"C1": rec("C1", "a")}
     assert cm.merge_records([rec("C1", "a")], records, None) == 0

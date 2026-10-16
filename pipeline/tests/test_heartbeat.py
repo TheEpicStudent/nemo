@@ -3,7 +3,7 @@ import time
 from lib import heartbeat
 
 
-def test_beating_pulses_on_its_own_thread_and_evaluates_a_callable_note(monkeypatch):
+def test_heartbeat_loop_callable_note_is_evaluated_each_beat(monkeypatch):
     records = []
     monkeypatch.setattr(heartbeat, "record", lambda worker, note: records.append((worker, note)))
     state = {"n": 0}
@@ -18,7 +18,7 @@ def test_beating_pulses_on_its_own_thread_and_evaluates_a_callable_note(monkeypa
     assert ("test_worker", "draining 3") in records
 
 
-def test_beating_stops_when_the_block_exits(monkeypatch):
+def test_heartbeat_loop_after_exit_stops_recording(monkeypatch):
     records = []
     monkeypatch.setattr(heartbeat, "record", lambda worker, note: records.append(note))
     with heartbeat.heartbeat_loop("w", "hello", every=0.01):
@@ -28,7 +28,7 @@ def test_beating_stops_when_the_block_exits(monkeypatch):
     assert len(records) == baseline_count
 
 
-def test_a_plain_string_note_is_passed_through(monkeypatch):
+def test_heartbeat_loop_string_note_is_recorded_unchanged(monkeypatch):
     records = []
     monkeypatch.setattr(heartbeat, "record", lambda worker, note: records.append(note))
     with heartbeat.heartbeat_loop("w", "idle", every=0.01):
@@ -36,7 +36,7 @@ def test_a_plain_string_note_is_passed_through(monkeypatch):
     assert records and all(n == "idle" for n in records)
 
 
-def test_the_first_beat_lands_before_the_block_runs(monkeypatch):
+def test_heartbeat_loop_records_first_beat_before_body_runs(monkeypatch):
     records = []
     monkeypatch.setattr(heartbeat, "record", lambda worker, note: records.append(note))
 
@@ -44,7 +44,7 @@ def test_the_first_beat_lands_before_the_block_runs(monkeypatch):
         assert records == ["starting"]
 
 
-def test_a_beat_keeps_the_newest_build_it_reads(monkeypatch):
+def test_record_stores_newest_build_in_build_state(monkeypatch):
     class Conn:
         def __enter__(self):
             return self
@@ -62,7 +62,7 @@ def test_a_beat_keeps_the_newest_build_it_reads(monkeypatch):
     assert heartbeat.build_state["newest"] == "def456def456"
 
 
-def test_a_worker_is_behind_only_when_a_newer_build_is_known(monkeypatch):
+def test_on_stale_build_is_true_only_when_newer_build_known(monkeypatch):
     monkeypatch.setattr(heartbeat.build, "fingerprint", lambda: "abc123abc123")
 
     monkeypatch.setitem(heartbeat.build_state, "newest", None)
@@ -73,7 +73,7 @@ def test_a_worker_is_behind_only_when_a_newer_build_is_known(monkeypatch):
     assert heartbeat.on_stale_build()
 
 
-def test_a_lane_on_an_old_build_is_held_and_says_so_once(monkeypatch, capsys):
+def test_pause_stale_lane_old_build_pauses_and_prints_once(monkeypatch, capsys):
     import threading
 
     monkeypatch.setattr(heartbeat.build, "fingerprint", lambda: "abc123abc123")
@@ -84,11 +84,11 @@ def test_a_lane_on_an_old_build_is_held_and_says_so_once(monkeypatch, capsys):
     assert heartbeat.pause_stale_lane("audit_worker", "links_live", state, threading.Event())
     assert heartbeat.pause_stale_lane("audit_worker", "links_live", state, threading.Event())
 
-    assert state["links_live"] == "held, old build"
-    assert capsys.readouterr().out.count("the links_live lane is held") == 1
+    assert state["links_live"] == "paused, old build"
+    assert capsys.readouterr().out.count("links_live lane paused") == 1
 
 
-def test_a_lane_on_the_newest_build_is_not_held(monkeypatch):
+def test_pause_stale_lane_newest_build_does_not_pause(monkeypatch):
     import threading
 
     monkeypatch.setattr(heartbeat.build, "fingerprint", lambda: "abc123abc123")

@@ -5,13 +5,13 @@ from bot.nemo.views import report as views
 
 CASE_OF_THREAD = """
 SELECT case_id FROM (
-    SELECT case_id, 1 AS rank FROM fd.case_reports WHERE forwarded_ts = %(ts)s
+    SELECT case_id, 1 AS priority FROM fd.case_reports WHERE forwarded_ts = %(ts)s
     UNION ALL
     SELECT id, 2 FROM fd.cases WHERE card_thread_ts = %(ts)s
     UNION ALL
     SELECT id, 3 FROM fd.cases WHERE card_ts = %(ts)s AND card_thread_ts IS NULL
-) found
-ORDER BY rank
+) matching_case
+ORDER BY priority
 LIMIT 1
 """
 
@@ -61,7 +61,7 @@ RETURNING id
 """
 
 
-REACHES_A_MEMBER = """
+REPORTER_THREAD = """
 SELECT 1 FROM fd.intake_messages m
 JOIN fd.intake_conversations c ON c.id = m.conversation_id
 WHERE m.mirrored_ts = %s
@@ -69,8 +69,8 @@ LIMIT 1
 """
 
 
-def reaches_a_member(conn, thread_ts):
-    return conn.execute(REACHES_A_MEMBER, (thread_ts,)).fetchone() is not None
+def is_reporter_thread(conn, thread_ts):
+    return conn.execute(REPORTER_THREAD, (thread_ts,)).fetchone() is not None
 
 
 def case_of_thread(conn, thread_ts):
@@ -148,7 +148,7 @@ def delete(conn, channel_id, ts):
     return row[0] if row else None
 
 
-UNDER = """
+THREAD_TS_EXPRESSION = """
 coalesce(
     (SELECT r.forwarded_ts FROM fd.case_reports r
       WHERE r.case_id = c.case_id AND r.forwarded_ts IS NOT NULL
@@ -158,12 +158,12 @@ coalesce(
 """
 
 WAITING = f"""
-SELECT c.id, c.author_user_id, c.body, {UNDER}
+SELECT c.id, c.author_user_id, c.body, {THREAD_TS_EXPRESSION}
 FROM fd.case_chat c
 WHERE c.case_id = %s AND c.ts IS NULL AND c.mirrored_ts IS NULL
   AND c.mirrored_as IS DISTINCT FROM 'card'
   AND (c.mirrored_as IS NULL OR c.posted_at < now() - interval '2 minutes')
-  AND {UNDER} IS NOT NULL
+  AND {THREAD_TS_EXPRESSION} IS NOT NULL
 ORDER BY c.posted_at, c.id
 LIMIT 20
 """
@@ -174,7 +174,7 @@ FROM fd.case_chat c
 WHERE c.ts IS NULL AND c.mirrored_ts IS NULL
   AND c.mirrored_as IS DISTINCT FROM 'card'
   AND (c.mirrored_as IS NULL OR c.posted_at < now() - interval '2 minutes')
-  AND {UNDER} IS NOT NULL
+  AND {THREAD_TS_EXPRESSION} IS NOT NULL
 LIMIT 50
 """
 

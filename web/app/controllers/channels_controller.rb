@@ -1,5 +1,5 @@
 class ChannelsController < ApplicationController
-  before_action { needs(:analytics) }
+  before_action { require_flag(:analytics) }
   before_action :refresh_appointments, only: :show
 
   PER_PAGE = 50
@@ -283,9 +283,9 @@ class ChannelsController < ApplicationController
     channel_exists = Channels::Audience.everything.exists?(channel_id: params[:id])
     message = if channel_exists
       Community::Access.why_not(current_account, "analytics.channel.read") ||
-        "that channel is not shared with you"
+        "Channel not shared"
     else
-      "no such channel"
+      "Channel not found"
     end
     redirect_to channels_path(q: params[:id]), alert: message
   end

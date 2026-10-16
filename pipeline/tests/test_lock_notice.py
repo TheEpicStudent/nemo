@@ -22,14 +22,14 @@ def session_of(conn=None):
     yield conn
 
 
-def test_lock_notice_shows_end_reason_and_signature():
+def test_lock_notice_with_end_returns_end_reason_and_signature():
     notice = card.lock_notice(END, "Heated argument", MOD)
 
     assert notice["text"] == f"*Thread locked* · ends {short_end(END)} · Reason: Heated argument"
     assert notice["blocks"][1]["elements"][0]["text"] == f"Fire Department · <@{MOD}>"
 
 
-def test_lock_notice_with_session_reset_on_warns_about_sign_out():
+def test_lock_notice_signs_out_true_appends_sign_out_warning():
     notice = card.lock_notice(None, "raid", MOD, signs_out=True)
 
     assert notice["text"] == "*Thread locked* · no end date · Reason: raid"
@@ -38,7 +38,7 @@ def test_lock_notice_with_session_reset_on_warns_about_sign_out():
 
 
 @pytest.mark.parametrize(("mode", "warns"), [(privileged.ON, True), (privileged.LOG, False), (privileged.OFF, False)])
-def test_guard_actions_lock_notice_follows_session_reset_mode(monkeypatch, mode, warns):
+def test_guard_actions_lock_notice_sign_out_warning_follows_privileged_mode(monkeypatch, mode, warns):
     monkeypatch.setattr(privileged, "mode", lambda conn=None: mode)
 
     text = guard_actions.lock_notice(object(), END, "raid", MOD)["blocks"][1]["elements"][0]["text"]
@@ -46,19 +46,19 @@ def test_guard_actions_lock_notice_follows_session_reset_mode(monkeypatch, mode,
     assert text.endswith(card.SIGNS_OUT) is warns
 
 
-def test_lock_held_back_quotes_the_reply():
-    told = card.lock_held_back(END, "but nobody answered")
+def test_lock_removal_notice_quotes_deleted_reply():
+    notice = card.lock_removal_notice(END, "but nobody answered")
 
-    assert told["text"] == f"*Thread locked* · ends {short_end(END)}"
-    assert told["blocks"][1]["elements"][0]["elements"][0]["text"] == "but nobody answered"
+    assert notice["text"] == f"*Thread locked* · ends {short_end(END)}"
+    assert notice["blocks"][1]["elements"][0]["elements"][0]["text"] == "but nobody answered"
 
 
 class Slack:
     def __init__(self, react_error=None):
         self.react_error = react_error
         self.posted = []
-        self.reacted = []
-        self.unreacted = []
+        self.reactions_added = []
+        self.reactions_removed = []
         self.updated = []
         self.deleted = []
         self.ephemeral = []
@@ -70,10 +70,10 @@ class Slack:
     def reactions_add(self, **kwargs):
         if self.react_error:
             raise RuntimeError(self.react_error)
-        self.reacted.append(kwargs)
+        self.reactions_added.append(kwargs)
 
     def reactions_remove(self, **kwargs):
-        self.unreacted.append(kwargs)
+        self.reactions_removed.append(kwargs)
 
     def chat_update(self, **kwargs):
         self.updated.append(kwargs)
@@ -86,8 +86,8 @@ class Slack:
 
 
 class Conn:
-    def __init__(self, waiting=()):
-        self.waiting = list(waiting)
+    def __init__(self, queued_rows=()):
+        self.queued_rows = list(queued_rows)
         self.executed = []
 
     def execute(self, sql, args=None):
@@ -95,44 +95,44 @@ class Conn:
         return self
 
     def fetchall(self):
-        return self.waiting
+        return self.queued_rows
 
 
-def test_warn_lock_posts_the_notice_and_marks_the_root():
+def test_warn_lock_posts_notice_and_adds_lock_reaction():
     client = Slack()
     notice = card.lock_notice(END, "raid", MOD)
 
     assert guards.warn(client, Conn(), 5, CHANNEL_ID, THREAD, guards.LOCK, notice=notice) == "1700000000.000500"
     assert client.posted[0]["blocks"] == notice["blocks"]
-    assert client.reacted == [{"channel": CHANNEL_ID, "timestamp": THREAD, "name": "lock"}]
+    assert client.reactions_added == [{"channel": CHANNEL_ID, "timestamp": THREAD, "name": "lock"}]
 
 
-def test_warn_lock_survives_a_failed_mark():
+def test_warn_lock_reaction_error_still_returns_notice_ts():
     client = Slack(react_error="already_reacted")
 
     assert guards.warn(client, Conn(), 5, CHANNEL_ID, THREAD, guards.LOCK) == "1700000000.000500"
 
 
-def test_warn_destroy_does_not_mark_the_root():
+def test_warn_destroy_does_not_add_reaction():
     client = Slack()
 
     guards.warn(client, Conn(), 5, CHANNEL_ID, THREAD, guards.DESTROY)
 
-    assert client.reacted == []
+    assert client.reactions_added == []
     assert client.posted[0]["text"] == guards.WARNING[guards.DESTROY]
 
 
-def test_remove_lock_warnings_also_removes_the_mark(monkeypatch):
+def test_remove_lock_warnings_deletes_notice_and_removes_reaction(monkeypatch):
     conn = Conn([(5, CHANNEL_ID, THREAD, "1700000000.000500")])
     monkeypatch.setattr(guard_actions, "session", lambda: session_of(conn))
     client = Slack()
 
     assert guard_actions.remove_lock_warnings(client) == 1
     assert client.deleted == [{"channel": CHANNEL_ID, "ts": "1700000000.000500"}]
-    assert client.unreacted == [{"channel": CHANNEL_ID, "timestamp": THREAD, "name": "lock"}]
+    assert client.reactions_removed == [{"channel": CHANNEL_ID, "timestamp": THREAD, "name": "lock"}]
 
 
-def test_update_lock_notice_rewrites_the_notice_with_the_new_end(monkeypatch):
+def test_update_lock_notice_live_lock_updates_message_with_new_end(monkeypatch):
     row = {"channel_id": CHANNEL_ID, "warned_ts": "1700000000.000500", "expires_at": END,
            "reason": "raid", "opened_by": MOD}
     monkeypatch.setattr(guard_actions, "session", lambda: session_of(object()))
@@ -145,7 +145,7 @@ def test_update_lock_notice_rewrites_the_notice_with_the_new_end(monkeypatch):
     assert client.updated[0]["text"] == f"*Thread locked* · ends {short_end(END)} · Reason: raid"
 
 
-def test_update_lock_notice_without_a_live_lock_does_nothing(monkeypatch):
+def test_update_lock_notice_without_live_lock_returns_none(monkeypatch):
     monkeypatch.setattr(guard_actions, "session", lambda: session_of(object()))
     monkeypatch.setattr(guards, "lock_notice_row", lambda conn, guard_id: None)
     client = Slack()
@@ -154,7 +154,7 @@ def test_update_lock_notice_without_a_live_lock_does_nothing(monkeypatch):
     assert client.updated == []
 
 
-def test_lock_notice_query_takes_only_a_live_posted_lock():
+def test_lock_notice_query_filters_live_posted_locks():
     assert "kind = 'lock' AND state IN ('warned', 'running') AND warned_ts IS NOT NULL" in guards.LOCK_NOTICE
 
 
@@ -165,41 +165,41 @@ class Ctx:
 
 
 @pytest.fixture
-def watching(monkeypatch):
-    monkeypatch.setattr(userbots, "_people", {})
+def set_active_guard(monkeypatch):
+    monkeypatch.setattr(userbots, "_users", {})
     monkeypatch.setattr(thread_watch, "session", lambda: session_of(object()))
-    monkeypatch.setattr(thread_watch.guards, "watching", lambda channel_id, ts: True)
+    monkeypatch.setattr(thread_watch.guards, "is_watched", lambda channel_id, ts: True)
     monkeypatch.setattr(thread_watch.guards, "exempt", lambda conn, who, by: False)
-    monkeypatch.setattr(thread_watch.guard_actions, "note_it", lambda conn, guard, who, ts: True)
-    monkeypatch.setattr(thread_watch.guard_actions, "delete_notice", lambda client, guard_id, channel_id, ts: True)
-    monkeypatch.setattr(thread_watch.guard_actions, "threshold_met", lambda guard, who: None)
+    monkeypatch.setattr(thread_watch.guard_actions, "record_guarded_message", lambda conn, guard, who, ts: True)
+    monkeypatch.setattr(thread_watch.guard_actions, "delete_guarded_message", lambda client, guard_id, channel_id, ts: True)
+    monkeypatch.setattr(thread_watch.guard_actions, "record_and_escalate", lambda guard, who: None)
 
-    def guard(kind):
+    def activate(kind):
         row = (5, kind, CHANNEL_ID, THREAD, "warned", MOD, "1700000000.000500", END)
         monkeypatch.setattr(thread_watch.guards, "active_guard", lambda conn, channel_id, ts: row)
-    return guard
+    return activate
 
 
 def reply():
     return {"user": USER_ID, "channel": CHANNEL_ID, "ts": TS, "thread_ts": THREAD, "text": "but nobody answered"}
 
 
-def test_deleted_reply_in_a_lock_tells_the_member_with_their_text(watching):
-    watching(guards.LOCK)
+def test_delete_guarded_thread_message_in_lock_sends_ephemeral_with_reply_text(set_active_guard):
+    set_active_guard(guards.LOCK)
     client = Slack()
 
-    thread_watch.watched(Ctx(reply(), client))
+    thread_watch.delete_guarded_thread_message(Ctx(reply(), client))
 
-    told = client.ephemeral[0]
-    assert (told["user"], told["thread_ts"]) == (USER_ID, THREAD)
-    assert told["text"] == f"*Thread locked* · ends {short_end(END)}"
-    assert told["blocks"][1]["elements"][0]["elements"][0]["text"] == "but nobody answered"
+    ephemeral_call = client.ephemeral[0]
+    assert (ephemeral_call["user"], ephemeral_call["thread_ts"]) == (USER_ID, THREAD)
+    assert ephemeral_call["text"] == f"*Thread locked* · ends {short_end(END)}"
+    assert ephemeral_call["blocks"][1]["elements"][0]["elements"][0]["text"] == "but nobody answered"
 
 
-def test_deleted_reply_during_a_destroy_tells_nobody(watching):
-    watching(guards.DESTROY)
+def test_delete_guarded_thread_message_in_destroy_sends_no_ephemeral(set_active_guard):
+    set_active_guard(guards.DESTROY)
     client = Slack()
 
-    thread_watch.watched(Ctx(reply(), client))
+    thread_watch.delete_guarded_thread_message(Ctx(reply(), client))
 
     assert client.ephemeral == []

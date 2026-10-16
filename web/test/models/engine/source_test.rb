@@ -2,7 +2,7 @@ require "test_helper"
 
 module Engine
   class SourceTest < ActiveSupport::TestCase
-    test "every source declares the six things a source has to say" do
+    test "every source declares each field in Source::DECLARED" do
       Source.all.each do |source|
         Source::DECLARED.each do |field|
           value = source.public_send(field)
@@ -15,7 +15,7 @@ module Engine
       end
     end
 
-    test "declared values come from the allowed sets" do
+    test "source cadence and guard and resume and retention are in their allowed sets" do
       Source.all.each do |source|
         assert_includes Source::CADENCES, source.cadence, source.key
         assert_includes Source::GUARDS, source.guard, source.key
@@ -24,30 +24,30 @@ module Engine
       end
     end
 
-    test "nothing is pruned unless somebody asks for a window" do
+    test "no source has retention prune" do
       Source.all.each do |source|
         assert_not_equal "prune", source.retention, source.key
       end
     end
 
-    test "the stages a person can trigger are the sources themselves" do
+    test "SyncRequest::STAGES equals Source::KEYS and includes channel_membership" do
       assert_equal Source::KEYS, SyncRequest::STAGES
-      assert_includes SyncRequest::STAGES, "channel_membership", "the newest stages are triggerable"
+      assert_includes SyncRequest::STAGES, "channel_membership", "channel_membership is a valid stage"
     end
 
-    test "a stage the file does not know is refused" do
+    test "SyncRequest with an unknown stage is invalid" do
       request = SyncRequest.new(kind: "stage", stage: "teleporter", requested_by: "UME")
 
       assert_not request.valid?
       assert_includes request.errors[:stage], "is not included in the list"
     end
 
-    test "an unknown source raises rather than answering nil" do
+    test "Source lookup with an unknown key raises UnknownError" do
       assert_raises(Source::UnknownError) { Source["teleporter"] }
       assert_raises(Source::UnknownError) { Source["team_stats"].limit(:batch) }
     end
 
-    test "a source reports whether it is guarded and whether it can resume" do
+    test "guarded? and resumable? reflect the declared guard and resume" do
       assert Source["member_range"].guarded?
       assert_not Source["team_stats"].guarded?
       assert Source["users_list"].resumable?

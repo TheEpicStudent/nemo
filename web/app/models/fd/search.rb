@@ -103,7 +103,7 @@ module Fd
         total: total || (has_search_input? ? relation.count : rows.size))
     end
 
-    CASE_ORDER = "(id = :asked) DESC, (resolved_at IS NOT NULL), opened_at DESC".freeze
+    CASE_ORDER = "(id = :requested_case_id) DESC, (resolved_at IS NOT NULL), opened_at DESC".freeze
 
     RECENT_CASES = 40
     MEMBERS_FOR_CASES = 10
@@ -146,7 +146,7 @@ module Fd
       ids << case_id if case_id
 
       Case.where(id: ids.uniq)
-        .reorder(Arel.sql(Case.sanitize_sql_array([CASE_ORDER, asked: case_id || 0])))
+        .reorder(Arel.sql(Case.sanitize_sql_array([CASE_ORDER, requested_case_id: case_id || 0])))
     end
 
     def reason_matches

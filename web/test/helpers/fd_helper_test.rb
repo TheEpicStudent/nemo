@@ -13,14 +13,14 @@ class FdHelperTest < ActionView::TestCase
     Array.new(count) { Fd::CaseTimeline::Entry.new(at: Time.current, title: "x") }
   end
 
-  test "a channel mention opens the fire-engine channel page" do
+  test "channel_mention links to the fd channel page in the top frame" do
     html = channel_mention("C0BE6N4G2BA")
 
     assert_match(%r{href="/fd/channels/C0BE6N4G2BA"}, html)
     assert_match(/data-turbo-frame="_top"/, html)
   end
 
-  test "a private channel we cannot name is a generic, unlinked chip" do
+  test "channel_mention with an unnamed private channel renders an unlinked private chip" do
     @channels = Fd::ChannelNames.new({}, Set["C0SECRET00"])
 
     html = channel_mention("C0SECRET00")
@@ -29,7 +29,7 @@ class FdHelperTest < ActionView::TestCase
       html
   end
 
-  test "a private channel we cannot name stays generic even with an inline label" do
+  test "channel_mention with an unnamed private channel ignores the inline label" do
     @channels = Fd::ChannelNames.new({}, Set["C0SECRET00"])
 
     html = channel_mention("C0SECRET00", "do-not-leak-this")
@@ -38,25 +38,25 @@ class FdHelperTest < ActionView::TestCase
     assert_match(/#private-channel/, html)
   end
 
-  test "a link shared from a dm never shows the raw channel id" do
+  test "channel_mention with a dm id renders the private dm chip" do
     html = channel_mention("D0BQ793DP43")
 
     assert_equal %(<span class="mention mention-private">private dm</span>),
       html
   end
 
-  test "a link shared from a group dm reads the same as a plain dm" do
+  test "channel_mention with a group dm id renders private dm" do
     html = channel_mention("G0BQ793DP43")
 
     assert_match(/private dm/, html)
   end
 
-  test "a bare permalink pasted from a dm labels itself, not the raw id" do
+  test "link_label of a dm permalink returns private dm" do
     assert_equal "private dm",
       link_label("https://hackclub.slack.com/archives/D0BQ793DP43/p1700000000000100")
   end
 
-  test "a user mention does not ask the chat log to swap itself" do
+  test "mention_link targets the person-drawer turbo frame" do
     html = mention_link("U08EMT46G3V")
 
     assert_match(/data-turbo-frame="person-drawer"/, html)
@@ -66,59 +66,59 @@ class FdHelperTest < ActionView::TestCase
     FdHelper::ChatEntry.new({ key: "k", at: at, side: "in", kind: "them", who: "U1" }.merge(over))
   end
 
-  test "the same author back to back within the window groups" do
+  test "grouped_with? is true for the same author within the window" do
     first = entry_at(Time.current)
     second = entry_at(first.at + 2.minutes)
 
     assert grouped_with?(second, first)
   end
 
-  test "the same author outside the window does not group" do
+  test "grouped_with? is false for the same author outside the window" do
     first = entry_at(Time.current)
     second = entry_at(first.at + 6.minutes)
 
     assert_not grouped_with?(second, first)
   end
 
-  test "a different author never groups, however close" do
+  test "grouped_with? is false for different authors" do
     first = entry_at(Time.current, who: "U1")
     second = entry_at(first.at + 1.second, who: "U2")
 
     assert_not grouped_with?(second, first)
   end
 
-  test "the same author but a different kind never groups" do
+  test "grouped_with? is false for different kinds" do
     first = entry_at(Time.current, kind: "chat")
     second = entry_at(first.at + 1.second, kind: "them")
 
     assert_not grouped_with?(second, first)
   end
 
-  test "there is nothing before the first entry" do
+  test "grouped_with? is false without a previous entry" do
     assert_not grouped_with?(entry_at(Time.current), nil)
   end
 
-  test "an open case adds no standing line under its timeline" do
+  test "timeline_standing returns nil for an open case" do
     assert_nil timeline_standing(make_case(opened_at: 5.days.ago, assign: "UFF2"), entries(3))
   end
 
-  test "a resolved case states its outcome" do
+  test "timeline_standing for a resolved case returns the date and resolution" do
     line = timeline_standing(
       kase(resolved_at: Time.utc(2026, 3, 4, 12), resolution: "action_taken"), entries(6)
     )
-    assert_equal "Resolved 4 Mar 2026 as action taken.", line,
-      "a date without its year reads the same whether it was this March or three Marches ago"
+    assert_equal "Resolved 4 Mar 2026 · action taken", line,
+      "resolved date includes the year"
   end
 
-  test "an empty timeline says nothing has happened" do
-    assert_equal "Nothing has happened on this case yet.", timeline_standing(kase, [])
+  test "timeline_standing with no entries returns No events" do
+    assert_equal "No events", timeline_standing(kase, [])
   end
 
-  test "one subject reads as a handle" do
+  test "subject_handles with one subject returns the handle" do
     assert_equal "@UAAA", subject_handles(make_case(subject: "UAAA"))
   end
 
-  test "several subjects name the first and count the rest" do
+  test "subject_handles with several subjects returns the first handle and other count" do
     saved = make_case(subject: "UAAA")
     saved.add_subject!("UBBB")
     assert_equal "@UAAA and 1 other", subject_handles(Fd::Case.find(saved.id))
@@ -127,66 +127,66 @@ class FdHelperTest < ActionView::TestCase
     assert_equal "@UAAA and 2 others", subject_handles(Fd::Case.find(saved.id))
   end
 
-  test "a case about nobody says so rather than naming an empty handle" do
-    assert_equal "no subject set", subject_handles(make_case(subject: nil))
+  test "subject_handles without a subject returns No subject" do
+    assert_equal "No subject", subject_handles(make_case(subject: nil))
   end
 
-  test "a blank category is n/a, not a bare key" do
+  test "category_short of nil or blank returns n/a" do
     assert_equal "n/a", category_short(nil)
     assert_equal "n/a", category_short("")
   end
 
-  test "a category key reads with spaces, not underscores" do
+  test "category_short replaces underscores with spaces" do
     assert_equal "harassment general", category_short("harassment_general")
   end
 
-  test "zero priors reads as never reported, not zero" do
-    assert_equal "never reported before", prior_phrase(0)
+  test "prior_phrase and prior_tone with zero priors return no priors and chip-good" do
+    assert_equal "no priors", prior_phrase(0)
     assert_equal "chip-good", prior_tone(0)
   end
 
-  test "one prior is singular" do
+  test "prior_phrase and prior_tone with one prior return singular and chip-off" do
     assert_equal "1 prior", prior_phrase(1)
     assert_equal "chip-off", prior_tone(1)
   end
 
-  test "two or expand priors are plural and read as a warning" do
+  test "prior_phrase and prior_tone with two or more priors return plural and chip-crit" do
     assert_equal "2 priors", prior_phrase(2)
     assert_equal "chip-crit", prior_tone(2)
     assert_equal "5 priors", prior_phrase(5)
   end
 
-  test "a case with one subject shows their prior count" do
+  test "prior_chip with one subject shows the prior count" do
     saved = make_case(subject: "UAAA")
     chip = prior_chip(Fd::Case.find(saved.id), { "UAAA" => 3 })
     assert_match(/3 priors/, chip)
   end
 
-  test "a subject missing from the prior count reads as never reported" do
+  test "prior_chip with a subject missing from the counts shows no priors" do
     saved = make_case(subject: "UAAA")
     chip = prior_chip(Fd::Case.find(saved.id), {})
-    assert_match(/never reported before/, chip)
+    assert_match(/no priors/, chip)
   end
 
-  test "a case with no single subject has no prior chip to show" do
+  test "prior_chip with several subjects returns n/a" do
     saved = make_case(subject: "UAAA")
     saved.add_subject!("UBBB")
     assert_equal "n/a", prior_chip(Fd::Case.find(saved.id), { "UAAA" => 4 })
   end
 
-  test "the row subtitle folds the category in front of who raised it" do
+  test "row_subtitle starts with the category" do
     saved = make_case(subject: "UAAA", category_key: "spam")
     line = row_subtitle(Fd::Case.find(saved.id), {})
     assert_match(/\Aspam/, line)
   end
 
-  test "a blank category does not leave a stray n/a in the subtitle" do
+  test "row_subtitle omits n/a when the category is blank" do
     saved = make_case(subject: "UAAA")
     line = row_subtitle(Fd::Case.find(saved.id), {})
     assert_no_match(/n\/a/, line)
   end
 
-  test "the subtitle says who raised it, reporter or opener" do
+  test "row_subtitle shows a member report or the opener" do
     reported_case = make_case(subject: "UAAA")
     Fd::CaseReport.create!(case_id: reported_case.id, is_anonymous: true,
       source_app: "relay", received_at: Time.current)
@@ -196,38 +196,38 @@ class FdHelperTest < ActionView::TestCase
     assert_match(/@UOPEN opened it/, strip_tags(row_subtitle(Fd::Case.find(opened_case.id), {})))
   end
 
-  test "a case with thread messages counts them in the subtitle" do
+  test "row_subtitle includes the thread message count" do
     saved = make_case(subject: "UAAA")
     line = row_subtitle(Fd::Case.find(saved.id), { saved.id => 8 })
     assert_match(/8 messages/, line)
   end
 
-  test "a case with no thread messages does not print a zero" do
+  test "row_subtitle omits the message count when zero" do
     saved = make_case(subject: "UAAA")
     line = row_subtitle(Fd::Case.find(saved.id), {})
     assert_no_match(/0 messages/, line)
   end
 
-  test "the drawer still names the reporter when a report is on file" do
+  test "row_reporter_label with a signed report returns the reporter handle" do
     saved = make_case(subject: "UAAA")
     Fd::CaseReport.create!(case_id: saved.id, reporter_user_id: "UREP", is_anonymous: false,
       source_app: "relay", received_at: Time.current)
     assert_equal "@UREP", row_reporter_label(Fd::Case.find(saved.id))
   end
 
-  test "an anonymous report reads as anonymous, not by the missing name" do
+  test "row_reporter_label with an anonymous report returns Anonymous" do
     saved = make_case(subject: "UAAA")
     Fd::CaseReport.create!(case_id: saved.id, is_anonymous: true,
       source_app: "relay", received_at: Time.current)
     assert_equal "Anonymous", row_reporter_label(Fd::Case.find(saved.id))
   end
 
-  test "a case with no report at all names who opened it directly" do
+  test "row_reporter_label without a report returns the opener handle" do
     saved = make_case(subject: "UAAA", opened_by: "UOPEN")
     assert_equal "@UOPEN", row_reporter_label(Fd::Case.find(saved.id))
   end
 
-  test "several reports name the first reporter and count the rest" do
+  test "row_reporter_label with several reports returns the first reporter and other count" do
     saved = make_case(subject: "UAAA")
     Fd::CaseReport.create!(case_id: saved.id, reporter_user_id: "UREP1", is_anonymous: false,
       source_app: "relay", received_at: Time.current)
@@ -253,7 +253,7 @@ class FdHelperTest < ActionView::TestCase
       thread_ts: "1.0", opened_at: 3.days.ago).id
   end
 
-  test "an anonymous reporter is not named in their own transcript" do
+  test "chat_entries for an anonymous report sets no author id and the anonymous label" do
     case_report = report(is_anonymous: true, reporter_user_id: nil)
     message = intake(conversation_for(case_report), author: "UREP1")
 
@@ -264,7 +264,7 @@ class FdHelperTest < ActionView::TestCase
     assert_equal case_report.reporter_label(names), entry.name
   end
 
-  test "an anonymous transcript never resolves the author against the name table" do
+  test "chat_entries for an anonymous report does not resolve the name table" do
     case_report = report(is_anonymous: true, reporter_user_id: nil)
     message = intake(conversation_for(case_report), author: "UREP1")
     @names = Fd::Names.for(["UREP1"])
@@ -275,7 +275,7 @@ class FdHelperTest < ActionView::TestCase
     assert_no_match(/UREP1/, entry.name)
   end
 
-  test "a signed reporter is still named in their transcript" do
+  test "chat_entries for a signed report sets the author id and name" do
     case_report = report
     message = intake(conversation_for(case_report), author: "UREP1")
 
@@ -285,21 +285,21 @@ class FdHelperTest < ActionView::TestCase
     assert_match(/UREP1/, entry.name)
   end
 
-  def logged_action(**attrs)
+  def create_case_chat(**attrs)
     saved = make_case(subject: "UAAA")
     Fd::CaseChat.create!(case_id: saved.id, author_user_id: "UME", source_app: "fire_engine",
       **attrs)
   end
 
-  test "an ordinary chat note reads as plain chat" do
-    line = logged_action(body: "noted for later")
+  test "chat_entries maps a case chat row to kind chat" do
+    line = create_case_chat(body: "noted for later")
     entry = chat_entries([], [line]).first
 
     assert_equal "chat", entry.kind
   end
 
-  test "a logged action's echo reads as its own kind, not plain chat" do
-    line = logged_action(blocks: [
+  test "chat_entries maps a case chat row with action blocks to kind action" do
+    line = create_case_chat(blocks: [
       { "type" => "header", "text" => { "type" => "plain_text", "text" => "Warning" } },
       { "type" => "context", "elements" => [{ "type" => "mrkdwn", "text" => "Against <@UAAA>" }] }
     ])
@@ -307,16 +307,16 @@ class FdHelperTest < ActionView::TestCase
 
     assert_equal "action", entry.kind
   end
-  def waiting(case_report, body = "")
+  def pending_outbox(case_report, body = "")
     Fd::IntakeOutbox.create!(conversation_id: conversation_for(case_report), kind: "reply",
       body: body, mode: "signed", requested_by: "UFF1",
       files: [{ "name" => "shot.png", "sha256" => "abc123" }])
   end
 
-  test "a reply still on its way shows what it carries, as the reporter's does" do
+  test "chat_entries lists pending outbox files with the sending note" do
     case_report = report
 
-    entry = chat_entries([case_report], [], [], [waiting(case_report)]).last
+    entry = chat_entries([case_report], [], [], [pending_outbox(case_report)]).last
 
     assert_equal ["shot.png"], entry.files.map(&:display_name)
     assert_equal ["sending"], entry.files.map(&:note)
@@ -324,7 +324,7 @@ class FdHelperTest < ActionView::TestCase
     assert_not entry.files.first.image?
   end
 
-  test "a reply carrying nothing has no file chips to show" do
+  test "chat_entries for an outbox reply without files has no files" do
     case_report = report
 
     entry = chat_entries([case_report], [], [], [Fd::IntakeOutbox.create!(
@@ -334,7 +334,7 @@ class FdHelperTest < ActionView::TestCase
 
     assert_empty entry.files
   end
-  def cited(message, **attrs)
+  def create_share(message, **attrs)
     Fd::IntakeShare.create!({ message_id: message.id, kind: "forward",
       source_channel_id: "C0LOUNGE", source_ts: "1754487721.123456",
       source_author_user_id: "UBAD", source_body: "the message they reported",
@@ -342,10 +342,10 @@ class FdHelperTest < ActionView::TestCase
       is_reachable: true }.merge(attrs))
   end
 
-  test "a forwarded message is cited under the words it arrived with" do
+  test "chat_entries attaches a forward share to the message" do
     case_report = report
     message = intake(conversation_for(case_report), author: "UREP1")
-    cited(message)
+    create_share(message)
 
     entry = chat_entries([case_report], [], [message]).first
     share = entry.shares.sole
@@ -368,10 +368,10 @@ class FdHelperTest < ActionView::TestCase
     ]))
   end
 
-  test "a picture that came inside a forward is drawn inside that forward" do
+  test "message partial renders forwarded files inside the citation figure" do
     case_report = report
     message = intake(conversation_for(case_report), author: "UREP1")
-    cited(message, raw: { "files" => [{ "id" => "FFWD1" }] })
+    create_share(message, raw: { "files" => [{ "id" => "FFWD1" }] })
     stored_file(message, "FFWD1", "theirs.png", seq: 0, forwarded: true)
     stored_file(message, "FOWN1", "mine.png", seq: 1)
     entry = chat_entries([case_report], [], [message]).first
@@ -382,55 +382,55 @@ class FdHelperTest < ActionView::TestCase
     assert_equal ["mine.png"], page.css(".msg-files img").map { |img| img["alt"] }
   end
 
-  test "a link nobody could open says so rather than quoting nothing" do
+  test "chat_entries for an unreachable link share reports link unavailable" do
     case_report = report
     message = intake(conversation_for(case_report), author: "UREP1")
-    cited(message, kind: "link", source_body: nil, permalink: nil, is_reachable: false)
+    create_share(message, kind: "link", source_body: nil, permalink: nil, is_reachable: false)
 
     share = chat_entries([case_report], [], [message]).first.shares.sole
 
     assert_not share.body?
     assert_equal "linked", share.kind_label
-    assert_equal "a link we could not open", share.why_not
+    assert_equal "link unavailable", share.why_not
   end
 
-  test "a message with nothing cited carries no citation blocks" do
+  test "chat_entries for a message without shares has no shares" do
     case_report = report
     message = intake(conversation_for(case_report), author: "UREP1")
 
     assert_empty chat_entries([case_report], [], [message]).first.shares
   end
-  def listed(kase, **over)
+  def assign_cited_words(kase, **over)
     @cited_words = { kase.id => Fd::IntakeShare::Cited.new(
       { case_id: kase.id, body: "the message they reported", kind: "forward",
         author: "UBAD", channel: "C0LOUNGE", permalink: nil }.merge(over)
     ) }
   end
 
-  test "a case whose report is only a link is summed up by what it points at" do
+  test "case_cited returns the share for a report with only a link" do
     saved = make_case(subject: "UAAA")
     Fd::CaseReport.create!(case_id: saved.id, is_anonymous: true, source_app: "relay",
       received_at: Time.current, body: "<https://hackclub.slack.com/archives/C0L/p1|x>")
     kase = Fd::Case.find(saved.id)
-    listed(kase)
+    assign_cited_words(kase)
 
     assert_equal "the message they reported", case_cited(kase).body
     assert case_cited(kase).forwarded?
     assert_equal "forwarded", case_cited(kase).kind_label
   end
 
-  test "a report with words of its own is not replaced by what it links to" do
+  test "case_cited returns nil for a report with its own text" do
     saved = make_case(subject: "UAAA")
     Fd::CaseReport.create!(case_id: saved.id, is_anonymous: true, source_app: "relay",
       received_at: Time.current, body: "they keep following me")
     kase = Fd::Case.find(saved.id)
-    listed(kase)
+    assign_cited_words(kase)
 
-    assert_nil case_cited(kase), "their own words win"
+    assert_nil case_cited(kase), "report text is not replaced by the share"
     assert_equal "they keep following me", case_words(kase)
   end
 
-  test "a report whose words are empty but carries files is summed up by the files" do
+  test "case_words with an empty body and attachments returns the attachment count" do
     saved = make_case(subject: "UAAA")
     Fd::CaseReport.create!(case_id: saved.id, is_anonymous: true, source_app: "relay",
       received_at: Time.current, body: "")
@@ -438,25 +438,25 @@ class FdHelperTest < ActionView::TestCase
     @attachment_counts = { kase.id => 9 }
 
     assert_equal "9 attachments", case_words(kase),
-      "the reporter typed nothing, they did not send nothing"
+      "attachment count replaces the empty body"
   end
 
-  test "a report with neither words nor anything attached says only that" do
+  test "case_words with no body and no attachments returns Empty report" do
     saved = make_case(subject: "UAAA")
     Fd::CaseReport.create!(case_id: saved.id, is_anonymous: true, source_app: "relay",
       received_at: Time.current, body: nil)
     kase = Fd::Case.find(saved.id)
 
-    assert_equal "a report with nothing in it", case_words(kase)
+    assert_equal "Empty report", case_words(kase)
   end
 
-  test "a case with no report at all still says so" do
+  test "case_words without a report returns No report" do
     kase = Fd::Case.find(make_case(subject: "UAAA").id)
 
-    assert_equal "no report on file", case_words(kase)
+    assert_equal "No report", case_words(kase)
   end
 
-  test "slack link markup is never shown raw in the list" do
+  test "plain_text strips slack link markup" do
     assert_equal "look here", plain_text("<https://slack.com/x|look here>")
     assert_equal "https://slack.com/x", plain_text("<https://slack.com/x>")
   end
@@ -465,18 +465,18 @@ class FdHelperTest < ActionView::TestCase
                           reason: "being awful" }.merge(over))
   end
 
-  test "a guard says which case it sits on, or that it sits on none" do
+  test "guard_standing_where distinguishes no case from this case and another case" do
     assert_equal "on no case", guard_standing_where(build_guard(case_id: nil), 1)
     assert_equal "on this case", guard_standing_where(build_guard(case_id: 1), 1)
     assert_equal "on case 9", guard_standing_where(build_guard(case_id: 9), 1)
   end
 
-  test "a workspace guard names no channel" do
+  test "guard_line appends on no case only for a guard without a case id" do
     assert_equal "Shush, on no case", guard_line(build_guard)
     assert_equal "Shush", guard_line(build_guard(case_id: 1))
   end
 
-  test "a clock time shows in the viewer's zone with UTC on hover" do
+  test "clock_stamp renders the time in the current zone with a UTC title" do
     at = Time.utc(2026, 10, 12, 14, 5)
 
     stamp = Time.use_zone("America/New_York") { clock_stamp(at) }

@@ -16,12 +16,12 @@ KEYS = (
     AUTORESPONSE_COOLDOWN, UNSUB_SHIELD_ON, UNSUB_SHIELD_LINK,
 )
 
-COOLDOWN_FALL_BACK = 7
-SLOWEST = 365
+DEFAULT_COOLDOWN_DAYS = 7
+MAX_COOLDOWN_DAYS = 365
 
-LIVE = "SELECT key, value FROM fd.app_settings WHERE key = ANY(%s)"
+SETTINGS_BY_KEY = "SELECT key, value FROM fd.app_settings WHERE key = ANY(%s)"
 
-TICK = """
+CLAIM_COOLDOWN = """
 INSERT INTO fd.autoresponse_cooldown (user_id, sent_at)
 VALUES (%s, now())
 ON CONFLICT (user_id) DO UPDATE SET sent_at = now()
@@ -36,7 +36,7 @@ _lock = threading.Lock()
 
 def refresh(conn):
     global _loaded
-    settings = dict(conn.execute(LIVE, (list(KEYS),)).fetchall())
+    settings = dict(conn.execute(SETTINGS_BY_KEY, (list(KEYS),)).fetchall())
     with _lock:
         _settings.clear()
         _settings.update(settings)
@@ -51,14 +51,14 @@ def setting(key):
         return (_settings.get(key) or "").strip()
 
 
-MEMBER = "{member}"
+MEMBER_PLACEHOLDER = "{member}"
 
 
-def reply_for(user_id):
-    return (setting(AUTORESPONSE_BODY) or "").replace(MEMBER, f"<@{user_id}>")
+def render_body(user_id):
+    return (setting(AUTORESPONSE_BODY) or "").replace(MEMBER_PLACEHOLDER, f"<@{user_id}>")
 
 
-def on(key):
+def is_on(key):
     return setting(key) == "on"
 
 
@@ -72,11 +72,11 @@ def cooldown_days():
         days = int(setting(AUTORESPONSE_COOLDOWN) or 0)
     except ValueError:
         days = 0
-    return days if 1 <= days <= SLOWEST else COOLDOWN_FALL_BACK
+    return days if 1 <= days <= MAX_COOLDOWN_DAYS else DEFAULT_COOLDOWN_DAYS
 
 
-def answering(channel_id, emoji):
-    if not on(AUTORESPONSE_ON):
+def applies_to(channel_id, emoji):
+    if not is_on(AUTORESPONSE_ON):
         return False
     if not setting(AUTORESPONSE_BODY):
         return False
@@ -85,9 +85,9 @@ def answering(channel_id, emoji):
     return emoji in setting_list(AUTORESPONSE_EMOJI)
 
 
-def may_answer(conn, user_id):
-    return conn.execute(TICK, (user_id, cooldown_days())).fetchone()
+def claim_cooldown(conn, user_id):
+    return conn.execute(CLAIM_COOLDOWN, (user_id, cooldown_days())).fetchone()
 
 
-def shielding():
-    return on(UNSUB_SHIELD_ON)
+def unsub_shield_enabled():
+    return is_on(UNSUB_SHIELD_ON)

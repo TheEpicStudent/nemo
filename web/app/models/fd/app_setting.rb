@@ -26,28 +26,28 @@ module Fd
     SESSION_RESET_STRIKES = "nemo.session_reset_strikes".freeze
     SESSION_RESET_MAX = "nemo.session_reset_max".freeze
 
-    SOON_FALL_BACK = 36
-    SOONEST = 720
+    DEFAULT_SOON_HOURS = 36
+    MAX_SOON_HOURS = 720
 
-    COOLDOWN_FALL_BACK = 7
+    DEFAULT_COOLDOWN_DAYS = 7
 
-    STRIKES_FALL_BACK = 2
-    MOST_STRIKES = 100
-    RESET_MAX_FALL_BACK = 5
-    MOST_RESETS = 1000
+    DEFAULT_STRIKES = 2
+    MAX_STRIKES = 100
+    DEFAULT_RESET_MAX = 5
+    MAX_RESETS = 1000
 
     ON = "on".freeze
     GUARDED = "guarded".freeze
     OFF = "off".freeze
     MODES = [ON, GUARDED, OFF].freeze
-    FALL_BACK = GUARDED
+    DEFAULT_JOIN_MODE = GUARDED
 
     LOG = "log".freeze
     ACCOUNT_MODES = [OFF, LOG, ON].freeze
 
     def self.join_mode
       mode = find_by(key: JOIN_MODE)&.value.to_s.strip.downcase
-      MODES.include?(mode) ? mode : FALL_BACK
+      MODES.include?(mode) ? mode : DEFAULT_JOIN_MODE
     end
 
     def self.value(key)
@@ -102,7 +102,7 @@ module Fd
       value(key) == ON
     end
 
-    def self.flip(key, on, by:)
+    def self.set_enabled(key, on, by:)
       write(key, on ? ON : OFF, by: by)
     end
 
@@ -123,7 +123,7 @@ module Fd
 
     def self.sweep_soon_hours
       hours = value(SWEEP_SOON_HOURS).to_i
-      hours.positive? ? hours : SOON_FALL_BACK
+      hours.positive? ? hours : DEFAULT_SOON_HOURS
     end
 
     def self.sweep_tells_member?
@@ -139,18 +139,18 @@ module Fd
 
     def self.session_reset_mode = account_mode(SESSION_RESET)
 
-    def self.number(key, fall_back, least)
+    def self.number(key, default, minimum)
       number = Integer(value(key), 10, exception: false)
-      number ? [number, least].max : fall_back
+      number ? [number, minimum].max : default
     end
 
-    def self.session_reset_strikes = number(SESSION_RESET_STRIKES, STRIKES_FALL_BACK, 1)
+    def self.session_reset_strikes = number(SESSION_RESET_STRIKES, DEFAULT_STRIKES, 1)
 
-    def self.session_reset_max = number(SESSION_RESET_MAX, RESET_MAX_FALL_BACK, 0)
+    def self.session_reset_max = number(SESSION_RESET_MAX, DEFAULT_RESET_MAX, 0)
 
     def self.autoresponse_cooldown_days
       days = value(AUTORESPONSE_COOLDOWN).to_i
-      days.positive? ? days : COOLDOWN_FALL_BACK
+      days.positive? ? days : DEFAULT_COOLDOWN_DAYS
     end
 
     def self.set_join_mode(mode, by:)

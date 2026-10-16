@@ -19,8 +19,7 @@ class SessionsController < ApplicationController
     Prometheus::Mirror.refresh(staff.user_id)
     reset_session
     session[:user_id] = staff.user_id
-    flash[:detail] = "Everything you do from here is recorded against #{staff.user_id}."
-    redirect_to root_path, notice: welcome(staff)
+    redirect_to root_path, notice: sign_in_notice(staff)
   end
 
   def failure
@@ -35,7 +34,7 @@ class SessionsController < ApplicationController
 
   private
 
-  def welcome(staff)
+  def sign_in_notice(staff)
     roles = Authz.effective_roles(staff.user_id).map { |role| Authz.role_label(role) }
     extras = Authz::Grant.live.for_person(staff.user_id).capabilities
       .where(effect: "allow").count

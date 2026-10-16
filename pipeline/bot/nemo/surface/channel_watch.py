@@ -7,8 +7,8 @@ from lib import channel_dim
 
 log = logging.getLogger("bot.nemo")
 
-FROM_TYPE = {"C": channel_dim.PUBLIC, "G": channel_dim.PRIVATE}
-SHELVED = {
+VISIBILITY_BY_TYPE = {"C": channel_dim.PUBLIC, "G": channel_dim.PRIVATE}
+ARCHIVE_STATE_BY_EVENT = {
     "channel_archive": True,
     "group_archive": True,
     "channel_unarchive": False,
@@ -16,8 +16,8 @@ SHELVED = {
 }
 
 
-def look(client, channel_id, channel_type=None):
-    defaults = {"visibility": FROM_TYPE.get(channel_type)}
+def fetch_channel_info(client, channel_id, channel_type=None):
+    defaults = {"visibility": VISIBILITY_BY_TYPE.get(channel_type)}
     try:
         channel_info = (client.conversations_info(channel=channel_id) or {}).get("channel") or {}
     except Exception as failure:
@@ -31,7 +31,7 @@ def look(client, channel_id, channel_type=None):
 
 
 @on_event("member_joined_channel", open_to_all=True)
-def joined(ctx):
+def record_bot_joined(ctx):
     event = ctx.payload or {}
     channel_id = event.get("channel")
     who = event.get("user")
@@ -41,31 +41,31 @@ def joined(ctx):
     if who != whoami.bot_user_id(ctx.client, "nemo"):
         return None
 
-    channel_fields = look(ctx.client, channel_id, event.get("channel_type"))
+    channel_fields = fetch_channel_info(ctx.client, channel_id, event.get("channel_type"))
     with session() as conn:
-        is_new = not channels.inside(conn, channel_id)
+        is_new = not channels.is_inside(conn, channel_id)
         channels.record_membership(conn, channel_id, True)
         if is_new:
-            channels.noted(conn, channel_id, "joined", by=event.get("inviter"))
+            channels.record_join_event(conn, channel_id, "joined", by=event.get("inviter"))
         channel_dim.record(conn, channel_id, **channel_fields)
 
     log.info("nemo: seated in %s (%s)", channel_id, channel_fields.get("visibility") or "unknown")
     return channel_id
 
 
-def went_out(client, channel_id, by=None):
+def rejoin_if_wanted(client, channel_id, by=None):
     with session() as conn:
-        how = channels.mode(conn)
-        target_ids = channels.target_channels(client, conn, how)
+        join_mode = channels.mode(conn)
+        target_ids = channels.target_channels(client, conn, join_mode)
         channels.record_membership(conn, channel_id, False)
         if channel_id not in target_ids:
-            channels.noted(conn, channel_id, "left", None, by)
-            log.info("nemo: left %s, which %s mode does not want back", channel_id, how)
+            channels.record_join_event(conn, channel_id, "left", None, by)
+            log.info("nemo: left %s, which %s mode does not want back", channel_id, join_mode)
             return None
 
-    if look(client, channel_id).get("archived"):
+    if fetch_channel_info(client, channel_id).get("archived"):
         with session() as conn:
-            channels.noted(conn, channel_id, "left", "archived", by)
+            channels.record_join_event(conn, channel_id, "left", "archived", by)
         log.info("nemo: %s is archived, staying out", channel_id)
         return None
 
@@ -78,7 +78,7 @@ def went_out(client, channel_id, by=None):
 
 
 @on_event("member_left_channel", open_to_all=True)
-def left(ctx):
+def record_bot_left(ctx):
     event = ctx.payload or {}
     channel_id = event.get("channel")
     who = event.get("user")
@@ -88,30 +88,30 @@ def left(ctx):
     if who != whoami.bot_user_id(ctx.client, "nemo"):
         return None
 
-    return went_out(ctx.client, channel_id)
+    return rejoin_if_wanted(ctx.client, channel_id)
 
 
 @on_event("channel_left", open_to_all=True)
 @on_event("group_left", open_to_all=True)
-def remove_from_channel(ctx):
+def record_bot_removed(ctx):
     event = ctx.payload or {}
     where = event.get("channel")
     channel_id = where.get("id") if isinstance(where, dict) else where
     if not channel_id:
         return None
 
-    return went_out(ctx.client, channel_id, by=event.get("actor_id"))
+    return rejoin_if_wanted(ctx.client, channel_id, by=event.get("actor_id"))
 
 
 @on_event("channel_archive", open_to_all=True)
 @on_event("channel_unarchive", open_to_all=True)
 @on_event("group_archive", open_to_all=True)
 @on_event("group_unarchive", open_to_all=True)
-def shelved(ctx):
+def record_archive_state(ctx):
     event = ctx.payload or {}
     where = event.get("channel")
     channel_id = where.get("id") if isinstance(where, dict) else where
-    archived = SHELVED.get(ctx.entry.key)
+    archived = ARCHIVE_STATE_BY_EVENT.get(ctx.entry.key)
     if not channel_id or archived is None:
         return None
 
@@ -123,18 +123,18 @@ def shelved(ctx):
 
 
 @on_event("channel_created", open_to_all=True)
-def created(ctx):
+def record_channel_created(ctx):
     event = ctx.payload or {}
-    made = event.get("channel") or {}
-    if not isinstance(made, dict):
-        made = {"id": made}
-    channel_id = made.get("id")
+    channel_data = event.get("channel") or {}
+    if not isinstance(channel_data, dict):
+        channel_data = {"id": channel_data}
+    channel_id = channel_data.get("id")
     if not channel_id:
         return None
 
-    archived = bool(made.get("is_archived"))
+    archived = bool(channel_data.get("is_archived"))
     with session() as conn:
-        channel_dim.record(conn, channel_id, name=made.get("name"), archived=archived,
+        channel_dim.record(conn, channel_id, name=channel_data.get("name"), archived=archived,
                            visibility=channel_dim.PUBLIC)
 
     if archived:
@@ -148,7 +148,7 @@ def created(ctx):
 
 @on_event("channel_rename", open_to_all=True)
 @on_event("group_rename", open_to_all=True)
-def renamed(ctx):
+def record_channel_renamed(ctx):
     event = ctx.payload or {}
     where = event.get("channel")
     if not isinstance(where, dict) or not where.get("id") or not where.get("name"):

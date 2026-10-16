@@ -17,7 +17,7 @@
             <% if post.message %>
               <%= Slack::RichText.for(post.message, names: names, channels: mentioned_channels, emoji: emoji) %>
             <% else %>
-              <p class="msg-gone">Slack would not answer for this one.</p>
+              <p class="msg-gone">Message unavailable</p>
             <% end %>
           </div>
 
@@ -61,13 +61,9 @@
         </div>
       </div>
     <% end %>
-
-    <p class="card-note">
-      For an older post, open it in Slack and use <b>View message activity</b>.
-    </p>
   <% else %>
     <div class="empty">
-      <p class="empty-title">No posts here yet</p>
+      <p class="empty-title">No posts</p>
     </div>
   <% end %>
 </div>

@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdOpenCaseTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     @watermark = Fd::Case.maximum(:id).to_i
   end
 
@@ -14,20 +14,20 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     Fd::Case.where("id > ?", @watermark).where(opened_by: @me.user_id).order(:id).last
   end
 
-  test "a signed out visitor cannot open a case" do
+  test "cases create signed out redirects to login and opens no case" do
     open_case
     assert_redirected_to login_path
     assert_nil opened
   end
 
-  test "the queue carries the form in a modal, closed by default" do
+  test "cases index returns success for community manager" do
     sign_in_as(@me)
     get fd_cases_path
 
     assert_response :success
   end
 
-  test "opening records who opened it and when" do
+  test "cases create stores the case fields and redirects to the case" do
     sign_in_as(@me)
     open_case(category_key: "bullying")
 
@@ -39,13 +39,13 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_redirected_to fd_case_path(kase)
   end
 
-  test "it joins the queue unassigned by default" do
+  test "cases create without assign_to_me leaves the case unassigned" do
     sign_in_as(@me)
     open_case
     assert_not opened.assigned?
   end
 
-  test "it can be assigned to me as it opens" do
+  test "cases create with assign_to_me assigns the current user" do
     sign_in_as(@me)
     open_case(assign_to_me: "1")
 
@@ -53,7 +53,7 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_equal "UME", opened.assignees.sole.assigned_by
   end
 
-  test "a case can be opened with nobody identified as the subject yet" do
+  test "cases create with blank subject_user_id opens a case with no subjects" do
     sign_in_as(@me)
     open_case(subject_user_id: "  ")
 
@@ -63,21 +63,21 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_redirected_to fd_case_path(kase)
   end
 
-  test "a category outside the list is refused" do
+  test "cases create with an unknown category_key opens no case and alerts" do
     sign_in_as(@me)
     open_case(category_key: "vibes")
 
     assert_nil opened
-    assert_match(/pick a category from the list/, flash[:alert])
+    assert_match(/Select a category/, flash[:alert])
   end
 
-  test "no category at all is allowed" do
+  test "cases create with blank category_key stores nil category_key" do
     sign_in_as(@me)
     open_case(category_key: "")
     assert_nil opened.category_key
   end
 
-  test "what happened is the case's first message, not a note" do
+  test "cases create stores body as a card case chat message and no note" do
     sign_in_as(@me)
     open_case(body: "saw this live in the lounge")
 
@@ -88,23 +88,23 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_equal 0, opened.notes.count
   end
 
-  test "a case with nothing said about what happened is refused" do
+  test "cases create with blank body opens no case and alerts" do
     sign_in_as(@me)
     open_case(body: "  ")
 
     assert_nil opened
-    assert_match(/say what happened/, flash[:alert])
+    assert_match(/Enter a description/, flash[:alert])
   end
 
-  test "a posted thread link is ignored" do
+  test "cases create ignores the link param and attaches no thread" do
     sign_in_as(@me)
     open_case(link: "https://hackclub.slack.com/archives/C0266FRGV/p1754487721123456")
 
     assert_not_nil opened
-    assert_equal 0, opened.threads.count, "the form does not take a thread, so none is attached"
+    assert_equal 0, opened.threads.count, "thread attached from the link param"
   end
 
-  test "a case opens with a subject and what happened" do
+  test "cases create with subject and body attaches no threads and no notes" do
     sign_in_as(@me)
     open_case
 
@@ -113,7 +113,7 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_equal 0, opened.notes.count
   end
 
-  test "what happened stays out of the trail" do
+  test "cases create keeps body out of the opened audit entry" do
     sign_in_as(@me)
     open_case(body: "he mentioned self harm")
 
@@ -122,16 +122,16 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_no_match(/self harm/, entries.map { |entry| entry.after.to_json }.join)
   end
 
-  test "a case can be opened about several people at once" do
+  test "cases create with several subject_user_ids stores all subjects and flashes the count" do
     sign_in_as(@me)
     post fd_cases_path, params: { subject_user_ids: %w[UONE UTWO UTHREE], body: "saw it live" }
 
     kase = Fd::Case.order(:id).last
     assert_equal %w[UONE UTHREE UTWO], kase.subject_user_ids
-    assert_match(/opened, about 3 people/, flash[:notice])
+    assert_match(/opened · 3 subjects/, flash[:notice])
   end
 
-  test "each subject gets its own trail entry, under the one request" do
+  test "cases create writes one attached audit entry per subject with one request_id" do
     sign_in_as(@me)
     post fd_cases_path, params: { subject_user_ids: %w[UONE UTWO], body: "saw it live" }
 
@@ -142,23 +142,23 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_equal 1, rows.pluck(:request_id).uniq.size
   end
 
-  test "one bad id refuses the whole case rather than opening a half one" do
+  test "cases create with one invalid subject id opens no case and alerts" do
     sign_in_as(@me)
     before = Fd::Case.count
     post fd_cases_path, params: { subject_user_ids: %w[UONE bob], body: "saw it live" }
 
     assert_equal before, Fd::Case.count
-    assert_match(/does not look like a Slack member id/, flash[:alert])
+    assert_match(/Not a Slack member ID/, flash[:alert])
   end
 
-  test "the same person named twice is one subject, not two" do
+  test "cases create with a duplicate subject_user_id stores one subject" do
     sign_in_as(@me)
     post fd_cases_path, params: { subject_user_ids: %w[UONE UONE], body: "saw it live" }
 
     assert_equal ["UONE"], Fd::Case.order(:id).last.subject_user_ids
   end
 
-  test "an open case for any of the people named does not stop the submit" do
+  test "cases create with a subject that has an open case opens the case with no alert" do
     make_case(subject: "UTWO", opened_at: 3.days.ago)
     sign_in_as(@me)
     post fd_cases_path, params: { subject_user_ids: %w[UONE UTWO], body: "saw it live" }
@@ -168,7 +168,7 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_redirected_to fd_case_path(opened)
   end
 
-  test "a subject with an open case opens a second one on the first submit" do
+  test "cases create for a subject with an open case opens a second case" do
     make_case(opened_at: 3.days.ago, category_key: "bullying")
     sign_in_as(@me)
     open_case
@@ -178,15 +178,15 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_equal 2, Fd::Case.unresolved.with_subject("USUB").count
   end
 
-  test "a resolved case for the same subject is no obstacle either" do
+  test "cases create for a subject with a resolved case opens a case" do
     make_case(opened_at: 5.days.ago, resolved_at: 1.day.ago, resolution: "no_action")
     sign_in_as(@me)
     open_case
 
-    assert_not_nil opened, "a closed case is not a reason to stop"
+    assert_not_nil opened, "no case opened for a subject with a resolved case"
   end
 
-  test "somebody else's open case is not a reason to stop" do
+  test "cases create opens a case when another subject has an open case" do
     make_case(subject: "UELSE", opened_at: 3.days.ago)
     sign_in_as(@me)
     open_case
@@ -194,12 +194,12 @@ class FdOpenCaseTest < ActionDispatch::IntegrationTest
     assert_not_nil opened
   end
 
-  test "unticking it still opens the case unassigned" do
+  test "cases create with assign_to_me 0 opens the case unassigned" do
     sign_in_as(@me)
     post fd_cases_path, params: { subject_user_ids: ["USUB"], body: "said it again",
                                   assign_to_me: "0" }
 
     assert_empty Fd::Case.order(:id).last.assignees,
-      "an explicit untick must not be overridden by the default"
+      "case has assignees with assign_to_me 0"
   end
 end

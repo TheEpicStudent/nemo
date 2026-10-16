@@ -50,22 +50,22 @@ def role_capability_rows(data=None):
     return pairs
 
 
-def objections(data=None):
+def consistency_errors(data=None):
     data = data or table()
     known = set(capabilities(data))
     errors = []
     for key, one in capabilities(data).items():
         scope = one.get("record_scope")
         if scope is not None and scope not in SCOPES:
-            errors.append(f"{key} declares an unknown record scope {scope!r}")
+            errors.append(f"{key}: unknown record scope {scope!r}")
         if not one.get("area"):
-            errors.append(f"{key} declares no area")
+            errors.append(f"{key}: no area")
     for name, one in roles(data).items():
         if one.get("everything") and one.get("capabilities"):
-            errors.append(f"{name} is a superadmin, it must not list capabilities")
+            errors.append(f"{name}: superadmin role must not list capabilities")
         for key in one.get("capabilities") or []:
             if key not in known:
-                errors.append(f"{name} holds {key}, which is not a capability")
+                errors.append(f"{name}: unknown capability {key}")
     return errors
 
 
@@ -94,9 +94,9 @@ ON CONFLICT DO NOTHING
 
 def sync(conn):
     data = table()
-    errors = objections(data)
+    errors = consistency_errors(data)
     if errors:
-        raise ValueError("db/capabilities.yml is not consistent: " + "; ".join(errors))
+        raise ValueError("db/capabilities.yml is inconsistent: " + "; ".join(errors))
 
     rows = flat(data)
     with conn.cursor() as cur:
@@ -109,7 +109,7 @@ def sync(conn):
         cur.executemany(SYNC_PAIR, pairs)
         cur.execute(
             "DELETE FROM app.role_capability WHERE (role, capability) NOT IN ("
-            "SELECT r, c FROM unnest(%s::text[], %s::text[]) AS kept(r, c))",
+            "SELECT r, c FROM unnest(%s::text[], %s::text[]) AS declared(r, c))",
             ([one[0] for one in pairs], [one[1] for one in pairs]),
         )
     return len(rows), len(pairs)

@@ -41,56 +41,56 @@ EVENT = {"channel": "C_FIRE", "ts": "2.0", "thread_ts": "1.0", "user": "UFD"}
 
 @pytest.fixture
 def harness(monkeypatch):
-    recorded = {"replied": [], "kept": []}
+    recorded = {"replies": [], "stored": []}
 
-    handlers.register(App(), lambda *args, **kw: recorded["replied"].append((args, kw)))
+    handlers.register(App(), lambda *args, **kw: recorded["replies"].append((args, kw)))
 
     @contextlib.contextmanager
-    def one_session():
+    def fake_session():
         yield Conn()
 
-    monkeypatch.setattr(handlers, "session", one_session)
+    monkeypatch.setattr(handlers, "session", fake_session)
     monkeypatch.setattr(handlers, "case_channels", lambda conn=None: {"C_FIRE"})
     monkeypatch.setattr(handlers.chat, "case_of_thread", lambda conn, ts: 6)
     monkeypatch.setattr(handlers.access, "may", lambda conn, user_id, capability, case=None: (True, None))
     monkeypatch.setattr(
         handlers.chat, "store_message",
-        lambda conn, case_id, event: (recorded["kept"].append((case_id, event)), (1, True))[1],
+        lambda conn, case_id, event: (recorded["stored"].append((case_id, event)), (1, True))[1],
     )
     return recorded
 
 
-def stub_reaches_member(monkeypatch, answer):
-    monkeypatch.setattr(handlers.chat, "reaches_a_member", lambda conn, ts: answer)
+def stub_is_reporter_thread(monkeypatch, answer):
+    monkeypatch.setattr(handlers.chat, "is_reporter_thread", lambda conn, ts: answer)
 
 
-def test_a_question_on_a_report_thread_goes_to_the_member(harness, monkeypatch):
-    stub_reaches_member(monkeypatch, True)
+def test_on_message_question_in_reporter_thread_sends_reply_to_member(harness, monkeypatch):
+    stub_is_reporter_thread(monkeypatch, True)
     message_handler().fn(Ctx(dict(EVENT, text="?are you ok")))
 
-    assert harness["replied"][0][0][1] == "are you ok"
-    assert harness["kept"] == []
+    assert harness["replies"][0][0][1] == "are you ok"
+    assert harness["stored"] == []
 
 
-def test_a_question_with_no_member_to_reach_is_kept_as_chat(harness, monkeypatch):
-    stub_reaches_member(monkeypatch, False)
+def test_on_message_question_without_reporter_thread_is_stored_as_chat(harness, monkeypatch):
+    stub_is_reporter_thread(monkeypatch, False)
     message_handler().fn(Ctx(dict(EVENT, text="?are you ok")))
 
-    assert harness["replied"] == []
-    assert harness["kept"][0][0] == 6
+    assert harness["replies"] == []
+    assert harness["stored"][0][0] == 6
 
 
-def test_plain_chat_never_asks_whether_a_member_can_be_reached(harness, monkeypatch):
-    monkeypatch.setattr(handlers.chat, "reaches_a_member", lambda conn, ts: 1 / 0)
+def test_on_message_plain_chat_skips_reporter_thread_lookup(harness, monkeypatch):
+    monkeypatch.setattr(handlers.chat, "is_reporter_thread", lambda conn, ts: 1 / 0)
     message_handler().fn(Ctx(dict(EVENT, text="who is handling this")))
 
-    assert harness["kept"][0][0] == 6
+    assert harness["stored"][0][0] == 6
 
 
 ROOT_MESSAGE = {"ts": "1.0", "user": "UMEM", "text": "that's my alt"}
 
 
-def test_the_hourglassed_message_becomes_the_first_chat(monkeypatch):
+def test_store_root_message_stores_root_as_first_chat_message(monkeypatch):
     stored = []
     monkeypatch.setattr(
         reaction_watch.chat, "store_message",
@@ -107,7 +107,7 @@ def test_the_hourglassed_message_becomes_the_first_chat(monkeypatch):
     {"ts": "1.0", "text": "a bot said this"},
     {"user": "UMEM", "text": "no timestamp"},
 ])
-def test_a_root_the_chat_table_would_refuse_is_left_alone(message, monkeypatch):
+def test_store_root_message_unstorable_root_returns_none(message, monkeypatch):
     monkeypatch.setattr(
         reaction_watch.chat, "store_message",
         lambda conn, case_id, event: 1 / 0,
@@ -115,7 +115,7 @@ def test_a_root_the_chat_table_would_refuse_is_left_alone(message, monkeypatch):
     assert reaction_watch.store_root_message(None, 6, "C_FIRE", message) is None
 
 
-def test_a_root_with_only_blocks_is_still_worth_keeping():
+def test_is_storable_root_with_only_blocks_returns_true():
     assert reaction_watch.is_storable({"ts": "1.0", "user": "U1", "blocks": [{}]})
 
 
@@ -137,8 +137,8 @@ DELETED = {"channel": "C_FIRE", "subtype": "message_deleted", "deleted_ts": "2.0
            "previous_message": {"user": "UFD", "thread_ts": "1.0", "ts": "2.0", "text": "?thanks"}}
 
 
-@pytest.mark.parametrize(("reply", "told"), [((10, 7, "signed", "2026-10-16", "thanks"), True), (None, False)])
-def test_deleting_a_delivered_reply_tells_the_moderator_it_stays(harness, monkeypatch, reply, told):
+@pytest.mark.parametrize(("reply", "notifies_moderator"), [((10, 7, "signed", "2026-10-16", "thanks"), True), (None, False)])
+def test_on_message_deleted_reply_notifies_moderator_only_when_delivered(harness, monkeypatch, reply, notifies_moderator):
     monkeypatch.setattr(handlers.chat, "delete", lambda conn, channel_id, ts: 5)
     monkeypatch.setattr(handlers.outbox, "reply_at", lambda conn, channel_id, ts: reply)
     client = SlackCalls()
@@ -146,10 +146,10 @@ def test_deleting_a_delivered_reply_tells_the_moderator_it_stays(harness, monkey
     message_handler().fn(ClientCtx(dict(DELETED), client))
 
     expected = [{"channel": "C_FIRE", "user": "UFD", "thread_ts": "1.0", "text": handlers.views.edits.MODERATOR_DELETE}]
-    assert client.calls == (expected if told else [])
+    assert client.calls == (expected if notifies_moderator else [])
 
 
-def test_editing_a_reply_queues_the_new_text(harness, monkeypatch):
+def test_on_message_changed_reply_queues_edit_with_new_text(harness, monkeypatch):
     edited = []
     monkeypatch.setattr(handlers.chat, "edit", lambda conn, channel_id, message: 5)
     monkeypatch.setattr(handlers.outbox, "edit_reply",
@@ -162,7 +162,7 @@ def test_editing_a_reply_queues_the_new_text(harness, monkeypatch):
     assert edited == [("C_FIRE", "2.0", "thanks, looking now", "UFD")]
 
 
-def test_editing_chat_that_is_not_a_reply_queues_nothing(harness, monkeypatch):
+def test_on_message_changed_non_reply_chat_queues_no_edit(harness, monkeypatch):
     edited = []
     monkeypatch.setattr(handlers.chat, "edit", lambda conn, channel_id, message: 5)
     monkeypatch.setattr(handlers.outbox, "edit_reply", lambda *args: edited.append(args))

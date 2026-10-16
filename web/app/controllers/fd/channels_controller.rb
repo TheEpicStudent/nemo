@@ -8,7 +8,7 @@ module Fd
       @open_id = params[:open].to_s.presence
       @guards_on = LiveGuards.new(params[:kind])
       @channels = @guards_on.channels
-      @names = Names.for(@guards_on.people)
+      @names = Names.for(@guards_on.opener_user_ids)
     end
 
     ACTIVITY_LIMIT = 50
@@ -63,10 +63,10 @@ module Fd
         .newest_first.limit(ACTIVITY_LIMIT).to_a : []
       @labels = labels_for(@events)
       @app_ids = app_ids_for(@allows)
-      @names = Names.for([@guards.values.flat_map(&:people_named),
+      @names = Names.for([@guards.values.flat_map(&:referenced_user_ids),
                           @thread_slowmodes.map(&:opened_by),
                           @allows.map(&:subject_id), @events.map(&:subject_id),
-                          @purges.flat_map(&:people_named)])
+                          @purges.flat_map(&:referenced_user_ids)])
       load_pane
     end
 

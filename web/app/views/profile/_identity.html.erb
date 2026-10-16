@@ -5,14 +5,14 @@
       <b><%= person_name(profile.user_id) %></b>
       <span>
         <% if profile.member_since %>
-          here since <%= profile.member_since.to_date.strftime("%-d %b %Y") %>
+          Member since <%= profile.member_since.to_date.strftime("%-d %b %Y") %>
         <% end %>
       </span>
     </span>
   </div>
 
   <div class="metric">
-    <span class="pickswitch" role="group" aria-label="What counts towards a streak">
+    <span class="pickswitch" role="group" aria-label="Streak basis">
       <% Profile::Summary::STREAK_BASES.each_key do |basis| %>
         <%= link_to basis, profile_path_with(profile, streak: (basis unless
               basis == Profile::Summary::DEFAULT_BASIS)),
@@ -28,7 +28,7 @@
   </div>
 
   <div class="metric">
-    <span class="metric-key">Days here</span>
+    <span class="metric-key">Active days</span>
     <span class="metric-value"><%= format_number(profile.slack[:days_active]) %></span>
     <span class="metric-note">
       <%= format_number(profile.archived[:days_posted]) %> posted
@@ -43,7 +43,7 @@
     <span class="metric-note">
       <% if profile.prior_slack %>
         <%= delta_chip(profile.slack[:messages], profile.prior_slack[:messages]) ||
-              "no change on the window before" %>
+              "no change vs previous period" %>
       <% else %>
         <%= format_number(profile.slack[:channel_messages]) %> in channels
       <% end %>

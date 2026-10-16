@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdActionsTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     @kase = make_case
   end
 
@@ -16,7 +16,7 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     @kase.actions
   end
 
-  test "logging an action echoes into the case chat" do
+  test "create action posts one case chat row with the target and reason" do
     sign_in_as(@me)
     log
 
@@ -28,21 +28,21 @@ class FdActionsTest < ActionDispatch::IntegrationTest
   end
 
 
-  test "action form has no outcome field" do
+  test "action form has no resolution_note textarea and a Reason label" do
     sign_in_as(@me)
     get fd_case_path(@kase, tab: "actions", do: "action")
 
     assert_select "textarea[name=?]", "resolution_note", false
-    assert_select "label.field-label", text: /What did they do\?/
+    assert_select "label.field-label", text: /Reason/
   end
 
-  test "a signed out visitor cannot log an action" do
+  test "create action signed out redirects to login and stores nothing" do
     log
     assert_redirected_to login_path
     assert_equal 0, actions.count
   end
 
-  test "logging an action leaves the case open" do
+  test "create action leaves the case open and stores the action" do
     sign_in_as(@me)
     log
 
@@ -55,10 +55,10 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_equal "USUB", action.target_user_id
     assert_equal "UME", action.decided_by
     assert_equal "UME", action.performed_by
-    assert_match(/stays open/, flash[:notice])
+    assert_equal "Warning logged on case #{@kase.id}", flash[:notice]
   end
 
-  test "the action is recorded in the trail as performed" do
+  test "create action writes a performed audit entry" do
     sign_in_as(@me)
     log
 
@@ -68,7 +68,7 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_not_nil entry.request_id
   end
 
-  test "several actions can pile up on one open case" do
+  test "create action twice on one case stores two actions and leaves it open" do
     sign_in_as(@me)
     log(type_key: "warning")
     log(type_key: "shush", expires_on: "2026-09-01")
@@ -77,7 +77,7 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_nil @kase.reload.resolved_at
   end
 
-  test "the same validation as filing a report applies here" do
+  test "create action rejects a missing end date or channel and an unknown type" do
     sign_in_as(@me)
     log(type_key: "temp_ban")
     assert_equal 0, actions.count
@@ -89,10 +89,10 @@ class FdActionsTest < ActionDispatch::IntegrationTest
 
     log(type_key: "banished")
     assert_equal 0, actions.count
-    assert_match(/pick what was done/, flash[:alert])
+    assert_match(/Select an action/, flash[:alert])
   end
 
-  test "fields the action does not use are ignored here too" do
+  test "create warning ignores expires_on and channel_id" do
     sign_in_as(@me)
     log(type_key: "warning", expires_on: "2026-09-01", channel_id: "C0266FRGV")
 
@@ -101,7 +101,7 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_empty action.details
   end
 
-  test "I can act on a case assigned to somebody else" do
+  test "create action on a case assigned to another member stores the action" do
     @kase.assign!("UOTHER")
     sign_in_as(@me)
     log
@@ -109,45 +109,45 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_equal 1, actions.count
   end
 
-  test "I can act on my own case" do
+  test "create action on a case assigned to the actor stores the action" do
     @kase.assign!("UME")
     sign_in_as(@me)
     log
     assert_equal 1, actions.count
   end
 
-  test "an action can still be logged after the case resolved" do
+  test "create action on a resolved case stores the action and sets the notice" do
     @kase.update!(resolved_at: 1.hour.ago, resolution: "action_taken")
     sign_in_as(@me)
     log
 
     assert_equal 1, actions.count
-    assert_no_match(/stays open/, flash[:notice])
+    assert_equal "Warning logged on case #{@kase.id}", flash[:notice]
   end
 
-  test "an action must say why it was taken" do
+  test "create action with blank reason stores nothing and sets a reason field_error" do
     sign_in_as(@me)
     log(reason: "   ")
 
-    assert_empty actions, "nothing may be logged against somebody without a reason"
+    assert_empty actions, "no action stored without a reason"
     assert_equal "reason", flash[:field_error]["field"]
   end
 
-  test "shush without an end date is logged with no end" do
+  test "create shush without expires_on stores nil expires_at" do
     sign_in_as(@me)
     log(type_key: "shush")
 
     assert_nil actions.sole.expires_at
   end
 
-  test "shush with a date and time ends at that time in utc" do
+  test "create shush with expires_on and expires_time stores expires_at in utc" do
     sign_in_as(@me)
     log(type_key: "shush", expires_on: "2026-11-02", expires_time: "14:30")
 
     assert_equal Time.utc(2026, 11, 2, 14, 30), actions.sole.expires_at
   end
 
-  test "shush with a time and no date is refused" do
+  test "create shush with expires_time and no expires_on stores nothing and alerts" do
     sign_in_as(@me)
     log(type_key: "shush", expires_time: "14:30")
 
@@ -155,38 +155,38 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_equal "Enter a date for the end time", flash[:alert]
   end
 
-  test "the reason is kept so it does not have to be typed twice" do
+  test "create action reports the missing end date before the blank reason" do
     sign_in_as(@me)
     log(type_key: "temp_ban", reason: "")
 
     assert_equal "Temporary ban needs an end date", flash[:alert],
-      "the first objection still wins"
+      "end date error is reported before the blank reason"
   end
 
-  test "the reason is stored as written, trimmed" do
+  test "create action strips whitespace around reason" do
     sign_in_as(@me)
     log(reason: "  said it again in the same thread  ")
 
     assert_equal "said it again in the same thread", actions.sole.reason
   end
 
-  test "a violation is optional, and a set one is kept on the action" do
+  test "create action stores category_key when given" do
     sign_in_as(@me)
     log(category_key: "harassment_general")
 
     assert_equal "harassment_general", actions.sole.category_key
   end
 
-  test "an action with no violation chosen falls back to the case" do
+  test "create action without category_key uses the case category_key" do
     @kase.update!(category_key: "spam")
     sign_in_as(@me)
     log
 
     assert_equal "spam", actions.sole.category_key,
-      "the case already says what this is about"
+      "category_key comes from the case"
   end
 
-  test "a violation that is not a real category is refused, not stored" do
+  test "create action with unknown category_key stores nil category_key" do
     @kase.update!(category_key: nil)
     sign_in_as(@me)
     log(category_key: "nonsense")
@@ -194,7 +194,7 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_nil actions.sole.category_key
   end
 
-  test "an unparseable expiry is refused instead of raising" do
+  test "create action with invalid expires_on redirects with a date alert" do
     sign_in_as(@me)
     log(type_key: "shush", expires_on: "2026-13-45")
 
@@ -203,7 +203,7 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_match(/is not a date/, flash[:alert])
   end
 
-  test "a target that is not a member id is refused instead of raising" do
+  test "create action with array target_user_id redirects with a member id alert" do
     sign_in_as(@me)
     log(target_user_id: ["USUB"])
 
@@ -212,7 +212,7 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_match(/is not a member id/, flash[:alert])
   end
 
-  test "a channel sent as a list is refused instead of stored as nonsense" do
+  test "create channel_ban with array channel_id redirects with a channel id alert" do
     sign_in_as(@me)
     log(type_key: "channel_ban", expires_on: "2026-09-01", channel_id: ["C0266FRGV"])
 
@@ -221,28 +221,28 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_match(/is not a channel id/, flash[:alert])
   end
 
-  test "acting on somebody the case was not about makes the case about them" do
+  test "create action for a new target adds them as a case subject" do
     sign_in_as(@me)
     assert_not_includes @kase.subject_user_ids, "UNEW"
 
     log(target_user_id: "UNEW")
 
     assert_includes @kase.reload.subject_user_ids, "UNEW"
-    assert_match(/now also about @UNEW/, flash[:notice])
+    assert_match(/@UNEW added to case/, flash[:notice])
     assert Fd::AuditEntry.where(entity_type: "participant", verb: "attached",
-      entity_id: @kase.id).exists?, "putting them on the case belongs in the trail"
+      entity_id: @kase.id).exists?, "attaching the subject is audited"
   end
 
-  test "acting on a subject twice leaves them on the case once" do
+  test "create action twice for one target adds the subject once" do
     sign_in_as(@me)
     log
     log
 
     assert_equal ["USUB"], @kase.reload.subject_user_ids
-    assert_no_match(/now also about/, flash[:notice])
+    assert_no_match(/added to case/, flash[:notice])
   end
 
-  test "a refused action does not put anybody on the case" do
+  test "create action refused for a blank reason does not add the target as subject" do
     sign_in_as(@me)
     log(target_user_id: "UNEW", reason: "  ")
 

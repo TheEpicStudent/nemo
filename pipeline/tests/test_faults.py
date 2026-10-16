@@ -39,17 +39,17 @@ def slack_error(error):
     (TimeoutError("read timed out"), "transport"),
     (RuntimeError("something else"), "local"),
 ])
-def test_every_exception_lands_in_exactly_one_class(exc, expected):
+def test_classify_exception_returns_fault_class_name(exc, expected):
     assert faults.classify(exc).name == expected
 
 
-def test_the_dispositions_split_abort_from_continue():
+def test_classes_disposition_raise_for_fatal_classes_continue_for_others():
     for name in ("cancelled", "auth", "transport", "local"):
         assert faults.CLASSES[name]["disposition"] == "raise"
     for name in ("upstream", "contract", "entity", "throttle", "contended"):
         assert faults.CLASSES[name]["disposition"] == "continue"
 
 
-def test_detail_is_bounded():
+def test_classify_long_message_truncates_detail_to_limit():
     fault = faults.classify(RuntimeError("x" * 2000))
     assert len(fault.detail) == faults.DETAIL_LIMIT

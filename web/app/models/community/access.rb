@@ -27,17 +27,17 @@ module Community
       Authz.may?(staff, capability_for(key), record)
     end
 
-    SCOPE_REFUSALS = { author: "that post is not yours" }.freeze
+    SCOPE_REFUSALS = { author: "Own posts only" }.freeze
 
     def self.why_not(staff, key, record = nil)
       return nil if allow?(staff, key, record)
-      return "you hold no access yet" if staff.nil?
+      return "No access" if staff.nil?
 
       capability = capability_for(key)
-      return "you hold no access yet" if !Authz.every_account?(capability) && Authz.effective_capabilities(staff.user_id).empty?
+      return "No access" if !Authz.every_account?(capability) && Authz.effective_capabilities(staff.user_id).empty?
       return Authz.refusal(capability) unless Authz.holds?(staff, capability)
 
-      SCOPE_REFUSALS.fetch(Authz.record_scope(capability), "that channel is not yours")
+      SCOPE_REFUSALS.fetch(Authz.record_scope(capability), "Granted channels only")
     end
 
     def self.within_scope?(staff, key, record)

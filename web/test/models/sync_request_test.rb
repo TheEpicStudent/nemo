@@ -5,21 +5,21 @@ class SyncRequestTest < ActiveSupport::TestCase
     SyncRequest.create!(kind: "full", requested_by: "UTEST1", status: status, claimed_at: Time.current)
   end
 
-  test "cancelling a claimed request moves it to cancelling and notifies" do
+  test "cancel! on claimed request returns true and sets status cancelling" do
     request = claimed(status: "claimed")
 
     assert request.cancel!
     assert_equal "cancelling", request.status
   end
 
-  test "cancelling an already-cancelling request stays true instead of nothing to cancel" do
+  test "cancel! on cancelling request returns true and keeps status cancelling" do
     request = claimed(status: "cancelling")
 
-    assert request.cancel!, "a second cancel click must not report nothing to cancel"
+    assert request.cancel!, "second cancel! returns true"
     assert_equal "cancelling", request.status
   end
 
-  test "releasing an already-cancelling request with no worker marks it cancelled" do
+  test "cancel! with worker_unavailable on cancelling request sets cancelled and finished_at" do
     request = claimed(status: "cancelling")
 
     assert request.cancel!(worker_unavailable: true)
@@ -27,21 +27,21 @@ class SyncRequestTest < ActiveSupport::TestCase
     assert request.finished_at.present?
   end
 
-  test "releasing a claimed request with no worker marks it cancelled" do
+  test "cancel! with worker_unavailable on claimed request sets cancelled" do
     request = claimed(status: "claimed")
 
     assert request.cancel!(worker_unavailable: true)
     assert_equal "cancelled", request.status
   end
 
-  test "a queued request is cancelled outright" do
+  test "cancel! on queued request sets status cancelled" do
     request = claimed(status: "queued")
 
     assert request.cancel!
     assert_equal "cancelled", request.status
   end
 
-  test "a done request cannot be cancelled" do
+  test "cancel! on done request returns false" do
     request = claimed(status: "done")
 
     assert_not request.cancel!

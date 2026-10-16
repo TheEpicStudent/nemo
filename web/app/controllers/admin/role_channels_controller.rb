@@ -29,9 +29,9 @@ module Admin
       Channels::Audience::Grant.create!(role: selected_role, channel_id: channel_id,
         granted_by: current_account.user_id, granted_at: Time.current)
       redirect_to back_to,
-        notice: "##{channel_id} is now read by every #{Authz.role_label(selected_role).downcase}"
+        notice: "##{channel_id} added"
     rescue ActiveRecord::RecordNotUnique
-      redirect_with_alert("The set already contains that channel")
+      redirect_with_alert("Channel already added")
     end
 
     def destroy
@@ -40,7 +40,7 @@ module Admin
       Channels::Audience::Grant.live.where(role: selected_role, channel_id: params[:channel_id])
         .find_each { |grant| grant.update!(revoked_by: current_account.user_id,
                                           revoked_at: Time.current) }
-      redirect_to back_to, notice: "##{params[:channel_id]} removed from the set"
+      redirect_to back_to, notice: "##{params[:channel_id]} removed"
     end
 
     private

@@ -6,14 +6,14 @@ module Fd
     IMAGE = %r{\Aimage/}
     INLINE_MIMETYPES = %w[image/png image/jpeg image/gif image/webp].freeze
 
-    WHY_NOT = {
-      "pending" => "not kept yet",
+    STATE_NOTES = {
+      "pending" => "not stored yet",
       "purged" => "purged",
-      "gone" => "gone from Slack",
-      "too_large" => "too large to keep",
-      "refused" => "could not be kept",
-      "failed" => "could not be kept",
-      "skipped" => "not kept"
+      "gone" => "deleted in Slack",
+      "too_large" => "too large",
+      "refused" => "not stored",
+      "failed" => "not stored",
+      "skipped" => "not stored"
     }.freeze
 
     def stored?
@@ -33,7 +33,7 @@ module Fd
     end
 
     def note
-      stored? ? nil : WHY_NOT.fetch(fetch_state, "could not be kept")
+      stored? ? nil : STATE_NOTES.fetch(fetch_state, "not stored")
     end
 
     FILE_COUNTS_SQL = <<~SQL.freeze

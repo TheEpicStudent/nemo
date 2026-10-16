@@ -37,12 +37,12 @@ module Channels
       month.present?
     end
 
-    def people
-      @people ||= Analytics::MartChannelPerson.where(channel_id: channel_id, month: month)
+    def person_rows
+      @person_rows ||= Analytics::MartChannelPerson.where(channel_id: channel_id, month: month)
     end
 
     def head
-      @head ||= people.order(:channel_rank).first
+      @head ||= person_rows.order(:channel_rank).first
     end
 
     def posters = head&.channel_posters.to_i
@@ -51,12 +51,12 @@ module Channels
 
     def top(limit: TOP_LIMIT)
       @top ||= {}
-      @top[limit] ||= people.order(:channel_rank).limit(limit).to_a
+      @top[limit] ||= person_rows.order(:channel_rank).limit(limit).to_a
     end
 
     def tenure
       @tenure ||= begin
-        band_counts = people.group(:tenure_band)
+        band_counts = person_rows.group(:tenure_band)
           .pluck(Arel.sql("tenure_band, count(*), coalesce(sum(messages), 0)"))
           .to_h { |band, member_count, messages| [band, [member_count.to_i, messages.to_i]] }
         total_messages = band_counts.values.sum { |_, messages| messages }
@@ -80,10 +80,10 @@ module Channels
       poster_count = range.members_who_posted.to_i.clamp(0, members)
       viewer_count = range.members_who_viewed.to_i.clamp(poster_count, members)
       read_only_count = viewer_count - poster_count
-      never_opened_count = members - viewer_count
+      never_viewed_count = members - viewer_count
 
-      [["spoke", "spoke", poster_count], ["read", "read only", read_only_count],
-       ["never", "never opened", never_opened_count]].map do |key, label, member_count|
+      [["spoke", "posted", poster_count], ["read", "read only", read_only_count],
+       ["never", "never viewed", never_viewed_count]].map do |key, label, member_count|
         Part.new(key: key, label: label, people: member_count,
           share: (member_count * 100.0 / members).round(1))
       end

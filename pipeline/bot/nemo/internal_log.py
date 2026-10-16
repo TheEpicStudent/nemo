@@ -3,7 +3,7 @@ import threading
 
 from bot.core import session
 from bot.nemo import channel, memberguards
-from bot.nemo.enforcement.sweep import LAPSED_BECAUSE
+from bot.nemo.enforcement.sweep import EXPIRED_REASON
 from bot.nemo.guard_notices import quoted
 from bot.nemo.views import lengths
 from bot.nemo.views.activity import message_url
@@ -15,7 +15,7 @@ AUDIT = "audit"
 AUTOMOD = "automod"
 BATCH = 50
 REPLACED_BY_DESTROY = "replaced by a destroy"
-NOT_PEOPLE = (None, "system", memberguards.NEMO)
+SYSTEM_ACTORS = (None, "system", memberguards.NEMO)
 
 ENTITY_TYPES = ["member_guard", "channel_guard", "channel_allow", "thread_guard"]
 VERBS = ["opened", "lifted", "extended", "tuned", "added", "removed"]
@@ -23,7 +23,7 @@ VERBS = ["opened", "lifted", "extended", "tuned", "added", "removed"]
 CURSOR = "SELECT last_id FROM fd.log_cursors WHERE name = %s"
 MOVE_CURSOR = "UPDATE fd.log_cursors SET last_id = %s, updated_at = now() WHERE name = %s"
 
-AUDIT_AFTER = """
+AUDIT_ENTRIES = """
 SELECT id, actor_user_id, entity_type, entity_id, verb, before, after
 FROM fd.audit
 WHERE id > %s AND occurred_at > now() - interval '7 days'
@@ -32,7 +32,7 @@ ORDER BY id
 LIMIT %s
 """
 
-AUTOMOD_AFTER = """
+AUTOMOD_MATCHES = """
 SELECT id, word, user_id, channel_id, permalink, body
 FROM fd.automod_matches
 WHERE id > %s
@@ -62,8 +62,8 @@ CHANNEL_LABELS = {"slowmode": "Slow mode", "readonly": "Read-only", "account_age
 _lock = threading.Lock()
 
 
-def by(actor):
-    return f" · by <@{actor}>" if actor not in NOT_PEOPLE else ""
+def actor_suffix(actor):
+    return f" · by <@{actor}>" if actor not in SYSTEM_ACTORS else ""
 
 
 def reason_part(reason):
@@ -80,14 +80,14 @@ def member_line(entry, row):
     who = f"<@{subject_id}>" + (f" · <#{channel_id}>" if channel_id else "")
     verb, actor, after = entry["verb"], entry["actor"], entry["after"] or {}
     if verb == "opened":
-        return f"{label} · {who} · {lengths.ends(expires_at)}{reason_part(reason)}{by(actor)}"
+        return f"{label} · {who} · {lengths.ends(expires_at)}{reason_part(reason)}{actor_suffix(actor)}"
     if verb == "extended":
-        return f"{label} extended · {who} · {lengths.ends(expires_at)}{by(actor)}"
+        return f"{label} extended · {who} · {lengths.ends(expires_at)}{actor_suffix(actor)}"
     if verb == "lifted":
         why = after.get("lift_reason") or lift_reason
-        if why == LAPSED_BECAUSE or actor in NOT_PEOPLE:
+        if why == EXPIRED_REASON or actor in SYSTEM_ACTORS:
             return f"{label} ended · {who}"
-        return f"{label} lifted · {who}{reason_part(why)}{by(actor)}"
+        return f"{label} lifted · {who}{reason_part(why)}{actor_suffix(actor)}"
     return None
 
 
@@ -113,15 +113,15 @@ def channel_line(entry, row):
     where = channel_where(channel_id, thread_ts)
     verb, actor = entry["verb"], entry["actor"]
     if verb == "opened":
-        return f"{label} enabled · {where}{channel_details(kind, settings, expires_at)}{reason_part(reason)}{by(actor)}"
+        return f"{label} enabled · {where}{channel_details(kind, settings, expires_at)}{reason_part(reason)}{actor_suffix(actor)}"
     if verb == "tuned":
-        return f"{label} updated · {where}{channel_details(kind, settings, expires_at)}{by(actor)}"
+        return f"{label} updated · {where}{channel_details(kind, settings, expires_at)}{actor_suffix(actor)}"
     if verb == "extended":
-        return f"{label} extended · {where} · {lengths.ends(expires_at)}{by(actor)}"
+        return f"{label} extended · {where} · {lengths.ends(expires_at)}{actor_suffix(actor)}"
     if verb == "lifted":
-        if actor in NOT_PEOPLE:
+        if actor in SYSTEM_ACTORS:
             return f"{label} ended · {where}"
-        return f"{label} disabled · {where}{by(actor)}"
+        return f"{label} disabled · {where}{actor_suffix(actor)}"
     return None
 
 
@@ -133,9 +133,9 @@ def allow_line(entry, row):
     where = channel_where(channel_id, thread_ts)
     if kind == "bot_allowlist":
         verb = "Bot allowed" if entry["verb"] == "added" else "Bot removed from allow list"
-        return f"{verb} · <@{subject_id}> · {where}{by(entry['actor'])}"
+        return f"{verb} · <@{subject_id}> · {where}{actor_suffix(entry['actor'])}"
     verb = "Exemption added" if entry["verb"] == "added" else "Exemption removed"
-    return f"{verb} · <@{subject_id}> · {CHANNEL_LABELS.get(kind, kind)} · {where}{by(entry['actor'])}"
+    return f"{verb} · <@{subject_id}> · {CHANNEL_LABELS.get(kind, kind)} · {where}{actor_suffix(entry['actor'])}"
 
 
 def thread_line(entry, row):
@@ -145,19 +145,19 @@ def thread_line(entry, row):
     where = f"<#{channel_id}> · {thread_link(channel_id, thread_ts)}"
     verb, actor = entry["verb"], entry["actor"]
     if verb == "opened":
-        return f"Thread locked · {where} · {lengths.ends(expires_at)}{reason_part(reason)}{by(actor)}"
+        return f"Thread locked · {where} · {lengths.ends(expires_at)}{reason_part(reason)}{actor_suffix(actor)}"
     if verb == "extended":
-        return f"Lock extended · {where} · {lengths.ends(expires_at)}{by(actor)}"
+        return f"Lock extended · {where} · {lengths.ends(expires_at)}{actor_suffix(actor)}"
     if verb == "lifted":
         if state == "failed" or error == REPLACED_BY_DESTROY:
             return None
-        if actor in NOT_PEOPLE:
+        if actor in SYSTEM_ACTORS:
             return f"Lock ended · {where}"
-        return f"Thread unlocked · {where}{by(actor)}"
+        return f"Thread unlocked · {where}{actor_suffix(actor)}"
     return None
 
 
-ROWS = {
+LINE_BUILDERS = {
     "member_guard": (MEMBER_GUARD, member_line),
     "channel_guard": (CHANNEL_GUARD, channel_line),
     "channel_allow": (CHANNEL_GUARD, allow_line),
@@ -166,7 +166,7 @@ ROWS = {
 
 
 def line_for(conn, entry):
-    sql, build = ROWS[entry["entity_type"]]
+    sql, build = LINE_BUILDERS[entry["entity_type"]]
     row = conn.execute(sql, (entry["entity_id"],)).fetchone()
     return build(entry, row) if row else None
 
@@ -182,37 +182,37 @@ def cursor(conn, name):
     return row[0] if row else 0
 
 
-def move(name, last_id):
+def advance_cursor(name, last_id):
     with session() as conn:
         conn.execute(MOVE_CURSOR, (last_id, name))
 
 
-def post(client, log_channel_id, text):
+def post_text(client, log_channel_id, text):
     client.chat_postMessage(channel=log_channel_id, text=text, unfurl_links=False, unfurl_media=False)
 
 
-def send(client, name, lines, log_channel_id):
+def post_lines(client, name, lines, log_channel_id):
     handled = 0
     for line_id, text in lines:
         if text and log_channel_id:
             try:
-                post(client, log_channel_id, text)
+                post_text(client, log_channel_id, text)
             except Exception as failure:
                 log.warning("nemo: internal log line %s %s not posted: %s", name, line_id, failure)
                 break
-        move(name, line_id)
+        advance_cursor(name, line_id)
         handled += 1
     return handled
 
 
 def audit_lines(conn):
-    entries = conn.execute(AUDIT_AFTER, (cursor(conn, AUDIT), ENTITY_TYPES, VERBS, BATCH)).fetchall()
+    entries = conn.execute(AUDIT_ENTRIES, (cursor(conn, AUDIT), ENTITY_TYPES, VERBS, BATCH)).fetchall()
     keys = ("id", "actor", "entity_type", "entity_id", "verb", "before", "after")
     return [(one[0], line_for(conn, dict(zip(keys, one)))) for one in entries]
 
 
 def automod_lines(conn):
-    matches = conn.execute(AUTOMOD_AFTER, (cursor(conn, AUTOMOD), BATCH)).fetchall()
+    matches = conn.execute(AUTOMOD_MATCHES, (cursor(conn, AUTOMOD), BATCH)).fetchall()
     return [(one[0], automod_line(one)) for one in matches]
 
 
@@ -224,6 +224,6 @@ def drain(client):
             log_channel_id = channel.log_channel(conn)
             audits = audit_lines(conn)
             automods = automod_lines(conn)
-        return send(client, AUDIT, audits, log_channel_id) + send(client, AUTOMOD, automods, log_channel_id)
+        return post_lines(client, AUDIT, audits, log_channel_id) + post_lines(client, AUTOMOD, automods, log_channel_id)
     finally:
         _lock.release()

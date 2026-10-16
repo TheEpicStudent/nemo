@@ -8,12 +8,12 @@ SHUSH = "shush"
 CHANNEL_BAN = "channel_ban"
 DEACTIVATION = "deactivation"
 
-UNDONE_IN_SLACK = (DEACTIVATION,)
+SLACK_LIFT_KINDS = (DEACTIVATION,)
 
-UNGUARDED = action.UNGUARDED
-ORPHANED = action.ORPHANED
-ELSEWHERE = action.ELSEWHERE
-HERE = action.HERE
+NO_GUARD = action.NO_GUARD
+NO_CASE = action.NO_CASE
+OTHER_CASE = action.OTHER_CASE
+THIS_CASE = action.THIS_CASE
 
 FIELDS = (
     "id", "kind", "subject_id", "channel_id", "state", "enforcement_status", "enforced_by",
@@ -71,29 +71,29 @@ def for_action(conn, type_key, subject_id, channel_id=None):
     return active_guard(conn, subject_id, kind, channel_id)
 
 
-def settle(conn, type_key, subject_id, case_id=None, channel_id=None):
+def guard_status(conn, type_key, subject_id, case_id=None, channel_id=None):
     if not enforceable(type_key):
-        return {"enforceable": False, "guard": None, "reads": UNGUARDED, "case_id": case_id}
+        return {"enforceable": False, "guard": None, "relation": NO_GUARD, "case_id": case_id}
     if not subject_id:
-        return {"enforceable": True, "guard": None, "reads": UNGUARDED, "case_id": case_id}
+        return {"enforceable": True, "guard": None, "relation": NO_GUARD, "case_id": case_id}
 
     existing_guard = for_action(conn, type_key, subject_id, channel_id)
     return {
         "enforceable": True,
         "guard": existing_guard,
-        "reads": reads(existing_guard, case_id),
+        "relation": guard_relation(existing_guard, case_id),
         "case_id": case_id,
     }
 
 
-def reads(guard, case_id=None):
+def guard_relation(guard, case_id=None):
     if guard is None:
-        return UNGUARDED
+        return NO_GUARD
     if guard["case_id"] is None:
-        return ORPHANED
+        return NO_CASE
     if case_id is not None and guard["case_id"] == case_id:
-        return HERE
-    return ELSEWHERE
+        return THIS_CASE
+    return OTHER_CASE
 
 
 OPEN = """
@@ -111,7 +111,7 @@ WHERE id = %s AND case_id IS NULL AND state IN ('live', 'lifting')
 RETURNING id
 """
 
-RUN_UNTIL = """
+SET_EXPIRY = """
 UPDATE fd.member_guards SET expires_at = %s, updated_at = now()
 WHERE id = %s AND state IN ('live', 'lifting')
 RETURNING id
@@ -152,8 +152,8 @@ def attach(conn, guard_id, case_id, by):
     return guard_id
 
 
-def run_until(conn, guard_id, expires_at, previous_expires_at, by):
-    row = conn.execute(RUN_UNTIL, (expires_at, guard_id)).fetchone()
+def set_expiry(conn, guard_id, expires_at, previous_expires_at, by):
+    row = conn.execute(SET_EXPIRY, (expires_at, guard_id)).fetchone()
     if row is None:
         return None
 
@@ -168,14 +168,14 @@ def link(conn, action_id, guard_id):
     return row[0] if row else None
 
 
-def settled(conn, action_id, values, active_guard, by):
-    active_guard = active_guard or {}
-    if not active_guard.get("enforceable"):
+def apply_enforcement(conn, action_id, values, status, by):
+    status = status or {}
+    if not status.get("enforceable"):
         return None
 
-    existing_guard = active_guard.get("guard")
-    case_id = active_guard.get("case_id")
-    choice = values.get("settle") or action.RECORD
+    existing_guard = status.get("guard")
+    case_id = status.get("case_id")
+    choice = values.get("enforcement") or action.LOG_ONLY
     expires_at = action.expiry(values)
 
     if existing_guard is None:
@@ -191,11 +191,11 @@ def settled(conn, action_id, values, active_guard, by):
             case_id=case_id,
             expires_at=expires_at,
         )
-    elif choice == action.ADOPT:
+    elif choice == action.ATTACH:
         guard_id = attach(conn, existing_guard["id"], case_id, by)
     elif choice == action.EXTEND:
-        guard_id = run_until(conn, existing_guard["id"], expires_at, existing_guard.get("expires_at"), by)
-    elif active_guard.get("reads") == HERE:
+        guard_id = set_expiry(conn, existing_guard["id"], expires_at, existing_guard.get("expires_at"), by)
+    elif status.get("relation") == THIS_CASE:
         guard_id = existing_guard["id"]
     else:
         guard_id = None
@@ -226,27 +226,27 @@ WHERE id = %s AND enforcement_status <> 'held'
 RETURNING id
 """
 
-DROPPED = """
+MARK_FAILED = """
 UPDATE fd.member_guards
 SET enforcement_status = 'failed', attempts = attempts + 1, last_error = %s, updated_at = now()
 WHERE id = %s
 RETURNING attempts
 """
 
-HAPPENED = """
+INSERT_EVENT = """
 INSERT INTO fd.member_guard_events
     (guard_id, subject_id, channel_id, verb, message_ts, permalink, detail)
 VALUES (%s, %s, %s, %s, %s, %s, %s)
 RETURNING id
 """
 
-LATELY = """
+RECENT_EVENT_COUNT = """
 SELECT count(*) FROM fd.member_guard_events
 WHERE guard_id = %s AND verb = %s AND at > now() - %s::interval
 """
 
-WATCHED = ("id", "kind", "subject_id", "channel_id", "reason", "expires_at",
-           "enforcement_status", "enforced_by")
+LIVE_FIELDS = ("id", "kind", "subject_id", "channel_id", "reason", "expires_at",
+               "enforcement_status", "enforced_by")
 
 GUARD_FIELDS = ("id", "kind", "subject_id", "channel_id", "reason", "expires_at")
 
@@ -260,7 +260,7 @@ def refresh(conn):
     global _loaded
     shushes, bans = {}, {}
     for row in conn.execute(LIVE_GUARDS).fetchall():
-        one = dict(zip(WATCHED, row))
+        one = dict(zip(LIVE_FIELDS, row))
         if one["kind"] == SHUSH:
             shushes[one["subject_id"]] = one
         elif one["kind"] == CHANNEL_BAN:
@@ -280,7 +280,7 @@ def in_force(guard, now=None):
     return expires_at is None or expires_at > (now or dt.datetime.now(dt.timezone.utc))
 
 
-def shushed(subject_id):
+def active_shush(subject_id):
     with _lock:
         if not _loaded:
             return None
@@ -288,7 +288,7 @@ def shushed(subject_id):
     return guard if guard and in_force(guard) else None
 
 
-def banned(subject_id, channel_id):
+def active_ban(subject_id, channel_id):
     with _lock:
         if not _loaded:
             return None
@@ -304,35 +304,35 @@ def mark_enforced(conn, guard_id):
     return conn.execute(MARK_ENFORCED, (guard_id,)).fetchone() is not None
 
 
-def dropped(conn, guard_id, why):
-    row = conn.execute(DROPPED, (why[:500], guard_id)).fetchone()
+def mark_failed(conn, guard_id, why):
+    row = conn.execute(MARK_FAILED, (why[:500], guard_id)).fetchone()
     return row[0] if row else None
 
 
 def record_enforcement(conn, guard_id, subject_id, channel_id, verb,
              message_ts=None, permalink=None, detail=None):
     return conn.execute(
-        HAPPENED, (guard_id, subject_id, channel_id, verb, message_ts, permalink, detail)
+        INSERT_EVENT, (guard_id, subject_id, channel_id, verb, message_ts, permalink, detail)
     ).fetchone()[0]
 
 
-RELEASED_ALREADY = """
+RELEASE_EVENT_EXISTS = """
 SELECT 1 FROM fd.member_guard_events WHERE guard_id = %s AND verb = 'released' LIMIT 1
 """
 
 CLAIM_GUARD = "SELECT id FROM fd.member_guards WHERE id = %s FOR UPDATE"
 
 
-def released_already(conn, guard_id):
-    return conn.execute(RELEASED_ALREADY, (guard_id,)).fetchone() is not None
+def has_release_event(conn, guard_id):
+    return conn.execute(RELEASE_EVENT_EXISTS, (guard_id,)).fetchone() is not None
 
 
 def claim(conn, guard_id):
     return conn.execute(CLAIM_GUARD, (guard_id,)).fetchone() is not None
 
 
-def lately(conn, guard_id, verb, within):
-    return conn.execute(LATELY, (guard_id, verb, within)).fetchone()[0]
+def count_recent_events(conn, guard_id, verb, within):
+    return conn.execute(RECENT_EVENT_COUNT, (guard_id, verb, within)).fetchone()[0]
 
 
 NEMO = "nemo"
@@ -346,7 +346,7 @@ WHERE state = 'live' AND expires_at IS NOT NULL AND expires_at <= now()
 ORDER BY expires_at LIMIT 20
 """
 
-DROPPED_AWHILE = """
+FAILED_FOR_RETRY = """
 SELECT id, kind, subject_id, channel_id, reason, expires_at
 FROM fd.member_guards
 WHERE state = 'live' AND enforcement_status = 'failed' AND enforced_by = 'nemo'
@@ -354,7 +354,7 @@ WHERE state = 'live' AND enforcement_status = 'failed' AND enforced_by = 'nemo'
 ORDER BY updated_at LIMIT 20
 """
 
-LET_GO = """
+LIFT = """
 UPDATE fd.member_guards
 SET state = 'lifted', lifted_at = now(), lifted_by = %s, lift_reason = %s, updated_at = now()
 WHERE id = %s AND state = 'live'
@@ -413,7 +413,7 @@ RELEASED = "released"
 
 NOTIFIED = "notified"
 
-LIFTED_BY_HAND = "somebody lifted it"
+LIFTED_MANUALLY = "Lifted manually"
 
 
 def lifted_not_notified(conn, within):
@@ -424,20 +424,20 @@ def lapsed(conn):
     return [dict(zip(GUARD_FIELDS, row)) for row in conn.execute(LAPSED).fetchall()]
 
 
-def dropped_awhile(conn):
+def failed_for_retry(conn):
     return [
         dict(zip(GUARD_FIELDS, row))
-        for row in conn.execute(DROPPED_AWHILE, (BACKOFF_CAP,)).fetchall()
+        for row in conn.execute(FAILED_FOR_RETRY, (BACKOFF_CAP,)).fetchall()
     ]
 
 
-def undone_in_slack(kind):
-    return kind in UNDONE_IN_SLACK
+def lifts_in_slack(kind):
+    return kind in SLACK_LIFT_KINDS
 
 
 def lift(conn, guard_id, by, why, kind=None):
-    needs_slack_undo = undone_in_slack(kind)
-    sql = START_LIFTING if needs_slack_undo else LET_GO
+    needs_slack_undo = lifts_in_slack(kind)
+    sql = START_LIFTING if needs_slack_undo else LIFT
     row = conn.execute(sql, (by, why, guard_id)).fetchone()
     if row is None:
         return False

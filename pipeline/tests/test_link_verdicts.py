@@ -42,52 +42,52 @@ class Conn:
         return [params for sql, params in self.calls if sql.startswith(prefix)]
 
 
-def test_a_pair_is_stored_lowest_id_first():
+def test_ordered_returns_lowest_id_first():
     assert verdicts.ordered("U02", "U01") == ("U01", "U02")
     assert verdicts.ordered("U01", "U02") == ("U01", "U02")
 
 
-def test_one_person_verdicts_are_linked_and_the_rest_unlinked():
+def test_verb_for_maps_verdicts_to_linked_or_unlinked():
     assert verdicts.verb_for("same_person") == "linked"
     assert verdicts.verb_for("allowed_alt") == "linked"
     assert verdicts.verb_for("different_people") == "unlinked"
 
 
-def test_the_verdicts_match_the_table_check():
+def test_verdicts_match_migration_check_constraint():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
            / "0223_link_verdict_drop_household.sql").read_text()
     for verdict in verdicts.VERDICTS:
         assert f"'{verdict}'" in sql
 
 
-def test_ids_split_on_commas_and_spaces():
+def test_planned_splits_ids_on_commas_and_spaces():
     planned = verdicts.planned("U09", "U01", {"same_person": ["U02,U03", " U04 "], "different_people": ["U05"]})
 
     assert planned == {"U02": "same_person", "U03": "same_person", "U04": "same_person",
                        "U05": "different_people"}
 
 
-def test_an_account_under_two_verdicts_is_refused():
+def test_planned_account_under_two_verdicts_raises_verdict_error():
     with pytest.raises(VerdictError, match="U02 is listed under both"):
         verdicts.planned("U09", "U01", {"same_person": ["U02"], "different_people": ["U02"]})
 
 
-def test_the_main_account_cannot_be_paired_with_itself():
+def test_planned_main_account_in_verdict_raises_verdict_error():
     with pytest.raises(VerdictError, match="main account"):
         verdicts.planned("U09", "U01", {"same_person": ["U01"]})
 
 
-def test_malformed_ids_are_refused():
+def test_planned_malformed_ids_raise_verdict_error():
     with pytest.raises(VerdictError, match="nobody, x1"):
         verdicts.planned("nobody", "U01", {"same_person": ["x1", "U02"]})
 
 
-def test_nothing_listed_is_refused():
+def test_planned_empty_verdicts_raise_verdict_error():
     with pytest.raises(VerdictError, match="--same-person"):
         verdicts.planned("U09", "U01", {})
 
 
-def test_a_new_pair_is_inserted_and_audited_against_the_listed_account():
+def test_record_new_pair_inserts_verdict_and_audit_row():
     conn = Conn()
 
     assert verdicts.record(conn, "U09", "U05", "U02", "same_person") == "recorded"
@@ -101,7 +101,7 @@ def test_a_new_pair_is_inserted_and_audited_against_the_listed_account():
     assert row[8] == "U02"
 
 
-def test_the_same_verdict_again_writes_nothing():
+def test_record_same_verdict_returns_unchanged_without_writes():
     conn = Conn(existing={("U02", "U05"): (7, "same_person", "U08", None)})
 
     assert verdicts.record(conn, "U09", "U05", "U02", "same_person") == "unchanged"
@@ -110,7 +110,7 @@ def test_the_same_verdict_again_writes_nothing():
     assert conn.args_for("INSERT") == []
 
 
-def test_a_changed_verdict_keeps_the_note_and_audits_the_old_verdict():
+def test_record_changed_verdict_preserves_note_and_audits_previous_verdict():
     conn = Conn(existing={("U02", "U05"): (7, "same_person", "U08", "shared a laptop")})
 
     assert verdicts.record(conn, "U09", "U05", "U02", "different_people") == "changed"
@@ -122,7 +122,7 @@ def test_a_changed_verdict_keeps_the_note_and_audits_the_old_verdict():
     assert row[6].obj["verdict"] == "different_people"
 
 
-def test_unknown_accounts_stop_the_run_before_anything_is_written():
+def test_run_unknown_accounts_raises_before_any_insert():
     conn = Conn(members={"U09", "U05"})
 
     with pytest.raises(VerdictError, match="not in fd.member: U02"):
@@ -132,7 +132,7 @@ def test_unknown_accounts_stop_the_run_before_anything_is_written():
     assert not conn.committed
 
 
-def test_a_run_commits_after_every_pair():
+def test_run_two_pairs_records_both_and_commits():
     conn = Conn(members={"U09", "U05", "U02", "U03"})
 
     counts = verdicts.run(conn, "U09", "U05", {"U02": "same_person", "U03": "allowed_alt"})
@@ -141,7 +141,7 @@ def test_a_run_commits_after_every_pair():
     assert conn.committed
 
 
-def test_a_refusal_exits_2_without_connecting(monkeypatch, capsys):
+def test_main_refused_verdict_returns_2_without_connecting(monkeypatch, capsys):
     monkeypatch.setattr(verdicts, "load_dotenv", lambda *_args: None)
     monkeypatch.setattr(verdicts, "connect", lambda *_args: pytest.fail("connected"))
 

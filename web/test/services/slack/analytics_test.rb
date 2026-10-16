@@ -9,7 +9,7 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
     )
   end
 
-  test "parallel raises what a task raised" do
+  test "parallel re-raises an exception from a task" do
     original_report_on_exception = Thread.report_on_exception
     Thread.report_on_exception = false
     err = assert_raises(RuntimeError) do
@@ -25,7 +25,7 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
     Slack::Analytics.parallel(-> { sleep 0.5 }, -> { sleep 0.5 })
     elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
-    assert_operator elapsed, :<, 0.9, "tasks ran one after the other, taking #{elapsed.round(2)}s"
+    assert_operator elapsed, :<, 0.9, "tasks ran sequentially in #{elapsed.round(2)}s"
   end
 
   CHANNEL_ROW = { "channel_id" => "C1", "name" => "general", "messages_count" => 12 }.freeze
@@ -62,43 +62,43 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
 
   def one_channel = ->(*) { { "channel_analytics" => [CHANNEL_ROW] } }
 
-  test "a second look at the same window does not call slack again" do
+  test "channel_activity with the same window calls slack once" do
     with_memory_cache do
       stub_slack(one_channel) do |calls|
         first = fetch_activity
         second = fetch_activity
 
-        assert_equal 1, calls.call, "the second look must be served from the cache"
+        assert_equal 1, calls.call, "second call is served from the cache"
         assert_equal 12, first.stats["messages_count"]
         assert_equal first.stats, second.stats
       end
     end
   end
 
-  test "a different window is a different question" do
+  test "channel_activity with a different window calls slack again" do
     with_memory_cache do
       stub_slack(one_channel) do |calls|
         fetch_activity
         fetch_activity(to: "2026-08-08")
 
-        assert_equal 2, calls.call, "the date range is part of what was asked"
+        assert_equal 2, calls.call, "a different date range is not served from the cache"
       end
     end
   end
 
-  test "a failure is never cached, so a blip does not sticky for hours" do
+  test "channel_activity does not cache an error" do
     with_memory_cache do
       stub_slack(->(*) { raise Slack::ProxyClient::Error, "down" }) do |calls|
         assert_equal :unavailable, fetch_activity.error
         assert_equal :unavailable, fetch_activity.error
 
         assert_equal 2, calls.call,
-          "a cached error would leave the page broken until it expired"
+          "an error result must not be cached"
       end
     end
   end
 
-  test "a channel that was not found is asked about again next time" do
+  test "channel_activity does not cache a not_found result" do
     with_memory_cache do
       stub_slack(->(*) { { "channel_analytics" => [], "num_found" => 0 } }) do |calls|
         assert_equal :not_found, fetch_activity.error
@@ -116,7 +116,7 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
     )
   end
 
-  test "both windows answer, in the order they were asked for" do
+  test "channel_windows returns one result per window in the given order" do
     with_memory_cache do
       stub_slack(one_channel) do |calls|
         first, second = windows
@@ -128,7 +128,7 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
     end
   end
 
-  test "the cache is touched only on the calling thread, never on a fetch thread" do
+  test "channel_windows uses the cache only on the calling thread" do
     with_memory_cache do
       stub_slack(one_channel) do |_calls|
         test_thread = Thread.current
@@ -146,20 +146,20 @@ class Slack::AnalyticsTest < ActiveSupport::TestCase
         threads = []
         threads << cache_threads.pop until cache_threads.empty?
 
-        refute_empty threads, "the cache was never touched, so this proves nothing"
+        refute_empty threads, "cache was not used"
         assert_equal [test_thread], threads.uniq,
-          "a fetch thread reached the cache, which is a table in the request's own pool"
+          "cache accessed from a fetch thread"
       end
     end
   end
 
-  test "a window already cached is not asked for again" do
+  test "channel_windows with cached windows does not call slack again" do
     with_memory_cache do
       stub_slack(one_channel) do |calls|
         windows
         windows
 
-        assert_equal 2, calls.call, "the second pair of windows must come from the cache"
+        assert_equal 2, calls.call, "second call is served from the cache"
       end
     end
   end

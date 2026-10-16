@@ -13,8 +13,8 @@ module Admin
       @withheld_count = ::Api::RequestLog.where(at: WINDOW.ago.., outcome: "withheld").count
       @channels = ::Api::RequestLog.where(at: WINDOW.ago..).distinct.count(:channel_id)
       @synced = ::Api::ChannelSweep.maximum(:synced_at)
-      @dials = ::Api::Setting::DEFAULTS.keys.index_with { |key| ::Api::Setting.value(key) }
-      @last_dial = ::Api::Setting.order(changed_at: :desc).first
+      @settings = ::Api::Setting::DEFAULTS.keys.index_with { |key| ::Api::Setting.value(key) }
+      @last_setting = ::Api::Setting.order(changed_at: :desc).first
       @names = Fd::Names.for(@tokens.map(&:owner_user_id))
     end
 
@@ -23,7 +23,7 @@ module Admin
       return redirect_with_alert("#{key} is not a setting") unless ::Api::Setting::DEFAULTS.key?(key)
 
       value = params[:value].to_i
-      return redirect_with_alert("A setting must be a number greater than zero") unless value.positive?
+      return redirect_with_alert("Enter a number greater than zero") unless value.positive?
       return redirect_with_alert("#{value} exceeds the maximum") if value > MAX_VALUE
 
       previous_value = ::Api::Setting.value(key)
@@ -41,7 +41,7 @@ module Admin
       return redirect_with_alert("No such key") if token.nil?
 
       value = params[:value].presence&.to_i
-      return redirect_with_alert("A rate must be a number greater than zero") if value && !value.positive?
+      return redirect_with_alert("Enter a number greater than zero") if value && !value.positive?
 
       previous_rate = token.rate
       writing do
@@ -55,7 +55,7 @@ module Admin
 
     def destroy
       token = ::Api::Token.live.find_by(id: params[:id])
-      return redirect_with_alert("No live key with that id") if token.nil?
+      return redirect_with_alert("Live key not found") if token.nil?
 
       writing do
         token.revoke!(by: current_account.user_id)
@@ -73,7 +73,7 @@ module Admin
     end
 
     def rate_notice(token, previous_rate, value)
-      return "#{token.name}, back to the shared #{token.rate}" if value.nil?
+      return "#{token.name}, default #{token.rate}" if value.nil?
 
       "#{token.name}, #{previous_rate} to #{value}"
     end

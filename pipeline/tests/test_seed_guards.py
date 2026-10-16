@@ -4,7 +4,7 @@ from seed.guards import SeedRefusedError, check_target_name, target_allowed
 
 
 @pytest.mark.parametrize("dbname", ["mnemosyne_dev", "mnemosyne_test", "anything_seed"])
-def test_the_allowed_suffixes_pass(dbname):
+def test_target_allowed_with_seed_suffix_returns_true(dbname):
     assert target_allowed(dbname)
 
 
@@ -20,25 +20,25 @@ def test_the_allowed_suffixes_pass(dbname):
         "MNEMOSYNE_DEV",
     ],
 )
-def test_everything_else_is_refused(dbname):
+def test_target_allowed_with_other_name_returns_false(dbname):
     assert not target_allowed(dbname)
 
 
-def test_an_exact_allow_override_passes():
+def test_target_allowed_with_matching_allow_returns_true():
     assert target_allowed("mnemosyne", allow="mnemosyne")
 
 
-def test_the_override_has_to_match_exactly():
+def test_target_allowed_with_mismatched_allow_returns_false():
     assert not target_allowed("mnemosyne", allow="mnemosyne_dev")
     assert not target_allowed("mnemosyne_other", allow="mnemosyne")
 
 
-def test_check_names_the_database_it_refused():
+def test_check_target_name_refused_raises_seed_refused_error_naming_database():
     with pytest.raises(SeedRefusedError, match="mnemosyne is not a seed target"):
         check_target_name("mnemosyne", allow="")
 
 
-def test_every_shape_check_resolves_against_the_captured_profile():
+def test_verify_checks_resolve_in_profile_file():
     import json
 
     from seed import verify

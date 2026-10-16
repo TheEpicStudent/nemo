@@ -5,34 +5,34 @@ class Fd::CaseReportTest < ActiveSupport::TestCase
     @case = make_case
   end
 
-  def file(**attrs)
+  def create_report(**attrs)
     Fd::CaseReport.create!({
       case_id: @case.id, received_at: 5.days.ago, source_app: "relay",
       is_anonymous: false, reporter_user_id: "UREP1"
     }.merge(attrs))
   end
 
-  test "a report with no first reply is unanswered" do
-    assert file.unanswered?
+  test "unanswered? is true without first_replied_at" do
+    assert create_report.unanswered?
   end
 
-  test "a report that has been replied to is answered" do
-    refute file(first_replied_at: 4.days.ago).unanswered?
+  test "unanswered? is false with first_replied_at" do
+    refute create_report(first_replied_at: 4.days.ago).unanswered?
   end
 
-  test "waiting_for counts from when it arrived until now" do
+  test "waiting_for returns the elapsed time from received_at" do
     now = Time.current
-    report = file(received_at: now - 5.days)
+    report = create_report(received_at: now - 5.days)
 
     assert_in_delta 5.days, report.waiting_for(now), 1
   end
 
-  test "waiting_for is nil once somebody has replied" do
-    assert_nil file(first_replied_at: 1.day.ago).waiting_for
+  test "waiting_for is nil with first_replied_at" do
+    assert_nil create_report(first_replied_at: 1.day.ago).waiting_for
   end
 
-  test "being told the outcome is separate from being replied to" do
-    report = file(first_replied_at: 4.days.ago)
+  test "outcome_notified? is false with only a reply and true after closing" do
+    report = create_report(first_replied_at: 4.days.ago)
 
     refute report.outcome_notified?, "a reply is not the outcome"
     report.update!(closed_at: Time.current, closed_by: "UFF1")

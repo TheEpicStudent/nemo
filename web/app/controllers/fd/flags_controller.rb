@@ -13,16 +13,16 @@ module Fd
           after: { "flag" => key, "on" => on })
       end
 
-      redirect_to admin_flags_path, notice: flipped_note(key, on)
+      redirect_to admin_flags_path, notice: flag_notice(key, on)
     rescue Flag::UnknownError => e
       redirect_to admin_flags_path, alert: e.message
     end
 
     private
 
-    def flipped_note(key, on)
+    def flag_notice(key, on)
       label = Flag.label(key).downcase
-      on ? "#{label.upcase_first} turned on" : "#{label.upcase_first} turned off; nothing was deleted"
+      on ? "#{label.upcase_first} turned on" : "#{label.upcase_first} turned off"
     end
   end
 end

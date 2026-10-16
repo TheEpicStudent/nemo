@@ -16,7 +16,7 @@
             <tr>
               <th>Channel</th>
               <th class="col-num">Members</th>
-              <th class="col-date">Made</th>
+              <th class="col-date">Created</th>
             </tr>
           </thead>
           <tbody>
@@ -40,10 +40,10 @@
     <% else %>
       <div class="empty">
         <%= image_tag "nemo.png", class: "empty-fish", alt: "", width: 800, height: 483 %>
-        <p class="empty-title">No channel is open to everyone yet</p>
+        <p class="empty-title">No open channels</p>
       </div>
     <% end %>
-  <p class="chart-note"><%= pluralize(@open_channels.size, "channel") %> the team has opened up</p>
+  <p class="chart-note"><%= pluralize(@open_channels.size, "channel") %></p>
   </div>
 
 </div>

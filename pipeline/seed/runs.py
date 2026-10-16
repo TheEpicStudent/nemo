@@ -32,7 +32,7 @@ STEP_OUTPUT = {
 }
 
 
-def midnight(day, hour=3, minute=0):
+def utc_at(day, hour=3, minute=0):
     return datetime.combine(day, time(hour, minute), tzinfo=timezone.utc)
 
 
@@ -50,7 +50,7 @@ def runs(rng, as_of, history=RUN_HISTORY):
     for index in range(history):
         day = as_of - timedelta(days=index)
         status = statuses(index, history)
-        started = midnight(day) + timedelta(seconds=rng.randrange(120))
+        started = utc_at(day) + timedelta(seconds=rng.randrange(120))
         yield index, day, status, started
 
 
@@ -125,14 +125,14 @@ def coverage_rows(rng, as_of):
         expected = 120_000 + rng.randrange(2_000)
         if offset == 0:
             yield ("member_days", day.isoformat(), day, day, "claimed", expected, 2000, 1,
-                   midnight(day), None, midnight(day) + timedelta(hours=1))
+                   utc_at(day), None, utc_at(day) + timedelta(hours=1))
             continue
         state = "short" if offset in (3, 17) else "complete"
         inserted = expected - rng.randrange(20_000, 40_000) if state == "short" else expected
         yield ("member_days", day.isoformat(), day, day, state, expected, inserted,
-               2 if state == "short" else 1, midnight(day), midnight(day, 3, 40), None)
+               2 if state == "short" else 1, utc_at(day), utc_at(day, 3, 40), None)
         yield ("channel_days", day.isoformat(), day, day, "complete", 40_000, 40_000, 1,
-               midnight(day), midnight(day, 3, 10), None)
+               utc_at(day), utc_at(day, 3, 10), None)
     first = (as_of - timedelta(days=COVERAGE_DAYS)).replace(day=1)
     cursor = first
     while cursor <= as_of.replace(day=1):
@@ -140,14 +140,14 @@ def coverage_rows(rng, as_of):
         month_complete = last < as_of
         yield ("channel_month", cursor.strftime("%Y-%m"), cursor, min(last, as_of),
                "complete" if month_complete else "short", 13_308, 13_306 if month_complete else 9_800, 1,
-               midnight(cursor), midnight(cursor, 4), None)
+               utc_at(cursor), utc_at(cursor, 4), None)
         cursor = last + timedelta(days=1)
     for offset in range(3):
         stop = as_of - timedelta(days=offset)
         start = stop - timedelta(days=364)
         yield ("member_range", f"{start}..{stop}", start, stop,
                "complete" if offset == 0 else "superseded", 216_540, 216_540, 1,
-               midnight(stop), midnight(stop, 5), None)
+               utc_at(stop), utc_at(stop, 5), None)
 
 
 def dead_letter_rows(rng, as_of, count=40, hostile=False):

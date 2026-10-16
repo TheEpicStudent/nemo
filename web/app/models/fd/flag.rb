@@ -23,7 +23,7 @@ module Fd
 
     LISTED = KEYS.select { |key| listed?(key) }.freeze
 
-    def self.flipped
+    def self.states
       pluck(:key, :is_on).to_h
     end
 

@@ -76,18 +76,18 @@ def warn_raises(error_code):
     return warn
 
 
-def test_lock_warning_failure_fails_guard(monkeypatch, finish_calls):
+def test_submit_lock_warning_failure_marks_guard_failed(monkeypatch, finish_calls):
     monkeypatch.setattr(guards, "warn", warn_raises("not_in_channel"))
 
-    assert thread_lock.confirmed(lock_submission(SlackClient())) is None
+    assert thread_lock.submit_lock(lock_submission(SlackClient())) is None
     assert finish_calls == [(GUARD_ID, "failed", "warning not posted: not_in_channel")]
 
 
-def test_lock_warning_failure_uses_ephemeral_when_allowed(monkeypatch, finish_calls):
+def test_submit_lock_warning_failure_posts_ephemeral_to_moderator(monkeypatch, finish_calls):
     monkeypatch.setattr(guards, "warn", warn_raises("is_archived"))
     client = SlackClient()
 
-    thread_lock.confirmed(lock_submission(client))
+    thread_lock.submit_lock(lock_submission(client))
 
     assert client.ephemerals[0]["user"] == MODERATOR_ID
     assert client.ephemerals[0]["thread_ts"] == THREAD_TS
@@ -95,21 +95,21 @@ def test_lock_warning_failure_uses_ephemeral_when_allowed(monkeypatch, finish_ca
     assert client.messages == []
 
 
-def test_lock_warning_failure_falls_back_to_dm(monkeypatch, finish_calls):
+def test_submit_lock_warning_failure_with_ephemeral_error_posts_dm(monkeypatch, finish_calls):
     monkeypatch.setattr(guards, "warn", warn_raises("not_in_channel"))
     client = SlackClient(ephemeral_error="not_in_channel")
 
-    thread_lock.confirmed(lock_submission(client))
+    thread_lock.submit_lock(lock_submission(client))
 
     assert client.messages[0]["channel"] == MODERATOR_ID
     assert "/invite @nemo" in client.messages[0]["text"]
 
 
-def test_lock_warning_posted_keeps_guard_live(monkeypatch, finish_calls):
+def test_submit_lock_warning_posted_returns_guard_id_without_finishing(monkeypatch, finish_calls):
     monkeypatch.setattr(guards, "warn", lambda *args, **kwargs: "1700000000.000200")
     client = SlackClient()
 
-    assert thread_lock.confirmed(lock_submission(client)) == GUARD_ID
+    assert thread_lock.submit_lock(lock_submission(client)) == GUARD_ID
     assert finish_calls == []
     assert [one["text"] for one in client.ephemerals] == ["Thread locked · ends 1 Jan 2100, 00:00 UTC · Reason: raid"]
     assert client.messages == []

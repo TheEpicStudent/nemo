@@ -15,7 +15,7 @@ module Fd
         WHERE (:category = 'any' OR c.category_key = :category)
         GROUP BY p.user_id
       ),
-      acted AS (
+      action_totals AS (
         SELECT target_user_id AS user_id,
                count(*) AS actions,
                count(DISTINCT case_id) FILTER (
@@ -25,25 +25,25 @@ module Fd
         WHERE target_user_id IS NOT NULL
         GROUP BY target_user_id
       ),
-      held AS (
+      guard_totals AS (
         SELECT subject_id AS user_id, count(*) AS in_force
         FROM fd.member_guards
         WHERE state IN ('live', 'lifting')
         GROUP BY subject_id
       ),
-      noted AS (
+      note_totals AS (
         SELECT subject_user_id AS user_id, count(*) AS notes
         FROM fd.notes
         WHERE case_id IS NULL AND subject_user_id IS NOT NULL AND deleted_at IS NULL
         GROUP BY subject_user_id
       ),
-      linked AS (
+      link_totals AS (
         SELECT user_id, count(*) AS links
         FROM fd.member_link_side
         WHERE score >= :strong
         GROUP BY user_id
       ),
-      touched AS (
+      involved AS (
         SELECT p.user_id FROM fd.case_participants p
         JOIN fd.cases c ON c.id = p.case_id
         WHERE (:category = 'any' OR c.category_key = :category)
@@ -52,28 +52,28 @@ module Fd
         UNION SELECT subject_user_id FROM fd.notes
         WHERE case_id IS NULL AND subject_user_id IS NOT NULL AND deleted_at IS NULL
       ),
-      people AS (PEOPLE_FROM),
+      candidate AS (CANDIDATE_SOURCE),
       roster AS (
-        SELECT people.user_id,
+        SELECT candidate.user_id,
                coalesce(conduct.cases, 0) AS cases,
                coalesce(conduct.subject_of, 0) AS subject_of,
                coalesce(conduct.logged_in, 0) AS logged_in,
                coalesce(conduct.open_cases, 0) AS open_cases,
                conduct.last_case_at,
-               coalesce(acted.actions, 0) AS actions,
-               coalesce(held.in_force, 0) AS in_force,
-               coalesce(acted.priors, 0) AS priors,
-               coalesce(noted.notes, 0) AS notes,
-               coalesce(linked.links, 0) AS links,
+               coalesce(action_totals.actions, 0) AS actions,
+               coalesce(guard_totals.in_force, 0) AS in_force,
+               coalesce(action_totals.priors, 0) AS priors,
+               coalesce(note_totals.notes, 0) AS notes,
+               coalesce(link_totals.links, 0) AS links,
                coalesce(m.is_deleted, false) AS deactivated,
                m.display_name, m.handle
-        FROM people
-        LEFT JOIN conduct ON conduct.user_id = people.user_id
-        LEFT JOIN acted ON acted.user_id = people.user_id
-        LEFT JOIN held ON held.user_id = people.user_id
-        LEFT JOIN noted ON noted.user_id = people.user_id
-        LEFT JOIN linked ON linked.user_id = people.user_id
-        LEFT JOIN fd.member m ON m.user_id = people.user_id
+        FROM candidate
+        LEFT JOIN conduct ON conduct.user_id = candidate.user_id
+        LEFT JOIN action_totals ON action_totals.user_id = candidate.user_id
+        LEFT JOIN guard_totals ON guard_totals.user_id = candidate.user_id
+        LEFT JOIN note_totals ON note_totals.user_id = candidate.user_id
+        LEFT JOIN link_totals ON link_totals.user_id = candidate.user_id
+        LEFT JOIN fd.member m ON m.user_id = candidate.user_id
         CONTEXT_JOIN
       )
     SQL
@@ -81,18 +81,18 @@ module Fd
     EVERYONE = <<~SQL.squish.freeze
       SELECT user_id FROM fd.member WHERE is_deleted = false AND is_bot = false
       UNION ALL
-      SELECT user_id FROM touched WHERE NOT EXISTS (
+      SELECT user_id FROM involved WHERE NOT EXISTS (
         SELECT 1 FROM fd.member live
-        WHERE live.user_id = touched.user_id AND live.is_deleted = false AND live.is_bot = false
+        WHERE live.user_id = involved.user_id AND live.is_deleted = false AND live.is_bot = false
       )
     SQL
 
-    TOUCHED = "SELECT user_id FROM touched".freeze
+    INVOLVED = "SELECT user_id FROM involved".freeze
     DEACTIVATED = "SELECT user_id FROM fd.member WHERE is_deleted AND NOT is_bot".freeze
 
     LISTED_AGGREGATES = <<~SQL
-      hit AS (
-        SELECT user_id, place FROM unnest(LISTED_IDS) WITH ORDINALITY AS found(user_id, place)
+      matched_user AS (
+        SELECT user_id, match_rank FROM unnest(LISTED_IDS) WITH ORDINALITY AS found(user_id, match_rank)
       ),
       conduct AS (
         SELECT p.user_id,
@@ -103,66 +103,66 @@ module Fd
                max(c.opened_at) AS last_case_at
         FROM fd.case_participants p
         JOIN fd.cases c ON c.id = p.case_id
-        WHERE p.user_id IN (SELECT user_id FROM hit)
+        WHERE p.user_id IN (SELECT user_id FROM matched_user)
           AND (:category = 'any' OR c.category_key = :category)
         GROUP BY p.user_id
       ),
-      acted AS (
+      action_totals AS (
         SELECT target_user_id AS user_id,
                count(*) AS actions,
                count(DISTINCT case_id) FILTER (
                  WHERE reversed_at IS NULL AND performed_at >= :prior_since
                ) AS priors
         FROM fd.actions
-        WHERE target_user_id IN (SELECT user_id FROM hit)
+        WHERE target_user_id IN (SELECT user_id FROM matched_user)
         GROUP BY target_user_id
       ),
-      held AS (
+      guard_totals AS (
         SELECT subject_id AS user_id, count(*) AS in_force
         FROM fd.member_guards
-        WHERE state IN ('live', 'lifting') AND subject_id IN (SELECT user_id FROM hit)
+        WHERE state IN ('live', 'lifting') AND subject_id IN (SELECT user_id FROM matched_user)
         GROUP BY subject_id
       ),
-      noted AS (
+      note_totals AS (
         SELECT subject_user_id AS user_id, count(*) AS notes
         FROM fd.notes
-        WHERE case_id IS NULL AND subject_user_id IN (SELECT user_id FROM hit) AND deleted_at IS NULL
+        WHERE case_id IS NULL AND subject_user_id IN (SELECT user_id FROM matched_user) AND deleted_at IS NULL
         GROUP BY subject_user_id
       ),
-      linked AS (
+      link_totals AS (
         SELECT user_id, count(*) AS links
         FROM fd.member_link_side
-        WHERE score >= :strong AND user_id IN (SELECT user_id FROM hit)
+        WHERE score >= :strong AND user_id IN (SELECT user_id FROM matched_user)
         GROUP BY user_id
       ),
-      people AS (SELECT user_id, place FROM hit),
+      candidate AS (SELECT user_id, match_rank FROM matched_user),
       roster AS (
-        SELECT people.user_id, people.place,
+        SELECT candidate.user_id, candidate.match_rank,
                coalesce(conduct.cases, 0) AS cases,
                coalesce(conduct.subject_of, 0) AS subject_of,
                coalesce(conduct.logged_in, 0) AS logged_in,
                coalesce(conduct.open_cases, 0) AS open_cases,
                conduct.last_case_at,
-               coalesce(acted.actions, 0) AS actions,
-               coalesce(held.in_force, 0) AS in_force,
-               coalesce(acted.priors, 0) AS priors,
-               coalesce(noted.notes, 0) AS notes,
-               coalesce(linked.links, 0) AS links,
+               coalesce(action_totals.actions, 0) AS actions,
+               coalesce(guard_totals.in_force, 0) AS in_force,
+               coalesce(action_totals.priors, 0) AS priors,
+               coalesce(note_totals.notes, 0) AS notes,
+               coalesce(link_totals.links, 0) AS links,
                coalesce(m.is_deleted, false) AS deactivated,
                m.display_name, m.handle
-        FROM people
-        LEFT JOIN conduct ON conduct.user_id = people.user_id
-        LEFT JOIN acted ON acted.user_id = people.user_id
-        LEFT JOIN held ON held.user_id = people.user_id
-        LEFT JOIN noted ON noted.user_id = people.user_id
-        LEFT JOIN linked ON linked.user_id = people.user_id
-        LEFT JOIN fd.member m ON m.user_id = people.user_id
-        LEFT JOIN analytics.dim_member_cohort dm ON dm.user_id = people.user_id
-        LEFT JOIN fd.member_joins mj ON mj.user_id = people.user_id
-        LEFT JOIN fd.member_seen ms ON ms.user_id = people.user_id
+        FROM candidate
+        LEFT JOIN conduct ON conduct.user_id = candidate.user_id
+        LEFT JOIN action_totals ON action_totals.user_id = candidate.user_id
+        LEFT JOIN guard_totals ON guard_totals.user_id = candidate.user_id
+        LEFT JOIN note_totals ON note_totals.user_id = candidate.user_id
+        LEFT JOIN link_totals ON link_totals.user_id = candidate.user_id
+        LEFT JOIN fd.member m ON m.user_id = candidate.user_id
+        LEFT JOIN analytics.dim_member_cohort dm ON dm.user_id = candidate.user_id
+        LEFT JOIN fd.member_joins mj ON mj.user_id = candidate.user_id
+        LEFT JOIN fd.member_seen ms ON ms.user_id = candidate.user_id
         LEFT JOIN LATERAL (
           SELECT last_active_at, messages_posted FROM analytics.fct_member_window w
-          WHERE w.source = 'admin_analytics_member_range' AND w.user_id = people.user_id LIMIT 1
+          WHERE w.source = 'admin_analytics_member_range' AND w.user_id = candidate.user_id LIMIT 1
         ) w ON true
       )
     SQL
@@ -173,11 +173,11 @@ module Fd
       "w.messages_posted".freeze
 
     CONTEXT_JOIN = <<~SQL
-      LEFT JOIN analytics.dim_member_cohort dm ON dm.user_id = people.user_id
-      LEFT JOIN fd.member_joins mj ON mj.user_id = people.user_id
-      LEFT JOIN fd.member_seen ms ON ms.user_id = people.user_id
+      LEFT JOIN analytics.dim_member_cohort dm ON dm.user_id = candidate.user_id
+      LEFT JOIN fd.member_joins mj ON mj.user_id = candidate.user_id
+      LEFT JOIN fd.member_seen ms ON ms.user_id = candidate.user_id
       LEFT JOIN analytics.fct_member_window w
-        ON w.user_id = people.user_id AND w.source = 'admin_analytics_member_range'
+        ON w.user_id = candidate.user_id AND w.source = 'admin_analytics_member_range'
     SQL
 
     SORTS = {
@@ -194,13 +194,13 @@ module Fd
     private
 
     def aggregates
-      searching? ? listed("ARRAY[:hits]::text[]") : full_aggregates
+      searching? ? listed("ARRAY[:matching_ids]::text[]") : full_aggregates
     end
 
     def full_aggregates
       AGGREGATES.sub(NAMES, include_context? ? DISPLAY_COLUMNS + CONTEXT_COLUMNS : DISPLAY_COLUMNS)
         .sub("CONTEXT_JOIN", include_context? ? CONTEXT_JOIN : "")
-        .sub("PEOPLE_FROM", people_from)
+        .sub("CANDIDATE_SOURCE", candidate_source)
     end
 
     def listed(ids)
@@ -216,10 +216,10 @@ module Fd
       searching? || !default?("tenure") || !default?("active") || self["sort"] == "messages"
     end
 
-    def people_from
+    def candidate_source
       return DEACTIVATED if self["state"] == "gone"
 
-      conduct_only? ? TOUCHED : EVERYONE
+      conduct_only? ? INVOLVED : EVERYONE
     end
 
     def conduct_only?
@@ -268,7 +268,7 @@ module Fd
     def roster_order
       return sort_order unless searching?
 
-      "place, #{sort_order}"
+      "match_rank, #{sort_order}"
     end
 
     def sort_order
@@ -288,7 +288,7 @@ module Fd
 
     def roster_binds
       binds = { category: self["category"], prior_since: Case::PRIOR_WINDOW.ago, strong: MemberLink::STRONG }
-      searching? ? binds.merge(hits: hits) : binds
+      searching? ? binds.merge(matching_ids: matching_ids) : binds
     end
 
     def select_rows(sql, extra = {})

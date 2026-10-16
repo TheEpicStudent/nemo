@@ -69,11 +69,11 @@ module Fd
     SQL
 
     CLUSTER_MEMBERS_SQL = <<~SQL.squish.freeze
-      SELECT mate.user_id, mate.active
-      FROM fd.member_cluster mine
-      JOIN fd.member_cluster mate ON mate.cluster_id = mine.cluster_id AND mate.user_id <> mine.user_id
-      WHERE mine.user_id = :user_id
-      ORDER BY mate.active DESC, mate.user_id
+      SELECT peer.user_id, peer.active
+      FROM fd.member_cluster subject_member
+      JOIN fd.member_cluster peer ON peer.cluster_id = subject_member.cluster_id AND peer.user_id <> subject_member.user_id
+      WHERE subject_member.user_id = :user_id
+      ORDER BY peer.active DESC, peer.user_id
     SQL
 
     def self.evidence_of(signals)

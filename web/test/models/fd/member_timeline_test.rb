@@ -12,7 +12,7 @@ class Fd::MemberTimelineTest < ActiveSupport::TestCase
                          decided_by: "UFF1", performed_by: "UFF1", performed_at: at }.merge(attrs))
   end
 
-  test "a case they were the subject of reads as opened, with its outcome" do
+  test "case about the subject yields an own cases entry with the resolution state" do
     make_case(subject: SUBJECT, opened_at: 5.days.ago, resolved_at: 1.day.ago,
       resolution: "action_taken", category_key: "spam")
     entry = entries.sole
@@ -24,23 +24,23 @@ class Fd::MemberTimelineTest < ActiveSupport::TestCase
     assert_match(/spam/, entry.detail)
   end
 
-  test "an open case says open rather than naming a resolution" do
+  test "unresolved case entry has state open" do
     make_case(subject: SUBJECT, opened_at: 2.days.ago)
     assert_equal "open", entries.sole.state
   end
 
-  test "a case they were only logged in is told apart from one about them" do
+  test "case with the subject as reporter yields an in entry marked logged in" do
     reporter_case = make_case(subject: "USOMEBODY", opened_at: 3.days.ago, category_key: "bullying")
     reporter_case.participants.create!(user_id: SUBJECT, role: "reporter")
 
     entry = entries.sole
     assert_equal "cases", entry.kind
-    assert_equal "in", entry.mark, "the mark still tells it from a case about them"
+    assert_equal "in", entry.mark, "mark differs from a case about the subject"
     assert_equal "logged in", entry.state
-    assert_match(/they were not the subject/, entry.detail)
+    assert_match(/not the subject/, entry.detail)
   end
 
-  test "an action against them is its own entry, naming the case it came from" do
+  test "action on the subject yields an actions entry naming the case and actor" do
     kase = make_case(subject: SUBJECT, opened_at: 5.days.ago)
     act_on kase, at: 2.days.ago
 
@@ -48,10 +48,10 @@ class Fd::MemberTimelineTest < ActiveSupport::TestCase
     assert_equal "Warning", action.title
     assert_match(/case #{kase.id}/, action.detail)
     assert_match(/by @UFF1/, action.detail)
-    assert_no_match(/performed by/, action.detail, "one firefighter took the action, not two")
+    assert_no_match(/performed by/, action.detail, "detail names the actor once")
   end
 
-  test "a reversal is its own entry, at the moment it was undone" do
+  test "reversed action yields an entry at reversed_at with the reversal reason" do
     kase = make_case(subject: SUBJECT, opened_at: 9.days.ago)
     act_on kase, at: 8.days.ago, reversed_at: 2.days.ago, reversed_by: "UFF2",
       reversal_reason: "appeal upheld"
@@ -62,34 +62,34 @@ class Fd::MemberTimelineTest < ActiveSupport::TestCase
     assert_match(/appeal upheld/, reversal.detail)
   end
 
-  def hold(kind: "shush", at: 3.days.ago, **attrs)
+  def create_guard(kind: "shush", at: 3.days.ago, **attrs)
     Fd::MemberGuard.create!({ kind: kind, subject_id: SUBJECT, opened_by: "UFF1",
                               reason: "flooding the channel", opened_at: at,
                               enforced_by: "nemo", enforcement_status: "pending" }.merge(attrs))
   end
 
-  test "a guard held with no case behind it is an action entry of its own" do
-    hold(expires_at: 2.days.from_now)
+  test "guard without a case yields an actions entry with no case_id" do
+    create_guard(expires_at: 2.days.from_now)
     entry = entries(only: "actions").sole
 
     assert_equal "Shush", entry.title
     assert_equal "act", entry.mark
-    assert_nil entry.case_id, "it came from no case, so it links to none"
+    assert_nil entry.case_id, "case_id is nil without a case"
     assert_match(/on no case/, entry.detail)
     assert_match(/by @UFF1/, entry.detail)
     assert_match(/flooding the channel/, entry.detail)
-    assert_nil entry.state, "it is still being held"
+    assert_nil entry.state, "state is nil for an unlifted guard"
   end
 
-  test "a channel ban with no case names the channel it holds in" do
-    hold(kind: "channel_ban", channel_id: "C1LOUNGE", expires_at: 2.days.from_now)
+  test "channel ban guard without a case names the channel in detail" do
+    create_guard(kind: "channel_ban", channel_id: "C1LOUNGE", expires_at: 2.days.from_now)
 
     assert_match(/in C1LOUNGE/, entries(only: "actions").sole.detail)
   end
 
   test "guard_detail with expiry in next year includes year" do
     expiry = Time.zone.local(Date.current.year + 1, 10, 15, 12)
-    hold(expires_at: expiry)
+    create_guard(expires_at: expiry)
 
     assert_match(/lifts 15 Oct #{expiry.year}/, entries(only: "actions").sole.detail)
   end
@@ -103,34 +103,34 @@ class Fd::MemberTimelineTest < ActiveSupport::TestCase
     assert_match(/lifts 15 Oct #{expiry.year}/, action.detail)
   end
 
-  test "lifting a guard with no case reads like a reversal, at the moment it was lifted" do
-    guard = hold(at: 9.days.ago)
+  test "lifted guard without a case yields a reversal entry at lifted_at" do
+    guard = create_guard(at: 9.days.ago)
     guard.update!(state: "lifted", lifted_at: 2.days.ago, lifted_by: "UFF2",
       lift_reason: "they sorted it out")
 
-    lift_entry, hold_entry = entries(only: "actions")
+    lift_entry, guard_entry = entries(only: "actions")
     assert_equal "Shush lifted", lift_entry.title
     assert_in_delta 2.days.ago.to_i, lift_entry.at.to_i, 5
     assert_equal "reversal", lift_entry.word
     assert_match(/they sorted it out/, lift_entry.detail)
     assert_match(/by @UFF2/, lift_entry.detail)
-    assert_equal "reversed", hold_entry.state, "the hold itself reads as undone"
+    assert_equal "reversed", guard_entry.state, "the guard entry state is reversed"
   end
 
-  test "a guard pulled onto a case is left to its action entry" do
+  test "guard with a case_id yields no actions entry" do
     kase = make_case(subject: SUBJECT, opened_at: 5.days.ago)
-    hold(case_id: kase.id, expires_at: 2.days.from_now)
+    create_guard(case_id: kase.id, expires_at: 2.days.from_now)
 
     assert_empty entries(only: "actions")
   end
 
-  test "a guard on somebody else stays on their record" do
-    hold(subject_id: "USOMEBODY", expires_at: 2.days.from_now)
+  test "guard for another subject is excluded" do
+    create_guard(subject_id: "USOMEBODY", expires_at: 2.days.from_now)
 
     assert_empty entries(only: "actions")
   end
 
-  test "everything is newest first, whichever table it came from" do
+  test "entries are ordered newest first across cases and actions" do
     kase = make_case(subject: SUBJECT, opened_at: 10.days.ago)
     act_on kase, at: 3.days.ago
     make_case(subject: SUBJECT, opened_at: 6.days.ago)
@@ -139,7 +139,7 @@ class Fd::MemberTimelineTest < ActiveSupport::TestCase
     assert_equal stamps.sort.reverse, stamps
   end
 
-  test "the filter narrows to one kind and leaves the rest out" do
+  test "only filter limits entries to the requested kind" do
     kase = make_case(subject: SUBJECT, opened_at: 10.days.ago)
     act_on kase, at: 3.days.ago
     other = make_case(subject: "USOMEBODY", opened_at: 8.days.ago)
@@ -147,23 +147,23 @@ class Fd::MemberTimelineTest < ActiveSupport::TestCase
 
     assert_equal 3, entries.size
     assert_equal ["cases"], entries(only: "cases").map(&:kind).uniq
-    assert_equal 2, entries(only: "cases").size, "one about them, one they were logged in"
+    assert_equal 2, entries(only: "cases").size, "one case about the subject and one as reporter"
     assert_equal ["actions"], entries(only: "actions").map(&:kind).uniq
   end
 
-  test "an unknown filter falls back to everything rather than emptying the page" do
+  test "unknown only value returns all entries" do
     make_case(subject: SUBJECT, opened_at: 2.days.ago)
     assert_equal 1, entries(only: "nonsense").size
   end
 
-  test "a case about several people names the others" do
+  test "case with several subjects lists the others in detail" do
     kase = make_case(subject: SUBJECT, opened_at: 2.days.ago)
     kase.add_subject!("UOTHER")
 
     assert_match(/with @UOTHER/, entries.sole.detail)
   end
 
-  test "an assigned case says who has it, an unassigned one says so" do
+  test "case entry detail reads unassigned then assigned to the assignee after assign!" do
     kase = make_case(subject: SUBJECT, opened_at: 2.days.ago)
     assert_match(/unassigned/, entries.sole.detail)
 
@@ -171,7 +171,7 @@ class Fd::MemberTimelineTest < ActiveSupport::TestCase
     assert_match(/assigned to @UFF1/, entries.sole.detail)
   end
 
-  test "somebody with nothing has an empty history rather than an error" do
+  test "MemberTimeline.for returns empty for a user with no records" do
     assert_empty Fd::MemberTimeline.for(Fd::MemberRecord.new("UNOBODY"))
   end
 
@@ -179,39 +179,39 @@ class Fd::MemberTimelineTest < ActiveSupport::TestCase
     Fd::Note.create!({ subject_user_id: user_id, body: body, author: "UFF1" }.merge(attrs))
   end
 
-  test "the filters are everything, cases, actions and notes" do
+  test "KINDS keys are all cases actions notes in order" do
     assert_equal %w[all cases actions notes], Fd::MemberTimeline::KINDS.keys
   end
 
-  test "a standing note is an entry with the words in it" do
+  test "standing note yields a notes entry with body and author state" do
     note_about
     entry = entries(only: "notes").sole
 
     assert_equal "Note", entry.title
     assert_equal "note", entry.mark
     assert_equal "a soft word early goes further", entry.body
-    assert_nil entry.case_id, "a standing note belongs to no case, so it links to none"
-    assert_equal "@UFF1", entry.state, "the author is the chip"
+    assert_nil entry.case_id, "case_id is nil for a standing note"
+    assert_equal "@UFF1", entry.state, "state is the author handle"
   end
 
-  test "a note about somebody else stays on their record" do
+  test "note for another subject is excluded" do
     note_about("USOMEBODY")
     assert_empty entries(only: "notes")
   end
 
-  test "a note on a case is not a standing note and does not appear here" do
+  test "case note is excluded from the notes entries" do
     kase = make_case(subject: SUBJECT, opened_at: 2.days.ago)
     Fd::Note.create!(case_id: kase.id, body: "case note", author: "UFF1")
 
     assert_empty entries(only: "notes")
   end
 
-  test "a deleted note is gone from the record" do
+  test "deleted note is excluded from the notes entries" do
     note_about.update!(deleted_at: Time.current, deleted_by: "UFF1")
     assert_empty entries(only: "notes")
   end
 
-  test "notes sit in the same stream as cases and actions, newest first" do
+  test "entries include notes with cases and actions ordered newest first" do
     kase = make_case(subject: SUBJECT, opened_at: 5.days.ago)
     act_on kase, at: 3.days.ago
     note_about(created_at: 1.day.ago)

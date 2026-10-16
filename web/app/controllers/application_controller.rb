@@ -15,7 +15,7 @@ class ApplicationController < ActionController::Base
     Rails.logger.error("db timeout: #{exc.class}: #{exc.message}")
     return head :service_unavailable if request.format.json?
 
-    render plain: "This is taking longer than it should. Please try again in a moment.",
+    render plain: "Request timed out",
       status: :service_unavailable
   end
 
@@ -34,13 +34,13 @@ class ApplicationController < ActionController::Base
     controller_path.start_with?("fd/") ? "fd" : "mn"
   end
 
-  def needs(key)
+  def require_flag(key)
     return if Fd::Flag.on?(key)
 
-    redirect_to still_on, alert: "#{Fd::Flag.label(key)} turned off"
+    redirect_to fallback_path, alert: "#{Fd::Flag.label(key)} turned off"
   end
 
-  def still_on
+  def fallback_path
     return fd_cases_path if Fd::Flag.on?(:fire_engine)
     return root_path if Fd::Flag.on?(:analytics)
 

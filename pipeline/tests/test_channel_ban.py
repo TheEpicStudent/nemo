@@ -96,9 +96,9 @@ def cannot_kick(monkeypatch):
                         lambda channel_id, user_id: "failed: cant_kick_from_general")
 
 
-def test_taking_one_up_puts_them_out_and_tells_them_where_from(kicks):
+def test_enforce_kicks_member_and_posts_notice_with_reason_and_expiry(kicks):
     conn, client = Conn(), Slack()
-    assert channel_ban.take_up(client, conn, guard())
+    assert channel_ban.enforce(client, conn, guard())
 
     assert kicks == [(CHANNEL_ID, USER_ID)]
     assert conn.executed("enforcement_status = 'held'")
@@ -110,9 +110,9 @@ def test_taking_one_up_puts_them_out_and_tells_them_where_from(kicks):
     assert "until 10 Mar" in text
 
 
-def test_one_it_cannot_put_out_is_not_claimed_as_held(cannot_kick):
+def test_enforce_failed_kick_marks_failed_without_notice(cannot_kick):
     conn, client = Conn(), Slack()
-    assert not channel_ban.take_up(client, conn, guard())
+    assert not channel_ban.enforce(client, conn, guard())
 
     assert conn.executed("enforcement_status = 'failed'")
     assert not conn.executed("enforcement_status = 'held'")
@@ -120,13 +120,13 @@ def test_one_it_cannot_put_out_is_not_claimed_as_held(cannot_kick):
     assert client.posted == [], "nothing is claimed to them that did not happen"
 
 
-def test_a_channel_nobody_can_be_kicked_from_keeps_the_reason(cannot_kick):
+def test_enforce_unkickable_channel_stores_failure_reason(cannot_kick):
     conn = Conn()
-    channel_ban.take_up(Slack(), conn, guard())
+    channel_ban.enforce(Slack(), conn, guard())
     assert "cant_kick_from_general" in conn.args_for("SET enforcement_status = 'failed'")[0][0]
 
 
-def test_seen_tells_them_inside_the_thread_they_posted_in(kicks, monkeypatch):
+def test_on_message_banned_member_in_thread_sends_ephemeral_in_thread(kicks, monkeypatch):
     monkeypatch.setattr(channel_ban, "session", lambda: _conn_context(Conn()))
     monkeypatch.setattr(channel_ban.guard_actions, "remove", lambda client, channel_id, ts: True)
     memberguards._bans[(USER_ID, CHANNEL_ID)] = guard()
@@ -140,7 +140,7 @@ def test_seen_tells_them_inside_the_thread_they_posted_in(kicks, monkeypatch):
         memberguards._loaded = False
 
 
-def test_seen_tells_them_channel_wide_outside_a_thread(kicks, monkeypatch):
+def test_on_message_banned_member_outside_thread_sends_channel_ephemeral(kicks, monkeypatch):
     monkeypatch.setattr(channel_ban, "session", lambda: _conn_context(Conn()))
     monkeypatch.setattr(channel_ban.guard_actions, "remove", lambda client, channel_id, ts: True)
     memberguards._bans[(USER_ID, CHANNEL_ID)] = guard()
@@ -154,44 +154,44 @@ def test_seen_tells_them_channel_wide_outside_a_thread(kicks, monkeypatch):
         memberguards._loaded = False
 
 
-def test_coming_back_gets_them_put_out_again(kicks):
+def test_kick_from_channel_kicks_member_and_records_kicked_verb(kicks):
     conn = Conn()
-    assert channel_ban.remove_from_channel(conn, guard())
+    assert channel_ban.kick_from_channel(conn, guard())
     assert kicks == [(CHANNEL_ID, USER_ID)]
     assert conn.verbs() == ["kicked"]
 
 
-def test_ten_returns_in_an_hour_earns_a_reset(kicks, monkeypatch):
+def test_reapply_kick_after_ten_kicks_in_hour_resets_sessions(kicks, monkeypatch):
     monkeypatch.setattr(channel_ban.notify.privileged, "reset_sessions", lambda user_id, conn=None: "reset")
     conn = Conn({"kicked": 10, "reset": 0})
-    assert channel_ban.reapply(conn, guard(), "coming back")
+    assert channel_ban.reapply_kick(conn, guard(), "coming back")
     assert "reset" in conn.verbs()
 
 
-def test_nine_returns_does_not(kicks):
+def test_reapply_kick_after_nine_kicks_in_hour_skips_reset(kicks):
     conn = Conn({"kicked": 9, "reset": 0})
-    assert not channel_ban.reapply(conn, guard(), "coming back")
+    assert not channel_ban.reapply_kick(conn, guard(), "coming back")
     assert "reset" not in conn.verbs()
 
 
-def test_a_ban_counts_its_own_kicks_not_somebody_elses_deletes(kicks):
+def test_reapply_kick_counts_kicked_verb_and_ignores_deleted(kicks):
     conn = Conn({"kicked": 0, "deleted": 40, "reset": 0})
-    assert not channel_ban.reapply(conn, guard(), "coming back")
+    assert not channel_ban.reapply_kick(conn, guard(), "coming back")
 
 
-def test_lifting_does_not_invite_them_back():
+def test_channel_ban_module_source_has_no_invite_call():
     src = (channel_ban.__doc__ or "") + open(channel_ban.__file__).read()
     assert "conversations_invite" not in src
     assert "invite" not in src.replace("invite_the_admin", "")
 
 
-def test_a_ban_is_only_found_in_the_channel_it_was_made_in():
+def test_active_ban_matches_only_banned_member_and_channel():
     memberguards._loaded = True
     memberguards._bans.clear()
     memberguards._bans[(USER_ID, CHANNEL_ID)] = guard()
 
-    assert memberguards.banned(USER_ID, CHANNEL_ID) is not None
-    assert memberguards.banned(USER_ID, "CELSEWHERE") is None
-    assert memberguards.banned("USOMEBODY", CHANNEL_ID) is None
+    assert memberguards.active_ban(USER_ID, CHANNEL_ID) is not None
+    assert memberguards.active_ban(USER_ID, "CELSEWHERE") is None
+    assert memberguards.active_ban("USOMEBODY", CHANNEL_ID) is None
     memberguards._loaded = False
     memberguards._bans.clear()

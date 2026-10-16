@@ -23,7 +23,7 @@ class Fd::ChannelNamesTest < ActiveSupport::TestCase
     seeded!("raw.channel_dim", "channel_id", channel_id)
   end
 
-  test "a named channel shows its name" do
+  test "for returns the channel name with a hash and marks it named" do
     named_channel!("C0NAMED000", "the-lounge")
     names = Fd::ChannelNames.for(["C0NAMED000"])
 
@@ -32,7 +32,7 @@ class Fd::ChannelNamesTest < ActiveSupport::TestCase
     assert_not names.private_unnamed?("C0NAMED000")
   end
 
-  test "a channel we know is private and have no name for is flagged, not shown" do
+  test "private channel without a name is private_unnamed and not named" do
     private_unnamed_channel!("C0SECRET00")
     names = Fd::ChannelNames.for(["C0SECRET00"])
 
@@ -40,7 +40,7 @@ class Fd::ChannelNamesTest < ActiveSupport::TestCase
     assert_not names.named?("C0SECRET00")
   end
 
-  test "a private channel we already have a name for is not flagged" do
+  test "private channel with a name is shown by name and not private_unnamed" do
     named_channel!("C0KNOWN000", "the-firehouse", visibility: "private")
     names = Fd::ChannelNames.for(["C0KNOWN000"])
 
@@ -48,7 +48,7 @@ class Fd::ChannelNamesTest < ActiveSupport::TestCase
     assert_not names.private_unnamed?("C0KNOWN000")
   end
 
-  test "a channel we have never seen is neither named nor flagged private" do
+  test "unknown channel is neither named nor private_unnamed and falls back to its id" do
     names = Fd::ChannelNames.for(["C0NEVERSEEN"])
 
     assert_not names.named?("C0NEVERSEEN")
@@ -56,7 +56,7 @@ class Fd::ChannelNamesTest < ActiveSupport::TestCase
     assert_equal "C0NEVERSEEN", names["C0NEVERSEEN"]
   end
 
-  test "none answers every question without a query" do
+  test "none reports named? and private_unnamed? false for any id" do
     names = Fd::ChannelNames.none
 
     assert_not names.named?("C0ANYTHING")

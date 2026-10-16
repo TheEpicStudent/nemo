@@ -1,6 +1,6 @@
 <% @candidates.each do |other| %>
   <%= render "fd/merges/candidate", other: other, violations: @violations,
-        priors_by_user: @priors, reachable: @reachable %>
+        priors_by_user: @priors, reachable: @reachable_report_ids %>
 <% end %>
 <% if @more %>
   <template data-expand-next="<%= fd_case_merge_path(@case, page: @page + 1) %>"></template>

@@ -2,7 +2,7 @@ require "test_helper"
 
 class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
   end
 
@@ -37,7 +37,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert_select "p.sev-crit", count: 0
   end
 
-  def seat_nemo!(channel_id, inside)
+  def join_nemo!(channel_id, inside)
     connection = ActiveRecord::Base.connection
     connection.execute(
       "INSERT INTO fd.channel_membership (channel_id, inside) VALUES (#{connection.quote(channel_id)}, #{inside}) " \
@@ -53,18 +53,18 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     )
   end
 
-  test "firehouse nemo is not in shows the seat warning" do
+  test "settings page with firehouse channel not joined shows not a member warning" do
     Fd::AppSetting.set_firehouse_channel("C0FIRE", by: "UME")
-    seat_nemo!("C0FIRE", false)
+    join_nemo!("C0FIRE", false)
 
     get admin_settings_path
 
     assert_select ".setname p.sev-crit", "Nemo is not a member of this channel"
   end
 
-  test "react channel waiting for an invite shows the invite note" do
+  test "settings page with react channel needing an invite shows invite note" do
     Fd::AppSetting.set_case_react_channels(["G0PRIVATE"], by: "UME")
-    seat_nemo!("G0PRIVATE", false)
+    join_nemo!("G0PRIVATE", false)
     refuse_join!("G0PRIVATE", FdChannelsHelper::NEEDS_INVITE)
 
     get admin_settings_path
@@ -72,18 +72,18 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert_select ".setname p.sev-crit", FdChannelsHelper::INVITE_NOTE
   end
 
-  test "configured channels nemo is in show no seat warning" do
+  test "settings page with all configured channels joined shows no warning" do
     CHANNEL_KEYS.each { |key| Fd::AppSetting.write(key, "C0FIRE", by: "UME") }
     Fd::AppSetting.set_case_react_channels(["C0REACT"], by: "UME")
-    seat_nemo!("C0FIRE", true)
-    seat_nemo!("C0REACT", true)
+    join_nemo!("C0FIRE", true)
+    join_nemo!("C0REACT", true)
 
     get admin_settings_path
 
     assert_select ".setname p.sev-crit", count: 0
   end
 
-  test "reports_channel saves the picked channel and audits it" do
+  test "reports_channel saves the channel and audits it" do
     channel_id = known_channel_id
 
     post admin_settings_reports_channel_path, params: { channel_id: channel_id }
@@ -94,7 +94,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert Fd::AuditEntry.exists?(verb: "tuned")
   end
 
-  test "log_channel saves the picked channel apart from the firehouse" do
+  test "log_channel saves the channel and keeps the firehouse channel" do
     channel_id = known_channel_id
     Fd::AppSetting.set_firehouse_channel("C0FIRE", by: "UME")
 
@@ -104,14 +104,14 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert_match(/\AInternal logs channel set to #/, flash[:notice])
   end
 
-  test "log_channel refuses a channel that does not exist" do
+  test "log_channel with unknown channel sets alert and saves nothing" do
     post admin_settings_log_channel_path, params: { channel_id: "C0NOSUCH" }
 
     assert_equal "C0NOSUCH is not a known channel", flash[:alert]
     assert_equal "", setting(Fd::AppSetting::LOGS)
   end
 
-  test "firehouse notice names the firehouse" do
+  test "firehouse saves the channel and sets the notice" do
     channel_id = known_channel_id
 
     post admin_settings_firehouse_path, params: { channel_id: channel_id }
@@ -120,7 +120,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert_match(/\AFirehouse channel set to #/, flash[:notice])
   end
 
-  test "the settings page carries both" do
+  test "settings page renders channels and guard expiry sections" do
     get admin_settings_path
 
     assert_response :success
@@ -128,14 +128,14 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert_match(/Guard expiry/, response.body)
   end
 
-  test "the join mode is set here" do
+  test "join_mode saves the mode and audits it" do
     post admin_settings_join_mode_path, params: { mode: "on" }
 
     assert_equal "on", Fd::AppSetting.join_mode
     assert_equal 1, Fd::AuditEntry.where(entity_type: "app_setting", verb: "tuned").count
   end
 
-  test "join_mode off still joins configured channels" do
+  test "join_mode off sets the configured only notice and card" do
     post admin_settings_join_mode_path, params: { mode: "off" }
 
     assert_equal "Join mode set to Configured only", flash[:notice]
@@ -143,55 +143,55 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert_select "p.card-sub", "Configured channels only"
   end
 
-  test "a join mode that is not one is refused" do
+  test "join_mode with an invalid value is refused and keeps guarded" do
     post admin_settings_join_mode_path, params: { mode: "sideways" }
 
     assert_equal "guarded", Fd::AppSetting.join_mode
     assert_match(/not a valid join mode/, flash[:alert])
   end
 
-  test "setting the mode it already has changes nothing" do
+  test "join_mode with the current value writes no audit entry" do
     post admin_settings_join_mode_path, params: { mode: "guarded" }
 
     assert_equal 0, Fd::AuditEntry.where(entity_type: "app_setting", verb: "tuned").count
   end
 
-  test "the sweep horizon is saved" do
+  test "sweep settings save soon_hours and member notice" do
     save_sweep_settings
 
     assert_equal 12, Fd::AppSetting.sweep_soon_hours
     assert Fd::AppSetting.sweep_tells_member?
   end
 
-  test "the horizon falls back when it was never set" do
+  test "sweep settings default to 36 hours with member notice on" do
     assert_equal 36, Fd::AppSetting.sweep_soon_hours
     assert Fd::AppSetting.sweep_tells_member?
   end
 
-  test "an horizon outside the range is refused" do
+  test "sweep settings with soon_hours outside the range are refused" do
     save_sweep_settings(soon_hours: "0")
 
     assert_empty setting(Fd::AppSetting::SWEEP_SOON_HOURS)
     assert_match(/from 1 to/, flash[:alert])
   end
 
-  test "telling the member is turned off on its own" do
+  test "sweep settings with blank tells turn member notice off and keep soon_hours" do
     save_sweep_settings(tells: "")
 
     assert_equal 12, Fd::AppSetting.sweep_soon_hours
     assert_not Fd::AppSetting.sweep_tells_member?
   end
 
-  test "the channels page shows the mode but cannot change it" do
+  test "channels page body does not include join_mode" do
     get fd_channels_path
 
     assert_response :success
     assert_no_match(/join_mode/, response.body)
   end
 
-  test "somebody who is not a community manager is turned away" do
-    drop_roles!("UME")
-    hold_role!("UME", "firefighter")
+  test "join_mode as firefighter keeps guarded" do
+    revoke_roles!("UME")
+    grant_role!("UME", "firefighter")
     post admin_settings_join_mode_path, params: { mode: "on" }
 
     assert_equal "guarded", Fd::AppSetting.join_mode
@@ -220,7 +220,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert_equal 4, tuned_count
   end
 
-  test "account settings never set fall back to log only and the defaults" do
+  test "account settings unset render log only and default strikes and resets" do
     Fd::AppSetting.where(key: ACCOUNT_KEYS).delete_all
 
     get admin_settings_path
@@ -231,7 +231,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert_select "input[name=resets][value='5']"
   end
 
-  test "account settings unchanged values are not written again" do
+  test "account settings unchanged value keeps changed_by and writes no audit entry" do
     Fd::AppSetting.write(Fd::AppSetting::DEACTIVATE, "on", by: "UOTHER")
     Fd::AppSetting.where(key: ACCOUNT_KEYS - [Fd::AppSetting::DEACTIVATE]).delete_all
 
@@ -259,7 +259,7 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert_equal 0, Fd::AppSetting.where(key: ACCOUNT_KEYS).count
   end
 
-  test "account settings with sign-outs that are not a number change nothing" do
+  test "account settings with non numeric resets change nothing" do
     Fd::AppSetting.where(key: ACCOUNT_KEYS).delete_all
 
     save_account_settings(resets: "lots")

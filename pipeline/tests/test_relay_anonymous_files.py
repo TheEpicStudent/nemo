@@ -17,7 +17,7 @@ class FakeConn:
         return [(file_id,) for file_id in self.renamed]
 
 
-def test_rename_anonymous_files_returns_the_renamed_ids():
+def test_rename_anonymous_files_returns_updated_file_ids():
     conn = FakeConn(renamed=[119, 120])
 
     assert intake.rename_anonymous_files(conn, 7) == [119, 120]
@@ -33,7 +33,7 @@ def test_rename_anonymous_files_query_scopes_to_anonymous_inbound_files():
     assert "title = NULL" in sql
 
 
-def test_hand_off_renames_files_after_opening_the_case(monkeypatch):
+def test_submit_report_anonymous_renames_files_after_opening_case(monkeypatch):
     calls = []
 
     @contextlib.contextmanager
@@ -52,7 +52,7 @@ def test_hand_off_renames_files_after_opening_the_case(monkeypatch):
     relay = messages.MessageRelay()
     monkeypatch.setattr(relay, "fetch_attachments", lambda conversation_id: 0)
 
-    assert relay.hand_off(7, 41, anonymous=True) == 512
+    assert relay.submit_report(7, 41, anonymous=True) == 512
     assert calls == [("open", True), ("rename", 7)]
 
 
@@ -80,7 +80,7 @@ class FakeApp:
         return lambda handler: handler
 
 
-def test_follow_up_message_renames_files_on_the_conversation(monkeypatch):
+def test_dm_on_message_follow_up_renames_files_for_conversation(monkeypatch):
     from bot.relay import dm
 
     renamed = []

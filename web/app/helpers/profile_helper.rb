@@ -23,12 +23,6 @@ module ProfileHelper
     profile_path(**current_params.merge(overrides).compact)
   end
 
-  def range_label_for(profile)
-    return window_note(profile.window_start, profile.window_end) if profile.custom?
-
-    span_label(profile.span_key)
-  end
-
   def calendar_cell_class(cell)
     css = ["cal-cell", "h#{cell.step}"]
     css << "is-before" if cell.before?
@@ -47,7 +41,7 @@ module ProfileHelper
   end
 
   def calendar_tip_rows(cell)
-    return [{ label: "nothing posted", value: "0" }] if cell.messages.zero?
+    return [{ label: "no posts", value: "0" }] if cell.messages.zero?
 
     rows = [{ label: "messages", value: number_with_delimiter(cell.messages) }]
     rows << { label: "in channels", value: number_with_delimiter(cell.in_channels) }
@@ -61,25 +55,18 @@ module ProfileHelper
 
   def calendar_note(calendar)
     parts = ["#{number_with_delimiter(calendar.active_days)} active days"]
-    parts << "busiest is #{number_with_delimiter(calendar.peak)} on " \
+    parts << "peak #{number_with_delimiter(calendar.peak)} on " \
             "#{calendar.cells.max_by(&:messages).on.strftime('%-d %b')}" if calendar.peak.positive?
     parts.join(" · ")
   end
 
   def streak_line(streak)
-    return "no streak yet" if streak.nil? || !streak.running?
+    return "no streak" if streak.nil? || !streak.running?
 
     parts = ["since #{streak.current_from.strftime('%-d %b %Y')}"]
     parts.unshift("##{number_with_delimiter(streak.streak_rank)} of " \
                  "#{number_with_delimiter(streak.streak_of)}") if streak.streak_rank
     parts.join(" · ")
-  end
-
-  def longest_line(streak)
-    return nil if streak&.longest_days.nil?
-
-    "longest #{number_with_delimiter(streak.longest_days)} days, " \
-      "#{streak.longest_from.strftime('%b %Y')}"
   end
 
   def last_posted(time)
@@ -93,16 +80,5 @@ module ProfileHelper
     return "#{days / 7} weeks ago" if days < 70
 
     date.strftime("%-d %b %Y")
-  end
-
-  def platform_line(profile)
-    parts = { days_ios: "iOS", days_desktop: "desktop", days_android: "Android" }
-      .filter_map do |key, label|
-        share = profile.platform_share(key)
-        next nil if share.nil? || share.zero?
-
-        "#{label} #{share}%"
-      end
-    parts.any? ? parts.join(" · ") : "no platform reported"
   end
 end

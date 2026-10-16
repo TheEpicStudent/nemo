@@ -7,7 +7,7 @@ from bot.nemo.enforcement import ENFORCEMENTS
 
 log = logging.getLogger("bot.nemo")
 
-LAPSED_BECAUSE = "the date it ran until has passed"
+EXPIRED_REASON = "End date reached"
 
 NEXT_EXPIRY = """
 SELECT extract(epoch FROM least(
@@ -20,18 +20,18 @@ SELECT extract(epoch FROM least(
 ) - now())
 """
 
-SOON_HOURS = 36
-SOONEST = 720
+DEFAULT_ENDING_HOURS = 36
+MAX_ENDING_HOURS = 720
 
 
-def expiring_soon(conn):
+def ending_window(conn):
     raw = channels.setting(conn, channels.SWEEP_SOON_HOURS)
     try:
         hours = int(raw)
     except ValueError:
         hours = 0
-    if not 1 <= hours <= SOONEST:
-        hours = SOON_HOURS
+    if not 1 <= hours <= MAX_ENDING_HOURS:
+        hours = DEFAULT_ENDING_HOURS
     return f"{hours} hours"
 
 
@@ -59,12 +59,12 @@ def release_now(client, guard):
 
 
 def lapse(client, conn, guard):
-    if not memberguards.lift(conn, guard["id"], memberguards.NEMO, LAPSED_BECAUSE,
+    if not memberguards.lift(conn, guard["id"], memberguards.NEMO, EXPIRED_REASON,
                                kind=guard["kind"]):
         return False
 
     memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], guard["channel_id"],
-                          "released", detail=LAPSED_BECAUSE)
+                          "released", detail=EXPIRED_REASON)
     release(client, conn, guard)
 
     log.info("nemo: %s %s on %s has run out and is lifted",
@@ -95,10 +95,10 @@ LIFT_LOOKBACK = "2 hours"
 
 def release_lifted(client, guard):
     with session() as conn:
-        if not memberguards.claim(conn, guard["id"]) or memberguards.released_already(conn, guard["id"]):
+        if not memberguards.claim(conn, guard["id"]) or memberguards.has_release_event(conn, guard["id"]):
             return False
         memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], guard["channel_id"],
-                                        memberguards.RELEASED, detail=memberguards.LIFTED_BY_HAND)
+                                        memberguards.RELEASED, detail=memberguards.LIFTED_MANUALLY)
         try:
             release(client, conn, guard)
         except Exception as failure:
@@ -118,23 +118,23 @@ def sweep_lifted(client):
     return len(waiting)
 
 
-def sweep_dropped(client):
+def sweep_failed(client):
     with session() as conn:
-        dropped_guards = memberguards.dropped_awhile(conn)
+        failed_guards = memberguards.failed_for_retry(conn)
 
-    for guard in dropped_guards:
+    for guard in failed_guards:
         enforcement = enforcement_for(guard)
         if enforcement is None:
             continue
         with session() as conn:
             try:
-                enforcement.take_up(client, conn, guard)
+                enforcement.enforce(client, conn, guard)
             except Exception as failure:
                 log.warning("nemo: could not take %s back up: %s", guard["id"], failure)
-    return len(dropped_guards)
+    return len(failed_guards)
 
 
-def line_about(guard):
+def ending_line(guard):
     where = f" in <#{guard['channel_id']}>" if guard.get("channel_id") else ""
     case = f" (case {guard['case_id']})" if guard.get("case_id") else ", no case"
     return LINE.format(
@@ -144,13 +144,13 @@ def line_about(guard):
 
 
 def post_expiry_notice(client, guards, channel_id):
-    lines = [HEADING] + [line_about(one) for one in guards]
+    lines = [HEADING] + [ending_line(one) for one in guards]
     client.chat_postMessage(channel=channel_id, text="\n".join(lines), unfurl_links=False)
 
 
 def sweep_ending(client):
     with session() as conn:
-        ending = memberguards.ending_not_notified(conn, expiring_soon(conn))
+        ending = memberguards.ending_not_notified(conn, ending_window(conn))
         firehouse_channel_id = channel.firehouse_channel(conn)
 
     if not ending or not firehouse_channel_id:

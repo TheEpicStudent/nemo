@@ -23,6 +23,6 @@ module Fd
 
     def caught? = CAUGHT.include?(outcome)
 
-    def people_named = [user_id].compact
+    def referenced_user_ids = [user_id].compact
   end
 end

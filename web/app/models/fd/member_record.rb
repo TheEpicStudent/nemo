@@ -6,7 +6,7 @@ module Fd
       "open" => "open",
       "done" => "action taken",
       "clear" => "resolved, no action",
-      "in" => "logged, not the subject"
+      "in" => "not the subject"
     }.freeze
 
     def initialize(user_id)
@@ -25,12 +25,12 @@ module Fd
         .includes(:participants, :assignees).oldest_first.to_a
     end
 
-    def people_named
+    def referenced_user_ids
       [user_id] +
         subject_cases.flat_map { |kase| kase.subject_user_ids + kase.assignee_user_ids } +
         logged_cases.flat_map(&:assignee_user_ids) +
         actions.flat_map { |action| [action.decided_by, action.performed_by, action.reversed_by] } +
-        guards_on_no_case.flat_map(&:people_named) +
+        guards_on_no_case.flat_map(&:referenced_user_ids) +
         notes.map(&:author) +
         notes.flat_map { |note| Mentions.ids(note.body) }
     end
@@ -40,7 +40,7 @@ module Fd
     end
 
     def guards
-      @guards ||= MemberGuard.still_on.for_subject(user_id).oldest_first.to_a
+      @guards ||= MemberGuard.active.for_subject(user_id).oldest_first.to_a
     end
 
     def guards_on_no_case
@@ -68,20 +68,20 @@ module Fd
     end
 
     def cases_named
-      spread.size
+      cases_by_date.size
     end
 
     def first_case_at
-      spread.first&.opened_at
+      cases_by_date.first&.opened_at
     end
 
     def last_case_at
-      spread.last&.opened_at
+      cases_by_date.last&.opened_at
     end
 
     def timeline
       span = seconds_covered
-      spread.map do |kase|
+      cases_by_date.map do |kase|
         at = kase.opened_at
         Mark.new(
           case_id: kase.id,
@@ -93,23 +93,23 @@ module Fd
     end
 
     def quiet_months
-      return nil if spread.size < 2
+      return nil if cases_by_date.size < 2
 
-      gaps = spread.each_cons(2).map { |before, after| after.opened_at - before.opened_at }
+      gaps = cases_by_date.each_cons(2).map { |before, after| after.opened_at - before.opened_at }
       months = (gaps.max / 30.days).floor
       months >= 3 ? months : nil
     end
 
     private
 
-    def spread
-      @spread ||= (subject_cases + logged_cases).uniq(&:id).sort_by(&:opened_at)
+    def cases_by_date
+      @cases_by_date ||= (subject_cases + logged_cases).uniq(&:id).sort_by(&:opened_at)
     end
 
     def seconds_covered
-      return 0 if spread.size < 2
+      return 0 if cases_by_date.size < 2
 
-      spread.last.opened_at - spread.first.opened_at
+      cases_by_date.last.opened_at - cases_by_date.first.opened_at
     end
 
     def logged_case_ids
@@ -125,7 +125,7 @@ module Fd
     end
 
     def actioned_cases
-      @actioned_cases ||= Action.where(case_id: spread.map(&:id)).distinct.pluck(:case_id).to_set
+      @actioned_cases ||= Action.where(case_id: cases_by_date.map(&:id)).distinct.pluck(:case_id).to_set
     end
   end
 end

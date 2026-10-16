@@ -17,19 +17,17 @@ UNLOCK = "lock_off"
 LOCK_TITLE = "Lock thread"
 
 REASON_LIMIT = 500
-NOTE_LABEL = "Post a note in the thread"
+NOTE_LABEL = "Post note in thread"
 TITLE_LIMIT = 24
 
-DESTROY_WARNING = "Saved to the case record, then deleted from Slack. Cannot be undone."
-
-ASIDE = "Anyone who keeps posting is signed out of Slack."
+SIGN_OUT_NOTE = "Sign-out on repeated posts"
 
 
 def metadata(channel_id, thread_ts):
     return json.dumps({"channel_id": channel_id, "thread_ts": thread_ts})
 
 
-def opened(view):
+def parse_metadata(view):
     try:
         values = json.loads(view.get("private_metadata") or "{}")
     except ValueError:
@@ -77,7 +75,6 @@ def note_text_block(value=None):
         "type": "rich_text_input",
         "action_id": NOTE_TEXT,
         "min_lines": 4,
-        "placeholder": {"type": "plain_text", "text": "what you did and why"},
     }
     if value:
         element["initial_value"] = value
@@ -94,13 +91,12 @@ def section_block(text):
 
 
 def context_block():
-    return {"type": "context", "elements": [{"type": "mrkdwn", "text": ASIDE}]}
+    return {"type": "context", "elements": [{"type": "mrkdwn", "text": SIGN_OUT_NOTE}]}
 
 
 def destroy_view(channel_id, thread_ts, values=None):
     values = values or {}
     blocks = [
-        section_block(DESTROY_WARNING),
         context_block(),
         reason_block(values.get("reason")),
         note_block(values.get("note")),
@@ -182,9 +178,9 @@ def submitted_values(state):
     return {
         "reason": (values.get(REASON, {}).get(REASON, {}).get("value") or "").strip(),
         "starting": LOCK_EXTEND not in values,
-        "duration": lengths.chosen(values, LOCK_DURATION),
-        "extend": lengths.chosen(values, LOCK_EXTEND),
-        "until": lengths.picked_time(values, UNTIL),
+        "duration": lengths.selected_value(values, LOCK_DURATION),
+        "extend": lengths.selected_value(values, LOCK_EXTEND),
+        "until": lengths.selected_datetime(values, UNTIL),
         "note": bool(checked_options),
         "note_body": values.get(NOTE_TEXT, {}).get(NOTE_TEXT, {}).get("rich_text_value"),
     }
@@ -207,7 +203,7 @@ def lock_notice(expires_at, reason, by, signs_out=False):
     }
 
 
-def lock_held_back(expires_at, body):
+def lock_removal_notice(expires_at, body):
     text = f"*Thread locked* · {lengths.ends(expires_at)}"
     blocks = [section_block(text)]
     if body:
@@ -238,5 +234,5 @@ def validation_errors(values):
     if not values.get("reason"):
         return {REASON: "Add a reason."}
     if values.get("note") and not note_text(values):
-        return {NOTE_TEXT: "Write the note or untick it."}
+        return {NOTE_TEXT: "Enter note text"}
     return None

@@ -89,17 +89,17 @@ module Fd
     end
 
     def reachable_from(residual, source)
-      seen = Set[source]
+      visited = Set[source]
       queue = [source]
       until queue.empty?
         residual[queue.shift].each do |neighbour, capacity|
-          next if capacity <= 0 || seen.include?(neighbour)
+          next if capacity <= 0 || visited.include?(neighbour)
 
-          seen << neighbour
+          visited << neighbour
           queue << neighbour
         end
       end
-      seen
+      visited
     end
 
     def build_cut(a, b)

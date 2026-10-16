@@ -8,7 +8,7 @@ module Fd
       @now = Time.current
 
       resolution = resolution_reason
-      return redirect_with_alert("Enter why this case is closing") if resolution.nil?
+      return redirect_with_alert("Select a resolution") if resolution.nil?
 
       resolved = false
       writing do

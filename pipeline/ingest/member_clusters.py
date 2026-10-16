@@ -5,8 +5,8 @@ from lib.db import ingest_run
 from lib.graph import components
 
 SOURCE = "member_clusters"
-TOGETHER = ("same_person", "allowed_alt")
-APART = ("different_people",)
+SAME_PERSON_VERDICTS = ("same_person", "allowed_alt")
+DIFFERENT_PEOPLE_VERDICTS = ("different_people",)
 SIGNAL_FAMILIES = (links.NETWORK, links.DEVICE, links.IDENTITY, links.NAME, links.ARRIVAL)
 STRONG_EDGE_FAMILIES = 2
 
@@ -24,7 +24,7 @@ UNION
 SELECT a_user_id, b_user_id FROM fd.member_link_verdict WHERE verdict = ANY(%(together)s)
 """
 
-APART_SQL = "SELECT a_user_id, b_user_id FROM fd.member_link_verdict WHERE verdict = ANY(%s)"
+DIFFERENT_PEOPLE_SQL = "SELECT a_user_id, b_user_id FROM fd.member_link_verdict WHERE verdict = ANY(%s)"
 
 ACCOUNTS_SQL = """
 SELECT m.user_id, NOT m.is_deleted, j.joined_at
@@ -56,7 +56,7 @@ def settings(catalogue=None):
     return (catalogue or links.catalogue())["clusters"]
 
 
-def burst(times, window):
+def peak_joins_in_window(times, window):
     ordered = sorted(one for one in times if one is not None)
     peak = 0
     start = 0
@@ -67,11 +67,11 @@ def burst(times, window):
     return peak
 
 
-def oldest(group, joined):
+def oldest_account(group, joined):
     return min(group, key=lambda one: (joined.get(one) is None, joined.get(one) or 0, one))
 
 
-def conflicted(group, apart):
+def has_conflict(group, apart):
     return any(a in group and b in group for a, b in apart)
 
 
@@ -80,10 +80,10 @@ def cluster_rows(groups, accounts, rule, apart=()):
     window = timedelta(minutes=rule["window_minutes"])
     rows = []
     for group in groups:
-        cluster_id = oldest(group, joined)
+        cluster_id = oldest_account(group, joined)
         is_burst = (len(group) >= rule["min_accounts"]
-                    and burst([joined.get(one) for one in group], window) >= rule["min_accounts"])
-        conflict = conflicted(group, apart)
+                    and peak_joins_in_window([joined.get(one) for one in group], window) >= rule["min_accounts"])
+        conflict = has_conflict(group, apart)
         for user_id in sorted(group):
             active = accounts.get(user_id, (True, None))[0]
             rows.append((user_id, cluster_id, len(group), is_burst, active, conflict))
@@ -96,8 +96,8 @@ def run(conn):
         edges = conn.execute(EDGES_SQL, {"edge": config["edge_score"], "certain": links.scoring()["certain"],
                                          "families": list(SIGNAL_FAMILIES),
                                          "strong_families": STRONG_EDGE_FAMILIES,
-                                         "apart": list(APART), "together": list(TOGETHER)}).fetchall()
-        apart = [(a, b) for a, b in conn.execute(APART_SQL, (list(APART),)).fetchall()]
+                                         "apart": list(DIFFERENT_PEOPLE_VERDICTS), "together": list(SAME_PERSON_VERDICTS)}).fetchall()
+        apart = [(a, b) for a, b in conn.execute(DIFFERENT_PEOPLE_SQL, (list(DIFFERENT_PEOPLE_VERDICTS),)).fetchall()]
         groups = components((a, b) for a, b in edges)
         members = sorted(set().union(*groups)) if groups else []
         accounts = {row[0]: (row[1], row[2])

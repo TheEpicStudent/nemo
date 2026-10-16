@@ -4,9 +4,9 @@
   <%= render "shared/stat", k: "Opted in", v: number_with_delimiter(@opted_in),
         caption: pluralize(Api::Scope::KEYS.size, "scope") %>
   <%= render "shared/stat", k: "Apps", v: @apps,
-        caption: "#{@approved_count} answering" %>
+        caption: "#{@approved_count} approved" %>
   <%= render "shared/stat", k: "Live keys", v: @tokens.count { |token| !token.inactive? },
-        caption: "across #{pluralize(@tokens.map(&:app_id).uniq.size, 'app')}" %>
+        caption: pluralize(@tokens.map(&:app_id).uniq.size, "app") %>
   <%= render "shared/stat", k: "Checks, 30 days", v: number_with_delimiter(@checks),
         caption: pluralize(@channels, "channel") %>
   <%= render "shared/stat", k: "Withheld", v: number_with_delimiter(@withheld_count),
@@ -26,13 +26,13 @@
           <%= flag_switch(:public_api) %>
         </span>
       </div>
-      <% @dials.each do |key, value| %>
+      <% @settings.each do |key, value| %>
         <div class="setline">
-          <span class="setname"><%= dial_label(key) %></span>
+          <span class="setname"><%= setting_label(key) %></span>
           <span class="setval cap-do">
             <b class="row-value"><%= value %></b>
             <% if may_grant? %>
-              <button type="button" class="btn btn-sm" data-modal-open="dial-<%= key %>" aria-haspopup="dialog">Change</button>
+              <button type="button" class="btn btn-sm" data-modal-open="setting-<%= key %>" aria-haspopup="dialog">Change</button>
             <% end %>
           </span>
         </div>
@@ -43,7 +43,7 @@
       </div>
       <div class="setline">
         <span class="setname">Last changed</span>
-        <% changed = dial_change(@last_dial) %>
+        <% changed = setting_last_change(@last_setting) %>
         <span class="setval <%= "is-none" if changed.to_s == "Never" %>"><%= changed %></span>
       </div>
     </div>
@@ -55,7 +55,7 @@
       <div class="card-tools">
         <span class="card-sub">
           <%= @tokens.count { |token| !token.inactive? } %> live &middot;
-          <%= @tokens.count(&:inactive?) %> spent
+          <%= @tokens.count(&:inactive?) %> inactive
         </span>
       </div>
     </div>
@@ -70,7 +70,7 @@
               <th>Key</th>
               <th class="col-num">Rate</th>
               <th class="col-num">Expires</th>
-              <th class="col-num">Asks, 30 days</th>
+              <th class="col-num">Requests, 30 days</th>
               <th class="col-date">Last used</th>
               <th class="col-btn"><span class="sr-only">Actions</span></th>
             </tr>

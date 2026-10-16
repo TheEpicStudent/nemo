@@ -8,24 +8,24 @@ def lane_names(lanes):
     return [name for name, *_ in lanes]
 
 
-def test_the_audit_backfill_lane_is_on_by_default(monkeypatch):
+def test_lane_enabled_backfill_unset_returns_true(monkeypatch):
     monkeypatch.delenv("AUDIT_BACKFILL", raising=False)
 
     assert audit_worker.lane_enabled("backfill")
 
 
-def test_the_access_backfill_lane_is_off_by_default(monkeypatch):
+def test_lane_enabled_access_backfill_unset_returns_false(monkeypatch):
     monkeypatch.delenv("AUDIT_ACCESS_BACKFILL", raising=False)
 
     assert not audit_worker.lane_enabled("access_backfill")
 
 
-def test_lanes_without_a_switch_always_run():
+def test_lane_enabled_without_switch_returns_true():
     assert audit_worker.lane_enabled("tail")
     assert audit_worker.lane_enabled("access")
 
 
-def test_switch_values_are_read_case_insensitively(monkeypatch):
+def test_lane_enabled_switch_value_case_is_ignored(monkeypatch):
     for value in ("0", "off", "No", " FALSE "):
         monkeypatch.setenv("AUDIT_BACKFILL", value)
         assert not audit_worker.lane_enabled("backfill"), value
@@ -35,7 +35,7 @@ def test_switch_values_are_read_case_insensitively(monkeypatch):
         assert audit_worker.lane_enabled("access_backfill"), value
 
 
-def test_wanted_lanes_leaves_out_switched_off_lanes(monkeypatch):
+def test_enabled_lanes_switched_off_lanes_are_excluded(monkeypatch):
     monkeypatch.setenv("AUDIT_BACKFILL", "off")
     monkeypatch.delenv("AUDIT_ACCESS_BACKFILL", raising=False)
 
@@ -46,7 +46,7 @@ def test_wanted_lanes_leaves_out_switched_off_lanes(monkeypatch):
     assert names[0] == "tail"
 
 
-def test_wanted_lanes_runs_every_lane_when_every_switch_is_on(monkeypatch):
+def test_enabled_lanes_all_switches_on_returns_all_lanes(monkeypatch):
     monkeypatch.delenv("AUDIT_BACKFILL", raising=False)
     monkeypatch.setenv("AUDIT_ACCESS_BACKFILL", "on")
     monkeypatch.delenv("AUDIT_BACKFILL_SETS", raising=False)
@@ -56,17 +56,17 @@ def test_wanted_lanes_runs_every_lane_when_every_switch_is_on(monkeypatch):
     assert names == lane_names(audit_worker.LANES)
 
 
-def test_clusters_wake_on_link_changes_and_the_live_lane_on_touches():
-    assert audit_worker.LANE_WAKE_CHANNELS == {"clusters": "fd_member_link", "links_live": "fd_member_touch"}
-    assert audit_worker.WAKE_DEBOUNCE_SECONDS == 2
+def test_lane_notify_channels_map_clusters_and_links_live():
+    assert audit_worker.LANE_NOTIFY_CHANNELS == {"clusters": "fd_member_link", "links_live": "fd_member_touch"}
+    assert audit_worker.NOTIFY_DEBOUNCE_SECONDS == 2
 
 
-def test_each_notification_wakes_only_its_own_lane(monkeypatch):
+def test_lane_notify_events_notification_sets_only_its_lane_event(monkeypatch):
     listen_args = {}
-    monkeypatch.setattr(audit_worker.loops, "watching",
+    monkeypatch.setattr(audit_worker.loops, "start_listener",
                         lambda _name, channels, on_notify, _stopping: listen_args.update(channels=channels, on_notify=on_notify))
 
-    events = audit_worker.lane_wake_events(audit_worker.LANES, threading.Event())
+    events = audit_worker.lane_notify_events(audit_worker.LANES, threading.Event())
 
     assert sorted(events) == ["clusters", "links_live"]
     assert listen_args["channels"] == ("fd_member_link", "fd_member_touch")
@@ -77,7 +77,7 @@ def test_each_notification_wakes_only_its_own_lane(monkeypatch):
     assert events["links_live"].is_set() and not events["clusters"].is_set()
 
 
-def test_a_touch_notifies_once_per_statement_and_the_lane_clearing_its_queue_stays_quiet():
+def test_member_touch_migration_notifies_per_statement_without_delete():
     import pathlib
 
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations" / "0221_member_touch_notify.sql").read_text()
@@ -87,8 +87,8 @@ def test_a_touch_notifies_once_per_statement_and_the_lane_clearing_its_queue_sta
     assert "DELETE" not in sql.split("CREATE TRIGGER")[1]
 
 
-def test_a_woken_lane_runs_again_after_the_settle(monkeypatch):
-    monkeypatch.setattr(audit_worker, "WAKE_DEBOUNCE_SECONDS", 0.01)
+def test_wait_for_next_pass_wake_set_returns_false_and_clears_wake(monkeypatch):
+    monkeypatch.setattr(audit_worker, "NOTIFY_DEBOUNCE_SECONDS", 0.01)
     stopping, wake = threading.Event(), threading.Event()
     wake.set()
     start_time = time.monotonic()
@@ -98,7 +98,7 @@ def test_a_woken_lane_runs_again_after_the_settle(monkeypatch):
     assert not wake.is_set()
 
 
-def test_an_unwoken_lane_waits_out_its_poll():
+def test_wait_for_next_pass_wake_unset_waits_poll_interval():
     stopping, wake = threading.Event(), threading.Event()
     start_time = time.monotonic()
 
@@ -106,7 +106,7 @@ def test_an_unwoken_lane_waits_out_its_poll():
     assert time.monotonic() - start_time >= 0.05
 
 
-def test_a_lane_waiting_for_a_wake_still_stops():
+def test_wait_for_next_pass_wake_unset_returns_true_when_stopping():
     stopping, wake = threading.Event(), threading.Event()
     threading.Timer(0.05, stopping.set).start()
     start_time = time.monotonic()
@@ -115,14 +115,14 @@ def test_a_lane_waiting_for_a_wake_still_stops():
     assert time.monotonic() - start_time < 2
 
 
-def test_a_lane_without_a_wake_waits_on_stopping_alone():
+def test_wait_for_next_pass_without_wake_returns_true_when_stopping():
     stopping = threading.Event()
     stopping.set()
 
     assert audit_worker.wait_for_next_pass(stopping, None, 3600) is True
 
 
-def test_a_lane_on_an_old_build_never_runs_its_work(monkeypatch):
+def test_lane_old_build_does_not_run_work(monkeypatch):
     from lib import heartbeat
 
     calls = []
@@ -139,9 +139,9 @@ def test_a_lane_on_an_old_build_never_runs_its_work(monkeypatch):
     thread.join(timeout=2)
 
     assert calls == []
-    assert lane_state == "held, old build"
+    assert lane_state == "paused, old build"
 
 
-def test_the_tail_polls_every_5_seconds_when_idle_so_audit_events_stay_near_real_time():
+def test_tail_lane_default_poll_is_5_seconds():
     assert audit_worker.DEFAULT_TAIL_SECONDS == 5
     assert ("tail", audit_worker.walk_tail, "AUDIT_TAIL_SECONDS", 5, True) in audit_worker.LANES

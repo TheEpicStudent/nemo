@@ -22,7 +22,7 @@ class Recorder:
         self.committed = True
 
 
-def test_verdict_states_map_to_the_three_quality_statuses():
+def test_status_of_maps_verdicts_to_pass_fail_and_warn():
     assert metrics.STATUS_OF["ok"] == "pass"
     assert metrics.STATUS_OF["known"] == "pass"
     assert metrics.STATUS_OF["differs"] == "fail"
@@ -30,7 +30,7 @@ def test_verdict_states_map_to_the_three_quality_statuses():
     assert metrics.STATUS_OF["no data"] == "warn"
 
 
-def test_every_verdict_is_recorded_with_its_delta_and_second_source():
+def test_record_verdicts_writes_row_per_verdict_with_status_severity_and_detail():
     conn = Recorder()
     results = [
         ("total members", "count", "team.stats", 196670, 196670.0, "ok", 0.0),

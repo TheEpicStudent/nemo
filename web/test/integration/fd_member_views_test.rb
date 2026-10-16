@@ -4,7 +4,7 @@ class FdMemberViewsTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   setup do
-    @me = hold_role!("UVIEWBOSS", "community_manager")
+    @me = grant_role!("UVIEWBOSS", "community_manager")
     sign_in_as(@me)
     %w[UVIEWLINKA UVIEWLINKB UVIEWWEAK UVIEWGONE UVIEWPLAIN].each { |user_id| member!(user_id) }
     as_pipeline("UPDATE fd.member SET is_deleted = true WHERE user_id = 'UVIEWGONE'")
@@ -23,14 +23,14 @@ class FdMemberViewsTest < ActionDispatch::IntegrationTest
     Fd::MemberQuery.new({ "view" => view, "q" => term }.compact, actor: @me).rows.map(&:user_id)
   end
 
-  test "the tabs follow the investigation workspace" do
+  test "members index renders the four view tabs in order" do
     get fd_members_path
 
     tabs = css_select("nav.views a.view").map { |tab| tab.text.squish.sub(/\s*[\d,]+\z/, "") }
     assert_equal ["All", "Linked", "In force", "Deactivated"], tabs
   end
 
-  test "linked keeps members with a strong or certain link" do
+  test "linked view includes strongly linked members and excludes weakly linked ones" do
     linked = user_ids("linked")
 
     assert_includes linked, "UVIEWLINKA"
@@ -39,7 +39,7 @@ class FdMemberViewsTest < ActionDispatch::IntegrationTest
     assert_not_includes linked, "UVIEWPLAIN"
   end
 
-  test "deactivated lists deactivated members the other views leave out" do
+  test "deactivated view lists deactivated members and counts_per_view reports them" do
     assert_includes user_ids("deactivated", "UVIEWGONE"), "UVIEWGONE"
     assert_not_includes user_ids("deactivated", "UVIEWPLAIN"), "UVIEWPLAIN"
     assert_not_includes Fd::MemberQuery.new({ "view" => "deactivated" }, actor: @me).rows.map(&:user_id), "UVIEWPLAIN"

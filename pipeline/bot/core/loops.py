@@ -16,17 +16,17 @@ def listen(name, channels, on_notify, stopping):
     log.info("%s: listening for %s", name, ", ".join(channels))
 
     try:
-        for note in conn.notifies(stop_after=None, timeout=None):
+        for notification in conn.notifies(stop_after=None, timeout=None):
             if stopping.is_set():
                 break
-            payload = int(note.payload) if note.payload.isdigit() else note.payload
+            payload = int(notification.payload) if notification.payload.isdigit() else notification.payload
             if not payload:
                 continue
             try:
-                on_notify(note.channel, payload)
+                on_notify(notification.channel, payload)
             except Exception as failure:
                 log.warning("%s: %s %s could not be handled: %s",
-                            name, note.channel, payload, failure)
+                            name, notification.channel, payload, failure)
     finally:
         try:
             conn.close()
@@ -34,7 +34,7 @@ def listen(name, channels, on_notify, stopping):
             pass
 
 
-def watching(name, channels, on_notify, stopping):
+def start_listener(name, channels, on_notify, stopping):
     def loop():
         while not stopping.is_set():
             try:
@@ -49,7 +49,7 @@ def watching(name, channels, on_notify, stopping):
     return thread
 
 
-def sweeping(name, seconds, work, stopping):
+def run_periodically(name, seconds, work, stopping):
     def loop():
         log.info("%s: catching up on anything missed, then sweeping every %ss", name, seconds)
         while True:
@@ -65,8 +65,8 @@ def sweeping(name, seconds, work, stopping):
     return thread
 
 
-def draining(name, work, stopping, settle=2.0, every=60.0):
-    woken = threading.Event()
+def run_on_wake(name, work, stopping, debounce_seconds=2.0, interval_seconds=60.0):
+    wake = threading.Event()
 
     def loop():
         while not stopping.is_set():
@@ -77,17 +77,17 @@ def draining(name, work, stopping, settle=2.0, every=60.0):
                 more = False
             if more:
                 continue
-            if woken.wait(every) and stopping.wait(settle):
+            if wake.wait(interval_seconds) and stopping.wait(debounce_seconds):
                 return
-            woken.clear()
+            wake.clear()
 
     thread = threading.Thread(target=loop, name=f"{name}-drain", daemon=True)
     thread.start()
-    return woken.set
+    return wake.set
 
 
-def timed(name, work, stopping, longest=300.0, retry=30.0, settle=0.5):
-    woken = threading.Event()
+def run_on_timer(name, work, stopping, max_wait_seconds=300.0, retry_seconds=30.0, debounce_seconds=0.5):
+    wake = threading.Event()
 
     def loop():
         while not stopping.is_set():
@@ -95,17 +95,17 @@ def timed(name, work, stopping, longest=300.0, retry=30.0, settle=0.5):
                 seconds = work()
             except Exception:
                 log.exception("%s: the timed run failed, trying again later", name)
-                seconds = retry
+                seconds = retry_seconds
             if seconds is None:
-                wait = longest
+                wait = max_wait_seconds
             elif seconds <= 0:
-                wait = retry
+                wait = retry_seconds
             else:
-                wait = min(seconds, longest)
-            if woken.wait(wait) and stopping.wait(settle):
+                wait = min(seconds, max_wait_seconds)
+            if wake.wait(wait) and stopping.wait(debounce_seconds):
                 return
-            woken.clear()
+            wake.clear()
 
     thread = threading.Thread(target=loop, name=f"{name}-timer", daemon=True)
     thread.start()
-    return woken.set
+    return wake.set

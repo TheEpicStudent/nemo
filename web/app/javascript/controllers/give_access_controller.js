@@ -38,9 +38,8 @@ export default class extends Controller {
 
   roleNote(role) {
     const baselineCount = (this.baselinesValue[role] || []).length
-    if (!role) return "A member. Reads the overview and public channels."
     if (baselineCount === 0) return ""
-    return `Carries ${baselineCount} capabilit${baselineCount === 1 ? "y" : "ies"} on its own.`
+    return `${baselineCount} ${baselineCount === 1 ? "capability" : "capabilities"}`
   }
 
   selectedRole() {

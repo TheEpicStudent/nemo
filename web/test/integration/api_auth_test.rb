@@ -20,38 +20,38 @@ class ApiAuthTest < ActionDispatch::IntegrationTest
     JSON.parse(response.body)
   end
 
-  test "a live key is told who it is, and never what it is" do
+  test "token show returns key metadata without the secret" do
     get_with_key
 
     assert_response :success
     assert_equal ["Toolbox", "UOWNER1", 20], body.values_at("name", "owner_user_id",
       "rate_per_minute")
     assert_equal @token.prefix, body["prefix"]
-    assert_no_match(/#{@secret}/, response.body, "the key itself must never come back")
+    assert_no_match(/#{@secret}/, response.body, "response body contains the secret")
   end
 
-  test "no header at all is an invalid token, not a crash" do
+  test "missing Authorization header returns 401 invalid_token" do
     get_with_key(nil)
 
     assert_response :unauthorized
     assert_equal "invalid_token", body["error"]
   end
 
-  test "a key nobody minted is refused" do
+  test "unknown key returns 401 invalid_token" do
     get_with_key("nemo_live_neverissuedatall12")
 
     assert_response :unauthorized
     assert_equal "invalid_token", body["error"]
   end
 
-  test "a header that is not a bearer is refused" do
+  test "non-bearer Authorization scheme returns 401 invalid_token" do
     get api_v1_token_path, headers: { "Authorization" => "Basic #{@secret}" }
 
     assert_response :unauthorized
     assert_equal "invalid_token", body["error"]
   end
 
-  test "a revoked key says so, so a caller stops retrying" do
+  test "revoked key returns 401 revoked_token" do
     @token.revoke!(by: "UOWNER1")
     get_with_key
 
@@ -59,7 +59,7 @@ class ApiAuthTest < ActionDispatch::IntegrationTest
     assert_equal "revoked_token", body["error"]
   end
 
-  test "the whole api is shut while the flag is off, even with a good key" do
+  test "public_api flag off returns 503 api_off with a valid key" do
     Fd::Flag.set!(:public_api, false, by: "UBOSS")
     get_with_key
 
@@ -67,7 +67,7 @@ class ApiAuthTest < ActionDispatch::IntegrationTest
     assert_equal "api_off", body["error"]
   end
 
-  test "using a key stamps it, and does not stamp it again on every call" do
+  test "valid key sets last_used_at once within the resolution window" do
     assert_nil @token.last_used_at
 
     get_with_key
@@ -75,11 +75,11 @@ class ApiAuthTest < ActionDispatch::IntegrationTest
     assert_not_nil first
 
     get_with_key
-    assert_equal first, @token.reload.last_used_at, "one write a minute, not one a request"
+    assert_equal first, @token.reload.last_used_at, "last_used_at changed on the second request"
   end
 
-  test "a signed in browser session opens nothing on the api" do
-    staff = hold_role!("UBOSS2", "community_manager")
+  test "browser session without key returns 401 invalid_token" do
+    staff = grant_role!("UBOSS2", "community_manager")
     sign_in_as(staff)
 
     get api_v1_token_path
@@ -88,11 +88,11 @@ class ApiAuthTest < ActionDispatch::IntegrationTest
     assert_equal "invalid_token", body["error"]
   end
 
-  test "every refusal answers in json, never a redirect or a page" do
+  test "refusal responds with json media type and a message" do
     Fd::Flag.set!(:public_api, false, by: "UBOSS")
     get_with_key(nil)
 
     assert_equal "application/json", response.media_type
-    assert body.key?("message"), "a caller is told what to do about it"
+    assert body.key?("message"), "error body has no message key"
   end
 end

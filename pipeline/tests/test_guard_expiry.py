@@ -31,7 +31,7 @@ def session_of(conn):
     yield conn
 
 
-def cached(monkeypatch, shushes=None, bans=None):
+def load_guard_cache(monkeypatch, shushes=None, bans=None):
     monkeypatch.setattr(memberguards, "_shushes", shushes or {})
     monkeypatch.setattr(memberguards, "_bans", bans or {})
     monkeypatch.setattr(memberguards, "_loaded", True)
@@ -42,32 +42,32 @@ def cached(monkeypatch, shushes=None, bans=None):
     (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1), True),
     (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=1), False),
 ])
-def test_shushed_skips_expired_guard(monkeypatch, expires_at, in_force):
+def test_active_shush_returns_guard_only_when_in_force(monkeypatch, expires_at, in_force):
     guard = {"id": 1, "subject_id": "USUB", "expires_at": expires_at}
-    cached(monkeypatch, shushes={"USUB": guard})
+    load_guard_cache(monkeypatch, shushes={"USUB": guard})
 
-    assert (memberguards.shushed("USUB") is guard) is in_force
+    assert (memberguards.active_shush("USUB") is guard) is in_force
 
 
-def test_banned_skips_expired_guard(monkeypatch):
+def test_active_ban_expired_guard_returns_none(monkeypatch):
     expired = {"id": 2, "expires_at": dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)}
-    cached(monkeypatch, bans={("USUB", "C_BANNED"): expired})
+    load_guard_cache(monkeypatch, bans={("USUB", "C_BANNED"): expired})
 
-    assert memberguards.banned("USUB", "C_BANNED") is None
+    assert memberguards.active_ban("USUB", "C_BANNED") is None
 
 
-def test_in_force_compares_against_given_time():
+def test_in_force_compares_expiry_against_now_argument():
     guard = {"expires_at": NOW}
 
     assert memberguards.in_force(guard, now=NOW - dt.timedelta(seconds=1)) is True
     assert memberguards.in_force(guard, now=NOW) is False
 
 
-def test_active_thread_guard_query_skips_expired_lock():
+def test_active_on_thread_sql_excludes_expired_lock():
     assert "AND (expires_at IS NULL OR expires_at > now())" in guards.ACTIVE_ON_THREAD
 
 
-def test_next_expiry_reads_member_guards_thread_locks_and_channel_guards():
+def test_next_expiry_sql_selects_member_thread_and_channel_guards():
     assert "FROM fd.member_guards" in sweep.NEXT_EXPIRY
     assert "FROM fd.thread_guards" in sweep.NEXT_EXPIRY
     assert "kind = 'lock' AND state IN ('warned', 'running')" in sweep.NEXT_EXPIRY
@@ -75,28 +75,28 @@ def test_next_expiry_reads_member_guards_thread_locks_and_channel_guards():
 
 
 @pytest.mark.parametrize(("row", "seconds"), [((12.5,), 12.5), ((None,), None), (None, None)])
-def test_seconds_to_next_expiry_reads_epoch(row, seconds):
+def test_seconds_to_next_expiry_returns_row_value_or_none(row, seconds):
     assert sweep.seconds_to_next_expiry(Conn(row=row)) == seconds
 
 
-def test_lift_due_lifts_lapsed_guards_expired_locks_and_channel_guards(monkeypatch):
-    lifted = []
+def test_lift_expired_lifts_member_lock_and_channel_guards_in_order(monkeypatch):
+    lift_calls = []
     monkeypatch.setattr(loop, "session", lambda: session_of(Conn()))
-    monkeypatch.setattr(loop.sweep, "sweep_lapsed", lambda client: lifted.append("member guards"))
-    monkeypatch.setattr(loop.guards, "lifting", lambda conn: [7, 8])
-    monkeypatch.setattr(loop.guard_actions, "lift_lock", lambda client, guard_id: lifted.append(guard_id))
+    monkeypatch.setattr(loop.sweep, "sweep_lapsed", lambda client: lift_calls.append("member guards"))
+    monkeypatch.setattr(loop.guards, "expired_locks", lambda conn: [7, 8])
+    monkeypatch.setattr(loop.guard_actions, "lift_lock", lambda client, guard_id: lift_calls.append(guard_id))
     monkeypatch.setattr(loop.channelguards, "lift_lapsed",
-                        lambda conn: lifted.append("channel guards") or [(9, "slowmode", "C1", "1.0")])
-    monkeypatch.setattr(loop.channelguards, "refresh", lambda conn: lifted.append("refreshed"))
+                        lambda conn: lift_calls.append("channel guards") or [(9, "slowmode", "C1", "1.0")])
+    monkeypatch.setattr(loop.channelguards, "refresh", lambda conn: lift_calls.append("refreshed"))
     monkeypatch.setattr(loop.sweep, "seconds_to_next_expiry", lambda conn: 42.0)
 
-    assert loop.lift_due(object()) == 42.0
-    assert lifted == ["member guards", 7, 8, "channel guards", "refreshed"]
+    assert loop.lift_expired(object()) == 42.0
+    assert lift_calls == ["member guards", 7, 8, "channel guards", "refreshed"]
 
 
-def run_timed(work, **timing):
+def run_on_timer(work, **options):
     stopping = threading.Event()
-    wake = loops.timed("test", work, stopping, **timing)
+    wake = loops.run_on_timer("test", work, stopping, **options)
     return stopping, wake
 
 
@@ -109,9 +109,9 @@ def wait_for(condition, seconds=2.0):
     return False
 
 
-def test_timed_runs_again_after_returned_seconds():
+def test_run_on_timer_work_returning_seconds_reruns_after_delay():
     calls = []
-    stopping, _ = run_timed(lambda: calls.append(time.monotonic()) or 0.05, longest=5.0, retry=5.0)
+    stopping, _ = run_on_timer(lambda: calls.append(time.monotonic()) or 0.05, max_wait_seconds=5.0, retry_seconds=5.0)
 
     try:
         assert wait_for(lambda: len(calls) >= 3)
@@ -119,9 +119,9 @@ def test_timed_runs_again_after_returned_seconds():
         stopping.set()
 
 
-def test_timed_without_expiry_waits_until_woken():
+def test_run_on_timer_work_returning_none_waits_for_wake():
     calls = []
-    stopping, wake = run_timed(lambda: calls.append(1) and None, longest=5.0, retry=5.0, settle=0.0)
+    stopping, wake = run_on_timer(lambda: calls.append(1) and None, max_wait_seconds=5.0, retry_seconds=5.0, debounce_seconds=0.0)
 
     try:
         assert wait_for(lambda: len(calls) == 1)
@@ -135,7 +135,7 @@ def test_timed_without_expiry_waits_until_woken():
 
 
 @pytest.mark.parametrize("outcome", [0.0, -3.0, "raise"])
-def test_timed_overdue_or_failing_run_waits_retry(outcome):
+def test_run_on_timer_overdue_or_failing_work_waits_retry_seconds(outcome):
     calls = []
 
     def work():
@@ -144,7 +144,7 @@ def test_timed_overdue_or_failing_run_waits_retry(outcome):
             raise RuntimeError("slack is down")
         return outcome
 
-    stopping, wake = run_timed(work, longest=5.0, retry=0.2)
+    stopping, wake = run_on_timer(work, max_wait_seconds=5.0, retry_seconds=0.2)
 
     try:
         assert wait_for(lambda: len(calls) >= 2)
@@ -155,30 +155,30 @@ def test_timed_overdue_or_failing_run_waits_retry(outcome):
 
 
 def notify_handler(monkeypatch):
-    woken, watched = [], {}
+    timer_runs, listener = [], {}
     monkeypatch.setattr(loop, "session", lambda: session_of(Conn()))
     for module in (loop.guards, loop.channelguards, loop.memberguards, loop.automod,
                    loop.responses, loop.screening, loop.categories):
         monkeypatch.setattr(module, "refresh", lambda conn: 0)
     monkeypatch.setattr(loop.channel, "refresh_channels", lambda conn: None)
-    monkeypatch.setattr(loop.purge, "requeue_stranded", lambda conn: [])
-    monkeypatch.setattr(loop.loops, "draining", lambda *args, **kwargs: (lambda: None))
-    monkeypatch.setattr(loop.loops, "watching",
-                        lambda name, names, on_notify, stopping: watched.update(on_notify=on_notify))
-    monkeypatch.setattr(loop.loops, "sweeping", lambda *args, **kwargs: None)
-    monkeypatch.setattr(loop.loops, "timed", lambda *args, **kwargs: (lambda: woken.append(1)))
+    monkeypatch.setattr(loop.purge, "requeue_interrupted", lambda conn: [])
+    monkeypatch.setattr(loop.loops, "run_on_wake", lambda *args, **kwargs: (lambda: None))
+    monkeypatch.setattr(loop.loops, "start_listener",
+                        lambda name, names, on_notify, stopping: listener.update(on_notify=on_notify))
+    monkeypatch.setattr(loop.loops, "run_periodically", lambda *args, **kwargs: None)
+    monkeypatch.setattr(loop.loops, "run_on_timer", lambda *args, **kwargs: (lambda: timer_runs.append(1)))
     monkeypatch.setattr(loop.guard_actions, "run_destroy", lambda client, payload: None)
     monkeypatch.setattr(loop.guard_actions, "after_guard_change", lambda client, payload: None)
-    monkeypatch.setattr(loop, "seat_and_announce", lambda client, channel_id: None)
+    monkeypatch.setattr(loop, "join_and_post_notices", lambda client, channel_id: None)
 
     loop.start(SimpleNamespace(client=None), threading.Event())
-    return watched["on_notify"], woken
+    return listener["on_notify"], timer_runs
 
 
 @pytest.mark.parametrize("channel_name", [loop.MEMBER_GUARD, loop.GUARD, loop.CHANNEL_GUARD])
-def test_guard_notify_wakes_lapse_timer(monkeypatch, channel_name):
-    on_notify, woken = notify_handler(monkeypatch)
+def test_loop_start_guard_notification_runs_lapse_timer(monkeypatch, channel_name):
+    on_notify, timer_runs = notify_handler(monkeypatch)
 
     on_notify(channel_name, "7")
 
-    assert woken == [1]
+    assert timer_runs == [1]

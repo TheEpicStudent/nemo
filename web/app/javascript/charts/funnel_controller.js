@@ -268,7 +268,7 @@ export default class extends Controller {
       `<div class="row"><i class="ser-${seriesColor}"></i>${esc(this.labelValue || "count")}<b>${F(value)}</b></div>` +
       (i > 0 ? `<div class="row"><i class="ser-none"></i>of ${esc(stages[0].label)}<b>${
         share(value, g.first) || "n/a"}</b></div>` : "") +
-      (prev != null ? `<div class="row"><i class="ser-none"></i>of the step before<b>${
+      (prev != null ? `<div class="row"><i class="ser-none"></i>of previous step<b>${
         share(value, prev) || "n/a"}</b></div>` : "") +
       (stage.note ? `<div class="row row-note"><i></i>${esc(stage.note)}</div>` : "")
     tip.classList.add("on")
@@ -339,8 +339,8 @@ export default class extends Controller {
       values: [
         row(this.unit, F(value), { colorClass: `ser-${this.seriesColor}`, shape: "box" }),
         i > 0 && row(`of ${stages[0].label}`, share(value, first) || "n/a"),
-        prev != null && row("of the step before", share(value, prev) || "n/a"),
-        prev != null && row("lost from the step before", F(Math.max(prev - value, 0)))
+        prev != null && row("of previous step", share(value, prev) || "n/a"),
+        prev != null && row("drop from previous step", F(Math.max(prev - value, 0)))
       ].filter(Boolean)
     }
   }
@@ -376,22 +376,22 @@ export default class extends Controller {
         { key: "label", label: "Step", numeric: false },
         { key: "value", label: this.unit, numeric: true },
         { key: "first", label: stages.length ? `of ${stages[0].label}` : "of first", numeric: true },
-        { key: "before", label: "of the step before", numeric: true },
-        { key: "lost", label: "lost", numeric: true }
+        { key: "previous", label: "of previous step", numeric: true },
+        { key: "drop", label: "drop", numeric: true }
       ],
       rows: stages.map((stage, index) => {
         const value = values[index]
         const prev = index > 0 ? values[index - 1] : null
-        const lost = prev == null ? null : Math.max(prev - value, 0)
+        const drop = prev == null ? null : Math.max(prev - value, 0)
         return {
           index,
           values: {
             label: stage.label, value, first: ratio(value, first),
-            before: prev == null ? null : ratio(value, prev), lost
+            previous: prev == null ? null : ratio(value, prev), drop
           },
           display: {
             label: stage.label, value: F(value), first: share(value, first) || "n/a",
-            before: prev == null ? "" : share(value, prev) || "n/a", lost: lost == null ? "" : F(lost)
+            previous: prev == null ? "" : share(value, prev) || "n/a", drop: drop == null ? "" : F(drop)
           },
           note: null
         }

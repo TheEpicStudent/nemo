@@ -83,7 +83,7 @@ def fetch(channel_id, ts):
     except ProxyError as failure:
         log.warning("activity: could not read %s/%s: %s", channel_id, ts, failure)
         return None
-    return shaped((response or {}).get("stats") or {})
+    return parse_stats((response or {}).get("stats") or {})
 
 
 def share(count, total):
@@ -113,7 +113,7 @@ def curve(stats, span):
     return []
 
 
-def shaped(stats):
+def parse_stats(stats):
     return {
         "viewers": int(stats.get("num_users_viewed") or 0),
         "reacted": int(stats.get("num_users_reacted") or 0),

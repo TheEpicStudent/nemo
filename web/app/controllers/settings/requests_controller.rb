@@ -1,6 +1,6 @@
 module Settings
   class RequestsController < BaseController
-    before_action :require_reviewer, only: [:index, :settle]
+    before_action :require_reviewer, only: [:index, :decide]
 
     DECIDED_LIMIT = 50
 
@@ -9,35 +9,35 @@ module Settings
 
     def index
       pending = Api::AccessRequest.queue.includes(:app).to_a
-      decided = Api::AccessRequest.settled.includes(:app)
+      decided = Api::AccessRequest.decided.includes(:app)
         .order(decided_at: :desc).limit(DECIDED_LIMIT).to_a
 
       @rows = pending + decided.sort_by { |row| [RANK.fetch(row.state, 9), -row.decided_at.to_i] }
-      @waiting = pending.size
+      @pending_count = pending.size
       @names = Fd::Names.for(named_in(@rows))
     end
 
     def create
       app = Api::App.live.find_by(id: params[:app_id], owner_user_id: member_id)
-      return redirect_with_alert("That app is not yours") if app.nil?
+      return redirect_with_alert("Not your app") if app.nil?
 
-      Api::AccessRequest.ask!(app, reason: params[:reason])
-      redirect_to settings_keys_path, notice: "Asked for access for #{app.name}"
-    rescue Api::AccessRequest::TooThinError
-      redirect_with_alert "Describe what the app needs access for"
-    rescue Api::AccessRequest::AlreadyError
-      redirect_with_alert "that app has already asked"
+      Api::AccessRequest.submit!(app, reason: params[:reason])
+      redirect_to settings_keys_path, notice: "Access requested for #{app.name}"
+    rescue Api::AccessRequest::ReasonTooShortError
+      redirect_with_alert "Enter a reason"
+    rescue Api::AccessRequest::StateConflictError
+      redirect_with_alert "Access already requested"
     end
 
     def withdraw
       access_request = Api::AccessRequest.pending.includes(:app).find_by(id: params[:id])
-      return redirect_with_alert("That request is not yours") if access_request&.app&.owner_user_id != member_id
+      return redirect_with_alert("Not your request") if access_request&.app&.owner_user_id != member_id
 
       access_request.withdraw!
       redirect_to settings_keys_path, notice: "Withdrawn"
     end
 
-    def settle
+    def decide
       access_request = Api::AccessRequest.pending.includes(:app).find_by(id: params[:id])
       return redirect_to(settings_requests_path, alert: "Already settled") if access_request.nil?
 
@@ -60,7 +60,7 @@ module Settings
     def require_reviewer
       return if Authz.holds?(current_account, "api.review")
 
-      redirect_to settings_keys_path, alert: "You do not have permission to review API access"
+      redirect_to settings_keys_path, alert: "API review access required"
     end
   end
 end

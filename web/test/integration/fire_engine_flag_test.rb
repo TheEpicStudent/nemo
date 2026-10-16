@@ -2,7 +2,7 @@ require "test_helper"
 
 class FireEngineFlagTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
     Fd::Flag.delete_all
     Current.forget_flags
@@ -17,18 +17,18 @@ class FireEngineFlagTest < ActionDispatch::IntegrationTest
     Fd::Flag.set!(:fire_engine, false, by: @me.user_id)
   end
 
-  test "with it off, every fire engine page sends you to the overview" do
+  test "disabled fire_engine flag redirects every fire engine page to root" do
     disable_fire_engine
     kase = make_case
 
-    [fd_cases_path, fd_case_path(kase), fd_members_path, fd_search_path].each do |where|
-      get where
+    [fd_cases_path, fd_case_path(kase), fd_members_path, fd_search_path].each do |path|
+      get path
       assert_redirected_to root_path
       assert_match(/Fire Engine turned off/, flash[:alert])
     end
   end
 
-  test "with it off, writing to a case is refused too, not just reading one" do
+  test "disabled fire_engine flag redirects note create and creates no note" do
     disable_fire_engine
     kase = make_case
 
@@ -38,17 +38,17 @@ class FireEngineFlagTest < ActionDispatch::IntegrationTest
     assert_redirected_to root_path
   end
 
-  test "with it off, settings stays reachable so it can be turned back on" do
+  test "disabled fire_engine flag keeps admin flags page and flag update working" do
     disable_fire_engine
 
     get admin_flags_path
     assert_response :success
 
     patch fd_flag_path(key: "fire_engine", on: "1")
-    assert Fd::Flag.on?(:fire_engine), "the switch that turns it off must also turn it back on"
+    assert Fd::Flag.on?(:fire_engine), "flag update must re-enable fire_engine"
   end
 
-  test "with both sections off, the fallback is settings rather than a loop" do
+  test "disabled fire_engine and analytics flags redirect to account" do
     disable_fire_engine
     Fd::Flag.set!(:analytics, false, by: @me.user_id)
 
@@ -59,7 +59,7 @@ class FireEngineFlagTest < ActionDispatch::IntegrationTest
     assert_redirected_to account_path
   end
 
-  test "turning it off deletes nothing" do
+  test "disabling fire_engine keeps cases and re-enabling serves them" do
     kase = make_case
     disable_fire_engine
 

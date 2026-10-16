@@ -2,15 +2,15 @@ module Channels
   class Window
     PRESETS = [7, 30, 90].freeze
 
-    PULLED_SQL = "#{Joins::RANGE}.messages_posted_by_members".freeze
+    LOADED_SQL = "#{Joins::RANGE}.messages_posted_by_members".freeze
     ROLLED_SQL = "#{Joins::ROLLUP}.range_messages".freeze
 
-    attr_reader :days, :start_date, :end_date, :pulled_start, :pulled_end, :edge
+    attr_reader :days, :start_date, :end_date, :loaded_start, :loaded_end, :edge
 
     def self.from(params)
-      lo, hi = pulled_bounds
+      lo, hi = loaded_bounds
       new(days: params[:days], start_on: on(params[:start]), end_on: on(params[:end]),
-          pulled_start: lo, pulled_end: hi,
+          loaded_start: lo, loaded_end: hi,
           edge: Analytics::MartChannelActivity.maximum(:window_start))
     end
 
@@ -20,15 +20,15 @@ module Channels
       nil
     end
 
-    def self.pulled_bounds
+    def self.loaded_bounds
       row = Analytics::MartChannelRange
         .select("min(window_start) AS lo, max(window_end) AS hi").take
       [row&.lo, row&.hi]
     end
 
-    def initialize(days:, pulled_start:, pulled_end:, edge:, start_on: nil, end_on: nil)
-      @pulled_start = pulled_start
-      @pulled_end = pulled_end
+    def initialize(days:, loaded_start:, loaded_end:, edge:, start_on: nil, end_on: nil)
+      @loaded_start = loaded_start
+      @loaded_end = loaded_end
       @edge = edge
       @custom = resolve_custom_range(start_on, end_on)
       if @custom
@@ -37,8 +37,8 @@ module Channels
       end
 
       @days = resolve_days(days)
-      @end_date = pulled? ? @pulled_end : @edge
-      @start_date = pulled? ? @pulled_start : (@edge && @edge - (@days - 1))
+      @end_date = loaded? ? @loaded_end : @edge
+      @start_date = loaded? ? @loaded_start : (@edge && @edge - (@days - 1))
     end
 
     def custom?
@@ -46,27 +46,27 @@ module Channels
     end
 
     def floor
-      [@pulled_start, @edge && (@edge - 400)].compact.max
+      [@loaded_start, @edge && (@edge - 400)].compact.max
     end
 
     def ceiling
-      [@edge, @pulled_end].compact.max
+      [@edge, @loaded_end].compact.max
     end
 
-    def pulled_days
-      return nil if @pulled_start.nil? || @pulled_end.nil?
+    def loaded_days
+      return nil if @loaded_start.nil? || @loaded_end.nil?
 
-      (@pulled_end - @pulled_start).to_i + 1
+      (@loaded_end - @loaded_start).to_i + 1
     end
 
     def choices
-      ([pulled_days] + PRESETS).compact.uniq.sort
+      ([loaded_days] + PRESETS).compact.uniq.sort
     end
 
-    def pulled?
+    def loaded?
       return false if @custom
 
-      @edge.nil? || @days == pulled_days
+      @edge.nil? || @days == loaded_days
     end
 
     def adjustable?
@@ -74,7 +74,7 @@ module Channels
     end
 
     def join
-      return nil if pulled?
+      return nil if loaded?
 
       ActiveRecord::Base.sanitize_sql_array(
         ["LEFT JOIN (SELECT channel_id, sum(messages_posted_by_members) AS range_messages " \
@@ -85,19 +85,19 @@ module Channels
     end
 
     def measure_sql
-      pulled? ? PULLED_SQL : ROLLED_SQL
+      loaded? ? LOADED_SQL : ROLLED_SQL
     end
 
     def column
-      pulled? ? "#{PULLED_SQL} AS range_messages" : ROLLED_SQL
+      loaded? ? "#{LOADED_SQL} AS range_messages" : ROLLED_SQL
     end
 
     def measures
-      pulled? ? {} : { "messages" => ROLLED_SQL }
+      loaded? ? {} : { "messages" => ROLLED_SQL }
     end
 
     def requested_days
-      @days unless pulled? || @custom
+      @days unless loaded? || @custom
     end
 
     def requested_start
@@ -125,7 +125,7 @@ module Channels
       requested_days = requested.to_i
       return requested_days if choices.include?(requested_days)
 
-      pulled_days || PRESETS.min
+      loaded_days || PRESETS.min
     end
   end
 end

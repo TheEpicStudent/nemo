@@ -17,9 +17,9 @@ class ChannelPostsTest < ActionDispatch::IntegrationTest
   setup do
     @post = Analytics::FctMessage.where(is_reply: false, subtype: nil)
       .where.not(author_id: nil).where("author_id ~ '^[UW]'").order(posted_at: :desc).first
-    skip "the tiny seed holds no top-level post" if @post.nil?
+    skip "seed has no top-level post" if @post.nil?
 
-    @me = hold_role!(@post.author_id, "analytics")
+    @me = grant_role!(@post.author_id, "analytics")
     sign_in_as(@me)
     Rails.cache.clear
   end
@@ -54,8 +54,8 @@ class ChannelPostsTest < ActionDispatch::IntegrationTest
 
   def get_channel(**params) = get channel_path(@post.channel_id, **params)
 
-  test "a channel that does not show activity has no posts tab" do
-    stub_slack(->(*) { flunk "slack was asked without the tab" }) do
+  test "channel show without activity setting has no posts tab link" do
+    stub_slack(->(*) { flunk "slack called without posts tab" }) do
       get_channel
 
       assert_response :success
@@ -63,17 +63,17 @@ class ChannelPostsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "asking for the tab anyway falls back rather than erroring" do
-    stub_slack(->(*) { flunk "slack was asked without the tab" }) do
+  test "channel show view posts without activity setting renders overview" do
+    stub_slack(->(*) { flunk "slack called without posts tab" }) do
       get_channel(view: "posts")
 
       assert_response :success
       assert_match(/aria-current="true"[^>]*>\s*Overview|Overview\s*<\/a>/, response.body)
-      assert_no_match(/No posts here yet/, response.body)
+      assert_no_match(/No posts/, response.body)
     end
   end
 
-  test "a channel that shows activity has the tab" do
+  test "channel show with activity setting has posts tab link" do
     enable_activity!
     stub_slack(one_post) { get_channel }
 
@@ -81,7 +81,7 @@ class ChannelPostsTest < ActionDispatch::IntegrationTest
     assert_match(/view=posts/, response.body)
   end
 
-  test "the tab shows what the post said, read back from slack" do
+  test "posts view renders message text from conversations.history" do
     enable_activity!
     stub_slack(one_post) do |calls|
       get_channel(view: "posts")
@@ -94,17 +94,17 @@ class ChannelPostsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "no expand than three posts, with a word about older ones" do
+  test "posts view requests at most 3 messages and renders Message activity" do
     enable_activity!
     stub_slack(one_post) do |calls|
       get_channel(view: "posts")
 
       assert_operator calls.size, :<=, 3
-      assert_match(/View message activity/, response.body)
+      assert_match(/Message activity/, response.body)
     end
   end
 
-  test "each post opens its own activity page" do
+  test "posts view links each post to its message activity page" do
     enable_activity!
     stub_slack(one_post) do
       get_channel(view: "posts")
@@ -114,11 +114,11 @@ class ChannelPostsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "somebody else's posts are never listed" do
+  test "posts view excludes posts by other authors" do
     enable_activity!
     other = Analytics::FctMessage.where(channel_id: @post.channel_id, is_reply: false)
       .where.not(author_id: [@post.author_id, nil]).where("author_id ~ '^[UW]'").first
-    skip "the seed has nobody else in this channel" if other.nil?
+    skip "seed has no other author in channel" if other.nil?
 
     stub_slack(one_post) do |calls|
       get_channel(view: "posts")
@@ -128,13 +128,13 @@ class ChannelPostsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a post slack will not answer for leaves the page standing" do
+  test "posts view with unavailable slack proxy renders Message unavailable" do
     enable_activity!
     stub_slack(->(*) { raise Slack::ProxyClient::UnavailableError, "proxy returned 503" }) do
       get_channel(view: "posts")
 
       assert_response :success
-      assert_match(/would not answer/, response.body)
+      assert_match(/Message unavailable/, response.body)
     end
   end
 end

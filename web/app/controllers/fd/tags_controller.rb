@@ -20,14 +20,14 @@ module Fd
     def update
       tag = Tag.find(params[:id])
       previous = tag.name
-      return redirect_to(return_path, alert: "That is already its name.") if Tag.normalise(params[:name]) == previous
+      return redirect_to(return_path, alert: "Name unchanged") if Tag.normalise(params[:name]) == previous
 
       writing do
         tag.update!(name: params[:name])
         audit(tag, "renamed", before: { "name" => previous }, after: { "name" => tag.name })
       end
 
-      redirect_to return_path, notice: "#{previous} is now #{tag.name}"
+      redirect_to return_path, notice: "#{previous} renamed to #{tag.name}"
     rescue ActiveRecord::RecordInvalid => invalid
       redirect_to return_path, alert: invalid.record.errors.map(&:message).to_sentence
     end
@@ -35,8 +35,8 @@ module Fd
     def merge
       source = Tag.find(params[:id])
       target = Tag.find_by(name: Tag.normalise(params[:into]))
-      return redirect_to(return_path, alert: "Pick a tag to merge into.") if target.nil?
-      return redirect_to(return_path, alert: "Pick a different tag.") if target == source
+      return redirect_to(return_path, alert: "Select a tag") if target.nil?
+      return redirect_to(return_path, alert: "Select a different tag") if target == source
 
       cases = source.case_tags.count
       writing do
@@ -51,7 +51,7 @@ module Fd
     def destroy
       tag = Tag.find(params[:id])
       if tag.case_tags.exists?
-        return redirect_to(return_path, alert: "#{tag.name} is still on cases. Merge it instead.")
+        return redirect_to(return_path, alert: "#{tag.name} is in use")
       end
 
       writing do
@@ -61,7 +61,7 @@ module Fd
 
       redirect_to return_path, notice: "#{tag.name} removed"
     rescue ActiveRecord::InvalidForeignKey
-      redirect_to return_path, alert: "#{tag.name} is still on cases. Merge it instead."
+      redirect_to return_path, alert: "#{tag.name} is in use"
     end
 
     private

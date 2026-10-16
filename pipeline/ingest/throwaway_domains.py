@@ -11,7 +11,7 @@ SIGNALS_FILE = DB_DIR / "alt_signals.yml"
 LIST_URL = ("https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/"
             "main/disposable_email_blocklist.conf")
 LIST_FILE = "disposable_email_blocklist.conf"
-SMALLEST_LIST = 1000
+MIN_LIST_SIZE = 1000
 DOMAIN = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")
 
 LOAD_SQL = """
@@ -45,7 +45,7 @@ def merged(listed, picked):
 
 def run(conn):
     listed = domains_in(download_cached(LIST_FILE, LIST_URL).read_text())
-    if len(listed) < SMALLEST_LIST:
+    if len(listed) < MIN_LIST_SIZE:
         print(f"{SOURCE}: the list holds only {len(listed)} domain(s), keeping the ones already loaded")
         return 0
     rows = merged(listed, curated())

@@ -6,7 +6,7 @@ class FdClusterPageTest < ActionDispatch::IntegrationTest
   ROOT = "UPGA".freeze
 
   setup do
-    @me = hold_role!("UPGBOSS", "community_manager")
+    @me = grant_role!("UPGBOSS", "community_manager")
     sign_in_as(@me)
     %w[UPGA UPGB UPGC UPGD].each_with_index do |user_id, index|
       member!(user_id)
@@ -38,7 +38,7 @@ class FdClusterPageTest < ActionDispatch::IntegrationTest
     seeded!("fd.member_link_verdict", "a_user_id", a)
   end
 
-  test "the page opens on the overview with its tabs counted" do
+  test "cluster show renders overview with tab counts" do
     get fd_cluster_path(ROOT)
     assert_response :success
 
@@ -51,7 +51,7 @@ class FdClusterPageTest < ActionDispatch::IntegrationTest
     assert_select ".cluster-timeline svg circle.timeline-dot", 4
   end
 
-  test "values shared across the cluster are listed with who shares them" do
+  test "cluster show lists shared values with one face per account" do
     get fd_cluster_path(ROOT)
 
     row = css_select(".card table.data-table tbody tr").first
@@ -59,7 +59,7 @@ class FdClusterPageTest < ActionDispatch::IntegrationTest
     assert_equal 4, row.css(".facepile-face").size
   end
 
-  test "a verdict conflict offers to split on the weakest link between the two" do
+  test "cluster split cuts the weakest link as different_people" do
     get fd_cluster_path(ROOT)
     assert_select ".rv-alert.crit .rv-alert-title", "Verdict conflict"
     assert_select "button[data-modal-open=cluster-split]"
@@ -74,14 +74,14 @@ class FdClusterPageTest < ActionDispatch::IntegrationTest
     assert_equal ["different_people", "UPGBOSS", "Split cluster UPGA"], [cut.verdict, cut.decided_by, cut.note]
   end
 
-  test "a same person verdict is never cut, so the next weakest link goes" do
+  test "ClusterSplit#cuts skips same_person links and cuts the next lowest score" do
     verdict!("UPGB", "UPGC", "same_person")
 
     split = Fd::ClusterSplit.new(Fd::ClusterView.find(ROOT))
     assert_equal [%w[UPGA UPGB]], split.cuts.map { |cut| [cut.a_user_id, cut.b_user_id] }
   end
 
-  test "pairs held together only by same person verdicts cannot be split" do
+  test "ClusterSplit#possible? is false with same_person and allowed_alt on every link" do
     verdict!("UPGA", "UPGB", "same_person")
     verdict!("UPGB", "UPGC", "same_person")
     verdict!("UPGC", "UPGD", "allowed_alt")
@@ -89,13 +89,13 @@ class FdClusterPageTest < ActionDispatch::IntegrationTest
     assert_not Fd::ClusterSplit.new(Fd::ClusterView.find(ROOT)).possible?
   end
 
-  test "nothing to split without a conflict" do
+  test "cluster split without a verdict conflict flashes Nothing to split" do
     as_pipeline("DELETE FROM fd.member_link_verdict WHERE a_user_id = 'UPGA' AND b_user_id = 'UPGD'")
     post fd_cluster_split_path(ROOT)
-    assert_equal "nothing to split", flash[:alert]
+    assert_equal "Nothing to split", flash[:alert]
   end
 
-  test "an account opens in the side pane with its links and ways out" do
+  test "cluster node renders the side pane with related links and pivots" do
     get node_fd_cluster_path(ROOT, "UPGB"), headers: { "Turbo-Frame" => "cluster-node" }
     assert_response :success
 
@@ -107,7 +107,7 @@ class FdClusterPageTest < ActionDispatch::IntegrationTest
     assert_select "aside.side-pane > turbo-frame#cluster-node[data-controller=side-pane]"
   end
 
-  test "an account opened outside the pane lands on the cluster with its pane open" do
+  test "cluster node outside a turbo frame redirects to the cluster with node param" do
     get node_fd_cluster_path(ROOT, "upgb")
     assert_redirected_to fd_cluster_path(ROOT, node: "UPGB")
 
@@ -117,14 +117,14 @@ class FdClusterPageTest < ActionDispatch::IntegrationTest
     assert_select "aside.side-pane > turbo-frame#cluster-node:not([src])"
   end
 
-  test "the verdicts tab lists who decided what" do
+  test "verdicts tab lists one row with its verdict state" do
     get fd_cluster_path(ROOT, tab: "verdicts")
 
     assert_select "tbody tr", 1
     assert_select "tbody .state", "Different people"
   end
 
-  test "the accounts tab compares each account with the oldest" do
+  test "accounts tab lists four rows and a compare link against the root" do
     get fd_cluster_path(ROOT, tab: "accounts")
 
     assert_select "tbody tr", 4

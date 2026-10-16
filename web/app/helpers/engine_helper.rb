@@ -71,10 +71,10 @@ module EngineHelper
     "#{(minutes / 1440).round(1)} d"
   end
 
-  CELL_LABELS = { "ok" => "ran", "fail" => "failed here", "run" => "running now",
-                "part" => "ran, some of it failed", "stop" => "cancelled", "gone" => "abandoned",
-                "skip" => "nothing to do", "wait" => "not started yet",
-                "none" => "did not run" }.freeze
+  CELL_LABELS = { "ok" => "ran", "fail" => "failed", "run" => "running",
+                "part" => "partial", "stop" => "cancelled", "gone" => "abandoned",
+                "skip" => "skipped", "wait" => "not started",
+                "none" => "not run" }.freeze
 
   def cell_label(cell)
     CELL_LABELS.fetch(cell, cell)
@@ -121,7 +121,7 @@ module EngineHelper
     per = UNIT_COST[source.endpoint]
     return "n/a" if per.nil?
 
-    "#{name} of #{Engine::Setting.value(source.key, name)}, #{per}"
+    "#{name} #{Engine::Setting.value(source.key, name)}, #{per}"
   end
 
   def run_status_tally(statuses)
@@ -149,9 +149,9 @@ module EngineHelper
   end
 
   def worker_chip(worker)
-    return tag.span("Orphaned, no worker heartbeat", class: "chip chip-crit") if worker.nil?
+    return tag.span("Orphaned · no heartbeat", class: "chip chip-crit") if worker.nil?
 
-    tag.span("Orphaned, worker cold #{short_age(worker.beat_at)}", class: "chip chip-crit")
+    tag.span("Orphaned · heartbeat #{short_age(worker.beat_at)} ago", class: "chip chip-crit")
   end
 
   def step_progress(progress)
@@ -161,8 +161,8 @@ module EngineHelper
     total ? "step #{progress.step_index} of #{total}" : "step #{progress.step_index}"
   end
 
-  DAY_STATES = { "no" => "before the job existed", "un" => "Slack has no file for",
-                 "on" => "held" }.freeze
+  DAY_STATES = { "no" => "before start", "un" => "unavailable",
+                 "on" => "loaded" }.freeze
 
   def day_shares(never_fetched, unavailable, loaded)
     total = never_fetched + unavailable + loaded
@@ -189,7 +189,7 @@ module EngineHelper
     age = "#{time_ago_in_words(row.age_from)} ago"
     return tag.span(age, class: "delta-note") unless run_stale?(row)
 
-    tag.span("#{age.upcase_first}, the nightly should run daily", class: "chip chip-warn")
+    tag.span("Stale · #{age}", class: "chip chip-warn")
   end
 
   def output_size(text)

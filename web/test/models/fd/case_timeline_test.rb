@@ -36,7 +36,7 @@ class Fd::CaseTimelineTest < ActiveSupport::TestCase
     Fd::CaseTimeline.for(kase, reports:, actions:, notes:, participants:, assignees:)
   end
 
-  test "entries run oldest first regardless of which table they came from" do
+  test "for orders entries from all sources by time ascending" do
     entries = build(
       kase,
       reports: [report],
@@ -49,14 +49,14 @@ class Fd::CaseTimelineTest < ActiveSupport::TestCase
     assert_equal entries.map(&:at).sort, entries.map(&:at)
   end
 
-  test "an anonymous report is chipped and never names anybody" do
+  test "anonymous report entry has anonymous chip and no mention in detail" do
     entry = build(kase, reports: [report(body: "they keep at it")]).first
     assert_equal ["anonymous"], entry.chips
     assert_equal "they keep at it", entry.body
     assert_no_match(/@/, entry.detail)
   end
 
-  test "an identified reporter is named once" do
+  test "identified report entry detail includes reporter source and no reply" do
     person = Fd::CaseParticipant.new(user_id: "UT", role: "subject")
     entry = build(
       kase,
@@ -66,19 +66,19 @@ class Fd::CaseTimelineTest < ActiveSupport::TestCase
     assert_equal "by @UT · via relay · no reply yet", entry.detail
   end
 
-  test "reply latency is stated in words rather than seconds" do
+  test "report entry detail states reply latency in minutes" do
     row = report(is_anonymous: false, reporter_user_id: "UR",
       first_replied_at: OPENED - 10.minutes + 12.minutes)
     assert_includes build(kase, reports: [row]).first.detail, "replied in 12 minutes"
   end
 
-  test "assignment is measured from opening" do
+  test "assigned entry detail shows minutes after opening" do
     entry = build(kase, assignees: [assignee("UFF2", OPENED + 28.minutes)])
       .find { |e| e.title == "Assigned" }
     assert_equal "@UFF2 · 28 minutes after opening", entry.detail
   end
 
-  test "every assignee gets their own entry, at the moment they took it" do
+  test "each assignee produces an Assigned entry at assigned_at" do
     entries = build(kase, assignees: [
       assignee("UFF2", OPENED + 28.minutes),
       assignee("UFF3", OPENED + 2.hours)
@@ -88,29 +88,29 @@ class Fd::CaseTimelineTest < ActiveSupport::TestCase
     assert_equal [OPENED + 28.minutes, OPENED + 2.hours], entries.map(&:at)
   end
 
-  test "a case put on somebody by another firefighter says who did it" do
+  test "assigned entry detail includes assigned_by when it differs" do
     entry = build(kase, assignees: [assignee("UFF3", OPENED + 1.hour, by: "UFF2")])
       .find { |e| e.title == "Assigned" }
     assert_equal "@UFF3 · by @UFF2 · an hour after opening", entry.detail
   end
 
-  test "an action performed by somebody other than the decider says who" do
+  test "action entry detail includes performer when it differs from decider" do
     entry = build(kase, actions: [action(type_key: "locked_thread", performed_by: "UMNEMOSYNE",
       details: { "channel_id" => "C123" })]).last
     assert_equal "Locked thread", entry.title
-    assert_equal "taken by @UFF1 · performed by @UMNEMOSYNE · in C123", entry.detail
+    assert_equal "decided by @UFF1 · performed by @UMNEMOSYNE · in C123", entry.detail
   end
 
-  test "an action on somebody other than the subject says who" do
+  test "action entry detail starts with target when it is not the subject" do
     entry = build(kase, actions: [action(target_user_id: "UOTHER")]).last
     assert_match(/\Aon @UOTHER · /, entry.detail)
   end
 
-  test "an action against the subject does not repeat the subject" do
+  test "action entry detail omits target when it is the subject" do
     assert_no_match(/on @USUB/, build(kase, actions: [action]).last.detail)
   end
 
-  test "a reversal is its own entry at its own time" do
+  test "reversed action adds a reversal entry at reversed_at" do
     row = action(reversed_at: OPENED + 2.days, reversed_by: "UFF2", reversal_reason: "appeal upheld")
     entries = build(kase, actions: [row])
     assert_equal ["Opened", "Warning", "Warning reversed"], entries.map(&:title)
@@ -139,7 +139,7 @@ class Fd::CaseTimelineTest < ActiveSupport::TestCase
     end
   end
 
-  test "a standing note is marked as being about the member" do
+  test "note with subject_user_id has about chip and byline detail" do
     entry = build(kase, notes: [note(subject_user_id: "USUB", body: "escalates in public")])
       .find { |e| e.title == "Note added" }
     assert_equal ["about @USUB"], entry.chips
@@ -147,22 +147,22 @@ class Fd::CaseTimelineTest < ActiveSupport::TestCase
     assert_equal "by @UFF1", entry.detail
   end
 
-  test "a case note carries no chip" do
+  test "note with case_id has no chips" do
     entry = build(kase, notes: [note(case_id: 1)]).find { |e| e.title == "Note added" }
     assert_empty entry.chips
   end
 
-  test "resolution quotes what the member was told and flags when they were told nothing" do
+  test "resolved entry body is member_note and detail flags no outcome sent" do
     resolved = build(kase(resolved_at: OPENED + 1.day, resolution: "action_taken",
       member_note: "we spoke to them")).last
     assert_equal "we spoke to them", resolved.body
     assert_no_match(/not told/, resolved.detail)
 
     no_action_entry = build(kase(resolved_at: OPENED + 1.day, resolution: "no_action")).last
-    assert_match(/the member was not told/, no_action_entry.detail)
+    assert_match(/no outcome sent/, no_action_entry.detail)
   end
 
-  test "a case with nothing attached still records that it was opened" do
+  test "case without attachments yields only an Opened entry" do
     entries = build(kase)
     assert_equal ["Opened"], entries.map(&:title)
     assert_equal "by @UFF1", entries.first.detail

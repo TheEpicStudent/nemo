@@ -25,7 +25,7 @@
     <%= form_with url: url, method: :get, class: "contents",
           data: { controller: "daterange", turbo_action: "replace",
                   daterange_min_value: min&.iso8601, daterange_max_value: max&.iso8601 } do %>
-      <% Array(local_assigns[:carry]).each do |key, value| %>
+      <% Array(local_assigns[:hidden_params]).each do |key, value| %>
         <%= hidden_field_tag key, value, id: nil %>
       <% end %>
       <%= hidden_field_tag :start, start_on&.iso8601, id: nil, data: { daterange_target: "start" } %>
@@ -38,7 +38,7 @@
         </svg>
         <span data-daterange-target="label"><%= date_range_label(start_on, end_on) %></span>
       </button>
-      <div class="daterange-pop" popover="manual" role="dialog" aria-label="Pick a range"
+      <div class="daterange-pop" popover="manual" role="dialog" aria-label="Range"
            data-daterange-target="pop"></div>
     <% end %>
   <% end %>

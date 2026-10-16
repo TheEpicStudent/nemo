@@ -7,7 +7,7 @@ module Fd
                        decided_by: "UFF1", performed_by: "UFF1" }.merge(attrs))
     end
 
-    test "a plain action is active" do
+    test "action without expiry or reversal is active" do
       subject = action
       assert_not subject.reversed?
       assert_not subject.expires?
@@ -15,7 +15,7 @@ module Fd
       assert subject.active?
     end
 
-    test "an action with a future expiry is not yet expired" do
+    test "action with future expires_at is not expired and is active" do
       subject = action(expires_at: 5.days.from_now)
       assert subject.expires?
       assert_not subject.expired?
@@ -28,13 +28,13 @@ module Fd
       assert_not subject.active?
     end
 
-    test "expiry is evaluated at the time you ask about" do
+    test "expired? evaluates expires_at at the given time" do
       subject = action(expires_at: 5.days.from_now)
       assert_not subject.expired?(Time.current)
       assert subject.expired?(6.days.from_now)
     end
 
-    test "a reversed action is not expired, it is reversed" do
+    test "reversed action with past expires_at is not expired or active" do
       subject = action(expires_at: 1.hour.ago, reversed_at: 2.hours.ago, reversed_by: "UFF2")
       assert subject.reversed?
       assert_not subject.expired?
@@ -79,7 +79,7 @@ module Fd
       assert_equal [live_expiring], kase.actions.expiring.to_a
     end
 
-    test "for_target finds actions aimed at someone who is not the subject" do
+    test "for_target finds actions whose target is not the case subject" do
       kase = make_case(subject: "USEED0000001",
         external_ref: "test:action:target")
       to_subject = Fd::Action.create!(case_id: kase.id, type_key: "warning",

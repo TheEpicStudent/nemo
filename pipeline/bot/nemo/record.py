@@ -1,24 +1,24 @@
 from bot.core.formatting import short_end
 from bot.nemo.views import action, report
 
-ROWS = 8
+ROW_LIMIT = 8
 
 COUNTS = """
 SELECT
   (SELECT count(*) FROM fd.case_participants
-   WHERE user_id = %(who)s AND role = 'subject') AS subject_of,
+   WHERE user_id = %(user_id)s AND role = 'subject') AS subject_case_count,
   (SELECT count(DISTINCT case_id) FROM fd.case_participants
-   WHERE user_id = %(who)s) AS logged_in,
+   WHERE user_id = %(user_id)s) AS case_count,
   (SELECT count(*) FROM fd.member_guards
-   WHERE subject_id = %(who)s AND state IN ('live', 'lifting')) AS live,
+   WHERE subject_id = %(user_id)s AND state IN ('live', 'lifting')) AS active_guard_count,
   (SELECT count(*) FROM fd.actions
-   WHERE target_user_id = %(who)s AND reversed_at IS NOT NULL) AS reversed
+   WHERE target_user_id = %(user_id)s AND reversed_at IS NOT NULL) AS reversed_action_count
 """
 
 IN_FORCE = """
 SELECT kind, expires_at, channel_id, case_id, enforcement_status, enforced_by
 FROM fd.member_guards
-WHERE subject_id = %(who)s AND state IN ('live', 'lifting')
+WHERE subject_id = %(user_id)s AND state IN ('live', 'lifting')
 ORDER BY array_position(%(worst_first)s::text[], kind), opened_at DESC
 LIMIT 1
 """
@@ -26,30 +26,30 @@ LIMIT 1
 ENTRIES = """
 WITH entries AS (
   SELECT c.opened_at AS at, 'cases' AS kind, c.id AS case_id,
-         c.category_key AS what, c.resolution AS who_by, NULL::text AS note
+         c.category_key AS type_key, c.resolution AS actor_or_resolution, NULL::text AS note
   FROM fd.cases c
   JOIN fd.case_participants p ON p.case_id = c.id AND p.role = 'subject'
-  WHERE p.user_id = %(who)s
+  WHERE p.user_id = %(user_id)s
 
   UNION ALL
   SELECT a.performed_at, 'actions', a.case_id, a.type_key, a.performed_by, NULL::text
   FROM fd.actions a
-  WHERE a.target_user_id = %(who)s
+  WHERE a.target_user_id = %(user_id)s
 
   UNION ALL
   SELECT a.reversed_at, 'reversed', a.case_id, a.type_key, a.reversed_by, a.reversal_reason
   FROM fd.actions a
-  WHERE a.target_user_id = %(who)s AND a.reversed_at IS NOT NULL
+  WHERE a.target_user_id = %(user_id)s AND a.reversed_at IS NOT NULL
 
   UNION ALL
   SELECT n.created_at, 'notes', NULL::bigint, NULL::text, n.author, n.body
   FROM fd.notes n
-  WHERE n.subject_user_id = %(who)s AND n.deleted_at IS NULL
+  WHERE n.subject_user_id = %(user_id)s AND n.deleted_at IS NULL
 )
-SELECT count(*) OVER () AS total, at, kind, case_id, what, who_by, note
+SELECT count(*) OVER () AS total, at, kind, case_id, type_key, actor_or_resolution, note
 FROM entries
 ORDER BY at DESC
-LIMIT %(rows)s
+LIMIT %(row_limit)s
 """
 
 
@@ -58,20 +58,20 @@ def worst_first():
     return sorted(table, key=lambda key: table[key]["weight"])
 
 
-def read(conn, user_id, rows=ROWS):
-    counts = conn.execute(COUNTS, {"who": user_id}).fetchone()
+def read(conn, user_id, row_limit=ROW_LIMIT):
+    counts = conn.execute(COUNTS, {"user_id": user_id}).fetchone()
     in_force_row = conn.execute(
-        IN_FORCE, {"who": user_id, "worst_first": worst_first()}
+        IN_FORCE, {"user_id": user_id, "worst_first": worst_first()}
     ).fetchone()
-    entry_rows = conn.execute(ENTRIES, {"who": user_id, "rows": rows}).fetchall()
+    entry_rows = conn.execute(ENTRIES, {"user_id": user_id, "row_limit": row_limit}).fetchall()
 
     return {
         "user_id": user_id,
         "counts": {
-            "subject_of": counts[0],
-            "logged_in": counts[1],
-            "live": counts[2],
-            "reversed": counts[3],
+            "subject_case_count": counts[0],
+            "case_count": counts[1],
+            "active_guard_count": counts[2],
+            "reversed_action_count": counts[3],
         },
         "in_force": (
             {
@@ -91,8 +91,8 @@ def read(conn, user_id, rows=ROWS):
                 "at": row[1],
                 "kind": row[2],
                 "case_id": row[3],
-                "what": row[4],
-                "who_by": row[5],
+                "type_key": row[4],
+                "actor_or_resolution": row[5],
                 "note": row[6],
             }
             for row in entry_rows
@@ -104,14 +104,14 @@ def format_date(at):
     return at.strftime("%-d %b %Y") if at else "n/a"
 
 
-def counted(counts):
+def format_counts(counts):
     parts = [
-        f"{counts['subject_of']} as subject",
-        f"{counts['logged_in']} case{'' if counts['logged_in'] == 1 else 's'}",
-        f"{counts['live']} active",
+        f"{counts['subject_case_count']} as subject",
+        f"{counts['case_count']} case{'' if counts['case_count'] == 1 else 's'}",
+        f"{counts['active_guard_count']} active",
     ]
-    if counts["reversed"]:
-        parts.append(f"{counts['reversed']} reversed")
+    if counts["reversed_action_count"]:
+        parts.append(f"{counts['reversed_action_count']} reversed")
     return "  ·  ".join(parts)
 
 
@@ -136,25 +136,25 @@ def in_force_line(guard):
 
     if guard.get("enforced_by") == "by_hand":
         return f"{text}, manual"
-    caveat = ENFORCEMENT_STATUS_LABELS.get(guard.get("enforcement_status"))
-    return f"{text}, {caveat}" if caveat else text
+    status_label = ENFORCEMENT_STATUS_LABELS.get(guard.get("enforcement_status"))
+    return f"{text}, {status_label}" if status_label else text
 
 
-def line(entry):
+def entry_line(entry):
     at = format_date(entry["at"])
     if entry["kind"] == "cases":
-        what = report.category_label(entry["what"]) or "not set"
-        ending = f", {entry['who_by'].replace('_', ' ')}" if entry["who_by"] else ", open"
-        return f"{at}  ·  case {entry['case_id']}, {what.lower()}{ending}"
+        category = report.category_label(entry["type_key"]) or "not set"
+        ending = f", {entry['actor_or_resolution'].replace('_', ' ')}" if entry["actor_or_resolution"] else ", open"
+        return f"{at}  ·  case {entry['case_id']}, {category.lower()}{ending}"
 
     if entry["kind"] == "actions":
         return (
-            f"{at}  ·  {action.label(entry['what']).lower()}"
-            f" on case {entry['case_id']}, by <@{entry['who_by']}>"
+            f"{at}  ·  {action.label(entry['type_key']).lower()}"
+            f" on case {entry['case_id']}, by <@{entry['actor_or_resolution']}>"
         )
 
     if entry["kind"] == "reversed":
-        text = f"{at}  ·  {action.label(entry['what']).lower()} reversed by <@{entry['who_by']}>"
+        text = f"{at}  ·  {action.label(entry['type_key']).lower()} reversed by <@{entry['actor_or_resolution']}>"
         return f"{text}, {entry['note']}" if entry["note"] else text
 
-    return f"{at}  ·  note by <@{entry['who_by']}>: {entry['note']}"
+    return f"{at}  ·  note by <@{entry['actor_or_resolution']}>: {entry['note']}"

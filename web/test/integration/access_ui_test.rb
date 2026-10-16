@@ -2,9 +2,9 @@ require "test_helper"
 
 class AccessUiTest < ActionDispatch::IntegrationTest
   setup do
-    @manager = hold_role!("UAUIBOSS", "community_manager")
+    @manager = grant_role!("UAUIBOSS", "community_manager")
     @firefighter = Account.create!(user_id: "UAUITHEM")
-    hold_role!(@firefighter.user_id, "firefighter")
+    grant_role!(@firefighter.user_id, "firefighter")
     Current.forget_roles
     sign_in_as(@manager)
   end
@@ -14,25 +14,25 @@ class AccessUiTest < ActionDispatch::IntegrationTest
     Authz.effective_capabilities(@firefighter.user_id)
   end
 
-  test "the manage page shows the role and what they hold" do
+  test "admin person page responds success" do
     get admin_person_path(@firefighter.user_id)
 
     assert_response :success
   end
 
-  test "a manager takes one capability off a firefighter, and puts it back" do
+  test "capability deny removes slack.link and delete restores it" do
     assert_includes capabilities.keys, "slack.link"
 
     patch admin_person_capability_path(@firefighter.user_id),
       params: { key: "slack.link", effect: "deny" }
     assert_redirected_to admin_person_path(@firefighter.user_id)
-    assert_not_includes capabilities.keys, "slack.link", "the deny takes it off them"
+    assert_not_includes capabilities.keys, "slack.link", "deny removes the capability"
 
     delete admin_person_capability_path(@firefighter.user_id), params: { key: "slack.link" }
-    assert_includes capabilities.keys, "slack.link", "back to the role default"
+    assert_includes capabilities.keys, "slack.link", "revoke restores the role default"
   end
 
-  test "a manager gives a capability no role carries" do
+  test "capability allow adds channel.backfill as added" do
     assert_not_includes capabilities.keys, "channel.backfill"
 
     patch admin_person_capability_path(@firefighter.user_id),
@@ -41,7 +41,7 @@ class AccessUiTest < ActionDispatch::IntegrationTest
     assert_equal "added", capabilities["channel.backfill"]
   end
 
-  test "the locked granting capability cannot be delegated" do
+  test "capability allow for access.grant alerts cannot be delegated" do
     patch admin_person_capability_path(@firefighter.user_id),
       params: { key: "access.grant", effect: "allow" }
 
@@ -49,20 +49,20 @@ class AccessUiTest < ActionDispatch::IntegrationTest
     assert_not_includes capabilities.keys, "access.grant"
   end
 
-  test "naming a firefighter on a channel keeps their role, and they can already see it" do
+  test "channel grant for firefighter keeps role and adds no capability" do
     channel = Analytics::DimChannel.where(archived: false).first
-    assert_includes capabilities.keys, "channel.all", "a firefighter already reads every channel"
+    assert_includes capabilities.keys, "channel.all", "firefighter has channel.all"
 
     post admin_person_channel_grants_path(@firefighter.user_id),
       params: { channel_id: channel.channel_id }
 
-    assert_equal ["firefighter"], Authz.effective_roles(@firefighter.user_id), "they are not demoted"
+    assert_equal ["firefighter"], Authz.effective_roles(@firefighter.user_id), "role is unchanged"
     assert_empty Authz::Grant.live.for_person(@firefighter.user_id).capabilities,
-      "the baseline already covers it, nothing is added"
+      "no capability grant is added"
     assert Channels::Audience.may_see?(@firefighter, channel)
   end
 
-  test "naming somebody with no role on a channel lets them read it without a role" do
+  test "channel grant for account without role allows channel visibility and assigns no role" do
     channel = Analytics::DimChannel.where(archived: false).first
     bare = Account.create!(user_id: "UAUIBARE2")
 
@@ -70,11 +70,11 @@ class AccessUiTest < ActionDispatch::IntegrationTest
       params: { channel_id: channel.channel_id }
     Current.forget_roles
 
-    assert_empty Authz.effective_roles(bare.user_id), "naming a channel hands out no role"
+    assert_empty Authz.effective_roles(bare.user_id), "no role is assigned"
     assert Channels::Audience.may_see?(bare, channel)
   end
 
-  test "a channel that is not a channel is refused" do
+  test "channel grant with unknown channel_id alerts is not a channel" do
     post admin_person_channel_grants_path(@firefighter.user_id), params: { channel_id: "C0NOPE" }
 
     assert_match(/is not a channel/, flash[:alert])
@@ -84,7 +84,7 @@ class AccessUiTest < ActionDispatch::IntegrationTest
     Fd::AuditEntry.where(entity_type: type, entity_ref: ref).oldest_first
   end
 
-  test "naming somebody on a channel and taking it back both reach the audit" do
+  test "channel grant and revoke write granted and revoked audit entries" do
     channel = Analytics::DimChannel.where(archived: false).first
 
     post admin_person_channel_grants_path(@firefighter.user_id),
@@ -100,7 +100,7 @@ class AccessUiTest < ActionDispatch::IntegrationTest
       .find_by(user_id: @firefighter.user_id, channel_id: channel.channel_id)
   end
 
-  test "taking a capability back reaches the audit" do
+  test "capability revoke writes a revoked audit entry" do
     patch admin_person_capability_path(@firefighter.user_id),
       params: { key: "channel.backfill", effect: "allow" }
     delete admin_person_capability_path(@firefighter.user_id), params: { key: "channel.backfill" }
@@ -113,14 +113,14 @@ class AccessUiTest < ActionDispatch::IntegrationTest
     assert_not_includes capabilities.keys, "channel.backfill"
   end
 
-  test "taking back a capability that does not exist is refused, not a 500" do
+  test "capability revoke with unknown key redirects with is not a capability alert" do
     delete admin_person_capability_path(@firefighter.user_id), params: { key: "case.explode" }
 
     assert_redirected_to admin_person_path(@firefighter.user_id)
     assert_match(/is not a capability/, flash[:alert])
   end
 
-  test "the gardener set is shared, and says how many it reaches" do
+  test "role channel grant allows channel visibility for role holders" do
     channel = Analytics::DimChannel.where(archived: false).first
     Authz::Grant.grant!(@firefighter.user_id, kind: "role", name: "gardener", by: @manager.user_id)
     Current.forget_roles
@@ -130,10 +130,10 @@ class AccessUiTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     Current.forget_roles
-    assert Channels::Audience.may_see?(@firefighter, channel), "the set reaches everyone holding the role"
+    assert Channels::Audience.may_see?(@firefighter, channel), "role channel set grants visibility to role holders"
   end
 
-  test "a member with no grant still reaches their own page" do
+  test "account page responds success without grants" do
     bare = Account.create!(user_id: "UAUIBARE")
     sign_in_as(bare)
 

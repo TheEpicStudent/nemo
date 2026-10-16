@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdActionSettleTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
     @kase = make_case(opened_at: 3.days.ago)
   end
@@ -29,7 +29,7 @@ class FdActionSettleTest < ActionDispatch::IntegrationTest
     Fd::AuditEntry.where(entity_type: "member_guard", verb: verb)
   end
 
-  test "a new action is always enforced, nothing is asked" do
+  test "create action opens a pending nemo guard and one opened audit entry" do
     act
     guard = guards.sole
     assert_equal "shush", guard.kind
@@ -40,24 +40,24 @@ class FdActionSettleTest < ActionDispatch::IntegrationTest
     assert_equal 1, audit_entries("opened").count
   end
 
-  test "a record only kind is logged without enforcing anything" do
+  test "create warning action logs the action and opens no guard" do
     act(type_key: "warning", expires_on: nil)
     assert_empty guards
     assert_nil last_action.guard_id
     assert_equal "warning", last_action.type_key
   end
 
-  test "a workspace kind is enforced without the channel it was handed" do
+  test "create shush action stores no channel_id on the guard" do
     act(channel_id: "C0266FRGV")
     assert_nil guards.sole.channel_id
   end
 
-  test "a channel ban is enforced in the channel it names" do
+  test "create channel_ban action stores channel_id on the guard" do
     act(type_key: "channel_ban", channel_id: "C0266FRGV")
     assert_equal "C0266FRGV", guards.sole.channel_id
   end
 
-  test "choosing one already standing attaches it and logs it, without a second guard" do
+  test "create action with standing_guard_id attaches the guard and opens no second guard" do
     guard = guard!
     act(standing_guard_id: guard.id)
 
@@ -69,7 +69,7 @@ class FdActionSettleTest < ActionDispatch::IntegrationTest
     assert_empty audit_entries("opened")
   end
 
-  test "the logged action takes its shape from the guard, not the form" do
+  test "create action with standing_guard_id copies guard attributes over form params" do
     guard = guard!(kind: "channel_ban", channel_id: "C0266FRGV",
       reason: "off topic", expires_at: 30.days.from_now)
     act(standing_guard_id: guard.id, type_key: "warning", reason: "something else")
@@ -80,17 +80,17 @@ class FdActionSettleTest < ActionDispatch::IntegrationTest
     assert_equal guard.expires_at.to_i, last_action.expires_at.to_i
   end
 
-  test "choosing one already on another case links it without moving it" do
+  test "create action with guard on another case links it and keeps its case_id" do
     other = make_case
     guard = guard!(case_id: other.id)
     act(standing_guard_id: guard.id)
 
-    assert_equal other.id, guard.reload.case_id, "it is not stolen from its case"
+    assert_equal other.id, guard.reload.case_id, "guard case_id is unchanged"
     assert_equal guard.id, last_action.guard_id
     assert_empty audit_entries("attached")
   end
 
-  test "choosing one already on this case is refused, not logged again" do
+  test "create action with guard already on this case alerts and logs no action" do
     guard = guard!(case_id: @kase.id)
     act(standing_guard_id: guard.id)
 
@@ -99,7 +99,7 @@ class FdActionSettleTest < ActionDispatch::IntegrationTest
     assert_match(/already on this case/, flash[:alert])
   end
 
-  test "choosing one needs none of the fields the form would otherwise want" do
+  test "create action with standing_guard_id accepts blank type_key and reason and expires_on" do
     guard = guard!
     act(standing_guard_id: guard.id, type_key: "", reason: "", expires_on: "")
 
@@ -107,16 +107,16 @@ class FdActionSettleTest < ActionDispatch::IntegrationTest
     assert_equal 1, @kase.actions.count
   end
 
-  test "a guard standing on somebody else cannot be attached" do
+  test "create action with guard of another subject does not attach it" do
     guard = guard!(subject_id: "USOMEBODY")
     act(standing_guard_id: guard.id)
 
     assert_nil guard.reload.case_id
-    assert_equal "shush", last_action.type_key, "it falls through to logging a new one"
+    assert_equal "shush", last_action.type_key, "a new action is logged"
     assert_not_equal guard.id, last_action.guard_id
   end
 
-  test "a lifted guard cannot be attached" do
+  test "create action with lifted guard does not attach it" do
     guard = guard!(state: "lifted", lifted_at: Time.current, lifted_by: "UMOD")
     act(standing_guard_id: guard.id)
 
@@ -124,21 +124,21 @@ class FdActionSettleTest < ActionDispatch::IntegrationTest
     assert_not_equal guard.id, last_action.guard_id
   end
 
-  test "a second action of the same kind cannot open a second guard" do
+  test "create action of the same kind on the case opens no second guard" do
     guard!(case_id: @kase.id)
     act
     assert_equal 1, guards.count
   end
 
-  test "nothing is written at all when the action itself is refused" do
-    drop_roles!("UME")
-    hold_role!("UME", "gardener")
+  test "create action without permission writes no guard and no action" do
+    revoke_roles!("UME")
+    grant_role!("UME", "gardener")
     act
     assert_empty guards
     assert_empty @kase.actions
   end
 
-  test "a guard held by another case is logged here once, not twice" do
+  test "create action twice with guard on another case logs one action and alerts" do
     other = make_case
     guard = guard!(case_id: other.id)
     act(standing_guard_id: guard.id)
@@ -149,7 +149,7 @@ class FdActionSettleTest < ActionDispatch::IntegrationTest
     assert_match(/already logged on this case/, flash[:alert])
   end
 
-  test "an orphaned guard is attached once, then refused" do
+  test "create action twice with guard without case attaches once and alerts" do
     guard = guard!(case_id: nil)
     act(standing_guard_id: guard.id)
     act(standing_guard_id: guard.id)

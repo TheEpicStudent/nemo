@@ -4,7 +4,7 @@ from lib import useragent
 
 UPSERT_SQL = """
 INSERT INTO slack.user_agent (ua, app, os, read_at)
-SELECT ua, app, os, now() FROM unnest(%s::text[], %s::text[], %s::text[]) AS fresh(ua, app, os)
+SELECT ua, app, os, now() FROM unnest(%s::text[], %s::text[], %s::text[]) AS incoming(ua, app, os)
 ON CONFLICT (md5(ua)) DO NOTHING
 """
 

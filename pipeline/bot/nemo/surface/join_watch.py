@@ -9,13 +9,13 @@ log = logging.getLogger("bot.nemo")
 
 
 @on_event("team_join", open_to_all=True)
-def arrived(ctx):
+def record_team_join(ctx):
     user = new_members.valid_user((ctx.payload or {}).get("user"))
     if user is None:
         return None
 
     with session() as conn:
-        is_new = new_members.arrived(conn, user)
+        is_new = new_members.record_join(conn, user)
 
     log.info("nemo: %s joined the workspace%s", user["id"], "" if is_new else ", already known")
     if not is_new:
@@ -44,7 +44,7 @@ def score_links(user_id):
 
 
 @on_event("user_change", open_to_all=True)
-def changed(ctx):
+def record_user_change(ctx):
     user = new_members.valid_user((ctx.payload or {}).get("user"))
     if user is None:
         return None

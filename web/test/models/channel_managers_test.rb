@@ -53,7 +53,7 @@ class ChannelManagersTest < ActiveSupport::TestCase
     }, &block)
   end
 
-  test "a channel nobody has asked about is fetched once and remembered" do
+  test "for fetches an unknown channel once and stores its managers" do
     manager_ids = stub_pages(page("U1", "U2")) { ChannelManagers.for(CHANNEL) }
 
     assert_equal %w[U1 U2], manager_ids
@@ -62,7 +62,7 @@ class ChannelManagersTest < ActiveSupport::TestCase
     assert_equal 2, Api::ChannelSweep.find(CHANNEL).managers
   end
 
-  test "it asks slack for one channel and one role, never the whole workspace" do
+  test "for calls admin.roles.listAssignments with one role and one channel" do
     stub_pages(page("U1")) { ChannelManagers.for(CHANNEL) }
 
     method, params, options = @calls.sole
@@ -72,26 +72,26 @@ class ChannelManagersTest < ActiveSupport::TestCase
     assert_equal "admin", options[:credential]
   end
 
-  test "a fresh channel is answered without troubling slack at all" do
+  test "for with a fresh channel makes no slack call" do
     stub_pages(page("U1")) { ChannelManagers.for(CHANNEL) }
     @calls.clear
 
     manager_ids = stub_pages { ChannelManagers.for(CHANNEL) }
 
     assert_equal %w[U1], manager_ids
-    assert_empty @calls, "a warm channel must cost nothing"
+    assert_empty @calls, "fresh channel makes no call"
   end
 
-  test "a channel nobody manages is remembered as empty, not refetched forever" do
+  test "for with no managers stores a zero count and does not refetch" do
     stub_pages(page) { ChannelManagers.for(CHANNEL) }
     @calls.clear
 
     assert_empty stub_pages { ChannelManagers.for(CHANNEL) }
-    assert_empty @calls, "no rows is an answer, not a cold cache"
+    assert_empty @calls, "empty result is cached"
     assert_equal 0, Api::ChannelSweep.find(CHANNEL).managers
   end
 
-  test "once the stamp goes stale it is fetched again" do
+  test "for refetches when synced_at is stale" do
     stub_pages(page("U1")) { ChannelManagers.for(CHANNEL) }
     Api::ChannelSweep.find(CHANNEL).update!(synced_at: 2.hours.ago)
     @calls.clear
@@ -102,7 +102,7 @@ class ChannelManagersTest < ActiveSupport::TestCase
     assert_equal 1, @calls.size
   end
 
-  test "a refresh replaces the channel, so somebody who stepped down stops managing it" do
+  test "for refresh removes managers missing from the new page" do
     stub_pages(page("U1", "U2")) { ChannelManagers.for(CHANNEL) }
     Api::ChannelSweep.find(CHANNEL).update!(synced_at: 2.hours.ago)
 
@@ -112,8 +112,8 @@ class ChannelManagersTest < ActiveSupport::TestCase
     assert_not ChannelManagers.manages?(CHANNEL, "U1")
   end
 
-  test "a stale channel already being refreshed is not fetched a second time" do
-    with_a_real_cache do
+  test "for with a stale channel already claimed makes no call and returns stored managers" do
+    with_memory_store do
       stub_pages(page("U1")) { ChannelManagers.for(CHANNEL) }
       Api::ChannelSweep.find(CHANNEL).update!(synced_at: 2.hours.ago)
       @calls.clear
@@ -121,23 +121,23 @@ class ChannelManagersTest < ActiveSupport::TestCase
 
       manager_ids = stub_pages(page("U2")) { ChannelManagers.for(CHANNEL) }
 
-      assert_empty @calls, "somebody else holds the lock, so this caller serves what we have"
+      assert_empty @calls, "claimed channel serves the stored managers"
       assert_equal %w[U1], manager_ids
     end
   end
 
-  test "a cold channel is always fetched, lock or no lock" do
-    with_a_real_cache do
+  test "for fetches a never-synced channel even when it is claimed" do
+    with_memory_store do
       ChannelManagers.claim(CHANNEL)
 
       manager_ids = stub_pages(page("U1")) { ChannelManagers.for(CHANNEL) }
 
       assert_equal %w[U1], manager_ids,
-        "answering false about a channel we never read is worse than waiting"
+        "never-synced channel is fetched despite the claim"
     end
   end
 
-  test "a refreshed channel is fresh again, so the next caller asks nothing" do
+  test "for after a refresh serves the next caller without a call" do
     stub_pages(page("U1")) { ChannelManagers.for(CHANNEL) }
     Api::ChannelSweep.find(CHANNEL).update!(synced_at: 2.hours.ago)
     @calls.clear
@@ -149,7 +149,7 @@ class ChannelManagersTest < ActiveSupport::TestCase
     assert_equal %w[U2], Api::ChannelManager.user_ids_in(CHANNEL)
   end
 
-  test "slack falling over serves what we already hold and leaves the stamp alone" do
+  test "for on UnavailableError returns the stored managers" do
     stub_pages(page("U1")) { ChannelManagers.for(CHANNEL) }
     original_synced_at = Api::ChannelSweep.find(CHANNEL).synced_at
     Api::ChannelSweep.find(CHANNEL).update!(synced_at: 2.hours.ago)
@@ -161,7 +161,7 @@ class ChannelManagersTest < ActiveSupport::TestCase
     assert_equal %w[U1], Api::ChannelManager.user_ids_in(CHANNEL)
   end
 
-  test "a refusal from slack does not wipe the channel" do
+  test "for on an error response keeps the stored managers" do
     stub_pages(page("U1")) { ChannelManagers.for(CHANNEL) }
     Api::ChannelSweep.find(CHANNEL).update!(synced_at: 2.hours.ago)
 
@@ -170,23 +170,23 @@ class ChannelManagersTest < ActiveSupport::TestCase
     assert_equal %w[U1], Api::ChannelManager.user_ids_in(CHANNEL)
   end
 
-  test "an assignment on some other channel is dropped, whatever slack sends" do
+  test "for ignores assignments for another channel" do
     stub_pages(page("U1", on: "COTHER")) { ChannelManagers.for(CHANNEL) }
 
     assert_empty Api::ChannelManager.user_ids_in(CHANNEL)
     assert_equal 0, Api::ChannelSweep.find(CHANNEL).managers
   end
 
-  test "it follows the cursor to the end" do
+  test "for follows next_cursor across pages" do
     manager_ids = stub_pages(page("U1", cursor: "expand"), page("U2")) { ChannelManagers.for(CHANNEL) }
 
     assert_equal %w[U1 U2], manager_ids
     assert_equal 2, @calls.size
-    assert_nil @calls.first[1][:cursor], "the first call sends no cursor at all"
+    assert_nil @calls.first[1][:cursor], "first call sends no cursor"
     assert_equal "expand", @calls.last[1][:cursor]
   end
 
-  test "with no role id pinned it asks nothing and claims nothing" do
+  test "for without SLACK_CHANNEL_MANAGER_ROLE_ID makes no call and creates no sweep" do
     ENV["SLACK_CHANNEL_MANAGER_ROLE_ID"] = nil
     manager_ids = stub_pages(page("U1")) { ChannelManagers.for(CHANNEL) }
 
@@ -195,7 +195,7 @@ class ChannelManagersTest < ActiveSupport::TestCase
     assert_nil Api::ChannelSweep.find_by(channel_id: CHANNEL)
   end
 
-  test "a blank channel id is answered without a query" do
+  test "for with a blank channel id returns empty without a call" do
     assert_empty stub_pages { ChannelManagers.for("") }
     assert_empty @calls
   end

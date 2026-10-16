@@ -10,7 +10,7 @@ from lib.paths import ENV_FILE
 
 USER_ID = re.compile(r"^[UW][A-Z0-9]{2,}$")
 VERDICTS = ("same_person", "different_people", "allowed_alt")
-ONE_PERSON = ("same_person", "allowed_alt")
+LINKED_VERDICTS = ("same_person", "allowed_alt")
 ENTITY_TYPE = "member_link_verdict"
 
 KNOWN_SQL = "SELECT user_id FROM fd.member WHERE user_id = ANY(%s)"
@@ -44,7 +44,7 @@ def ordered(one, other):
 
 
 def verb_for(verdict):
-    return "linked" if verdict in ONE_PERSON else "unlinked"
+    return "linked" if verdict in LINKED_VERDICTS else "unlinked"
 
 
 def split_ids(values):
@@ -59,7 +59,7 @@ def planned(by, main, selections):
             if not USER_ID.match(account):
                 malformed.append(account)
             elif account == main:
-                raise VerdictError(f"{account} is the main account, it cannot be paired with itself")
+                raise VerdictError(f"{account} is the main account")
             elif assignments.get(account, verdict) != verdict:
                 raise VerdictError(f"{account} is listed under both {assignments[account]} and {verdict}")
             else:
@@ -124,7 +124,7 @@ def parser():
     for verdict in VERDICTS:
         arg_parser.add_argument(f"--{verdict.replace('_', '-')}", dest=verdict, nargs="+",
                                 metavar="USER_ID", help="Slack user IDs, space or comma separated")
-    arg_parser.add_argument("--note", help="kept on every pair recorded in this run")
+    arg_parser.add_argument("--note", help="note stored on every pair recorded")
     arg_parser.add_argument("--dsn", help="Postgres DSN to use instead of the environment configuration")
     return arg_parser
 

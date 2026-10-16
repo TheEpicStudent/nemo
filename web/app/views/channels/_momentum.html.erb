@@ -13,15 +13,15 @@
 ></div>
 
 <div class="tree-key">
-  <span>shrank</span>
+  <span>Decrease</span>
   <span class="ramp">
     <% %w[dv-d3 dv-d2 dv-d1 dv-z dv-u1 dv-u2 dv-u3].each do |step| %>
       <i style="background: var(--<%= step %>)"></i>
     <% end %>
   </span>
-  <span>grew</span>
+  <span>Increase</span>
   <i></i>
   <span>
-    under <%= number_with_delimiter(head.prior_floor) %> before
+    Prior period under <%= number_with_delimiter(head.prior_floor) %>
   </span>
 </div>

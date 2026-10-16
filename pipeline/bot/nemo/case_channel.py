@@ -5,7 +5,7 @@ from bot.nemo import announce, answer, attachments, case_actions, channel, case_
 
 log = logging.getLogger("bot.nemo")
 
-WHO_TO_REACH = """
+REPORT_CONVERSATION = """
 SELECT c.id, c.channel_id, c.thread_ts, c.closed_at, c.report_id, c.closed_by
 FROM fd.intake_messages m
 JOIN fd.intake_conversations c ON c.id = m.conversation_id
@@ -15,7 +15,7 @@ WHERE m.mirrored_ts = %s
 CLOSED_REFUSAL = "Not sent. The reporter's conversation is closed."
 CLOSED_REFUSALS = {intake.TRUSTED_SENDER: "Not sent. Replies are disabled for trusted senders."}
 
-FIRST_ANSWER = """
+MARK_FIRST_REPLY = """
 UPDATE fd.case_reports SET first_replied_at = now()
 WHERE id = %s AND first_replied_at IS NULL
 """
@@ -29,23 +29,23 @@ class CaseChannel:
         with session() as conn:
             return channel.refresh_card(self.client, conn, case_id)
 
-    def caught_up(self, case_id):
+    def sync_case(self, case_id):
         card = None
         for name, work in (
             ("case card", channel.refresh_card),
-            ("wake", channel.post_reopen_notice),
-            ("follow-ups", channel.carry_follow_ups),
-            ("unfurls", channel.carry_unfurls),
-            ("files", channel.carry_files),
+            ("reopen notice", channel.post_reopen_notice),
+            ("follow-ups", channel.post_follow_ups),
+            ("unfurls", channel.post_unfurls),
+            ("files", channel.post_files),
             ("edit notices", channel.post_edit_notices),
-            ("queue card", case_queue.card),
+            ("queue card", case_queue.post_missing_card),
             ("thread card", case_queue.refresh_card),
         ):
             try:
                 with session() as conn:
-                    done = work(self.client, conn, case_id)
+                    result = work(self.client, conn, case_id)
                 if name == "case card":
-                    card = done
+                    card = result
             except Exception:
                 log.exception("nemo: case %s could not have its %s seen to", case_id, name)
         self.announce_fire_engine()
@@ -55,7 +55,7 @@ class CaseChannel:
         with session() as conn:
             return channel.mirror(self.client, conn, case_id)
 
-    def mark(self, at, emoji):
+    def add_reaction(self, at, emoji):
         if at is None:
             return
         channel_id, ts = at
@@ -64,8 +64,8 @@ class CaseChannel:
         except Exception as failure:
             log.warning("nemo: could not mark %s with %s: %s", ts, emoji, failure)
 
-    def refuse(self, at, sent_by, message):
-        self.mark(at, answer.STUCK)
+    def refuse_reply(self, at, sent_by, message):
+        self.add_reaction(at, answer.FAILED_REACTION)
         if at is None:
             return None
         channel_id, ts = at
@@ -77,19 +77,19 @@ class CaseChannel:
             log.warning("nemo: could not say why it did not send: %s", failure)
         return None
 
-    def answered(self, thread_ts, text, sent_by, signed=True, files=(), at=None):
+    def queue_reply(self, thread_ts, text, sent_by, signed=True, files=(), at=None):
         if not (text or "").strip() and not files:
             return None
 
         with session() as conn:
-            row = conn.execute(WHO_TO_REACH, (thread_ts,)).fetchone()
+            row = conn.execute(REPORT_CONVERSATION, (thread_ts,)).fetchone()
         if not row:
             log.info("nemo: thread %s is not a report thread", thread_ts)
             return None
         conversation_id, _channel_id, _member_thread_ts, closed_at, report_id, closed_by = row
         if closed_at:
             log.info("nemo: conversation %s is closed, not queueing", conversation_id)
-            return self.refuse(at, sent_by, CLOSED_REFUSALS.get(closed_by, CLOSED_REFUSAL))
+            return self.refuse_reply(at, sent_by, CLOSED_REFUSALS.get(closed_by, CLOSED_REFUSAL))
 
         with session() as conn:
             stored_files = self.store_outgoing_files(conn, files)
@@ -104,10 +104,10 @@ class CaseChannel:
                 requested_in=at[0] if at else None,
                 requested_at=at[1] if at else None,
             )
-            outbox.claim_echo(conn, queued_id)
-            outbox.echoed(conn, queued_id, None, "user")
+            outbox.claim_mirror(conn, queued_id)
+            outbox.mark_mirrored(conn, queued_id, None, "user")
             if report_id:
-                conn.execute(FIRST_ANSWER, (report_id,))
+                conn.execute(MARK_FIRST_REPLY, (report_id,))
                 audit.record(
                     conn,
                     "report",
@@ -143,29 +143,29 @@ class CaseChannel:
             })
         return stored_files
 
-    def echo_queued(self, case_id=None):
+    def mirror_outbox_replies(self, case_id=None):
         with session() as conn:
-            rows = outbox.to_echo(conn, case_id)
+            rows = outbox.to_mirror(conn, case_id)
 
-        done = 0
+        mirrored_count = 0
         for outbox_id, body, mode, requested_by, forwarded_ts, card_channel_id in rows:
             with session() as conn:
-                if not outbox.claim_echo(conn, outbox_id):
+                if not outbox.claim_mirror(conn, outbox_id):
                     continue
-                at = channel.echo(
+                at = channel.post_outbox_reply(
                     self.client, forwarded_ts, requested_by, body, mode == "signed",
                     channel.channel_or_firehouse(card_channel_id, None, conn),
                 )
                 if at is None:
-                    outbox.drop_echo(conn, outbox_id)
+                    outbox.release_mirror(conn, outbox_id)
                     continue
-                outbox.echoed(conn, outbox_id, at[1], "nemo")
-                done += 1
+                outbox.mark_mirrored(conn, outbox_id, at[1], "nemo")
+                mirrored_count += 1
 
-        if done:
-            log.info("nemo: echoed %s queued message(s) into case threads", done)
+        if mirrored_count:
+            log.info("nemo: echoed %s queued message(s) into case threads", mirrored_count)
         self.post_pending_resolutions()
-        return done
+        return mirrored_count
 
     def announce_fire_engine(self):
         try:
@@ -177,42 +177,42 @@ class CaseChannel:
 
     def post_pending_resolutions(self):
         with session() as conn:
-            case_ids = case_actions.pending_resolution_echoes(conn)
+            case_ids = case_actions.pending_resolution_logs(conn)
 
         for case_id in case_ids:
             with session() as conn:
-                due = case_actions.resolution_echo_due(conn, case_id)
+                due = case_actions.resolution_log_due(conn, case_id)
                 if due is None:
                     continue
                 by, resolution, member_note = due
-                channel.post_resolution_echo(
+                channel.post_resolution_log(
                     self.client, conn, case_id, resolution, member_note, by,
-                    case_actions.resolution_echo_actions(conn, case_id),
+                    case_actions.resolution_log_actions(conn, case_id),
                 )
                 log.info("nemo: case %s heard it was resolved after the reporter did", case_id)
 
-    def tick_queued(self):
+    def mark_outbox_results(self):
         with session() as conn:
-            waiting = outbox.to_tick(conn)
+            pending = outbox.pending_reactions(conn)
 
-        for outbox_id, channel_id, ts, failed_at, error in waiting:
+        for outbox_id, channel_id, ts, failed_at, error in pending:
             target_channel_id = channel_id or channel.firehouse_channel()
             if not target_channel_id:
                 continue
-            self.mark((target_channel_id, ts), answer.STUCK if failed_at else answer.SENT)
+            self.add_reaction((target_channel_id, ts), answer.FAILED_REACTION if failed_at else answer.SENT_REACTION)
             if failed_at:
                 self.post_refusal(target_channel_id, ts, error)
             with session() as conn:
-                outbox.ticked(conn, outbox_id)
+                outbox.mark_reacted(conn, outbox_id)
 
-        return len(waiting)
+        return len(pending)
 
     def post_refusal(self, channel_id, ts, error):
         try:
             self.client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=ts,
-                text=f"Not delivered: {error or 'Shroud could not send it'}",
+                text=f"Not delivered: {error or 'Send failed'}",
                 unfurl_links=False,
             )
         except Exception as failure:

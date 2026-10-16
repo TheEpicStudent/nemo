@@ -12,30 +12,18 @@ module ChannelsHelper
     channels_path(**base.merge(overrides).compact)
   end
 
-  def channels_window_note(total, window)
-    text = "#{number_with_delimiter(total)} channels"
-    return text if window.nil?
-
-    messages = window_note(window.start_date, window.end_date)
-    return text if messages.nil?
-    return "#{text} · #{messages}" if window.pulled?
-
-    people = window_note(window.pulled_start, window.pulled_end)
-    "#{text} · messages #{messages}#{" · people #{people}" if people}"
-  end
-
   def channels_empty_title
-    return "No channel matches that search" if @q.present?
-    return "No channel matches those conditions" if @filter&.any?
-    return "No channel is shared with you" if @visible_total.to_i.zero?
+    return "No matches" if @q.present?
+    return "No matches" if @filter&.any?
+    return "No channels" if @visible_total.to_i.zero?
 
-    "No channel yet"
+    "No channels"
   end
 
   def backfill_cost(channel, estimate, ceiling)
     lines = ["Fetch thread replies for ##{channel.name}?",
-             "About #{number_with_delimiter(estimate)} requests to Slack."]
-    lines << "That is over the #{number_with_delimiter(ceiling)} request line." if estimate > ceiling
+             "Estimated requests: #{number_with_delimiter(estimate)}."]
+    lines << "Over the limit of #{number_with_delimiter(ceiling)}." if estimate > ceiling
     lines.join(" ")
   end
 
@@ -45,9 +33,9 @@ module ChannelsHelper
 
   FUNNEL_SHORT = {
     "landed" => "first post",
-    "answered" => "got a reply",
+    "answered" => "replied",
     "fast" => "fast reply",
-    "returned" => "came back"
+    "returned" => "returned"
   }.freeze
 
   def funnel_step_label(step)
@@ -81,12 +69,6 @@ module ChannelsHelper
     safe_join([parts[1], tag.small(" #{parts[2]}")])
   end
 
-  def channel_read_ratio(read, posted)
-    return "n/a" if read.nil? || posted.to_i.zero?
-
-    (read.to_f / posted).round(1)
-  end
-
   def channel_change_cell(channel)
     if channel.try(:prior_thin)
       return tag.span("n/a", class: "sub2")
@@ -108,16 +90,6 @@ module ChannelsHelper
     window_note(lo, hi)
   end
 
-  def channel_participation_tone(channel)
-    return "" if channel.range_posters.nil? || channel.range_members.to_i.zero?
-
-    share = channel.range_posters.to_f / channel.range_members * 100
-    return "is-loud" if share > 10
-    return "is-quiet" if share < 2
-
-    ""
-  end
-
   def viewable_channel_ids
     @viewable_channel_ids ||=
       Channels::Audience.for(current_account).pluck(:channel_id).to_set
@@ -130,14 +102,11 @@ module ChannelsHelper
     link_to(label, channel_path(channel_id))
   end
 
-  def channel_spoke_share(posted, members)
+  def channel_poster_share(posted, members)
     return "n/a" if posted.nil? || members.to_i.zero?
 
     number_to_percentage(posted.to_f / members * 100, precision: 1)
   end
-
-  TENURE_COLOR = { "under_90d" => 1, "under_1y" => 2, "under_3y" => 3,
-                 "over_3y" => 4, "unknown" => 0 }.freeze
 
   def channel_view_path(**overrides)
     base = { view: (@view unless @view == ChannelsController::DEFAULT_VIEW),
@@ -169,16 +138,6 @@ module ChannelsHelper
     "#{seconds / 86_400}d"
   end
 
-  def tenure_color(band)
-    "ser-#{TENURE_COLOR.fetch(band, 0)}"
-  end
-
-  COMPOSITION_COLOR = { "spoke" => "ser-1", "read" => "ser-2", "never" => "ser-none" }.freeze
-
-  def composition_color(key)
-    COMPOSITION_COLOR.fetch(key, "ser-0")
-  end
-
   def channel_standing(standing)
     return nil if standing.nil? || standing.rank.nil?
 
@@ -193,19 +152,6 @@ module ChannelsHelper
     curve.map { |point| [point.poster_pct, point.message_pct.to_f] }
   end
 
-  def channels_range_label(window)
-    return window_note(window.start_date, window.end_date) if window.custom?
-    return "All measured" if window.pulled?
-
-    "Last #{window.days} days"
-  end
-
-  def range_label(preset, from, to)
-    return "Last #{preset} days" if preset
-
-    window_note(from, to)
-  end
-
   def time_ago(time)
     return nil if time.nil?
 
@@ -216,17 +162,6 @@ module ChannelsHelper
     return "#{gap / 86_400}d ago" if gap < 2_592_000
 
     time.to_date.strftime("%-d %b %Y")
-  end
-
-  def channel_age(created)
-    return nil if created.nil?
-
-    months = ((Date.current.year * 12 + Date.current.month) -
-              (created.year * 12 + created.month))
-    years, remaining_months = months.divmod(12)
-    return "#{years}y #{remaining_months}m" if years.positive?
-
-    "#{remaining_months}m"
   end
 
   def slack_channel_url(channel_id)

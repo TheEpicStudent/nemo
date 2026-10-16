@@ -1,4 +1,4 @@
-<% content_for :page_title, "Who is active" %>
+<% content_for :page_title, "Activity" %>
 
 <% full_history_count = @activity_bands.first&.full_history_members.to_i %>
 <% posters = @poster_bands.sum(&:members) %>
@@ -24,7 +24,7 @@
           v: top_share ? number_to_percentage(top_share, precision: 1) : "n/a",
           spark: { name: "top tenth's share", days: false, labels: spread_months,
                    data: spread.map(&:top_tenth_share) },
-          caption: "Their share of messages by month" %>
+          caption: "Share of messages by month" %>
   </div>
 <% end %>
 

@@ -5,7 +5,7 @@ class AuthzTest < ActiveSupport::TestCase
     ApplicationRecord.connection.select_all(sql).to_a
   end
 
-  test "the catalogue Rails reads matches the tables SQL resolves against" do
+  test "Authz.keys match app.capability rows" do
     in_yaml = Authz.keys.sort
     in_table = rows("SELECT key FROM app.capability").map { |row| row["key"] }.sort
 
@@ -13,7 +13,7 @@ class AuthzTest < ActiveSupport::TestCase
       "db/capabilities.yml and app.capability disagree, run `nemo provision`"
   end
 
-  test "every role baseline matches the projected table" do
+  test "Authz.baseline matches app.role_capability for every role" do
     Authz.role_names.reject { |role| Authz.superadmin?(role) }.each do |role|
       in_table = rows(ApplicationRecord.sanitize_sql([
         "SELECT capability FROM app.role_capability WHERE role = ?", role
@@ -23,7 +23,7 @@ class AuthzTest < ActiveSupport::TestCase
     end
   end
 
-  test "record scopes and flags match the projected table" do
+  test "Authz record_scope and flags match app.capability columns" do
     rows("SELECT key, record_scope, logged, every_account, locked FROM app.capability").each do |row|
       key = row["key"]
       expected_scope = Authz.record_scope(key)&.to_s
@@ -38,17 +38,17 @@ class AuthzTest < ActiveSupport::TestCase
     end
   end
 
-  test "an unknown capability is refused rather than treated as absent" do
+  test "Authz.record_scope raises UnknownError for an unknown key" do
     assert_raises(Authz::UnknownError) { Authz.record_scope("case.explode") }
   end
 
-  test "a scoped capability still answers the unscoped question for the UI" do
+  test "Authz.record_scope and scoped? report the message.read author scope" do
     assert_equal :author, Authz.record_scope("message.read")
     assert Authz.scoped?("message.read")
     assert_not Authz.scoped?("case.resolve")
   end
 
-  test "nobody holds anything without a grant, apart from every-account keys" do
+  test "Authz.may? is true only for every-account keys without grants" do
     account_without_grants = Account.new(user_id: "UNOBODY9")
 
     assert Authz.may?(account_without_grants, "channel.read")
@@ -57,7 +57,7 @@ class AuthzTest < ActiveSupport::TestCase
     assert_not Authz.may?(account_without_grants, "access.grant")
   end
 
-  test "a nil account holds nothing at all" do
+  test "Authz.may? is false for a nil account" do
     assert_not Authz.may?(nil, "channel.read")
     assert_not Authz.may?(nil, "case.read")
   end

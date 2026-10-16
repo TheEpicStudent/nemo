@@ -76,8 +76,8 @@ def message(text="a message", **over):
 
 
 @pytest.fixture(autouse=True)
-def clean(monkeypatch):
-    monkeypatch.setattr(userbots, "_people", {})
+def reset_guard_cache(monkeypatch):
+    monkeypatch.setattr(userbots, "_users", {})
     channelguards._guards.clear()
     channelguards._loaded = False
     yield
@@ -104,12 +104,12 @@ def install_fakes(monkeypatch, module, conn, removes=True):
     return removed
 
 
-def test_nothing_is_read_before_the_cache_is_loaded():
-    assert channelguards.guarding(CHANNEL_ID, channelguards.READONLY) is None
-    assert channelguards.lets_past(CHANNEL_ID, USER_ID, kind=channelguards.READONLY)
+def test_active_guard_before_cache_load_returns_none_and_allows():
+    assert channelguards.active_guard(CHANNEL_ID, channelguards.READONLY) is None
+    assert channelguards.allows(CHANNEL_ID, USER_ID, kind=channelguards.READONLY)
 
 
-def test_readonly_removes_a_top_level_message(monkeypatch):
+def test_readonly_on_message_top_level_removes_and_records_event(monkeypatch):
     guard(channelguards.READONLY)
     conn = Conn()
     removed = install_fakes(monkeypatch, readonly, conn)
@@ -120,7 +120,7 @@ def test_readonly_removes_a_top_level_message(monkeypatch):
     assert conn.args_for("INSERT INTO fd.channel_guard_events")
 
 
-def test_readonly_user_token_post_is_removed(monkeypatch):
+def test_readonly_on_message_user_token_post_with_bot_id_is_removed(monkeypatch):
     guard(channelguards.READONLY)
     removed = install_fakes(monkeypatch, readonly, Conn())
     client = Slack(users={USER_ID: {"is_bot": False}})
@@ -129,7 +129,7 @@ def test_readonly_user_token_post_is_removed(monkeypatch):
     assert removed == [(CHANNEL_ID, TS)]
 
 
-def test_readonly_bot_user_post_is_left_alone(monkeypatch):
+def test_readonly_on_message_bot_user_post_is_ignored(monkeypatch):
     guard(channelguards.READONLY)
     removed = install_fakes(monkeypatch, readonly, Conn())
     client = Slack(users={USER_ID: {"is_bot": True}})
@@ -138,17 +138,17 @@ def test_readonly_bot_user_post_is_left_alone(monkeypatch):
     assert removed == []
 
 
-def test_readonly_exempt_member_post_is_left_alone(monkeypatch):
+def test_readonly_on_message_exempt_member_is_ignored(monkeypatch):
     guard(channelguards.READONLY)
     conn = Conn(exempt=True)
     removed = install_fakes(monkeypatch, readonly, conn)
 
     assert readonly.on_message(Ctx(message())) is None
     assert removed == []
-    assert conn.args_for(exemptions.EXEMPT) == [(USER_ID, exemptions.STAFF, USER_ID)]
+    assert conn.args_for(exemptions.EXEMPT) == [(USER_ID, exemptions.STAFF_CAPABILITY, USER_ID)]
 
 
-def test_readonly_echoes_the_message_back(monkeypatch):
+def test_readonly_on_message_ephemeral_includes_message_text(monkeypatch):
     guard(channelguards.READONLY)
     client = Slack()
     install_fakes(monkeypatch, readonly, Conn())
@@ -157,7 +157,7 @@ def test_readonly_echoes_the_message_back(monkeypatch):
     assert "the thing I typed" in client.ephemeral[0]["text"]
 
 
-def test_readonly_leaves_a_thread_reply_alone(monkeypatch):
+def test_readonly_on_message_thread_reply_is_ignored(monkeypatch):
     guard(channelguards.READONLY)
     conn = Conn()
     removed = install_fakes(monkeypatch, readonly, conn)
@@ -166,7 +166,7 @@ def test_readonly_leaves_a_thread_reply_alone(monkeypatch):
     assert removed == []
 
 
-def test_readonly_catches_a_thread_broadcast(monkeypatch):
+def test_readonly_on_message_thread_broadcast_is_removed(monkeypatch):
     guard(channelguards.READONLY)
     removed = install_fakes(monkeypatch, readonly, Conn())
     readonly.on_message(Ctx(message(thread_ts=THREAD, subtype="thread_broadcast")))
@@ -174,7 +174,7 @@ def test_readonly_catches_a_thread_broadcast(monkeypatch):
     assert removed == [(CHANNEL_ID, TS)]
 
 
-def test_readonly_also_catches_a_thread_reply_when_told_to(monkeypatch):
+def test_readonly_on_message_thread_reply_with_threads_setting_is_removed(monkeypatch):
     guard(channelguards.READONLY, {"threads": True})
     removed = install_fakes(monkeypatch, readonly, Conn())
 
@@ -182,7 +182,7 @@ def test_readonly_also_catches_a_thread_reply_when_told_to(monkeypatch):
     assert removed == [(CHANNEL_ID, TS)]
 
 
-def test_readonly_lets_an_allowed_member_post(monkeypatch):
+def test_readonly_on_message_allowed_member_is_ignored(monkeypatch):
     guard(channelguards.READONLY, allowed=[USER_ID])
     removed = install_fakes(monkeypatch, readonly, Conn())
 
@@ -190,7 +190,7 @@ def test_readonly_lets_an_allowed_member_post(monkeypatch):
     assert removed == []
 
 
-def test_readonly_records_nothing_when_the_removal_fails(monkeypatch):
+def test_readonly_on_message_removal_failure_records_no_event(monkeypatch):
     guard(channelguards.READONLY)
     conn = Conn()
     install_fakes(monkeypatch, readonly, conn, removes=False)
@@ -199,7 +199,7 @@ def test_readonly_records_nothing_when_the_removal_fails(monkeypatch):
     assert not conn.args_for("INSERT INTO fd.channel_guard_events")
 
 
-def test_slowmode_lets_the_first_message_through(monkeypatch):
+def test_slowmode_on_message_first_message_is_ignored(monkeypatch):
     guard(channelguards.SLOWMODE, {"seconds": 30})
     conn = Conn(tick=("now",))
     removed = install_fakes(monkeypatch, slowmode, conn)
@@ -208,7 +208,7 @@ def test_slowmode_lets_the_first_message_through(monkeypatch):
     assert removed == []
 
 
-def test_slowmode_removes_one_that_is_too_soon(monkeypatch):
+def test_slowmode_on_message_inside_interval_removes_and_notifies(monkeypatch):
     guard(channelguards.SLOWMODE, {"seconds": 30})
     conn = Conn(tick=None, remaining=12)
     removed = install_fakes(monkeypatch, slowmode, conn)
@@ -219,7 +219,7 @@ def test_slowmode_removes_one_that_is_too_soon(monkeypatch):
     assert client.ephemeral[0]["text"] == "*Slow mode* · next message in 12s"
 
 
-def test_slowmode_exempt_member_post_skips_clock(monkeypatch):
+def test_slowmode_on_message_exempt_member_skips_clock(monkeypatch):
     guard(channelguards.SLOWMODE, {"seconds": 30})
     conn = Conn(tick=None, remaining=12, exempt=True)
     removed = install_fakes(monkeypatch, slowmode, conn)
@@ -229,7 +229,7 @@ def test_slowmode_exempt_member_post_skips_clock(monkeypatch):
     assert not conn.args_for("INSERT INTO fd.slowmode_clock")
 
 
-def test_slowmode_skips_threads_unless_it_is_told_to(monkeypatch):
+def test_slowmode_on_message_thread_without_threads_setting_is_ignored(monkeypatch):
     guard(channelguards.SLOWMODE, {"seconds": 30})
     removed = install_fakes(monkeypatch, slowmode, Conn(tick=None, remaining=5))
 
@@ -237,7 +237,7 @@ def test_slowmode_skips_threads_unless_it_is_told_to(monkeypatch):
     assert removed == []
 
 
-def test_slowmode_keys_a_thread_on_its_own_clock(monkeypatch):
+def test_slowmode_on_message_thread_uses_thread_ts_clock_key(monkeypatch):
     guard(channelguards.SLOWMODE, {"seconds": 30, "threads": True})
     conn = Conn(tick=None, remaining=5)
     install_fakes(monkeypatch, slowmode, conn)
@@ -246,7 +246,7 @@ def test_slowmode_keys_a_thread_on_its_own_clock(monkeypatch):
     assert conn.args_for("INSERT INTO fd.slowmode_clock")[0][1] == THREAD
 
 
-def test_slowmode_tells_them_inside_the_thread_they_posted_in(monkeypatch):
+def test_slowmode_on_message_thread_notice_posts_in_thread(monkeypatch):
     guard(channelguards.SLOWMODE, {"seconds": 30, "threads": True})
     conn = Conn(tick=None, remaining=5)
     install_fakes(monkeypatch, slowmode, conn)
@@ -257,7 +257,7 @@ def test_slowmode_tells_them_inside_the_thread_they_posted_in(monkeypatch):
     assert client.ephemeral[0]["thread_ts"] == THREAD
 
 
-def test_slowmode_tells_them_channel_wide_outside_a_thread(monkeypatch):
+def test_slowmode_on_message_channel_notice_has_no_thread_ts(monkeypatch):
     guard(channelguards.SLOWMODE, {"seconds": 30})
     conn = Conn(tick=None, remaining=5)
     install_fakes(monkeypatch, slowmode, conn)
@@ -268,7 +268,7 @@ def test_slowmode_tells_them_channel_wide_outside_a_thread(monkeypatch):
     assert client.ephemeral[0]["thread_ts"] is None
 
 
-def test_slowmode_keys_a_channel_message_on_the_empty_thread(monkeypatch):
+def test_slowmode_on_message_channel_message_uses_empty_clock_key(monkeypatch):
     guard(channelguards.SLOWMODE, {"seconds": 30})
     conn = Conn(tick=("now",))
     install_fakes(monkeypatch, slowmode, conn)
@@ -277,7 +277,7 @@ def test_slowmode_keys_a_channel_message_on_the_empty_thread(monkeypatch):
     assert conn.args_for("INSERT INTO fd.slowmode_clock")[0][1] == ""
 
 
-def test_slowmode_lets_an_exempt_member_post(monkeypatch):
+def test_slowmode_on_message_allowed_member_is_ignored(monkeypatch):
     guard(channelguards.SLOWMODE, {"seconds": 30}, allowed=[USER_ID])
     removed = install_fakes(monkeypatch, slowmode, Conn(tick=None, remaining=5))
 
@@ -285,7 +285,7 @@ def test_slowmode_lets_an_exempt_member_post(monkeypatch):
     assert removed == []
 
 
-def test_slowmode_with_no_interval_does_nothing(monkeypatch):
+def test_slowmode_on_message_zero_seconds_is_ignored(monkeypatch):
     guard(channelguards.SLOWMODE, {"seconds": 0})
     removed = install_fakes(monkeypatch, slowmode, Conn(tick=None, remaining=5))
 
@@ -293,13 +293,13 @@ def test_slowmode_with_no_interval_does_nothing(monkeypatch):
     assert removed == []
 
 
-def test_the_wait_reads_in_minutes_once_it_is_long():
-    assert slowmode.card.wait(45) == "45s"
-    assert slowmode.card.wait(1) == "1s"
-    assert slowmode.card.wait(90) == "2m"
+def test_format_wait_switches_to_minutes_at_ninety_seconds():
+    assert slowmode.card.format_wait(45) == "45s"
+    assert slowmode.card.format_wait(1) == "1s"
+    assert slowmode.card.format_wait(90) == "2m"
 
 
-def test_account_age_removes_a_member_who_is_too_new(monkeypatch):
+def test_account_age_on_message_new_member_removes_and_notifies(monkeypatch):
     guard(channelguards.ACCOUNT_AGE, {"min_age_days": 7})
     conn = Conn(remaining=3)
     removed = install_fakes(monkeypatch, account_age, conn)
@@ -310,7 +310,7 @@ def test_account_age_removes_a_member_who_is_too_new(monkeypatch):
     assert "3 days" in client.ephemeral[0]["text"]
 
 
-def test_account_age_exempt_member_post_is_left_alone(monkeypatch):
+def test_account_age_on_message_exempt_member_is_ignored(monkeypatch):
     guard(channelguards.ACCOUNT_AGE, {"min_age_days": 7})
     conn = Conn(remaining=3, exempt=True)
     removed = install_fakes(monkeypatch, account_age, conn)
@@ -319,7 +319,7 @@ def test_account_age_exempt_member_post_is_left_alone(monkeypatch):
     assert removed == []
 
 
-def test_account_age_lets_an_old_enough_member_post(monkeypatch):
+def test_account_age_on_message_old_member_is_ignored(monkeypatch):
     guard(channelguards.ACCOUNT_AGE, {"min_age_days": 7})
     removed = install_fakes(monkeypatch, account_age, Conn(remaining=None))
 
@@ -327,7 +327,7 @@ def test_account_age_lets_an_old_enough_member_post(monkeypatch):
     assert removed == []
 
 
-def test_account_age_lets_a_member_we_never_saw_join_post(monkeypatch):
+def test_account_age_on_message_unknown_join_is_ignored(monkeypatch):
     guard(channelguards.ACCOUNT_AGE, {"min_age_days": 7})
     removed = install_fakes(monkeypatch, account_age, Conn(remaining=None))
 
@@ -335,7 +335,7 @@ def test_account_age_lets_a_member_we_never_saw_join_post(monkeypatch):
     assert removed == []
 
 
-def test_account_age_lets_an_exempt_member_post(monkeypatch):
+def test_account_age_on_message_allowed_member_is_ignored(monkeypatch):
     guard(channelguards.ACCOUNT_AGE, {"min_age_days": 7}, allowed=[USER_ID])
     removed = install_fakes(monkeypatch, account_age, Conn(remaining=3))
 
@@ -343,7 +343,7 @@ def test_account_age_lets_an_exempt_member_post(monkeypatch):
     assert removed == []
 
 
-def test_a_carrier_ignores_a_bot(monkeypatch):
+def test_readonly_on_message_bot_id_is_ignored(monkeypatch):
     guard(channelguards.READONLY)
     removed = install_fakes(monkeypatch, readonly, Conn())
 
@@ -351,7 +351,7 @@ def test_a_carrier_ignores_a_bot(monkeypatch):
     assert removed == []
 
 
-def test_a_carrier_ignores_a_direct_message(monkeypatch):
+def test_readonly_on_message_direct_message_is_ignored(monkeypatch):
     guard(channelguards.READONLY)
     channelguards._guards[(channelguards.READONLY, "D1", channelguards.CHANNEL_WIDE)] = channelguards.LiveGuard(7, {}, frozenset())
     removed = install_fakes(monkeypatch, readonly, Conn())
@@ -360,14 +360,14 @@ def test_a_carrier_ignores_a_direct_message(monkeypatch):
     assert removed == []
 
 
-def test_kinds_do_not_read_each_others_guards():
+def test_active_guard_kinds_are_independent():
     guard(channelguards.READONLY)
 
-    assert channelguards.guarding(CHANNEL_ID, channelguards.SLOWMODE) is None
-    assert channelguards.guarding(CHANNEL_ID, channelguards.READONLY) is not None
+    assert channelguards.active_guard(CHANNEL_ID, channelguards.SLOWMODE) is None
+    assert channelguards.active_guard(CHANNEL_ID, channelguards.READONLY) is not None
 
 
-def test_account_age_falls_back_to_when_the_account_was_claimed():
+def test_days_remaining_sql_falls_back_to_claimed_at():
     sql = account_age.DAYS_REMAINING
 
     assert "fd.member_joins" in sql
@@ -375,7 +375,7 @@ def test_account_age_falls_back_to_when_the_account_was_claimed():
     assert "coalesce(j.joined_at, m.claimed_at)" in sql, "a join event must win over the warehouse"
 
 
-def test_account_age_asks_nothing_of_a_member_neither_source_knows():
+def test_days_remaining_sql_unknown_member_yields_no_row():
     sql = account_age.DAYS_REMAINING
 
-    assert "WHERE known.at IS NOT NULL" in sql, "an unknown member yields no row, so the gate opens"
+    assert "WHERE join_time.at IS NOT NULL" in sql, "an unknown member yields no row, so the gate opens"

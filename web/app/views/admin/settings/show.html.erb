@@ -21,11 +21,11 @@
     </div>
     <div class="setlist">
       <%= render "channel_setline", title: "Firehouse", channel_id: @firehouse,
-            url: admin_settings_firehouse_path, channels_by_id: @channels_by_id, seat: @seats[@firehouse] %>
+            url: admin_settings_firehouse_path, channels_by_id: @channels_by_id, membership: @memberships[@firehouse] %>
       <%= render "channel_setline", title: "Shroud reports", channel_id: @reports_channel,
-            url: admin_settings_reports_channel_path, channels_by_id: @channels_by_id, seat: @seats[@reports_channel] %>
+            url: admin_settings_reports_channel_path, channels_by_id: @channels_by_id, membership: @memberships[@reports_channel] %>
       <%= render "channel_setline", title: "Internal logs", channel_id: @log_channel,
-            url: admin_settings_log_channel_path, channels_by_id: @channels_by_id, seat: @seats[@log_channel] %>
+            url: admin_settings_log_channel_path, channels_by_id: @channels_by_id, membership: @memberships[@log_channel] %>
     </div>
   </div>
 
@@ -49,7 +49,7 @@
           <div class="setline">
             <div class="setname">
               <%= channel_cell(channel_id, @channels_by_id[channel_id]) %>
-              <%= channel_seat_label(*@seats[channel_id]) %>
+              <%= channel_membership_label(*@memberships[channel_id]) %>
             </div>
             <% if may_grant? %>
               <div class="setval">
@@ -113,15 +113,15 @@
     <%= form_with url: admin_settings_sweep_path, method: :post, id: "sweep-form" do %>
       <div class="setlist">
         <label class="setline">
-          <span class="setname">Firehouse notice, hours before expiry</span>
+          <span class="setname">Expiry notice (hours)</span>
           <span class="setval">
             <%= number_field_tag :soon_hours, @soon_hours, class: "input", id: nil,
-                  min: 1, max: Admin::SettingsController::SOONEST,
+                  min: 1, max: Fd::AppSetting::MAX_SOON_HOURS,
                   disabled: !may_grant? %>
           </span>
         </label>
         <label class="setline">
-          <span class="setname">Message the member when a guard ends</span>
+          <span class="setname">Notify member on guard end</span>
           <span class="setval">
             <%= check_box_tag :tells, "1", @tells_member, class: "switch", id: nil,
                   disabled: !may_grant? %>
@@ -154,14 +154,14 @@
           <span class="setname">Replies before sign-out</span>
           <span class="setval">
             <%= number_field_tag :strikes, @reset_strikes, class: "input", id: nil,
-                  min: 1, max: Admin::SettingsController::MOST_STRIKES, disabled: !may_grant? %>
+                  min: 1, max: Fd::AppSetting::MAX_STRIKES, disabled: !may_grant? %>
           </span>
         </label>
         <label class="setline">
           <span class="setname">Sign-outs per locked thread</span>
           <span class="setval">
             <%= number_field_tag :resets, @reset_max, class: "input", id: nil,
-                  min: 0, max: Admin::SettingsController::MOST_RESETS, disabled: !may_grant? %>
+                  min: 0, max: Fd::AppSetting::MAX_RESETS, disabled: !may_grant? %>
           </span>
         </label>
       </div>

@@ -10,35 +10,35 @@
     <span class="metric-note">
       <% if @unclaimed.positive? %>
         <span class="delta-down"><%= @unclaimed %></span>
-        <span>with nobody on it</span>
+        <span>unassigned</span>
       <% else %>
-        <span>everything has somebody on it</span>
+        <span>all assigned</span>
       <% end %>
     </span>
   </div>
   <div class="metric">
     <span class="metric-key">Median time to resolve</span>
     <span class="metric-value"><%= @resolve_lag ? case_age_label(@resolve_lag) : "n/a" %></span>
-    <span class="metric-note"><span>from when the report arrived</span></span>
+    <span class="metric-note"><span>from report received</span></span>
   </div>
   <div class="metric">
     <span class="metric-key">In force</span>
     <span class="metric-value"><%= @guards.size %></span>
     <span class="metric-note">
       <% if @guards.empty? %>
-        <span>nothing is being held on anybody</span>
+        <span>none</span>
       <% elsif @orphaned.positive? %>
         <span class="delta-down"><%= @orphaned %></span>
         <span>attached to no case</span>
       <% else %>
-        <span>all of it attached to a case</span>
+        <span>all linked to a case</span>
       <% end %>
     </span>
   </div>
   <div class="metric">
     <span class="metric-key">Actions, 30 days</span>
     <span class="metric-value"><%= @actions_total %></span>
-    <span class="metric-note"><span><%= @reversed %> later reversed</span></span>
+    <span class="metric-note"><span><%= @reversed %> reversed</span></span>
   </div>
 </div>
 

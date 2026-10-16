@@ -4,14 +4,14 @@ from jobs import nightly_sync
 from lib import sources
 
 
-def test_every_source_declares_its_behaviour():
+def test_sources_declare_all_required_fields():
     for key in sources.KEYS:
         spec = sources.source(key)
         missing = [field for field in sources.DECLARED if field not in spec]
         assert not missing, f"{key} declares no {', '.join(missing)}"
 
 
-def test_declared_values_come_from_the_allowed_sets():
+def test_sources_declared_values_are_in_allowed_sets():
     for key in sources.KEYS:
         spec = sources.source(key)
         assert spec["cadence"] in sources.CADENCES, key
@@ -20,18 +20,18 @@ def test_declared_values_come_from_the_allowed_sets():
         assert spec["retention"] in sources.RETENTIONS, key
 
 
-def test_nothing_is_pruned_unless_a_window_is_asked_for():
+def test_sources_retention_is_never_prune():
     for key in sources.KEYS:
         assert sources.source(key)["retention"] != "prune", key
 
 
-def test_a_prune_floor_only_belongs_to_a_source_that_keeps_rows():
+def test_prune_floor_requires_keep_retention():
     for key in sources.KEYS:
         if sources.prune_floor(key):
             assert sources.source(key)["retention"] == "keep", key
 
 
-def test_key_for_run_maps_legacy_and_suffixed_run_names_back_to_a_source():
+def test_key_for_run_maps_run_names_to_source_keys():
     assert sources.key_for_run("channel_roster") == "channel_roster"
     assert sources.key_for_run("autojoin") == "channel_roster"
     assert sources.key_for_run("channel_info_names") == "channel_names"
@@ -41,12 +41,12 @@ def test_key_for_run_maps_legacy_and_suffixed_run_names_back_to_a_source():
     assert sources.key_for_run("nightly_sync") == "nightly_sync"
 
 
-def test_parser_version_defaults_to_one():
+def test_parser_version_unknown_source_defaults_to_one():
     assert sources.parser_version("member_days") == 1
     assert sources.parser_version("not_a_source") == 1
 
 
-def test_the_nightly_runs_exactly_what_the_file_declares():
+def test_nightly_stages_match_declared_non_standalone_sources():
     stage_names = {name for name, _ in nightly_sync.stages()}
     assert stage_names <= set(sources.KEYS), "a stage must be a declared source"
     assert set(sources.KEYS) - stage_names == set(sources.STANDALONE_SOURCES), (
@@ -55,32 +55,32 @@ def test_the_nightly_runs_exactly_what_the_file_declares():
     )
 
 
-def test_the_nightly_keys_are_every_key_that_is_not_standalone():
+def test_nightly_keys_exclude_standalone_sources():
     assert set(sources.NIGHTLY_KEYS) == set(sources.KEYS) - set(sources.STANDALONE_SOURCES)
     assert set(sources.NIGHTLY_KEYS) == {name for name, _ in nightly_sync.stages()}
 
 
-def test_limits_are_ordered_and_hold_their_default():
+def test_source_limits_default_within_min_and_max():
     for key in sources.KEYS:
         for name, bounds in (sources.source(key).get("limits") or {}).items():
             assert bounds["min"] <= bounds["default"] <= bounds["max"], f"{key}.{name}"
 
 
-def test_clamped_holds_a_value_inside_its_bounds():
+def test_clamped_limits_value_to_bounds():
     assert sources.clamped("channel_membership", "batch", 5) == 50
     assert sources.clamped("channel_membership", "batch", 9000) == 2000
     assert sources.clamped("channel_membership", "batch", 750) == 750
     assert sources.clamped("channel_membership", "batch", None) == 600
 
 
-def test_an_unknown_source_is_refused_rather_than_empty():
+def test_source_unknown_key_raises_unknown_source_error():
     with pytest.raises(sources.UnknownSourceError):
         sources.source("teleporter")
     with pytest.raises(sources.UnknownSourceError):
         sources.limit("team_stats", "batch")
 
 
-def test_a_source_claiming_num_found_actually_enforces_a_floor():
+def test_num_found_guard_sources_enforce_short_at_floor():
     import re
 
     from lib import sources
@@ -93,20 +93,20 @@ def test_a_source_claiming_num_found_actually_enforces_a_floor():
     assert "member_days" not in num_found_guarded
 
 
-def test_member_days_says_it_has_no_usable_count():
+def test_member_days_guard_is_none():
     from lib import sources
 
     assert sources.field_of("member_days", "guard") == "none"
 
 
-def test_every_declared_guard_is_in_the_vocabulary():
+def test_declared_guards_are_in_guards_vocabulary():
     from lib import sources
 
     for key in sources.KEYS:
         assert sources.SOURCES[key]["guard"] in sources.GUARDS
 
 
-def test_the_dbt_error_class_list_matches_the_declared_fault_vocabulary():
+def test_dbt_error_class_values_match_declared_fault_classes():
     import re
 
     import yaml
@@ -155,7 +155,7 @@ def downstream_models(models, tables):
     return downstream
 
 
-def test_every_feeds_entry_names_a_model_the_source_actually_reaches():
+def test_feeds_entries_are_warehouse_models_downstream_of_writes():
     models = warehouse_models()
     for key in sources.KEYS:
         if key in FULL_BUILD_SOURCES:
@@ -170,6 +170,6 @@ def test_every_feeds_entry_names_a_model_the_source_actually_reaches():
             )
 
 
-def test_the_warehouse_build_is_the_only_source_without_a_model_list():
+def test_full_build_sources_write_analytics_only():
     for key in FULL_BUILD_SOURCES:
         assert sources.source(key)["writes"] == ["analytics"], key

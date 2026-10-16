@@ -12,13 +12,13 @@ RESOLVE_REACTION_PREFIX = "check-"
 NOT_CONDUCT_REACTIONS = channel.NOT_CONDUCT_MARKS
 BAN_REACTIONS = ("ban",)
 
-CARD_OF = """
+CARD_CASE = """
 SELECT case_id FROM (
-    SELECT case_id, 1 AS rank FROM fd.case_reports WHERE forwarded_ts = %(ts)s
+    SELECT case_id, 1 AS priority FROM fd.case_reports WHERE forwarded_ts = %(ts)s
     UNION ALL
     SELECT id, 2 FROM fd.cases WHERE card_ts = %(ts)s AND card_channel_id = %(channel)s
-) found
-ORDER BY rank
+) matching_case
+ORDER BY priority
 LIMIT 1
 """
 
@@ -41,7 +41,7 @@ def is_close_reaction(name):
     return is_resolve_reaction(name) or name in NOT_CONDUCT_REACTIONS
 
 
-def root_of(client, channel_id, ts):
+def thread_root(client, channel_id, ts):
     try:
         response = client.conversations_replies(
             channel=channel_id, ts=ts, limit=1, inclusive=True
@@ -78,7 +78,7 @@ def reaction_target(ctx, matches, capability, resolve_root=True):
 
     if not resolve_root:
         return channel_id, ts, {}, who
-    thread_ts, message = root_of(ctx.client, channel_id, ts)
+    thread_ts, message = thread_root(ctx.client, channel_id, ts)
     return channel_id, thread_ts, message, who
 
 
@@ -121,19 +121,19 @@ def resolution_for(reaction):
     return "not_conduct" if reaction in NOT_CONDUCT_REACTIONS else None
 
 
-def after_resolve(client, case_id, resolution, who, echo=True):
+def after_resolve(client, case_id, resolution, who, post_log=True):
     with session() as conn:
         channel.refresh_card(client, conn, case_id)
         case_queue.refresh_card(client, conn, case_id)
-        if echo:
-            channel.post_resolution_echo(
+        if post_log:
+            channel.post_resolution_log(
                 client, conn, case_id, resolution, None, who,
-                case_actions.resolution_echo_actions(conn, case_id),
+                case_actions.resolution_log_actions(conn, case_id),
             )
 
 
 def card_case(conn, channel_id, ts):
-    row = conn.execute(CARD_OF, {"ts": ts, "channel": channel_id}).fetchone()
+    row = conn.execute(CARD_CASE, {"ts": ts, "channel": channel_id}).fetchone()
     return row[0] if row else None
 
 
@@ -156,7 +156,7 @@ def close_case_on_card_reaction(ctx):
         if not may:
             log.info("nemo: %s reacted on case %s without case.resolve", who, case_id)
             return None
-        resolution = case_actions.close_quietly(conn, case_id, resolution_for(reaction), who)
+        resolution = case_actions.close_without_notice(conn, case_id, resolution_for(reaction), who)
 
     if resolution is None:
         log.info("nemo: case %s was already resolved", case_id)
@@ -175,10 +175,10 @@ def close_case_on_root_reaction(ctx):
     reaction = plain((ctx.payload or {}).get("reaction"))
 
     with session() as conn:
-        case_id = case_queue.case_on(conn, channel_id, root_ts)
+        case_id = case_queue.case_for_root(conn, channel_id, root_ts)
         if case_id is None:
             return None
-        resolution = case_actions.close_quietly(conn, case_id, resolution_for(reaction), who)
+        resolution = case_actions.close_without_notice(conn, case_id, resolution_for(reaction), who)
 
     if resolution is None:
         log.info("nemo: case %s was already resolved", case_id)
@@ -189,7 +189,7 @@ def close_case_on_root_reaction(ctx):
 
 
 @on_event("reaction_removed", open_to_all=True)
-def unreacted(ctx):
+def ignore_reaction_removed(ctx):
     return None
 
 
@@ -201,7 +201,7 @@ def post_ban_prompt(client, conn, case_id, target):
         return client.chat_postMessage(
             channel=channel.card_channel_for(conn, case_id),
             thread_ts=thread,
-            text=f"Log an action for case {case_id}",
+            text=f"Log action · case {case_id}",
             blocks=views.edit.ban_prompt(case_id, target),
         )["ts"]
     except Exception as failure:
@@ -210,7 +210,7 @@ def post_ban_prompt(client, conn, case_id, target):
 
 
 @on_event("reaction_added", open_to_all=True)
-def banned(ctx):
+def prompt_action_log_on_ban(ctx):
     event = ctx.payload or {}
     item = event.get("item") or {}
     who = event.get("user")
@@ -229,7 +229,7 @@ def banned(ctx):
 
     target = None
     if case_id is None:
-        thread_ts, message = root_of(ctx.client, channel_id, ts)
+        thread_ts, message = thread_root(ctx.client, channel_id, ts)
         target = message.get("user")
         with session() as conn:
             case_id = case_queue.case_for_thread(conn, channel_id, thread_ts)

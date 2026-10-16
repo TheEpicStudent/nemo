@@ -4,7 +4,7 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   setup do
-    sign_in_as(hold_role!("ULISTBOSS", "community_manager"))
+    sign_in_as(grant_role!("ULISTBOSS", "community_manager"))
     %w[ULISTA ULISTB ULISTC ULISTD ULISTE ULISTF].each { |user_id| member!(user_id) }
     link!("ULISTA", "ULISTB", 9.0, '{"mailbox_alias": {"value": "a@b.example", "score": 8.0}}')
     link!("ULISTA", "ULISTC", 6.0, '{"ip_stable": {"value": "81.2.69.144", "score": 5.0}}')
@@ -42,7 +42,7 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     css_select(".link-table tbody tr").map { |row| row.css(".member-face").map { |face| face.text.squish.downcase } }
   end
 
-  test "each band and the labelled and reviewed links have their own view" do
+  test "links index renders one view per band labelled and reviewed" do
     { "certain" => [%w[ulista ulistb]], "strong" => [%w[ulista ulistf]], "weak" => [%w[ulista ulistd]],
       "labelled" => [%w[ulista uliste]], "reviewed" => [%w[ulista ulistc]] }.each do |view, expected|
       get fd_links_path(view: view)
@@ -50,7 +50,7 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a reviewed pair drops out of its score band but stays visible in reviewed" do
+  test "links index omits a reviewed pair from its band and lists it under reviewed" do
     get fd_links_path(view: "strong")
     refute_includes pairs.flatten, "ulistc"
 
@@ -58,7 +58,7 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     assert_includes pairs.flatten, "ulistc"
   end
 
-  test "a band past the page size pages through the rest" do
+  test "links index paginates a band larger than the page size" do
     105.times do |n|
       user_id = "UPAGE#{n.to_s.rjust(3, '0')}"
       member!(user_id)
@@ -75,7 +75,7 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     assert_select "turbo-frame#member-links-list[data-src=?]", fd_links_path(view: "certain", page: 2)
   end
 
-  test "the tabs count each view" do
+  test "links index tab counts match each view" do
     get fd_links_path(view: "certain")
 
     counts = css_select("nav.views a.view").to_h { |tab| [tab.children.first.text.squish, tab.at_css(".view-count").text.to_i] }
@@ -84,7 +84,7 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     assert_equal 1, counts["Reviewed"]
   end
 
-  test "sampled links list the unlabelled ones first and count in their tab" do
+  test "sampled view orders links without a verdict first and counts them" do
     sample!("ULISTA", "ULISTC", "strong")
     sample!("ULISTA", "ULISTD", "weak")
 
@@ -95,7 +95,7 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     assert_equal 2, counts["Sampled"]
   end
 
-  test "a variant's samples list its shadow links under the Set filter" do
+  test "sampled view with variant lists shadow links and shows the Set filter" do
     sample!("ULISTA", "ULISTC", "strong")
     shadow_link!("flat_inbox", "ULISTC", "ULISTD", 8.0)
     sample!("ULISTC", "ULISTD", "certain", variant: "flat_inbox")
@@ -115,7 +115,7 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     assert_equal [%w[ulista ulistc]], pairs.map { |pair| pair.map { |face| face.delete_prefix("@") } }
   end
 
-  test "the Set filter stays hidden while only live links are sampled" do
+  test "sampled view with only live samples hides the Set filter" do
     sample!("ULISTA", "ULISTC", "strong")
 
     get fd_links_path(view: "sampled")
@@ -123,7 +123,7 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     assert_select ".filter-key", text: "Set", count: 0
   end
 
-  test "the signal filter keeps the links that carry that kind of signal" do
+  test "links index signal filter lists only links with that signal kind" do
     get fd_links_path(view: "certain", signal: "network")
     assert_select ".link-table", 0
     assert_select ".empty-title", "No links"
@@ -132,9 +132,9 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     assert_equal 1, pairs.size
   end
 
-  test "addresses and emails in a signal stay hidden without identity.read" do
-    firefighter = hold_role!("ULISTFF", "firefighter")
-    move_capability!("firefighter", "identity.read", false, by: "ULISTBOSS")
+  test "links index hides addresses and emails without identity.read" do
+    firefighter = grant_role!("ULISTFF", "firefighter")
+    override_capability!("firefighter", "identity.read", false, by: "ULISTBOSS")
     sign_in_as(firefighter)
 
     get fd_links_path(view: "certain")

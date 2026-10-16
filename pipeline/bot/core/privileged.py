@@ -65,30 +65,30 @@ def proxy():
     return ProxyClient(token=token, keep_alive=True)
 
 
-NOT_THERE = ("channel_not_found", "not_in_channel")
+CHANNEL_MISSING_ERRORS = ("channel_not_found", "not_in_channel")
 ALREADY_DELETED = ("message_not_found", "already_deleted")
 
-_admin = {}
+_admin_cache = {}
 
 
-def absent(failure):
+def channel_missing(failure):
     text = str(failure)
-    return any(one in text for one in NOT_THERE)
+    return any(code in text for code in CHANNEL_MISSING_ERRORS)
 
 
 def already_deleted(failure):
     text = str(failure)
-    return any(one in text for one in ALREADY_DELETED)
+    return any(code in text for code in ALREADY_DELETED)
 
 
 def admin_user_id():
-    if "id" not in _admin:
+    if "id" not in _admin_cache:
         report = proxy().verify() or {}
         admin = (report.get("credentials") or {}).get("admin") or {}
-        _admin["id"] = admin.get("user_id")
-        if not _admin["id"]:
+        _admin_cache["id"] = admin.get("user_id")
+        if not _admin_cache["id"]:
             log.warning("privileged: the proxy will not say who the admin account is")
-    return _admin["id"]
+    return _admin_cache["id"]
 
 
 def delete_message(channel_id, ts, max_retries=2):
@@ -122,7 +122,7 @@ def kick(channel_id, user_id):
         proxy().call("conversations.kick", {"channel": channel_id, "user": user_id},
                      credential="admin", max_retries=0)
     except Exception as failure:
-        if absent(failure):
+        if channel_missing(failure):
             log.info("privileged: cannot put %s out of %s, we are not in it", user_id, channel_id)
             return "away"
         log.warning("privileged: could not put %s out of %s: %s", user_id, channel_id, failure)
@@ -133,10 +133,10 @@ def kick(channel_id, user_id):
 
 
 def reset_sessions(user_id, conn=None):
-    how = mode(conn)
-    if how == OFF:
+    current_mode = mode(conn)
+    if current_mode == OFF:
         return "off"
-    if how == LOG:
+    if current_mode == LOG:
         log.warning("privileged: would reset every session for %s (%s is log)",
                     user_id, SESSION_RESET_SETTING)
         return "would"
@@ -160,10 +160,10 @@ REACTIVATED = "reactivated"
 
 
 def set_account_state(user_id, method, done, doing, conn=None):
-    how = deactivation_mode(conn)
-    if how == OFF:
+    current_mode = deactivation_mode(conn)
+    if current_mode == OFF:
         return "off"
-    if how == LOG:
+    if current_mode == LOG:
         log.warning("privileged: would %s %s (%s is log)", doing, user_id, DEACTIVATE_SETTING)
         return "would"
 
@@ -199,4 +199,4 @@ def deactivate(user_id, conn=None):
 
 
 def reactivate(user_id, conn=None):
-    return set_account_state(user_id, ACTIVATE, REACTIVATED, "put back", conn)
+    return set_account_state(user_id, ACTIVATE, REACTIVATED, "reactivate", conn)

@@ -12,13 +12,13 @@ module Fd
       Current.forget_flags
     end
 
-    test "a flag nobody has touched follows the file" do
+    test "on? and showing use the file defaults without rows" do
       assert Flag.on?(:fire_engine)
       assert Flag.on?("analytics")
       assert_equal %w[analytics fire_engine], Flag.showing
     end
 
-    test "the file says true in a word yaml does not read as a boolean key" do
+    test "TABLE rows have a default key and no boolean key" do
       Flag::KEYS.each do |key|
         row = Flag::TABLE.fetch(key)
         assert row.key?("default"), "#{key} has no default"
@@ -26,7 +26,7 @@ module Fd
       end
     end
 
-    test "turning one off leaves the other alone" do
+    test "set! false for fire_engine leaves analytics on" do
       Flag.set!(:fire_engine, false, by: "UME")
 
       assert Flag.off?(:fire_engine)
@@ -34,39 +34,39 @@ module Fd
       assert_equal %w[analytics], Flag.showing
     end
 
-    test "turning it back on clears the override" do
+    test "set! true after false turns the flag on with a single row" do
       Flag.set!(:fire_engine, false, by: "UME")
       Flag.set!(:fire_engine, true, by: "UME")
 
       assert Flag.on?(:fire_engine)
-      assert_equal 1, Flag.where(key: "fire_engine").count, "one row, flipped, not two"
+      assert_equal 1, Flag.where(key: "fire_engine").count, "one row per key"
     end
 
-    test "a flip records who did it and when" do
+    test "set! stores changed_by and changed_at" do
       row = Flag.set!(:analytics, false, by: "UBOSS")
 
       assert_equal "UBOSS", row.changed_by
       assert_not_nil row.changed_at
     end
 
-    test "a key the file does not know is refused, not quietly false" do
+    test "on? and set! raise UnknownError for an unknown key" do
       assert_raises(Flag::UnknownError) { Flag.on?(:teleporter) }
       assert_raises(Flag::UnknownError) { Flag.set!(:teleporter, true, by: "UME") }
     end
 
-    test "every flag says what it is and what it covers" do
+    test "every flag has a label and covers text" do
       Flag::KEYS.each do |key|
         assert Flag.label(key).present?
         assert Flag.covers(key).present?
       end
     end
 
-    test "the answer is remembered within a request and forgotten on a flip" do
+    test "on? is cached until Current.forget_flags" do
       assert Flag.on?(:fire_engine)
       Flag.insert!({ key: "fire_engine", is_on: false, changed_by: "UME",
                      changed_at: Time.current })
 
-      assert Flag.on?(:fire_engine), "the row landed behind the cache"
+      assert Flag.on?(:fire_engine), "cached value returned after the row changed"
 
       Current.forget_flags
       assert Flag.off?(:fire_engine)

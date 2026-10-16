@@ -1,6 +1,6 @@
 module Fd
   class MemberStanding
-    WEIGHT = Action::WORST_FIRST
+    WEIGHT = Action::SEVERITY_ORDER
 
     def initialize(record, at: Time.current)
       @record = record

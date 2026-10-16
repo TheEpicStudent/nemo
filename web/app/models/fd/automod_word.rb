@@ -15,13 +15,13 @@ module Fd
     SHIPPED_EFFECTS = [FLAG].freeze
 
     has_many :matches, class_name: "Fd::AutomodMatch", foreign_key: :word_id,
-      inverse_of: :watch, dependent: :nullify
+      inverse_of: :automod_word, dependent: :nullify
 
     scope :active, -> { where(active: true) }
     scope :retired, -> { where(active: false) }
     scope :newest_first, -> { order(added_at: :desc, id: :desc) }
 
-    def self.watching = active.newest_first.to_a
+    def self.active_listed = active.newest_first.to_a
 
     def self.add!(word:, by:, match_mode: WORD, effect: FLAG, category_key: nil, note: nil)
       create!(word: word.to_s.strip, match_mode: match_mode, effect: effect,
@@ -34,7 +34,7 @@ module Fd
 
     def retired? = !active
 
-    def people_named
+    def referenced_user_ids
       [added_by, retired_by].compact
     end
   end

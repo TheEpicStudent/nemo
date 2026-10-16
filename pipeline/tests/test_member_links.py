@@ -20,12 +20,12 @@ def score_for(name, group_size, population=POPULATION):
     return links.signals()[name]["weight"] * rarity(group_size, population)
 
 
-def test_the_bands_climb():
+def test_scoring_thresholds_floor_strong_certain_are_ascending():
     thresholds = links.scoring()
     assert thresholds["floor"] < thresholds["strong"] < thresholds["certain"]
 
 
-def test_a_school_domain_cannot_link_two_people_on_its_own():
+def test_signals_email_domain_and_joined_together_alone_score_below_floor():
     thresholds = links.scoring()
     assert score_for("email_domain", 6) < thresholds["floor"], \
         "six people on one domain is a school, not an alt"
@@ -33,7 +33,7 @@ def test_a_school_domain_cannot_link_two_people_on_its_own():
         "arriving together is a crowd signal, not an identity"
 
 
-def test_a_pair_is_written_one_way_round_so_it_cannot_be_held_twice():
+def test_member_links_schema_orders_pair_ids_and_keys_by_pair():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
             / "0149_member_links.sql").read_text()
     assert "CHECK (a_user_id < b_user_id)" in sql
@@ -41,88 +41,88 @@ def test_a_pair_is_written_one_way_round_so_it_cannot_be_held_twice():
     assert "least(a.user_id, b.user_id)" in links.PAIRS_SQL
 
 
-def test_a_verdict_is_held_once_per_pair_in_the_same_order_as_its_link():
+def test_member_link_verdicts_schema_orders_pair_ids_and_is_unique_per_pair():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
             / "0181_member_link_verdicts.sql").read_text()
     assert "CHECK (a_user_id < b_user_id)" in sql
     assert "UNIQUE (a_user_id, b_user_id)" in sql
 
 
-def test_the_crowd_ceiling_prunes_before_the_join_not_after_it():
+def test_pairs_and_together_sql_prune_ceiling_before_self_join():
     for sql in (links.PAIRS_SQL, links.TOGETHER_SQL):
-        pruned = sql.index("BETWEEN 2 AND %(ceiling)s")
-        joined = sql.index("JOIN small b")
-        assert pruned < joined, (
+        prune_index = sql.index("BETWEEN 2 AND %(ceiling)s")
+        join_index = sql.index("JOIN candidate b")
+        assert prune_index < join_index, (
             "a value thousands of people share must be dropped before the self-join; "
             "filtering after it materialises n squared rows and the pass never ends")
-        assert "FROM small a" in sql
+        assert "FROM candidate a" in sql
 
 
-def test_neither_side_of_the_join_reads_the_unpruned_evidence():
+def test_pairs_and_together_sql_do_not_join_unpruned_evidence():
     for sql in (links.PAIRS_SQL, links.TOGETHER_SQL):
         assert "FROM ev a" not in sql
         assert "JOIN ev b" not in sql
 
 
-def test_a_network_many_people_share_is_not_evidence_of_anything():
+def test_shared_config_rotates_above_and_min_sightings_thresholds():
     shared_config = links.shared()
     assert shared_config["rotates_above"] > 1, "a carrier hands each person a fresh address every time"
     assert shared_config["min_sightings"] >= 2, "one sighting on an address is a coincidence, not a home"
 
 
-def test_the_shared_networks_are_worked_out_rather_than_listed_by_hand():
+def test_shared_isp_sql_derives_networks_without_named_isps():
     assert "count(DISTINCT ip)" in links.SHARED_ISP
     assert "count(DISTINCT user_id)" in links.SHARED_ISP
     assert "rotates" in links.SHARED_ISP
-    for named in ("T-Mobile", "ProtonVPN", "Jio"):
-        assert named not in links.SHARED_ISP, "no isp is named in the code"
+    for isp_name in ("T-Mobile", "ProtonVPN", "Jio"):
+        assert isp_name not in links.SHARED_ISP, "no isp is named in the code"
 
 
-def test_the_shared_tables_are_gone_when_the_pass_commits():
+def test_shared_isp_and_shared_ip_sql_drop_tables_on_commit():
     assert "ON COMMIT DROP" in links.SHARED_ISP
     assert "ON COMMIT DROP" in links.SHARED_IP
 
 
-def test_every_signal_belongs_to_a_family_with_a_cap():
+def test_signals_each_family_exists_with_positive_cap():
     caps = links.families()
-    for name, one in links.signals().items():
-        assert one["family"] in caps, name
-    for family, one in caps.items():
-        assert one["cap"] > 0, family
+    for name, definition in links.signals().items():
+        assert definition["family"] in caps, name
+    for family, definition in caps.items():
+        assert definition["cap"] > 0, family
 
 
-def test_only_identity_evidence_can_reach_certain_alone():
+def test_families_only_identity_reaches_certain_threshold_alone():
     certain_threshold = links.scoring()["certain"]
-    for family, one in links.families().items():
+    for family, definition in links.families().items():
         if family != "identity":
-            assert one["cap"] < certain_threshold, family
+            assert definition["cap"] < certain_threshold, family
     assert links.signals()["mailbox_alias"]["weight"] >= certain_threshold
 
 
-def test_the_family_table_lines_up_signal_by_signal():
+def test_family_table_columns_have_equal_length_and_align_by_signal():
     table = links.family_table(links.catalogue())
 
     assert len({len(column) for column in table.values()}) == 1
-    at = table["signals"].index("session_agent")
-    assert table["families"][at] == "device"
-    assert table["corroborating"][at] is True
+    position = table["signals"].index("session_agent")
+    assert table["families"][position] == "device"
+    assert table["corroborating"][position] is True
 
 
-def test_each_family_is_capped_before_the_families_are_added():
+def test_pass_sql_caps_each_family_before_summing_families():
     assert "least(sum(b.score), f.cap)" in links.PASS
     assert "bool_or(NOT corroborating)" in links.PASS
 
 
-def test_an_unchanged_link_is_not_written_again():
+def test_upsert_sql_skips_unchanged_links_and_sweep_checks_link_pass():
     assert "IS DISTINCT FROM" in links.UPSERT_SQL
     assert "NOT EXISTS (SELECT 1 FROM link_pass" in links.SWEEP
 
 
-def test_the_full_rebuild_never_sweeps_a_link_the_live_lane_wrote_after_it_started():
+def test_sweep_sql_excludes_links_computed_after_pass_start():
     assert "l.computed_at < now()" in links.SWEEP
 
 
-def test_a_pass_gathers_once_then_lands_sweeps_and_counts(monkeypatch, capsys):
+def test_run_executes_statements_in_order_commits_and_prints_summary(monkeypatch, capsys):
     executed = []
 
     class Counts:
@@ -163,20 +163,20 @@ def test_a_pass_gathers_once_then_lands_sweeps_and_counts(monkeypatch, capsys):
     monkeypatch.setattr(links, "mark_shared", lambda _conn, _config: 2)
     monkeypatch.setattr(links, "prepare", lambda _conn, _config: None)
     monkeypatch.setattr(links, "measure", lambda _conn, _config: {"ip_stable": 40})
-    monkeypatch.setattr(links, "gather", lambda _conn, _config, _totals: {"ip_stable": 3})
+    monkeypatch.setattr(links, "load_signal_pairs", lambda _conn, _config, _totals: {"ip_stable": 3})
 
     assert links.run(Conn()) == 4
-    executed[:] = [one for one in executed if one not in ("ANALYZE shared_ip", "ANALYZE link_part", links.SAVE_WHOLES_SQL,
-                                                          links.QUIET)]
+    executed[:] = [statement for statement in executed if statement not in ("ANALYZE shared_ip", "ANALYZE link_part", links.SAVE_WHOLES_SQL,
+                                                          links.SET_QUIET_LINKS)]
     assert executed[:11] == [links.PASS, links.PASS_INDEX, "ANALYZE link_pass", links.PRESENCE.format(**links.FULL),
                              links.PRESENCE_INDEX,
-                             "ANALYZE presence", links.AGAINST, links.STAFF_TEST,
+                             "ANALYZE presence", links.COUNTRY_CONFLICT, links.STAFF_TEST,
                              links.BELOW_FLOOR, links.UPSERT_SQL, links.SWEEP]
     assert executed[-1] == "commit"
     assert "9 link(s) kept, 4 written, 1 dropped" in capsys.readouterr().out
 
 
-def test_the_new_finder_takes_its_network_evidence_from_the_class_aware_signals():
+def test_signals_include_class_aware_ip_signals_and_exclude_legacy_ones():
     names = set(links.signals())
 
     assert {"ip_stable", "ip_same_hour", "ip_many", "ip_hourly", "ip_prefix_stable"} <= names
@@ -184,11 +184,11 @@ def test_the_new_finder_takes_its_network_evidence_from_the_class_aware_signals(
     assert {"email_domain", "session_agent", "joined_together"} <= names
 
 
-def test_a_home_range_only_counts_alongside_another_family():
+def test_signals_ip_prefix_stable_is_corroborating():
     assert links.signals()["ip_prefix_stable"]["corroborating"] is True
 
 
-def test_each_signal_reads_the_evidence_built_for_it():
+def test_evidence_returns_sql_per_signal_and_none_for_unknown_signal():
     signals = links.signals()
 
     stable, _ = links.evidence("ip_stable", signals["ip_stable"], 2)
@@ -204,30 +204,30 @@ def test_each_signal_reads_the_evidence_built_for_it():
     assert links.evidence("nothing", {"weight": 1, "crowd_ceiling": 2}, 2) == (None, None)
 
 
-def test_an_address_another_isp_rotates_through_is_treated_as_rotating():
+def test_sighting_sql_shared_ip_is_classified_rotating():
     assert ("WHEN EXISTS (SELECT 1 FROM shared_ip s WHERE s.ip = e.ip) THEN 'rotating'"
             in links.SIGHTING.format(**links.FULL))
 
 
-def test_hourly_evidence_keeps_one_row_per_pair():
+def test_collapsed_signals_insert_one_row_per_pair():
     assert set(links.COLLAPSED) == {"ip_same_hour", "ip_hourly", "ip_burst"}
-    assert "DISTINCT ON (a_user_id, b_user_id)" in links.COLLAPSED_PART
+    assert "DISTINCT ON (a_user_id, b_user_id)" in links.INSERT_COLLAPSED_PART
 
 
-def test_two_countries_in_one_hour_count_against_a_link_unless_one_is_a_vpn():
-    assert links.against()["two_countries"]["weight"] < 0
+def test_country_conflict_two_countries_has_negative_weight_and_excludes_vpn_classes():
+    assert links.country_conflict_settings()["two_countries"]["weight"] < 0
     assert "s.class NOT IN ('vpn', 'hosting', 'tor')" in links.PRESENCE
     assert "coalesce(e.country, n.country) AS country" in links.SIGHTING
-    assert "b.hour = a.hour AND b.country <> a.country" in links.AGAINST
+    assert "b.hour = a.hour AND b.country <> a.country" in links.COUNTRY_CONFLICT
 
 
-def test_the_country_check_reads_only_the_members_of_candidate_links():
+def test_presence_and_country_conflict_sql_read_only_candidate_link_members():
     assert "FROM sighting s" in links.PRESENCE.format(**links.FULL)
     assert "SELECT a_user_id FROM link_pass UNION SELECT b_user_id FROM link_pass" in links.PRESENCE
-    assert "fd.login_event" not in links.AGAINST
+    assert "fd.login_event" not in links.COUNTRY_CONFLICT
 
 
-def test_a_word_for_word_build_is_device_evidence_and_ja4_only_backs_it_up():
+def test_signals_device_agent_and_device_ja4_are_corroborating_device_family():
     signals = links.signals()
 
     assert signals["device_agent"]["family"] == "device"
@@ -236,7 +236,7 @@ def test_a_word_for_word_build_is_device_evidence_and_ja4_only_backs_it_up():
     assert signals["device_agent"]["crowd_ceiling"] <= 25
 
 
-def test_device_evidence_reads_the_full_agent_and_the_anomaly_fingerprint():
+def test_evidence_device_agent_and_device_ja4_sql_use_agent_length_and_anomaly_filter():
     signals = links.signals()
 
     agent, _ = links.evidence("device_agent", signals["device_agent"], 2)
@@ -247,19 +247,19 @@ def test_device_evidence_reads_the_full_agent_and_the_anomaly_fingerprint():
     assert "BETWEEN 2 AND %(ceiling)s" in agent
 
 
-def test_a_shared_build_alone_stays_below_strong():
+def test_signals_device_agent_weight_and_device_cap_are_below_strong():
     signals = links.signals()
     assert signals["device_agent"]["weight"] < links.scoring()["strong"]
     assert links.families()["device"]["cap"] < links.scoring()["strong"]
 
 
-def test_a_name_alone_stays_below_strong():
+def test_families_name_cap_is_below_strong_and_name_signals_use_name_family():
     assert links.families()["name"]["cap"] < links.scoring()["strong"]
     for name in ("full_name", "display_name", "handle_stem"):
         assert links.signals()[name]["family"] == "name"
 
 
-def test_mailboxes_fold_aliases_and_leave_out_staff_domains():
+def test_mailbox_rows_fold_aliases_and_skip_staff_and_invalid_addresses():
     rows = list(links.mailbox_rows([("U1", "Jo.Doe+x@googlemail.com"), ("U2", "x@mail.hackclub.com"),
                                  ("U3", "nope"), ("U4", "kai@school.edu")], ["hackclub.com"]))
 
@@ -267,7 +267,7 @@ def test_mailboxes_fold_aliases_and_leave_out_staff_domains():
                     ("U4", "kai@school.edu", "kai", "school.edu")]
 
 
-def test_names_skip_bots_and_renamed_deactivated_accounts():
+def test_evidence_name_signals_exclude_bots_and_deactivated_accounts():
     signals = links.signals()
     for name in ("full_name", "display_name", "handle_stem", "handle_stem_long"):
         sql, _ = links.evidence(name, signals[name], 2)
@@ -276,12 +276,12 @@ def test_names_skip_bots_and_renamed_deactivated_accounts():
         assert f">= {links.SHORTEST_NAME}" in sql or f">= {links.SHORTEST_LONG_STEM}" in sql
 
 
-def test_a_handle_stem_drops_trailing_numbers_and_marks():
+def test_evidence_handle_stem_strips_trailing_non_letters():
     sql, _ = links.evidence("handle_stem", links.signals()["handle_stem"], 2)
     assert "regexp_replace(lower(handle), '[^a-z]+$', '')" in sql
 
 
-def test_the_harness_and_the_finder_share_one_mailbox_rule():
+def test_mailbox_score_links_and_member_links_share_lib_mailbox_function():
     from jobs import score_links
     from lib import mailbox as rule
 
@@ -289,7 +289,7 @@ def test_the_harness_and_the_finder_share_one_mailbox_rule():
     assert links.mailbox is rule.mailbox
 
 
-def test_only_a_post_ban_vpn_exit_makes_a_strong_link_from_arrival_evidence_alone():
+def test_signals_only_after_ban_exit_reaches_strong_in_arrival_family():
     strong = links.scoring()["strong"]
     for name in ("created_same_address", "invited_by", "after_ban_address", "after_ban_device"):
         assert links.signals()[name]["family"] == "arrival"
@@ -300,27 +300,27 @@ def test_only_a_post_ban_vpn_exit_makes_a_strong_link_from_arrival_evidence_alon
     assert links.families()["arrival"]["cap"] == exit_signal["weight"]
 
 
-def test_a_ban_counts_only_while_the_account_stays_deactivated():
+def test_banned_sql_excludes_bans_followed_by_reactivation():
     assert "max(at) FILTER (WHERE action = 'user_reactivated') AS back_at" in links.BANNED
     assert "banned_at > coalesce(back_at, '-infinity'::timestamptz)" in links.BANNED
 
 
-def test_after_a_ban_only_a_first_sighting_counts_and_only_on_a_home_address():
+def test_evidence_after_ban_address_sql_requires_stable_first_sighting_after_ban():
     sql, _ = links.evidence("after_ban_address", links.signals()["after_ban_address"], 2)
 
     assert "s.class = 'stable' AND s.hour <= h.banned_at" in sql
     assert "a.first_at > u.banned_at" in sql
 
 
-def test_onboarding_accounts_that_create_everyone_are_not_inviters():
+def test_evidence_invited_by_sql_excludes_creators_over_ceiling():
     sql, args = links.evidence("invited_by", links.signals()["invited_by"], 2)
 
     assert "action = 'user_created'" in sql
-    assert "WHERE c.people <= %(ceiling)s" in sql
+    assert "WHERE c.user_count <= %(ceiling)s" in sql
     assert args["ceiling"] == 20
 
 
-def test_joining_together_needs_the_same_address_within_the_window():
+def test_evidence_created_same_address_sql_requires_same_ip_within_window():
     sql, args = links.evidence("created_same_address", links.signals()["created_same_address"], 2)
 
     assert "JOIN fd.member_joins j" in sql
@@ -328,61 +328,61 @@ def test_joining_together_needs_the_same_address_within_the_window():
     assert args["window"] == 1800
 
 
-def test_the_labels_match_the_table_check():
+def test_labels_match_member_link_by_family_migration():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
            / "0188_member_link_by_family.sql").read_text()
     for name in links.labels():
         assert f"'{name}'" in sql
 
 
-def test_staff_test_only_labels_and_never_touches_the_score():
+def test_staff_test_label_has_no_weight_and_staff_test_sql_has_no_score():
     labels = links.labels()
 
     assert "weight" not in labels["staff_test"]
     assert "score" not in links.STAFF_TEST
 
 
-def test_staff_members_are_the_accounts_with_a_staff_mailbox():
+def test_staff_members_returns_accounts_with_staff_mailbox():
     rows = list(links.staff_members([("U1", "x+test@mail.hackclub.com"), ("U2", "y@gmail.com"),
                                   ("U3", None)], ["hackclub.com"]))
     assert rows == [("U1",)]
 
 
-def test_a_label_change_is_written_like_any_other_change():
+def test_upsert_sql_updates_label_on_conflict():
     assert "label = EXCLUDED.label" in links.UPSERT_SQL
     assert "EXCLUDED.label)" in links.UPSERT_SQL
 
 
-def test_every_temp_table_is_analysed_before_it_is_joined():
+def test_prepare_and_run_source_analyze_each_temp_table():
     import inspect
 
-    prepared = inspect.getsource(links.prepare)
-    passed = inspect.getsource(links.run) + inspect.getsource(links.settle)
+    prepare_source = inspect.getsource(links.prepare)
+    run_source = inspect.getsource(links.run) + inspect.getsource(links.score_pairs)
     for table in ("sighting", "mailbox", "staff_member"):
-        assert f'"ANALYZE {table}"' in prepared, table
+        assert f'"ANALYZE {table}"' in prepare_source, table
     for table in ("shared_ip", "link_part", "link_pass"):
-        assert f'"ANALYZE {table}"' in passed, table
+        assert f'"ANALYZE {table}"' in run_source, table
 
 
-def test_signals_are_grouped_by_pair_not_looked_up_per_pair():
+def test_pass_sql_groups_signals_by_pair_without_per_pair_lookup():
     assert "FROM best b\n        WHERE b.a_user_id = p.a_user_id" not in links.PASS
     assert "GROUP BY b.a_user_id, b.b_user_id" in links.PASS
 
 
-def test_a_shared_inbox_counts_however_many_accounts_use_it():
+def test_signals_mailbox_alias_crowd_ceiling_is_at_least_100():
     assert links.signals()["mailbox_alias"]["crowd_ceiling"] >= 100
 
 
-def test_a_device_build_counts_only_when_few_members_use_it():
+def test_signals_device_agent_crowd_ceiling_is_at_most_5():
     assert links.signals()["device_agent"]["crowd_ceiling"] <= 5
 
 
-def test_a_shared_name_only_backs_other_evidence_up():
+def test_signals_name_signals_are_corroborating():
     for name in ("full_name", "display_name", "handle_stem"):
         assert links.signals()[name]["corroborating"] is True, name
 
 
-def test_a_long_shared_handle_stem_adds_weight_but_never_links_on_its_own():
+def test_signals_handle_stem_long_is_corroborating_name_signal_below_strong_cap():
     signal = links.signals()["handle_stem_long"]
     sql, args = links.evidence("handle_stem_long", signal, 2)
 
@@ -394,30 +394,30 @@ def test_a_long_shared_handle_stem_adds_weight_but_never_links_on_its_own():
     assert links.families()["name"]["cap"] < links.scoring()["strong"]
 
 
-def test_a_short_stem_still_only_backs_other_evidence_up():
+def test_signals_handle_stem_is_corroborating():
     assert links.signals()["handle_stem"]["corroborating"] is True
 
 
-def test_a_vpn_or_mobile_address_in_the_same_hour_with_the_same_browser_reaches_the_floor():
+def test_signals_ip_hourly_weight_reaches_floor():
     assert links.signals()["ip_hourly"]["weight"] >= links.scoring()["floor"]
 
 
-def test_only_precise_evidence_can_make_a_link_on_its_own():
-    primary = {name for name, one in links.signals().items() if not one.get("corroborating")}
+def test_signals_non_corroborating_set_matches_primary_signals():
+    primary = {name for name, definition in links.signals().items() if not definition.get("corroborating")}
 
     assert primary == {"ip_stable", "ip_many", "ip_hourly", "ip_burst", "mailbox_alias", "local_part",
                        "created_same_address", "invited_by", "after_ban_exit",
                        "after_ban_address", "after_ban_device"}
 
 
-def test_a_home_address_on_a_busy_range_does_not_count():
+def test_evidence_ip_stable_sql_limits_users_per_range_to_20():
     sql, _ = links.evidence("ip_stable", links.signals()["ip_stable"], 2)
 
     assert "HAVING count(DISTINCT user_id) <= 20" in sql
     assert links.signals()["ip_same_hour"]["corroborating"] is True
 
 
-def test_a_burst_needs_the_same_exit_hour_and_browser_and_joins_in_the_same_week():
+def test_evidence_ip_burst_sql_requires_same_exit_browser_and_join_window():
     signal = links.signals()["ip_burst"]
     sql, args = links.evidence("ip_burst", signal, 2)
 
@@ -431,7 +431,7 @@ def test_a_burst_needs_the_same_exit_hour_and_browser_and_joins_in_the_same_week
     assert "ip_burst" in links.COLLAPSED
 
 
-def test_a_burst_on_a_vpn_or_tor_exit_is_strong_and_elsewhere_stays_weak():
+def test_evidence_ip_burst_vpn_or_tor_weight_is_strong_and_base_weight_is_lower():
     signal = links.signals()["ip_burst"]
     sql, _args = links.evidence("ip_burst", signal, 2)
 
@@ -440,11 +440,11 @@ def test_a_burst_on_a_vpn_or_tor_exit_is_strong_and_elsewhere_stays_weak():
     assert signal["vpn_weight"] >= links.scoring()["strong"] > signal["weight"]
 
 
-def test_only_home_addresses_earn_the_repeat_bonus():
+def test_repeated_pairs_only_ip_many_with_ip_stable():
     assert links.REPEATED == (("ip_many", "ip_stable"),)
 
 
-def test_every_signal_has_evidence_built_for_it():
+def test_evidence_every_signal_except_ip_many_returns_sql():
     for name, settings in links.signals().items():
         if name == links.IP_MANY:
             continue
@@ -452,38 +452,38 @@ def test_every_signal_has_evidence_built_for_it():
         assert sql is not None, name
 
 
-def test_the_finder_writes_the_links_table_the_web_reads():
+def test_upsert_and_sweep_sql_target_member_link_table():
     assert "INSERT INTO fd.member_link\n" in links.UPSERT_SQL
     assert "top_signal = EXCLUDED.top_signal" in links.UPSERT_SQL
     assert "DELETE FROM fd.member_link l" in links.SWEEP
 
 
-def test_the_full_rebuild_keeps_what_the_live_lane_needs():
+def test_run_and_mark_shared_save_wholes_and_shared_for_live_lane():
     import inspect
 
-    passed = inspect.getsource(links.run)
-    assert "save_wholes(conn, wholes)" in passed
+    run_source = inspect.getsource(links.run)
+    assert "save_wholes(conn, wholes)" in run_source
     assert "SAVE_SHARED_SQL" in inspect.getsource(links.mark_shared)
     assert "rarity(%(whole)s::numeric, k.counted)" in links.RARITY_SCORE
-    assert "rarity(%(whole)s::numeric, k.people)" in links.TOGETHER_SQL
+    assert "rarity(%(whole)s::numeric, k.user_count)" in links.TOGETHER_SQL
 
 
-def test_a_value_too_crowded_to_load_never_pairs_in_the_live_lane():
-    live = {**links.FULL, "crowded": "crowded"}
-    sql, _ = links.evidence("email_domain", links.signals()["email_domain"], 2, live)
-    assert "AND value NOT IN (SELECT value FROM crowded WHERE signal = %(name)s)" in sql
+def test_evidence_live_lane_excludes_over_cap_values_and_full_lane_does_not():
+    live_names = {**links.FULL, "over_cap": "over_cap"}
+    sql, _ = links.evidence("email_domain", links.signals()["email_domain"], 2, live_names)
+    assert "AND value NOT IN (SELECT value FROM over_cap WHERE signal = %(name)s)" in sql
     full, _ = links.evidence("email_domain", links.signals()["email_domain"], 2)
-    assert "crowded" not in full
+    assert "over_cap" not in full
 
 
-def test_ties_break_by_name_so_a_rebuild_does_not_rewrite_unchanged_links():
+def test_pass_sql_orders_ties_by_signal_and_family_deterministically():
     assert "ORDER BY b.score DESC, b.signal" in links.PASS
     assert "ORDER BY score DESC, family" in links.PASS
     assert "ORDER BY a_user_id, b_user_id, signal, score DESC, value" in links.PASS
-    assert "ORDER BY a_user_id, b_user_id, score DESC, value" in links.COLLAPSED_PART
+    assert "ORDER BY a_user_id, b_user_id, score DESC, value" in links.INSERT_COLLAPSED_PART
 
 
-def test_a_shadow_build_writes_only_its_variant_and_leaves_live_tables_alone(monkeypatch):
+def test_build_shadow_executes_only_shadow_statements_and_returns_row_count(monkeypatch):
     executed = []
 
     class Cursor:
@@ -517,33 +517,33 @@ def test_a_shadow_build_writes_only_its_variant_and_leaves_live_tables_alone(mon
 
     monkeypatch.setattr(links, "prepare", lambda _conn, _config: None)
     monkeypatch.setattr(links, "measure", lambda _conn, _config: {"ip_stable": 40})
-    monkeypatch.setattr(links, "gather", lambda _conn, _config, _totals: {})
+    monkeypatch.setattr(links, "load_signal_pairs", lambda _conn, _config, _totals: {})
 
     assert links.build_shadow(Conn(), links.catalogue(), "flat_inbox") == 7
     statements = [sql for sql, _params in executed]
-    for live_write in (links.SAVE_SHARED_SQL, links.SAVE_WHOLES_SQL, links.UPSERT_SQL, links.SWEEP, links.QUIET):
+    for live_write in (links.SAVE_SHARED_SQL, links.SAVE_WHOLES_SQL, links.UPSERT_SQL, links.SWEEP, links.SET_QUIET_LINKS):
         assert live_write not in statements
-    clear = statements.index(links.SHADOW_CLEAR_SQL)
-    insert = statements.index(links.SHADOW_INSERT_SQL)
-    assert clear < insert < statements.index("commit")
-    assert executed[clear][1] == executed[insert][1] == {"variant": "flat_inbox"}
+    clear_index = statements.index(links.SHADOW_CLEAR_SQL)
+    insert_index = statements.index(links.SHADOW_INSERT_SQL)
+    assert clear_index < insert_index < statements.index("commit")
+    assert executed[clear_index][1] == executed[insert_index][1] == {"variant": "flat_inbox"}
 
 
-def test_the_shadow_insert_copies_every_column_the_live_upsert_writes():
+def test_shadow_insert_sql_includes_every_upsert_column():
     for column in ("score", "top_signal", "top_family", "families", "signals", "first_seen", "last_seen", "label"):
         assert column in links.SHADOW_INSERT_SQL
     assert "INSERT INTO fd.member_link_shadow" in links.SHADOW_INSERT_SQL
     assert "FROM link_pass" in links.SHADOW_INSERT_SQL
 
 
-def test_a_signal_keeps_its_rarity_discount_and_every_pair_by_default():
+def test_evidence_default_signal_uses_rarity_score_without_oldest_pairing():
     sql, _args = links.evidence("device_agent", {"weight": 3.0, "crowd_ceiling": 8}, 2)
 
     assert links.RARITY_SCORE + " AS score" in sql
     assert "oldest" not in sql
 
 
-def test_a_flat_star_inbox_scores_its_weight_and_pairs_each_account_with_the_oldest():
+def test_evidence_flat_link_to_oldest_signal_scores_weight_and_pairs_with_oldest():
     settings = {"weight": 8.0, "crowd_ceiling": 100, "rarity_discount": False, "link_to_oldest": True}
 
     sql, args = links.evidence("mailbox_alias", settings, 2)
@@ -555,11 +555,11 @@ def test_a_flat_star_inbox_scores_its_weight_and_pairs_each_account_with_the_old
     assert args["ceiling"] == 100
 
 
-def test_a_star_keeps_a_pair_that_has_a_verdict():
-    assert "OR EXISTS (SELECT 1 FROM fd.member_link_verdict v" in links.STAR_FILTER
+def test_oldest_account_filter_keeps_pairs_with_verdict():
+    assert "OR EXISTS (SELECT 1 FROM fd.member_link_verdict v" in links.OLDEST_ACCOUNT_FILTER
 
 
-def test_the_live_lane_finds_the_oldest_holder_among_its_scoped_joins():
+def test_evidence_live_lane_link_to_oldest_uses_scope_joins():
     settings = {"weight": 8.0, "crowd_ceiling": 100, "link_to_oldest": True}
 
     sql, _args = links.evidence("mailbox_alias", settings, 2, live.LIVE)
@@ -567,15 +567,15 @@ def test_the_live_lane_finds_the_oldest_holder_among_its_scoped_joins():
     assert "LEFT JOIN scope_joins j ON j.user_id = s.user_id" in sql
 
 
-def test_a_shared_inbox_scores_flat_and_links_each_account_to_the_oldest():
-    shipped = links.catalogue()["identity_signals"]["mailbox_alias"]
+def test_catalogue_mailbox_alias_is_flat_and_links_to_oldest():
+    catalogue_signal = links.catalogue()["identity_signals"]["mailbox_alias"]
 
-    assert (shipped["rarity_discount"], shipped["link_to_oldest"]) == (False, True)
-    sql, _args = links.evidence("mailbox_alias", shipped, 2)
-    assert "%(weight)s::numeric AS score" in sql and "JOIN oldest o ON o.value = a.value" in sql
+    assert (catalogue_signal["rarity_discount"], catalogue_signal["link_to_oldest"]) == (False, True)
+    sql, _args = links.evidence("mailbox_alias", catalogue_signal, 2)
+    assert "%(weight)s::numeric AS score" in sql and "JOIN oldest_account o ON o.value = a.value" in sql
 
 
-def test_a_pair_needs_one_signal_that_is_not_corroborating():
+def test_pass_sql_requires_non_corroborating_signal_per_pair():
     assert "bool_and(f.corroborating) AS corroborating" in links.PASS
     assert "HAVING sum(score) >= %(floor)s AND bool_or(NOT corroborating)" in links.PASS
     table = links.family_table({**links.catalogue(), "name_signals": {
@@ -583,7 +583,7 @@ def test_a_pair_needs_one_signal_that_is_not_corroborating():
     assert table["corroborating"][table["signals"].index("handle_stem_long")] is True
 
 
-def test_a_post_ban_vpn_exit_needs_a_staff_ban_a_small_exit_the_same_build_and_thirty_days():
+def test_evidence_after_ban_exit_sql_requires_staff_ban_small_exit_same_build_and_window():
     signal = links.signals()["after_ban_exit"]
     sql, args = links.evidence("after_ban_exit", signal, 2)
 
@@ -593,13 +593,13 @@ def test_a_post_ban_vpn_exit_needs_a_staff_ban_a_small_exit_the_same_build_and_t
     assert "r.action = 'user_reactivated' AND r.entity_id = d.user_id AND r.at > d.banned_at" in sql
     assert "n.class IN ('vpn', 'hosting')" in sql
     assert "SELECT user_id FROM fd.member WHERE NOT is_bot" in sql
-    assert "c.people <= %(ceiling)s" in sql
+    assert "c.user_count <= %(ceiling)s" in sql
     assert "x.ua_id = u.ua_id" in sql
     assert "x.first_at > u.banned_at" in sql
     assert "x.first_at <= u.banned_at + make_interval(days => %(window)s)" in sql
 
 
-def test_the_live_lane_reads_post_ban_exits_from_its_scope():
+def test_evidence_live_lane_after_ban_exit_reads_scope_tables():
     sql, _args = links.evidence("after_ban_exit", links.signals()["after_ban_exit"], 2, live.LIVE)
 
     assert "FROM scope_login e" in sql
@@ -607,13 +607,13 @@ def test_the_live_lane_reads_post_ban_exits_from_its_scope():
     assert "FROM scope_member WHERE NOT is_bot" in sql
 
 
-def test_other_arrival_signals_keep_their_window_in_seconds():
+def test_evidence_created_same_address_window_arg_uses_window_seconds():
     _sql, args = links.evidence("created_same_address", links.signals()["created_same_address"], 2)
 
     assert args["window"] == links.signals()["created_same_address"]["window_seconds"]
 
 
-def test_a_home_address_is_judged_by_its_own_crowd_not_by_how_big_its_isp_is():
+def test_shared_isp_sql_has_no_isp_crowd_threshold_and_ip_stable_ceilings_are_8_and_20():
     assert "crowds" not in links.SHARED_ISP
     assert "count(DISTINCT user_id) >=" not in links.SHARED_ISP
     assert "crowds_above" not in links.shared()
@@ -621,31 +621,31 @@ def test_a_home_address_is_judged_by_its_own_crowd_not_by_how_big_its_isp_is():
     assert (signal["crowd_ceiling"], signal["range_ceiling"]) == (8, 20)
 
 
-def test_a_ring_of_banned_accounts_counts_as_one_holder():
+def test_pairs_sql_counts_banned_members_as_one_holder():
     sql = links.PAIRS_SQL
 
     assert "count(DISTINCT user_id) FILTER (WHERE user_id IN (SELECT user_id FROM banned_member)) AS banned" in sql
-    assert "greatest(2, least(people, people - banned + 1)) AS counted" in sql
+    assert "greatest(2, least(user_count, user_count - banned + 1)) AS counted" in sql
     assert "FROM counted WHERE counted BETWEEN 2 AND %(ceiling)s" in sql
     assert "k.counted" in links.RARITY_SCORE
 
 
-def test_a_value_under_its_ceiling_only_through_its_ring_links_pairs_with_a_banned_side():
+def test_pairs_sql_above_ceiling_value_pairs_only_with_banned_member():
     sql = links.PAIRS_SQL
 
-    assert "people > %(ceiling)s AS ring_only" in sql
-    assert "AND (NOT k.ring_only" in sql
+    assert "user_count > %(ceiling)s AS above_ceiling" in sql
+    assert "AND (NOT k.above_ceiling" in sql
     assert "OR a.user_id IN (SELECT user_id FROM banned_member)" in sql
     assert "OR b.user_id IN (SELECT user_id FROM banned_member)" in sql
 
 
-def test_banned_members_are_the_staff_bans_still_in_force():
+def test_banned_member_sql_selects_active_staff_bans():
     assert links.BANNED_MEMBER.startswith("\nCREATE TEMP TABLE banned_member ON COMMIT DROP AS")
     assert "d.actor_id IS DISTINCT FROM d.user_id AND d.actor_id <> ALL(%(bot_user_ids)s)" in links.BANNED_MEMBER
-    assert links.BANNED_MEMBER.rstrip().endswith("SELECT user_id FROM held")
+    assert links.BANNED_MEMBER.rstrip().endswith("SELECT user_id FROM active_ban")
 
 
-def test_prepare_builds_the_banned_members_from_its_own_audit_source():
+def test_prepare_live_scope_builds_banned_member_from_scope_audit():
     executed = []
 
     class Conn:
@@ -677,7 +677,7 @@ def test_prepare_builds_the_banned_members_from_its_own_audit_source():
     assert banned[0][1] == {"bot_user_ids": ["USLACKBOT", "U09ULFV88KU"]}
 
 
-def test_a_shared_ja3_supports_a_link_but_never_makes_one():
+def test_evidence_device_ja3_is_corroborating_device_signal_with_weight_1_and_ceiling_25():
     signal = links.signals()["device_ja3"]
     sql, args = links.evidence("device_ja3", signal, 2)
 
@@ -688,20 +688,20 @@ def test_a_shared_ja3_supports_a_link_but_never_makes_one():
     assert args["ceiling"] == 25
 
 
-def test_the_live_lane_keeps_crowded_ja3_values_out():
-    assert "('ja3', 'device_ja3')" in live.CROWDED
+def test_evidence_live_lane_device_ja3_excludes_over_cap_values():
+    assert "('ja3', 'device_ja3')" in live.OVER_CAP
     sql, _args = links.evidence("device_ja3", links.signals()["device_ja3"], 2, live.LIVE)
     assert "FROM scope_audit" in sql
-    assert "value NOT IN (SELECT value FROM crowded WHERE signal = %(name)s)" in sql
+    assert "value NOT IN (SELECT value FROM over_cap WHERE signal = %(name)s)" in sql
 
 
-def test_ja3_traits_come_from_every_anomaly_and_the_backfill_queues_nobody():
+def test_member_trait_ja3_migration_adds_ja3_trait_and_backfills_with_trigger_disabled():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations" / "0219_member_trait_ja3.sql").read_text()
 
     assert "'ip', 'ip_prefix', 'ua_id', 'ja4', 'ja3'," in sql
     assert "('ja3', CASE WHEN NEW.action = 'anomaly' THEN NEW.payload->'details'->>'client_ja3_fingerprint' END)" in sql
     assert "('ja4', CASE WHEN NEW.action = 'anomaly'" in sql and "('inviter', CASE WHEN NEW.action <> 'anomaly'" in sql
-    disable = sql.index("DISABLE TRIGGER member_trait_touches")
-    backfill = sql.index("SELECT actor_id, 'ja3'")
-    enable = sql.index("ENABLE TRIGGER member_trait_touches")
-    assert disable < backfill < enable
+    disable_index = sql.index("DISABLE TRIGGER member_trait_touches")
+    backfill_index = sql.index("SELECT actor_id, 'ja3'")
+    enable_index = sql.index("ENABLE TRIGGER member_trait_touches")
+    assert disable_index < backfill_index < enable_index

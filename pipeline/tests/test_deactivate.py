@@ -52,10 +52,10 @@ def slack_outcome(monkeypatch):
     return set_outcome
 
 
-def test_taking_one_up_holds_the_guard_and_writes_down_what_slack_did(slack_outcome):
+def test_enforce_deactivated_outcome_marks_enforced_and_records_event(slack_outcome):
     slack_outcome("deactivated")
     conn = Conn()
-    assert deactivate.take_up(Slack(), conn, guard())
+    assert deactivate.enforce(Slack(), conn, guard())
 
     assert conn.executed("enforcement_status = 'held'")
     row = conn.args_for("INSERT INTO fd.member_guard_events")[0]
@@ -63,10 +63,10 @@ def test_taking_one_up_holds_the_guard_and_writes_down_what_slack_did(slack_outc
     assert row[6] == "deactivated"
 
 
-def test_an_account_slack_would_not_take_down_drops_the_guard(slack_outcome):
+def test_enforce_failed_outcome_marks_failed_and_returns_false(slack_outcome):
     slack_outcome("failed: user_not_found")
     conn = Conn()
-    assert not deactivate.take_up(Slack(), conn, guard())
+    assert not deactivate.enforce(Slack(), conn, guard())
 
     assert conn.executed("enforcement_status = 'failed'")
     assert not conn.executed("enforcement_status = 'held'")
@@ -74,14 +74,14 @@ def test_an_account_slack_would_not_take_down_drops_the_guard(slack_outcome):
 
 
 @pytest.mark.parametrize("how", ["off", "would"])
-def test_a_run_that_is_not_armed_still_reads_as_carried(slack_outcome, how):
+def test_enforce_unarmed_outcome_marks_enforced(slack_outcome, how):
     slack_outcome(how)
     conn = Conn()
-    assert deactivate.take_up(Slack(), conn, guard())
+    assert deactivate.enforce(Slack(), conn, guard())
     assert conn.executed("enforcement_status = 'held'")
 
 
-def test_lifting_puts_them_back_before_the_guard_reads_as_lifted(slack_outcome):
+def test_lift_reactivated_outcome_marks_lifted_and_records_event(slack_outcome):
     slack_outcome("reactivated")
     conn = Conn()
     assert deactivate.lift(Slack(), conn, guard())
@@ -90,7 +90,7 @@ def test_lifting_puts_them_back_before_the_guard_reads_as_lifted(slack_outcome):
     assert conn.args_for("INSERT INTO fd.member_guard_events")[0][3] == "reactivated"
 
 
-def test_a_lift_slack_refuses_leaves_the_guard_lifting(slack_outcome):
+def test_lift_failed_outcome_returns_false_without_lifted_state(slack_outcome):
     slack_outcome("failed: rate limited")
     conn = Conn()
     assert not deactivate.lift(Slack(), conn, guard())
@@ -99,16 +99,16 @@ def test_a_lift_slack_refuses_leaves_the_guard_lifting(slack_outcome):
     assert conn.args_for("INSERT INTO fd.member_guard_events")[0][3] == "failed"
 
 
-def test_a_lift_that_was_already_finished_says_so_once(slack_outcome):
+def test_lift_already_lifted_guard_writes_no_event(slack_outcome):
     slack_outcome("reactivated")
     conn = Conn(lift_returns_row=False)
     assert deactivate.lift(Slack(), conn, guard())
     assert conn.args_for("INSERT INTO fd.member_guard_events") == []
 
 
-def test_reversing_the_last_live_action_lifts_what_it_held():
+def test_lift_for_action_last_live_action_starts_lifting():
     conn = Conn()
-    assert memberguards.lift_for_action(conn, 3, "UME", "the action was reversed: appeal") == 7
+    assert memberguards.lift_for_action(conn, 3, "UME", "Action reversed: appeal") == 7
 
     sql, args = conn.statements[0]
     assert "o.reversed_at IS NULL" in sql, "a guard another live action wants must stay"
@@ -116,28 +116,28 @@ def test_reversing_the_last_live_action_lifts_what_it_held():
     assert conn.executed("state = 'lifting'"), "a deactivation waits for slack before it is lifted"
 
 
-def test_reversing_an_action_that_held_nothing_lifts_nothing():
+def test_lift_for_action_without_guard_returns_none():
     conn = Conn(action_returns_row=False)
     assert memberguards.lift_for_action(conn, 3, "UME", "why") is None
     assert not conn.executed("UPDATE fd.member_guards")
 
 
-def test_only_a_deactivation_waits_for_slack_before_it_reads_as_lifted():
-    assert memberguards.undone_in_slack(memberguards.DEACTIVATION)
-    assert not memberguards.undone_in_slack(memberguards.SHUSH)
-    assert not memberguards.undone_in_slack(memberguards.CHANNEL_BAN)
+def test_lifts_in_slack_true_only_for_deactivation():
+    assert memberguards.lifts_in_slack(memberguards.DEACTIVATION)
+    assert not memberguards.lifts_in_slack(memberguards.SHUSH)
+    assert not memberguards.lifts_in_slack(memberguards.CHANNEL_BAN)
 
 
-def test_the_lift_the_web_asks_for_reaches_the_bot_without_waiting_for_a_sweep():
+def test_loop_source_drains_still_lifting_guards_on_wake():
     from bot.nemo import loop
 
     loop_source = pathlib.Path(loop.__file__).read_text()
     assert "still_lifting" in loop_source, "the listener must drain what is lifting"
-    assert "lambda: flush_pending(case_channel.client)" in loop_source
+    assert "lambda: apply_pending_guards(case_channel.client)" in loop_source
     assert "wake_member_guards()" in loop_source
 
 
-def test_the_kind_and_the_events_the_database_will_take():
+def test_migration_0140_allows_deactivation_kind_and_events():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
             / "0140_deactivation_guards.sql").read_text()
     assert "'shush', 'channel_ban', 'deactivation'" in sql

@@ -75,20 +75,20 @@ module Fd
     end
 
     def validation_error(kase, body, standing, about)
-      return wrong!(:body, "Write the note before saving it.") if body.blank?
+      return field_error!(:body, "Enter the note") if body.blank?
       if body.length > MAX_LENGTH
-        return wrong!(:body,
-          "Keep it under #{MAX_LENGTH} characters. That one is #{body.length}.", body)
+        return field_error!(:body,
+          "Keep it under #{MAX_LENGTH} characters", body)
       end
       if standing && !kase.subject_user_ids.include?(about)
-        return "that member is not a subject of this case"
+        return "Not a subject of this case"
       end
 
       nil
     end
 
     def notice_for(kase, standing, about)
-      standing ? "noted against @#{about}" : "note added to case #{kase.id}"
+      standing ? "Note added to @#{about}" : "Note added to case #{kase.id}"
     end
   end
 end

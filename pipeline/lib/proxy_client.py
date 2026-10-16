@@ -46,9 +46,8 @@ def plaintext_refused(url, allow_plaintext=None):
     if allow_plaintext.strip().lower() in TRUTHY:
         return None
     return (
-        f"INTERNAL_PROXY_URL is {parsed.scheme}:// to {parsed.hostname}, which sends the bearer "
-        "token in clear text over the network. use https, or set PROXY_ALLOW_PLAINTEXT=true if "
-        "that hop is already private"
+        f"INTERNAL_PROXY_URL is {parsed.scheme}:// to {parsed.hostname}, bearer token sent in "
+        "clear text. Use https or set PROXY_ALLOW_PLAINTEXT=true"
     )
 
 
@@ -224,8 +223,8 @@ class ProxyClient:
             ).hexdigest()
             if items and fingerprint == previous_page:
                 raise ProxyError(
-                    f"{method}: page repeated after {fetched_count} records, so the walk is not "
-                    f"advancing. sort_column={base.get('sort_column')!r} does not order "
+                    f"{method}: page repeated after {fetched_count} records, "
+                    f"sort_column={base.get('sort_column')!r} does not order "
                     f"{cursor_param} stably"
                 )
             previous_page = fingerprint
@@ -248,13 +247,12 @@ class ProxyClient:
                 break
             if cursor == requested_cursor:
                 raise ProxyError(
-                    f"{method}: {cursor_param} came back unchanged after {fetched_count} records, "
-                    f"so the next request would repeat this one"
+                    f"{method}: {cursor_param} unchanged after {fetched_count} records"
                 )
             if empty_pages >= EMPTY_PAGE_LIMIT:
                 raise ProxyError(
                     f"{method}: {empty_pages} empty pages in a row after {fetched_count} records, "
-                    f"so the walk has stalled short of the {num_found} it expected"
+                    f"expected {num_found}"
                 )
             if num_found is not None and fetched_count >= num_found:
                 break

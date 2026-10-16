@@ -34,7 +34,7 @@ module Fd
 
     private
 
-    def live_lock = ThreadGuard.still_on.locks.find_by(id: params[:id])
+    def live_lock = ThreadGuard.active.locks.find_by(id: params[:id])
 
     def return_path = fd_case_path(params[:case_id])
   end

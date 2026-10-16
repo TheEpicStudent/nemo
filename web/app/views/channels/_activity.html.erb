@@ -19,20 +19,20 @@
   </div>
 <% else %>
   <div class="lede lede-warn" role="status">
-    <%= lede_icon(:warn) %>
+    <%= notice_icon(:warn) %>
     <span class="lede-note">
       <b>Slack analytics unavailable</b>
       <span>
         <% if range&.error == :not_configured %>
-          Analytics proxy is not configured on this deployment. Set INTERNAL_PROXY_URL and PROXY_TOKEN_WEB.
+          Analytics proxy not configured
         <% elsif range&.error == :reauth %>
-          Analytics service needs re-authentication, refresh the Slack session cookie.
+          Analytics re-authentication required
         <% elsif range&.error == :not_found %>
-          No analytics for this channel in the selected range.
+          No analytics in range
         <% elsif range&.error == :truncated %>
-          Too many channels share this name to find this one. Try a narrower range.
+          Channel lookup truncated
         <% else %>
-          Couldn&rsquo;t load ranged analytics right now.
+          Request failed
         <% end %>
       </span>
     </span>
@@ -41,18 +41,18 @@
 
 <div class="metrics">
   <%= render "shared/stat", k: "Messages", v: number_with_delimiter(pulse.member_messages),
-        caption: pulse_delta(pulse.change(:member_messages), "vs the window before"),
+        caption: pulse_delta(pulse.change(:member_messages), "vs previous period"),
         spark: (pulse.any? ? { name: "member messages", labels: pulse.labels,
           data: pulse.series.map(&:member_messages) } : nil) %>
 
   <%= render "shared/stat", k: "Posting",
         v: (pulse.posters_per_day ? number_with_delimiter(pulse.posters_per_day) : "n/a"),
-        caption: pulse_delta(pulse.posters_change, "vs the window before"),
+        caption: pulse_delta(pulse.posters_change, "vs previous period"),
         spark: (pulse.any? ? { name: "people posting", labels: pulse.labels,
           data: pulse.series.map(&:authors) } : nil) %>
 
   <%= render "shared/stat", k: "Reactions", v: number_with_delimiter(pulse.reactions),
-        caption: pulse_delta(pulse.change(:reactions), "vs the window before"),
+        caption: pulse_delta(pulse.change(:reactions), "vs previous period"),
         spark: (pulse.any? ? { name: "reactions", labels: pulse.labels,
           data: pulse.series.map(&:reactions) } : nil) %>
 

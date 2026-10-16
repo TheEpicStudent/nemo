@@ -3,10 +3,10 @@ def header(case_id, url=None):
 
 
 def people(user_ids, actor=None):
-    named = ["themselves" if one == actor else f"<@{one}>" for one in user_ids]
-    if len(named) < 2:
-        return "".join(named)
-    return ", ".join(named[:-1]) + f" and {named[-1]}"
+    labels = ["themselves" if one == actor else f"<@{one}>" for one in user_ids]
+    if len(labels) < 2:
+        return "".join(labels)
+    return ", ".join(labels[:-1]) + f" and {labels[-1]}"
 
 
 def claimed(actor, case_id):
@@ -14,10 +14,10 @@ def claimed(actor, case_id):
 
 
 def assigned(actor, case_id, user_ids):
-    others = [one for one in user_ids if one != actor]
+    other_ids = [one for one in user_ids if one != actor]
     lines = [claimed(actor, case_id)] if actor in user_ids else []
-    if others:
-        lines.append(f"<@{actor}> assigned case {case_id} to {people(others)}")
+    if other_ids:
+        lines.append(f"<@{actor}> assigned case {case_id} to {people(other_ids)}")
     return lines
 
 
@@ -70,7 +70,7 @@ def not_assigned(case_id, user_ids):
 
 
 def already_resolved(case_id):
-    return f"Case {case_id} is already resolved."
+    return f"Case {case_id} is already resolved"
 
 
 ASSIGN_USAGE = "Usage: `!assign @user`"

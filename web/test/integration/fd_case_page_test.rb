@@ -2,12 +2,12 @@ require "test_helper"
 
 class FdCasePageTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     @kase = make_case
     sign_in_as(@me)
   end
 
-  test "somebody who is not on the case is not listed" do
+  test "people tab with a person param not on the case returns success" do
     get fd_case_path(@kase, person: "UNOBODY", tab: "people")
 
     assert_response :success
@@ -22,14 +22,14 @@ class FdCasePageTest < ActionDispatch::IntegrationTest
     assert_select ".closed-what", /Closed 3 Mar #{resolved.year}/
   end
 
-  test "a case about nobody still renders, and says so once" do
+  test "people tab with no subjects returns success" do
     @kase.subjects.destroy_all
     get fd_case_path(@kase, tab: "people")
 
     assert_response :success
   end
 
-  test "setting the category writes it, and lands in the trail" do
+  test "update with category_key saves it and audits categorised" do
     kase = make_case(category_key: nil)
 
     patch fd_case_path(kase), params: { category_key: "harassment_general" }
@@ -39,7 +39,7 @@ class FdCasePageTest < ActionDispatch::IntegrationTest
       verb: "categorised").count
   end
 
-  test "a category that is already set is not overwritten" do
+  test "update with category_key keeps an existing category and sets alert" do
     kase = make_case(category_key: "spam")
 
     patch fd_case_path(kase), params: { category_key: "harassment_general" }
@@ -48,7 +48,7 @@ class FdCasePageTest < ActionDispatch::IntegrationTest
     assert_match(/already has a category/, flash[:alert])
   end
 
-  test "a case somebody else holds still offers to put me on it too" do
+  test "claim on a case assigned to another user adds me to the assignees" do
     kase = make_case(assign: "UOTHER")
 
     get fd_case_path(kase)
@@ -58,7 +58,7 @@ class FdCasePageTest < ActionDispatch::IntegrationTest
     assert_equal %w[UME UOTHER], kase.reload.assignee_user_ids.sort
   end
 
-  test "a case with somebody named is ready to close, violation or not" do
+  test "case page renders before and after a category is set" do
     assert_nil @kase.category_key
 
     get fd_case_path(@kase)
@@ -67,7 +67,7 @@ class FdCasePageTest < ActionDispatch::IntegrationTest
     get fd_case_path(@kase)
   end
 
-  test "the sidebar names the people on the other cases it lists" do
+  test "sidebar resolves names for subjects of other cases" do
     named_member = Fd::Member.live.where.not(display_name: [nil, ""]).order(:user_id).first
     skip "the corpus has no named member" if named_member.nil?
     other = make_case(subject: named_member.user_id, opened_at: 1.hour.ago)
@@ -77,7 +77,7 @@ class FdCasePageTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_not_equal other.id, @kase.id
     assert @controller.view_assigns["names"].known?(named_member.user_id),
-      "the sidebar lists other cases, so their people must be named too"
+      "names include the subject of the other case"
     assert_equal named_member.name, @controller.view_assigns["names"][named_member.user_id]
   end
 end

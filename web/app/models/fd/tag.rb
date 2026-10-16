@@ -11,10 +11,10 @@ module Fd
 
     before_validation { self.name = self.class.normalise(name) }
 
-    validates :name, presence: { message: "Type a tag." },
-      length: { maximum: NAME_LENGTH, message: "Tags run to #{NAME_LENGTH} characters." },
-      format: { with: NAME_SHAPE, allow_blank: true, message: "Use letters, numbers and hyphens." },
-      uniqueness: { message: "That tag already exists." }
+    validates :name, presence: { message: "Enter a tag" },
+      length: { maximum: NAME_LENGTH, message: "Keep it under #{NAME_LENGTH} characters" },
+      format: { with: NAME_SHAPE, allow_blank: true, message: "Letters, numbers and hyphens only" },
+      uniqueness: { message: "Tag already exists" }
 
     scope :with_uses, -> {
       left_joins(:case_tags).group(:id).select(
@@ -28,8 +28,8 @@ module Fd
 
     def merge_into!(target)
       transaction do
-        held = CaseTag.where(tag_id: target.id).select(:case_id)
-        CaseTag.where(tag_id: id).where.not(case_id: held).update_all(tag_id: target.id)
+        target_case_ids = CaseTag.where(tag_id: target.id).select(:case_id)
+        CaseTag.where(tag_id: id).where.not(case_id: target_case_ids).update_all(tag_id: target.id)
         CaseTag.where(tag_id: id).delete_all
         destroy!
       end

@@ -19,12 +19,12 @@ module Fd
       LEFT JOIN analytics.fct_channel_span s ON s.channel_id = c.channel_id
     SQL
 
-    BUSIEST = ("c.archived, s.messages_posted DESC NULLS LAST, " \
-               "c.last_active_at DESC NULLS LAST, c.name").freeze
+    ORDER_BY_ACTIVITY = ("c.archived, s.messages_posted DESC NULLS LAST, " \
+                         "c.last_active_at DESC NULLS LAST, c.name").freeze
 
-    CLOSEST = ("CASE WHEN lower(c.name) = :exact OR lower(c.channel_id) = :exact THEN 0 " \
-               "WHEN lower(c.name) LIKE :starts OR lower(c.channel_id) LIKE :starts THEN 1 " \
-               "ELSE 2 END").freeze
+    ORDER_BY_MATCH = ("CASE WHEN lower(c.name) = :exact OR lower(c.channel_id) = :exact THEN 0 " \
+                      "WHEN lower(c.name) LIKE :starts OR lower(c.channel_id) LIKE :starts THEN 1 " \
+                      "ELSE 2 END").freeze
 
     def initialize(params = {})
       @params = params.respond_to?(:to_unsafe_h) ? params.to_unsafe_h : params.to_h
@@ -78,9 +78,9 @@ module Fd
     end
 
     def order
-      return BUSIEST unless searching?
+      return ORDER_BY_ACTIVITY unless searching?
 
-      "#{CLOSEST}, #{BUSIEST}"
+      "#{ORDER_BY_MATCH}, #{ORDER_BY_ACTIVITY}"
     end
 
     def binds(limit)

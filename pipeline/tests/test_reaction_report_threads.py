@@ -59,7 +59,7 @@ def reaction_calls(monkeypatch):
     monkeypatch.setattr(reaction_watch.channels, "react_channels", lambda conn: {CHANNEL_ID})
     monkeypatch.setattr(reaction_watch.access, "may",
                         lambda conn, user_id, capability, case=None: (True, None))
-    monkeypatch.setattr(reaction_watch, "root_of",
+    monkeypatch.setattr(reaction_watch, "thread_root",
                         lambda client, channel_id, ts: (REPORT_CARD_TS, {"user": TARGET_ID}))
     monkeypatch.setattr(reaction_watch.case_actions, "open_case",
                         lambda conn, subject, body, by: calls["opened"].append(by) or NEW_CASE_ID)
@@ -69,33 +69,33 @@ def reaction_calls(monkeypatch):
                         lambda client, conn, case_id, channel_id, thread_ts: None)
     monkeypatch.setattr(reaction_watch, "post_ban_prompt",
                         lambda client, conn, case_id, target: calls["prompted"].append((case_id, target)))
-    monkeypatch.setattr(reaction_watch.case_actions, "close_quietly",
+    monkeypatch.setattr(reaction_watch.case_actions, "close_without_notice",
                         lambda conn, case_id, resolution, by: calls["closed"].append(case_id))
     monkeypatch.setattr(reaction_watch, "after_resolve", lambda *args, **kwargs: None)
     return calls
 
 
-def test_open_reaction_on_report_thread_returns_existing_case(reaction_calls):
+def test_open_case_on_reaction_report_thread_returns_existing_case(reaction_calls):
     reaction_calls["rows"][REPORT_THREAD_SQL] = (REPORT_CASE_ID,)
 
     assert reaction_watch.open_case_on_reaction(reaction("hourglass", REPORT_CARD_TS)) == REPORT_CASE_ID
     assert reaction_calls["opened"] == []
 
 
-def test_open_reaction_on_thread_without_case_opens_case(reaction_calls):
+def test_open_case_on_reaction_thread_without_case_opens_case(reaction_calls):
     assert reaction_watch.open_case_on_reaction(reaction("hourglass", REPORT_CARD_TS)) == NEW_CASE_ID
     assert reaction_calls["opened"] == [MODERATOR_ID]
 
 
-def test_ban_on_report_thread_reply_prompts_existing_case(reaction_calls):
+def test_prompt_action_log_on_ban_report_thread_reply_prompts_existing_case(reaction_calls):
     reaction_calls["rows"][REPORT_THREAD_SQL] = (REPORT_CASE_ID,)
 
-    assert reaction_watch.banned(reaction("ban", REPLY_TS)) == REPORT_CASE_ID
+    assert reaction_watch.prompt_action_log_on_ban(reaction("ban", REPLY_TS)) == REPORT_CASE_ID
     assert reaction_calls["prompted"] == [(REPORT_CASE_ID, TARGET_ID)]
     assert reaction_calls["opened"] == []
 
 
-def test_resolve_reaction_on_report_thread_reply_is_ignored(reaction_calls):
+def test_close_case_on_root_reaction_report_thread_reply_returns_none(reaction_calls):
     reaction_calls["rows"][REPORT_THREAD_SQL] = (REPORT_CASE_ID,)
 
     assert reaction_watch.close_case_on_root_reaction(reaction("white_check_mark", REPLY_TS)) is None
@@ -126,21 +126,21 @@ def case_thread_calls(reaction_calls, monkeypatch):
         raise AssertionError("root_of called")
 
     monkeypatch.setattr(reaction_watch, "session", fake_session)
-    monkeypatch.setattr(reaction_watch, "root_of", fail_root_lookup)
-    monkeypatch.setattr(reaction_watch.case_actions, "close_quietly",
+    monkeypatch.setattr(reaction_watch, "thread_root", fail_root_lookup)
+    monkeypatch.setattr(reaction_watch.case_actions, "close_without_notice",
                         lambda conn, case_id, resolution, by: reaction_calls["closed"].append(case_id)
                         or (resolution or "no_action"))
     return reaction_calls
 
 
 @pytest.mark.parametrize("reaction_name", ["white_check_mark", "white_tick", "check", "check-green", "x"])
-def test_close_reaction_on_case_thread_root_closes_case(case_thread_calls, reaction_name):
+def test_close_case_on_root_reaction_case_thread_root_closes_case(case_thread_calls, reaction_name):
     assert reaction_watch.close_case_on_root_reaction(reaction(reaction_name, ROOT_TS)) == THREAD_CASE_ID
     assert case_thread_calls["closed"] == [THREAD_CASE_ID]
 
 
 @pytest.mark.parametrize("reaction_name", ["white_check_mark", "x"])
-def test_close_reaction_on_case_thread_reply_is_ignored(case_thread_calls, reaction_name):
+def test_close_case_on_root_reaction_case_thread_reply_returns_none(case_thread_calls, reaction_name):
     assert reaction_watch.close_case_on_root_reaction(reaction(reaction_name, REPLY_IN_CASE_THREAD_TS)) is None
     assert case_thread_calls["closed"] == []
 
@@ -157,6 +157,6 @@ def test_close_reaction_on_case_thread_reply_is_ignored(case_thread_calls, react
     ("x", False, True),
     ("eyes", False, False),
 ])
-def test_reaction_name_classification(reaction_name, is_resolve, is_close):
+def test_is_resolve_and_is_close_reaction_classify_names(reaction_name, is_resolve, is_close):
     assert reaction_watch.is_resolve_reaction(reaction_name) is is_resolve
     assert reaction_watch.is_close_reaction(reaction_name) is is_close

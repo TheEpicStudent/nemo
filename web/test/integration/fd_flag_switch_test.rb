@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdFlagSwitchTest < ActionDispatch::IntegrationTest
   setup do
-    @manager = hold_role!("UBOSS", "community_manager")
+    @manager = grant_role!("UBOSS", "community_manager")
     Fd::Flag.delete_all
     Current.forget_flags
   end
@@ -12,43 +12,43 @@ class FdFlagSwitchTest < ActionDispatch::IntegrationTest
     Current.forget_flags
   end
 
-  test "one table names every section by the routes that stop resolving" do
+  test "admin flags page returns success" do
     sign_in_as(@manager)
     get admin_flags_path
 
     assert_response :success
   end
 
-  def standing(key)
+  def flag_on(key)
     Fd::Flag.find_by(key: key.to_s)&.is_on
   end
 
-  test "a manager can turn one off and back on from the page" do
+  test "flag update by manager sets is_on false then true with notices" do
     sign_in_as(@manager)
 
     patch fd_flag_path, params: { key: "fire_engine", on: "0" }
     assert_redirected_to admin_flags_path
     assert_match(/Fire engine turned off/, flash[:notice])
-    assert_equal false, standing(:fire_engine)
+    assert_equal false, flag_on(:fire_engine)
 
     patch fd_flag_path, params: { key: "fire_engine", on: "1" }
     assert_match(/Fire engine turned on/, flash[:notice])
-    assert_equal true, standing(:fire_engine)
-    assert_equal 1, Fd::Flag.where(key: "fire_engine").count, "one row, flipped"
+    assert_equal true, flag_on(:fire_engine)
+    assert_equal 1, Fd::Flag.where(key: "fire_engine").count, "one flag row"
   end
 
-  test "a firefighter cannot flip anything" do
+  test "flag update as firefighter writes no flag and flashes alert" do
     firefighter = Account.create!(user_id: "UHAND")
-    hold_role!("UHAND", "firefighter")
+    grant_role!("UHAND", "firefighter")
     sign_in_as(firefighter)
 
     patch fd_flag_path, params: { key: "analytics", on: "0" }
 
-    assert_nil standing(:analytics), "nothing was written"
+    assert_nil flag_on(:analytics), "no flag row written"
     assert_not_nil flash[:alert]
   end
 
-  test "a flip is written to the trail" do
+  test "flag update creates turned_off audit entry with actor and flag" do
     sign_in_as(@manager)
 
     patch fd_flag_path, params: { key: "analytics", on: "0" }
@@ -58,7 +58,7 @@ class FdFlagSwitchTest < ActionDispatch::IntegrationTest
     assert_equal "analytics", entry.after["flag"]
   end
 
-  test "a section the file does not know is refused" do
+  test "flag update with unknown key redirects with not a flag alert" do
     sign_in_as(@manager)
 
     patch fd_flag_path, params: { key: "teleporter", on: "0" }

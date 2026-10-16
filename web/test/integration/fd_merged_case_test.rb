@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdMergedCaseTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
     @root = make_case(subject: "USUB", opened_at: 10.days.ago)
     @duplicate = make_case(subject: "USUB", opened_at: 4.days.ago)
@@ -15,7 +15,7 @@ class FdMergedCaseTest < ActionDispatch::IntegrationTest
                          performed_at: 1.day.ago }.merge(attrs))
   end
 
-  test "a case with nothing merged into it is unchanged" do
+  test "show for case without merged cases returns success" do
     unmerged = make_case(subject: "UOTHER", opened_at: 3.days.ago)
     act_on(unmerged)
 
@@ -31,10 +31,10 @@ class FdMergedCaseTest < ActionDispatch::IntegrationTest
     report
   end
 
-  test "a reply goes to the thread you were reading, not the first one" do
-    people = Fd::Member.order(:user_id).limit(2).pluck(:user_id)
-    report_on(@root, people.first, at: 3.days.ago)
-    duplicate_report = report_on(@duplicate, people.last, at: 6.days.ago)
+  test "reply with merged case conversation_id writes outbox row for it" do
+    user_ids = Fd::Member.order(:user_id).limit(2).pluck(:user_id)
+    report_on(@root, user_ids.first, at: 3.days.ago)
+    duplicate_report = report_on(@duplicate, user_ids.last, at: 6.days.ago)
     conversation = Fd::IntakeConversation.find_by(report_id: duplicate_report.id)
 
     post fd_case_replies_path(@root), params: { body: "we are on it",
@@ -47,16 +47,16 @@ class FdMergedCaseTest < ActionDispatch::IntegrationTest
     Fd::CaseQuery.view_counts(nil)["resolved"]
   end
 
-  test "the queue does not count a folded case as resolved work" do
+  test "view_counts resolved excludes merged duplicate cases" do
     get fd_cases_path(view: "resolved")
 
     resolved_before = resolved_count
     @duplicate.update!(duplicate_of: nil)
 
-    assert_equal resolved_count - 1, resolved_before, "a merge is filing, not an outcome"
+    assert_equal resolved_count - 1, resolved_before, "merged case counted as resolved"
   end
 
-  test "a merge counts as neither a resolution nor a time to resolve" do
+  test "QueueStats excludes merged case from resolved count and median but not total" do
     start = Time.current.beginning_of_month
     @duplicate.update!(opened_at: start + 1.minute, resolved_at: start + 2.minutes)
     stats_with_merge = Fd::QueueStats.load
@@ -65,10 +65,10 @@ class FdMergedCaseTest < ActionDispatch::IntegrationTest
 
     assert_equal stats_without_merge.opened_month_resolved - 1, stats_with_merge.opened_month_resolved
     assert_not_equal stats_without_merge.median_now, stats_with_merge.median_now
-    assert_equal stats_without_merge.total, stats_with_merge.total, "it is still a case that happened"
+    assert_equal stats_without_merge.total, stats_with_merge.total, "total differs with merged case"
   end
 
-  test "a case resolved on its own merits still counts" do
+  test "view_counts resolved counts a case resolved without duplicate_of" do
     resolved_before = resolved_count
     @duplicate.update!(resolution: "no_action", duplicate_of: nil)
 

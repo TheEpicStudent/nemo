@@ -1,18 +1,18 @@
-def _forward(column):
+def _upsert_newest(column):
     return f"""
-INSERT INTO fd.member_seen AS seen (user_id, {column})
-SELECT user_id, at FROM unnest(%s::text[], %s::timestamptz[]) AS fresh(user_id, at)
+INSERT INTO fd.member_seen AS target (user_id, {column})
+SELECT user_id, at FROM unnest(%s::text[], %s::timestamptz[]) AS incoming(user_id, at)
 WHERE NOT EXISTS (
-    SELECT 1 FROM fd.member_seen held
-    WHERE held.user_id = fresh.user_id AND held.{column} >= fresh.at
+    SELECT 1 FROM fd.member_seen existing
+    WHERE existing.user_id = incoming.user_id AND existing.{column} >= incoming.at
 )
 ON CONFLICT (user_id) DO UPDATE SET {column} = EXCLUDED.{column}
-WHERE seen.{column} IS NULL OR seen.{column} < EXCLUDED.{column}
+WHERE target.{column} IS NULL OR target.{column} < EXCLUDED.{column}
 """
 
 
-POSTED_SQL = _forward("last_post_at")
-LOGGED_IN_SQL = _forward("last_login_at")
+POSTED_SQL = _upsert_newest("last_post_at")
+LOGGED_IN_SQL = _upsert_newest("last_login_at")
 
 
 def latest(pairs):

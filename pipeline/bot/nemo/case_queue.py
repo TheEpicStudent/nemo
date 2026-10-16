@@ -7,7 +7,7 @@ from bot.nemo.channel import (
     card_mark,
     card_state,
     case_url,
-    drawn_before_states,
+    has_legacy_digest,
     firehouse_channel,
     is_foreign_message_error,
     mark_card,
@@ -50,7 +50,7 @@ CLAIM_CARD = """
 SELECT card_ts FROM fd.cases WHERE id = %s FOR UPDATE
 """
 
-WANTS_A_CARD = """
+CARD_MISSING = """
 SELECT 1 FROM fd.cases c
 WHERE c.id = %s AND c.card_ts IS NULL
   AND NOT EXISTS (SELECT 1 FROM fd.case_reports r WHERE r.case_id = c.id)
@@ -62,19 +62,19 @@ UPDATE fd.cases SET card_channel_id = %s, card_thread_ts = %s, card_ts = %s,
 WHERE id = %s AND card_ts IS NULL
 """
 
-REDRAWN = """
+SET_CARD_DIGEST = """
 UPDATE fd.cases SET card_digest = %s, updated_at = now() WHERE id = %s
 """
 
 
 
-def case_on(conn, channel_id, thread_ts):
+def case_for_root(conn, channel_id, thread_ts):
     row = conn.execute(ON_THREAD, (channel_id, thread_ts)).fetchone()
     return row[0] if row else None
 
 
 def case_for_thread(conn, channel_id, thread_ts):
-    case_id = case_on(conn, channel_id, thread_ts)
+    case_id = case_for_root(conn, channel_id, thread_ts)
     if case_id is not None:
         return case_id
     row = conn.execute(ON_REPORT_THREAD, (channel_id, thread_ts)).fetchone()
@@ -91,7 +91,7 @@ def mark(client, channel_id, thread_ts, ts, case, is_new=False):
     return mark_card(client, channel_id, ts, case, is_new=is_new)
 
 
-def gather(conn, case_id):
+def fetch_case(conn, case_id):
     row = conn.execute(CASE, (case_id,)).fetchone()
     if row is None:
         return None
@@ -118,7 +118,7 @@ def gather(conn, case_id):
     return case
 
 
-HEADER_POSTED = """
+SET_HEADER_TS = """
 UPDATE fd.cases SET card_header_ts = %s WHERE id = %s AND card_header_ts IS NULL
 """
 
@@ -138,23 +138,23 @@ def post_header(client, conn, case, channel_id, card_ts):
     except Exception as failure:
         log.warning("nemo: case %s has no header in its thread: %s", case["case_id"], failure)
         return None
-    conn.execute(HEADER_POSTED, (sent["ts"], case["case_id"]))
+    conn.execute(SET_HEADER_TS, (sent["ts"], case["case_id"]))
     return sent["ts"]
 
 
-def thread_extras(client, conn, case, channel_id, card_ts):
+def post_thread_extras(client, conn, case, channel_id, card_ts):
     post_header(client, conn, case, channel_id, card_ts)
     unfurl_opening(client, conn, case["case_id"], channel_id, card_ts)
 
 
-def face(client, case):
+def author_fields(client, case):
     if not case["opening_id"] or not case["opened_by"]:
         return {}
     return author_display_fields(client, False, case["opened_by"])
 
 
 def post(client, conn, case_id, channel_id, thread_ts=None):
-    case = gather(conn, case_id)
+    case = fetch_case(conn, case_id)
     if case is None or case["card_ts"]:
         return case and case["card_ts"]
 
@@ -172,14 +172,14 @@ def post(client, conn, case_id, channel_id, thread_ts=None):
         metadata=views.queued.metadata(case),
         unfurl_links=False,
         unfurl_media=False,
-        **face(client, case),
+        **author_fields(client, case),
     )
     conn.execute(
         SET_CARD, (channel_id, thread_ts, sent["ts"], card_state(mark_key(case, thread_ts)), case_id)
     )
     mark(client, channel_id, thread_ts, sent["ts"], case, is_new=True)
     if not thread_ts:
-        thread_extras(client, conn, case, channel_id, sent["ts"])
+        post_thread_extras(client, conn, case, channel_id, sent["ts"])
     if case["opening_id"]:
         conn.execute(MARK_OPENING_MIRRORED, (sent["ts"], case["opening_id"]))
     log.info("nemo: case %s has a card in %s", case_id, channel_id)
@@ -187,7 +187,7 @@ def post(client, conn, case_id, channel_id, thread_ts=None):
 
 
 def refresh_card(client, conn, case_id, channel_id=None):
-    case = gather(conn, case_id)
+    case = fetch_case(conn, case_id)
     if case is None or not case["card_ts"]:
         return None
 
@@ -195,7 +195,7 @@ def refresh_card(client, conn, case_id, channel_id=None):
     if state == case["card_digest"]:
         return case["card_ts"]
 
-    if drawn_before_states(case["card_digest"]):
+    if has_legacy_digest(case["card_digest"]):
         try:
             client.chat_update(
                 channel=case["card_channel_id"],
@@ -207,18 +207,18 @@ def refresh_card(client, conn, case_id, channel_id=None):
             log.warning("nemo: case %s keeps its card as it was, slack would not edit it: %s",
                         case_id, failure)
             if is_foreign_message_error(failure):
-                conn.execute(REDRAWN, (state, case_id))
+                conn.execute(SET_CARD_DIGEST, (state, case_id))
             return case["card_ts"]
 
-    conn.execute(REDRAWN, (state, case_id))
+    conn.execute(SET_CARD_DIGEST, (state, case_id))
     mark(client, case["card_channel_id"], case["card_thread_ts"], case["card_ts"], case)
     if not case["card_thread_ts"]:
-        thread_extras(client, conn, case, case["card_channel_id"], case["card_ts"])
+        post_thread_extras(client, conn, case, case["card_channel_id"], case["card_ts"])
     return case["card_ts"]
 
 
-def card(client, conn, case_id, channel_id=None):
-    if conn.execute(WANTS_A_CARD, (case_id,)).fetchone() is None:
+def post_missing_card(client, conn, case_id, channel_id=None):
+    if conn.execute(CARD_MISSING, (case_id,)).fetchone() is None:
         return None
 
     card_channel_id = channel_id or firehouse_channel(conn)

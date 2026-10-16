@@ -10,13 +10,13 @@ MODE = os.environ.get("PROXY_BUDGET", "on").strip().lower()
 TIER2, TIER3, TIER4 = 20, 50, 100
 
 BURST = 5
-HEAL_SECONDS = 60
-HEAL_STEP = 20
+RECOVERY_SECONDS = 60
+RECOVERY_STEP = 20
 BACKOFF_COOLDOWN = 10
 BACKOFF_FACTOR = 0.75
-FLOOR_BOOST = 40
-PAUSE_CEILING = 1.0
-PAUSE_TRIES = 3
+MIN_BOOST = 40
+MAX_WAIT_SECONDS = 1.0
+MAX_WAIT_ATTEMPTS = 3
 
 LIMITS = {
     ("pipeline", "admin", "conversations.replies"): (TIER3, 120),
@@ -50,7 +50,7 @@ class Bucket:
         self.burst = float(burst)
         self.tokens = float(burst)
         self.filled_at = time.monotonic()
-        self.healed_at = self.filled_at
+        self.recovered_at = self.filled_at
         self.backed_off_at = 0.0
         self.throttles = 0
         self.lock = threading.Lock()
@@ -62,9 +62,9 @@ class Bucket:
     def take(self):
         with self.lock:
             now = time.monotonic()
-            if self.boost < self.ceiling and now - self.healed_at >= HEAL_SECONDS:
-                self.boost = min(self.ceiling, self.boost + HEAL_STEP)
-                self.healed_at = now
+            if self.boost < self.ceiling and now - self.recovered_at >= RECOVERY_SECONDS:
+                self.boost = min(self.ceiling, self.boost + RECOVERY_STEP)
+                self.recovered_at = now
             rate = self.per_minute / 60.0
             self.tokens = min(self.burst, self.tokens + (now - self.filled_at) * rate)
             self.filled_at = now
@@ -79,15 +79,15 @@ class Bucket:
             now = time.monotonic()
             if now - self.backed_off_at < BACKOFF_COOLDOWN:
                 return None
-            self.boost = max(FLOOR_BOOST, self.boost * BACKOFF_FACTOR)
+            self.boost = max(MIN_BOOST, self.boost * BACKOFF_FACTOR)
             self.backed_off_at = now
-            self.healed_at = now
+            self.recovered_at = now
             return self.per_minute
 
 
 _buckets = {key: Bucket(*limit) for key, limit in LIMITS.items()}
 _refused = {}
-_paused = {}
+_waited = {}
 
 
 def keys_for(client, credential, method):
@@ -104,13 +104,13 @@ def take(client, credential, method):
     key = keys[0]
     bucket = _buckets[key]
     wait = 0.0
-    for _ in range(PAUSE_TRIES):
+    for _ in range(MAX_WAIT_ATTEMPTS):
         ok, wait = bucket.take()
         if ok:
             return None
-        if wait > PAUSE_CEILING or MODE != "on":
+        if wait > MAX_WAIT_SECONDS or MODE != "on":
             break
-        _paused[key] = _paused.get(key, 0) + 1
+        _waited[key] = _waited.get(key, 0) + 1
         time.sleep(wait)
     _refused[key] = _refused.get(key, 0) + 1
     label = ":".join(key)
@@ -145,12 +145,12 @@ def report():
         "mode": MODE,
         "tuning": {
             "burst": BURST,
-            "floor_boost": FLOOR_BOOST,
+            "floor_boost": MIN_BOOST,
             "backoff_factor": BACKOFF_FACTOR,
             "backoff_cooldown": BACKOFF_COOLDOWN,
-            "heal_step": HEAL_STEP,
-            "heal_seconds": HEAL_SECONDS,
-            "pause_ceiling": PAUSE_CEILING,
+            "heal_step": RECOVERY_STEP,
+            "heal_seconds": RECOVERY_SECONDS,
+            "pause_ceiling": MAX_WAIT_SECONDS,
         },
         "methods": {
             ":".join(key): {
@@ -159,7 +159,7 @@ def report():
                 "boost": round(bucket.boost, 1),
                 "ceiling": int(bucket.ceiling),
                 "burst": int(bucket.burst),
-                "paused": _paused.get(key, 0),
+                "paused": _waited.get(key, 0),
                 "refused": _refused.get(key, 0),
                 "upstream_429": bucket.throttles,
             }

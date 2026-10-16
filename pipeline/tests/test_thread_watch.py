@@ -38,35 +38,35 @@ def reply(**over):
 
 
 @pytest.fixture
-def noted(monkeypatch):
+def recorded_authors(monkeypatch):
     calls = []
-    monkeypatch.setattr(userbots, "_people", {})
+    monkeypatch.setattr(userbots, "_users", {})
     monkeypatch.setattr(thread_watch, "session", session_of)
-    monkeypatch.setattr(thread_watch.guards, "watching", lambda channel_id, ts: True)
+    monkeypatch.setattr(thread_watch.guards, "is_watched", lambda channel_id, ts: True)
     monkeypatch.setattr(thread_watch.guards, "active_guard", lambda conn, channel_id, ts: GUARD)
     monkeypatch.setattr(thread_watch.guards, "exempt", lambda conn, who, by: False)
-    monkeypatch.setattr(thread_watch.guard_actions, "note_it",
+    monkeypatch.setattr(thread_watch.guard_actions, "record_guarded_message",
                         lambda conn, guard, who, ts: calls.append(who) or True)
-    monkeypatch.setattr(thread_watch.guard_actions, "delete_notice",
+    monkeypatch.setattr(thread_watch.guard_actions, "delete_guarded_message",
                         lambda client, guard_id, channel_id, ts: True)
-    monkeypatch.setattr(thread_watch.guard_actions, "threshold_met", lambda guard, who: None)
+    monkeypatch.setattr(thread_watch.guard_actions, "record_and_escalate", lambda guard, who: None)
     return calls
 
 
-def test_watched_user_token_reply_is_noted(noted):
+def test_delete_guarded_thread_message_user_token_reply_is_recorded(recorded_authors):
     client = Slack(users={USER_ID: {"is_bot": False}})
 
-    assert thread_watch.watched(Ctx(reply(bot_id="B1"), client)) == "noted"
-    assert noted == [USER_ID]
+    assert thread_watch.delete_guarded_thread_message(Ctx(reply(bot_id="B1"), client)) == "noted"
+    assert recorded_authors == [USER_ID]
 
 
-def test_watched_bot_user_reply_is_left_alone(noted):
+def test_delete_guarded_thread_message_bot_user_reply_returns_none(recorded_authors):
     client = Slack(users={USER_ID: {"is_bot": True}})
 
-    assert thread_watch.watched(Ctx(reply(bot_id="B1"), client)) is None
-    assert noted == []
+    assert thread_watch.delete_guarded_thread_message(Ctx(reply(bot_id="B1"), client)) is None
+    assert recorded_authors == []
 
 
-def test_watched_plain_reply_is_noted(noted):
-    assert thread_watch.watched(Ctx(reply(), Slack())) == "noted"
-    assert noted == [USER_ID]
+def test_delete_guarded_thread_message_plain_reply_is_recorded(recorded_authors):
+    assert thread_watch.delete_guarded_thread_message(Ctx(reply(), Slack())) == "noted"
+    assert recorded_authors == [USER_ID]

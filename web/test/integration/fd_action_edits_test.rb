@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdActionEditsTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "firefighter")
+    @me = grant_role!("UME", "firefighter")
     @kase = make_case(opened_at: 3.days.ago)
     @action = Fd::Action.create!(
       case_id: @kase.id, type_key: "warning", target_user_id: "USUB",
@@ -24,7 +24,7 @@ class FdActionEditsTest < ActionDispatch::IntegrationTest
   end
 
   test "edit without case act is refused" do
-    move_capability!("firefighter", "case.act", false)
+    override_capability!("firefighter", "case.act", false)
     sign_in_as(@me)
     edit_action
     assert_equal "spamm", @action.reload.reason

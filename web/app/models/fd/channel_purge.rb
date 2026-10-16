@@ -11,7 +11,7 @@ module Fd
 
     WAITING = [ASKED, RUNNING, CHECKING].freeze
     PURGED_STATES = %w[deleted gone].freeze
-    MOST = 10_000
+    MAX_MESSAGES = 10_000
 
     belongs_to :kase, class_name: "Fd::Case", foreign_key: :case_id, optional: true,
       inverse_of: false
@@ -89,7 +89,7 @@ module Fd
       end
     end
 
-    def people_named
+    def referenced_user_ids
       [asked_by, member_id].compact + items.filter_map(&:author_id)
     end
   end

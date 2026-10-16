@@ -1,14 +1,14 @@
 import { Controller } from "@hotwired/stimulus"
 
-const MODE = "sidebar"
-const WIDTH = "sidebarw"
+const MODE_COOKIE = "sidebar"
+const WIDTH_COOKIE = "sidebarw"
 const ICON = "sidebar-icon"
 const OPEN = "sidebar-open"
 const DRAGGING = "sidebar-dragging"
 const MOBILE = "(max-width: 899px)"
-const MIN = 200
-const MAX = 460
-const SLOP = 3
+const MIN_WIDTH_PX = 200
+const MAX_WIDTH_PX = 460
+const DRAG_THRESHOLD_PX = 3
 
 export default class extends Controller {
   connect() {
@@ -17,10 +17,10 @@ export default class extends Controller {
     if (!this.nav) return
 
     this.mobile = window.matchMedia(MOBILE)
-    this.root.classList.toggle(ICON, this.readCookie(MODE) === "icon")
+    this.root.classList.toggle(ICON, this.readCookie(MODE_COOKIE) === "icon")
 
-    const width = parseInt(this.readCookie(WIDTH), 10)
-    if (width >= MIN && width <= MAX) this.root.style.setProperty("--sidebar-w", `${width}px`)
+    const width = parseInt(this.readCookie(WIDTH_COOKIE), 10)
+    if (width >= MIN_WIDTH_PX && width <= MAX_WIDTH_PX) this.root.style.setProperty("--sidebar-w", `${width}px`)
   }
 
   disconnect() {
@@ -35,7 +35,7 @@ export default class extends Controller {
 
     const icon = this.root.classList.toggle(ICON)
     this.root.classList.remove(OPEN)
-    this.writeCookie(MODE, icon ? "icon" : "wide")
+    this.writeCookie(MODE_COOKIE, icon ? "icon" : "wide")
   }
 
   close() {
@@ -58,20 +58,20 @@ export default class extends Controller {
     if (this.from == null) return
 
     const delta = event.clientX - this.from
-    if (!this.hasMoved && Math.abs(delta) <= SLOP) return
+    if (!this.hasMoved && Math.abs(delta) <= DRAG_THRESHOLD_PX) return
 
     this.hasMoved = true
     if (this.root.classList.contains(ICON)) {
       if (delta < 24) return
 
       this.root.classList.remove(ICON)
-      this.writeCookie(MODE, "wide")
-      this.startWidth = MIN
+      this.writeCookie(MODE_COOKIE, "wide")
+      this.startWidth = MIN_WIDTH_PX
       this.from = event.clientX
       return
     }
 
-    const width = Math.min(MAX, Math.max(MIN, this.startWidth + delta))
+    const width = Math.min(MAX_WIDTH_PX, Math.max(MIN_WIDTH_PX, this.startWidth + delta))
     this.root.style.setProperty("--sidebar-w", `${Math.round(width)}px`)
   }
 
@@ -90,7 +90,7 @@ export default class extends Controller {
     }
 
     const width = parseInt(this.root.style.getPropertyValue("--sidebar-w"), 10)
-    if (width) this.writeCookie(WIDTH, String(width))
+    if (width) this.writeCookie(WIDTH_COOKIE, String(width))
   }
 
   readCookie(name) {

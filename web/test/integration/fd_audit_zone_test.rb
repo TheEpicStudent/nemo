@@ -6,7 +6,7 @@ class FdAuditZoneTest < ActionDispatch::IntegrationTest
   AT = Time.utc(2026, 10, 1, 2, 30)
 
   setup do
-    @me = hold_role!("UZONEME", "community_manager")
+    @me = grant_role!("UZONEME", "community_manager")
     sign_in_as(@me)
     member!("UZONEME")
     @id = slack!
@@ -23,7 +23,7 @@ class FdAuditZoneTest < ActionDispatch::IntegrationTest
     id
   end
 
-  test "every fire engine page runs in the viewer's zone, not only the audit log" do
+  test "Fd::BaseController runs the in_viewer_zone callback" do
     assert_includes Fd::BaseController._process_action_callbacks.map(&:filter), :in_viewer_zone
   end
 
@@ -35,7 +35,7 @@ class FdAuditZoneTest < ActionDispatch::IntegrationTest
     css_select("td.audit-when time").first
   end
 
-  test "rows read in the viewer's slack timezone" do
+  test "audit rows render in the member tz" do
     set_member_tz!("America/New_York")
 
     get fd_audit_path
@@ -43,14 +43,14 @@ class FdAuditZoneTest < ActionDispatch::IntegrationTest
     assert_equal "1 Oct 2026 02:30:00 UTC", when_cell["title"]
   end
 
-  test "the drawer gives the local time and utc" do
+  test "audit event drawer renders local time and utc" do
     set_member_tz!("America/New_York")
 
     get fd_audit_event_path(source: "slack", id: @id)
     assert_select ".side-facts dd", text: /30 Sep 2026 22:30:00 EDT\s+1 Oct 2026 02:30:00 UTC/
   end
 
-  test "dates in a search are the viewer's days" do
+  test "audit search dates use the member tz day boundaries" do
     set_member_tz!("America/New_York")
 
     get fd_audit_path(q: "after:2026-10-01")
@@ -63,7 +63,7 @@ class FdAuditZoneTest < ActionDispatch::IntegrationTest
     assert_select "td.audit-when", count: 1
   end
 
-  test "somebody with no slack timezone reads utc" do
+  test "audit renders utc for a member without tz" do
     get fd_audit_path
     assert_equal "1 Oct 02:30", when_cell.text.squish
 

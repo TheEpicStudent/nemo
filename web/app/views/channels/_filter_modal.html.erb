@@ -7,9 +7,9 @@
          .each { |key, value| concat hidden_field_tag(key, value, id: nil) } %>
 
     <div class="filter-match">
-      <span>Channels matching</span>
+      <span>Match</span>
       <select name="match" class="select">
-        <% { "all" => "all of these", "any" => "any of these" }.each do |value, label| %>
+        <% { "all" => "All conditions", "any" => "Any condition" }.each do |value, label| %>
           <option value="<%= value %>" <%= "selected" if @filter.match == value %>><%= label %></option>
         <% end %>
       </select>
@@ -26,7 +26,7 @@
     </template>
 
     <div class="filter-foot">
-      <button type="button" class="btn" data-action="conditions#add">Add a condition</button>
+      <button type="button" class="btn" data-action="conditions#add">Add condition</button>
       <%= link_to "Clear all", channels_path({ q: @q.presence, sort: @sort,
             direction: @direction, days: @window.requested_days }.compact),
             class: "btn", data: { turbo_frame: "channels" } %>

@@ -162,15 +162,15 @@
     <%= form_with url: fd_member_notes_path(@user_id), method: :post, html: { autocomplete: "off" } do %>
       <div class="modal-body">
         <label class="field-label">
-          The note
+          Note
           <%= render "fd/mention_field", name: :body, value: submitted_value(:body), rows: 4,
-                placeholder: "type @ to name somebody" %>
+                placeholder: nil %>
         </label>
         <%= field_wrong(:body) %>
       </div>
       <div class="modal-foot">
         <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
-        <%= submit_tag "Save the note", class: "btn btn-primary" %>
+        <%= submit_tag "Save", class: "btn btn-primary" %>
       </div>
     <% end %>
   <% end %>

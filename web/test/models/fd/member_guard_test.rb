@@ -8,7 +8,7 @@ class Fd::MemberGuardTest < ActiveSupport::TestCase
     )
   end
 
-  test "a second live guard comes back nil without poisoning the transaction" do
+  test "open! returns nil for a second live guard and keeps the transaction usable" do
     Fd::MemberGuard.transaction do
       assert open!
       assert_nil open!
@@ -18,7 +18,7 @@ class Fd::MemberGuardTest < ActiveSupport::TestCase
     end
   end
 
-  test "attaching only wins while it is still on no case" do
+  test "attach_to! succeeds only while case_id is nil" do
     first = make_case
     second = make_case
     guard = open!
@@ -28,28 +28,28 @@ class Fd::MemberGuardTest < ActiveSupport::TestCase
     assert_equal first.id, guard.reload.case_id
   end
 
-  test "lifting only wins once" do
+  test "lift! returns nil on the second call and keeps the first lifted_by" do
     guard = open!
     assert guard.lift!(by: "UMOD", reason: "enough")
     assert_nil guard.lift!(by: "USOMEBODY")
     assert_equal "UMOD", guard.reload.lifted_by
   end
 
-  test "a lifted guard can neither be re-dated nor attached" do
+  test "set_expiry! and attach_to! return nil on a lifted guard" do
     guard = open!
     guard.lift!(by: "UMOD")
-    assert_nil guard.run_until!(30.days.from_now)
+    assert_nil guard.set_expiry!(30.days.from_now)
     assert_nil guard.attach_to!(make_case.id)
   end
 
-  test "one still being lifted is still standing" do
+  test "a guard in state lifting is active and blocks open!" do
     guard = open!
     guard.update!(state: "lifting", lifted_by: "UMOD")
-    assert_includes Fd::MemberGuard.still_on, guard
+    assert_includes Fd::MemberGuard.active, guard
     assert_nil open!
   end
 
-  test "settle reads a guard against the case in hand" do
+  test "evaluate_standing reports ORPHANED and ON_CASE and ELSEWHERE for the given case" do
     current_case = make_case
     other = make_case
     guard = open!
@@ -63,14 +63,14 @@ class Fd::MemberGuardTest < ActiveSupport::TestCase
       Fd::MemberGuard.evaluate_standing("shush", "USUB", case_id: other.id).reads
   end
 
-  test "settle leaves a record only kind alone and waits for a subject" do
+  test "evaluate_standing is not enforceable for warning and has no guard for a nil subject" do
     open!
-    warning_guard = Fd::MemberGuard.evaluate_standing("warning", "USUB", case_id: make_case.id)
-    assert_not warning_guard.enforceable?
-    assert_nil warning_guard.guard
+    warning_standing = Fd::MemberGuard.evaluate_standing("warning", "USUB", case_id: make_case.id)
+    assert_not warning_standing.enforceable?
+    assert_nil warning_standing.guard
 
-    waiting = Fd::MemberGuard.evaluate_standing("shush", nil, case_id: make_case.id)
-    assert waiting.enforceable?
-    assert_nil waiting.guard
+    nil_subject_standing = Fd::MemberGuard.evaluate_standing("shush", nil, case_id: make_case.id)
+    assert nil_subject_standing.enforceable?
+    assert_nil nil_subject_standing.guard
   end
 end

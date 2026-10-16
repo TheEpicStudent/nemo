@@ -4,7 +4,7 @@ module Fd
     UUID = /\A\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\z/
 
     Device = Struct.new(:app, :os, :ua, keyword_init: true)
-    Place = Struct.new(:country, :network, :kind, :accounts, keyword_init: true)
+    LoginLocation = Struct.new(:country, :network, :kind, :accounts, keyword_init: true)
 
     CONTEXT_SQL = <<~SQL.squish.freeze
       SELECT u.ua, u.app, u.os, n.country, n.network, n.class AS kind,
@@ -32,10 +32,10 @@ module Fd
       result.ua || result.app ? result : nil
     end
 
-    def place
+    def login_location
       return nil unless context_row && @query.identity?
 
-      result = Place.new(country: context_row["country"], network: context_row["network"], kind: context_row["kind"],
+      result = LoginLocation.new(country: context_row["country"], network: context_row["network"], kind: context_row["kind"],
         accounts: context_row["accounts"].to_i)
       result.country || result.network ? result : nil
     end

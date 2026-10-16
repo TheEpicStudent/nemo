@@ -14,7 +14,7 @@ module Fd
       @channel = Analytics::DimChannel.find_by(channel_id: channel_id)
       @threads = ChannelPurge::Reading.new(@purge.transcript_entries)
       @failed = @purge.failed_messages
-      @names = Names.for(@purge.people_named)
+      @names = Names.for(@purge.referenced_user_ids)
     end
 
     def create
@@ -53,7 +53,7 @@ module Fd
       @message_count ||= params[:wanted].to_s.strip.to_i
     end
 
-    def count_words
+    def count_text
       "the last #{helpers.number_with_delimiter(message_count)} messages"
     end
 
@@ -68,10 +68,10 @@ module Fd
     def member_name = Names.for([member_id])[member_id]
 
     def queued_notice
-      return "Purging #{count_words} in this channel" unless one_member?
+      return "Purging #{count_text} in this channel" unless one_member?
       return "Purging every message from #{member_name} in this channel" if message_count.nil?
 
-      "Purging #{count_words} from #{member_name} in this channel"
+      "Purging #{count_text} from #{member_name} in this channel"
     end
 
     def running_alert
@@ -81,13 +81,12 @@ module Fd
     end
 
     def validation_error
-      return "pick the member" if one_member? && !member_id.to_s.match?(MEMBER_ID)
-      unless (one_member? && message_count.nil?) || message_count.between?(1, ChannelPurge::MOST)
-        return "say how many, from 1 to #{helpers.number_with_delimiter(ChannelPurge::MOST)}" \
-               "#{', or leave it empty for all of theirs' if one_member?}"
+      return "Select a member" if one_member? && !member_id.to_s.match?(MEMBER_ID)
+      unless (one_member? && message_count.nil?) || message_count.between?(1, ChannelPurge::MAX_MESSAGES)
+        return "Enter 1 to #{helpers.number_with_delimiter(ChannelPurge::MAX_MESSAGES)}"
       end
-      return "say why" if reason.blank?
-      return "keep it under #{MAX_REASON_LENGTH} characters" if reason.length > MAX_REASON_LENGTH
+      return "Enter a reason" if reason.blank?
+      return "Keep it under #{MAX_REASON_LENGTH} characters" if reason.length > MAX_REASON_LENGTH
       return running_alert if ChannelPurge.waiting_on?(channel_id, member_id)
 
       nil

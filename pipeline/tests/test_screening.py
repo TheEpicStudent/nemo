@@ -36,12 +36,12 @@ def domain_rule(domain="throwaway.example", match_mode="exact", effect="flag", d
 
 
 def set_rules(*domains):
-    screening._watching[:] = list(domains)
+    screening._rules[:] = list(domains)
     screening._loaded = True
 
 
 @pytest.fixture(autouse=True)
-def clean():
+def reset_rules():
     set_rules()
     yield
     set_rules()
@@ -60,7 +60,7 @@ class LogSlack:
         return {"ts": "1.1"}
 
 
-def test_a_catch_is_said_in_the_firehouse(monkeypatch):
+def test_screen_flagged_domain_posts_notice_to_log_channel(monkeypatch):
     set_rules(domain_rule(effect="flag"))
     from bot.nemo import channel
     monkeypatch.setattr(channel, "log_channel", lambda _conn=None: "CHOUSE")
@@ -73,7 +73,7 @@ def test_a_catch_is_said_in_the_firehouse(monkeypatch):
     assert USER_ID in log_slack.posted[0]["text"]
 
 
-def test_somebody_the_list_lets_in_is_not_announced(monkeypatch):
+def test_screen_allowed_domain_does_not_post_notice(monkeypatch):
     set_rules(domain_rule())
     from bot.nemo import channel
     monkeypatch.setattr(channel, "log_channel", lambda _conn=None: "CHOUSE")
@@ -83,7 +83,7 @@ def test_somebody_the_list_lets_in_is_not_announced(monkeypatch):
     assert log_slack.posted == []
 
 
-def test_a_firehouse_that_will_not_take_it_does_not_lose_the_screen(monkeypatch):
+def test_screen_failing_notice_post_still_records_flagged_outcome(monkeypatch):
     set_rules(domain_rule(effect="flag"))
     from bot.nemo import channel
     monkeypatch.setattr(channel, "log_channel", lambda _conn=None: "CHOUSE")
@@ -98,7 +98,7 @@ def test_a_firehouse_that_will_not_take_it_does_not_lose_the_screen(monkeypatch)
     assert outcome_of(conn) == screening.FLAGGED
 
 
-def test_an_address_is_read_down_to_its_domain():
+def test_domain_of_normalizes_email_and_returns_none_for_invalid():
     assert screening.domain_of("Kid@Throwaway.Example ") == "throwaway.example"
     assert screening.domain_of("kid@sub.school.example") == "sub.school.example"
     assert screening.domain_of("nonsense") is None
@@ -106,13 +106,13 @@ def test_an_address_is_read_down_to_its_domain():
     assert screening.domain_of(None) is None
 
 
-def test_somebody_with_no_address_is_written_down_rather_than_guessed_at():
+def test_screen_without_email_records_no_email_outcome():
     conn = Conn()
     assert screening.screen(conn, USER_ID, None) == (screening.NO_EMAIL, None)
     assert outcome_of(conn) == screening.NO_EMAIL
 
 
-def test_a_domain_nobody_holds_lets_them_in_and_still_says_so():
+def test_screen_unlisted_domain_records_allowed_outcome():
     set_rules(domain_rule())
     conn = Conn()
 
@@ -122,21 +122,21 @@ def test_a_domain_nobody_holds_lets_them_in_and_still_says_so():
     assert row[5] == screening.ALLOWED
 
 
-def test_exact_holds_only_that_domain():
-    one = domain_rule(match_mode="exact")
-    assert one.holds("throwaway.example")
-    assert not one.holds("mail.throwaway.example")
-    assert not one.holds("throwaway.example.co")
+def test_domain_rule_exact_matches_only_same_domain():
+    rule = domain_rule(match_mode="exact")
+    assert rule.matches("throwaway.example")
+    assert not rule.matches("mail.throwaway.example")
+    assert not rule.matches("throwaway.example.co")
 
 
-def test_suffix_holds_what_sits_under_it_but_not_a_lookalike():
-    one = domain_rule(match_mode="suffix")
-    assert one.holds("throwaway.example")
-    assert one.holds("mail.throwaway.example")
-    assert not one.holds("notthrowaway.example")
+def test_domain_rule_suffix_matches_subdomains_not_lookalike():
+    rule = domain_rule(match_mode="suffix")
+    assert rule.matches("throwaway.example")
+    assert rule.matches("mail.throwaway.example")
+    assert not rule.matches("notthrowaway.example")
 
 
-def test_a_flagged_domain_is_written_down_and_nothing_else_happens():
+def test_screen_flag_rule_records_outcome_without_opening_guard():
     set_rules(domain_rule(effect="flag"))
     conn = Conn()
 
@@ -145,29 +145,29 @@ def test_a_flagged_domain_is_written_down_and_nothing_else_happens():
     assert not conn.executed("INSERT INTO fd.member_guards")
 
 
-def test_a_held_domain_opens_a_shush_that_runs_out():
+def test_screen_hold_rule_opens_shush_with_expiry():
     set_rules(domain_rule(effect="hold"))
     conn = Conn()
 
     outcome, guard_id = screening.screen(conn, USER_ID, "kid@throwaway.example")
     assert (outcome, guard_id) == (screening.SHUSHED, 1)
-    opened = conn.args_for("INSERT INTO fd.member_guards")[0]
-    assert opened[0] == "shush"
-    assert opened[6] is not None, "a shush must say when it ends"
+    guard_args = conn.args_for("INSERT INTO fd.member_guards")[0]
+    assert guard_args[0] == "shush"
+    assert guard_args[6] is not None, "a shush must say when it ends"
 
 
-def test_a_deactivating_domain_opens_a_deactivation_with_no_end():
+def test_screen_deactivate_rule_opens_deactivation_without_expiry():
     set_rules(domain_rule(effect="deactivate"))
     conn = Conn()
 
     outcome, _guard = screening.screen(conn, USER_ID, "kid@throwaway.example")
     assert outcome == screening.DEACTIVATED
-    opened = conn.args_for("INSERT INTO fd.member_guards")[0]
-    assert opened[0] == "deactivation"
-    assert opened[6] is None
+    guard_args = conn.args_for("INSERT INTO fd.member_guards")[0]
+    assert guard_args[0] == "deactivation"
+    assert guard_args[6] is None
 
 
-def test_the_worst_effect_wins_when_two_entries_catch_them():
+def test_highest_severity_returns_most_severe_effect():
     set_rules(domain_rule(effect="flag", domain_id=1),
               domain_rule(effect="deactivate", domain_id=2),
               domain_rule(effect="hold", domain_id=3))
@@ -175,7 +175,7 @@ def test_the_worst_effect_wins_when_two_entries_catch_them():
     assert screening.highest_severity("throwaway.example").effect == "deactivate"
 
 
-def test_a_guard_that_will_not_open_is_recorded_as_a_failure_not_a_pass():
+def test_screen_guard_insert_returning_none_records_failed_outcome():
     set_rules(domain_rule(effect="hold"))
 
     class NoGuardConn(Conn):
@@ -194,17 +194,17 @@ def test_a_guard_that_will_not_open_is_recorded_as_a_failure_not_a_pass():
     assert outcome_of(conn) == screening.FAILED
 
 
-def test_nobody_is_screened_until_the_list_has_been_loaded():
+def test_active_rules_before_load_returns_none():
     screening._loaded = False
-    assert screening.watching() is None
+    assert screening.active_rules() is None
     assert screening.highest_severity("throwaway.example") is None
 
 
-def test_one_row_per_member_so_a_replayed_join_cannot_double_up():
-    assert "ON CONFLICT (user_id) DO NOTHING" in screening.SCREENED
+def test_insert_join_screen_sql_ignores_conflicting_user_id():
+    assert "ON CONFLICT (user_id) DO NOTHING" in screening.INSERT_JOIN_SCREEN
 
 
-def test_a_domain_the_web_adds_reaches_the_bot_without_waiting_for_a_sweep(monkeypatch):
+def test_loop_start_blocked_domain_notification_refreshes_screening(monkeypatch):
     import contextlib
     import threading
     from types import SimpleNamespace
@@ -215,29 +215,29 @@ def test_a_domain_the_web_adds_reaches_the_bot_without_waiting_for_a_sweep(monke
     def session_of():
         yield object()
 
-    watched, refreshed = {}, []
+    listener, refreshed = {}, []
     monkeypatch.setattr(loop, "session", session_of)
     for module in (loop.guards, loop.channelguards, loop.memberguards, loop.automod, loop.responses, loop.categories):
         monkeypatch.setattr(module, "refresh", lambda conn: 0)
     monkeypatch.setattr(loop.screening, "refresh", lambda conn: refreshed.append(1) or 0)
     monkeypatch.setattr(loop.channel, "refresh_channels", lambda conn: None)
-    monkeypatch.setattr(loop.purge, "requeue_stranded", lambda conn: [])
-    monkeypatch.setattr(loop.loops, "draining", lambda *args, **kwargs: (lambda: None))
-    monkeypatch.setattr(loop.loops, "timed", lambda *args, **kwargs: (lambda: None))
-    monkeypatch.setattr(loop.loops, "sweeping", lambda *args, **kwargs: None)
-    monkeypatch.setattr(loop.loops, "watching", lambda name, names, on_notify, stopping:
-                        watched.update(names=names, on_notify=on_notify))
+    monkeypatch.setattr(loop.purge, "requeue_interrupted", lambda conn: [])
+    monkeypatch.setattr(loop.loops, "run_on_wake", lambda *args, **kwargs: (lambda: None))
+    monkeypatch.setattr(loop.loops, "run_on_timer", lambda *args, **kwargs: (lambda: None))
+    monkeypatch.setattr(loop.loops, "run_periodically", lambda *args, **kwargs: None)
+    monkeypatch.setattr(loop.loops, "start_listener", lambda name, names, on_notify, stopping:
+                        listener.update(names=names, on_notify=on_notify))
 
     loop.start(SimpleNamespace(client=None), threading.Event())
     refreshed.clear()
-    watched["on_notify"](loop.BLOCKED_DOMAIN, "")
+    listener["on_notify"](loop.BLOCKED_DOMAIN, "")
 
     assert loop.BLOCKED_DOMAIN == "fd_blocked_domain"
-    assert loop.BLOCKED_DOMAIN in watched["names"]
+    assert loop.BLOCKED_DOMAIN in listener["names"]
     assert refreshed == [1]
 
 
-def test_the_join_watcher_asks_slack_for_the_address_the_event_leaves_out():
+def test_join_watch_source_fetches_profile_and_upserts_member():
     import pathlib
 
     from bot.nemo.surface import join_watch
@@ -248,7 +248,7 @@ def test_the_join_watcher_asks_slack_for_the_address_the_event_leaves_out():
     assert "new_members.upsert_member(conn, full_profile)" in src, "what slack hands back is kept"
 
 
-def test_the_profile_is_read_on_the_admin_credential():
+def test_privileged_profile_source_uses_admin_credential():
     import pathlib
 
     from bot.core import privileged
@@ -260,7 +260,7 @@ def test_the_profile_is_read_on_the_admin_credential():
         "the bot token holds users:read, only the admin token holds users:read.email"
 
 
-def test_a_profile_slack_will_not_hand_over_does_not_stop_the_join(monkeypatch):
+def test_profile_proxy_failure_returns_none(monkeypatch):
     from bot.core import privileged
 
     monkeypatch.setattr(privileged, "proxy", lambda: (_ for _ in ()).throw(RuntimeError("no")))
@@ -268,7 +268,7 @@ def test_a_profile_slack_will_not_hand_over_does_not_stop_the_join(monkeypatch):
     assert privileged.profile(None) is None
 
 
-def test_the_join_watcher_screens_only_somebody_who_is_new():
+def test_join_watch_source_screens_only_new_members():
     import pathlib
 
     from bot.nemo.surface import join_watch

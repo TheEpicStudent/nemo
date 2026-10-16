@@ -21,8 +21,8 @@
                 <th class="col-num">Superseded</th>
                 <th class="col-num">No data</th>
                 <th class="col-num">Other</th>
-                <th class="col-num">Worst landed</th>
-                <th class="col-num">Through</th>
+                <th class="col-num">Lowest ratio</th>
+                <th class="col-num">Latest</th>
               </tr>
             </thead>
             <tbody>
@@ -64,10 +64,10 @@
                 <span class="cov-label">
                   <%= missing %> not complete
                   <% if per_day.positive? %>
-                    &middot; <%= per_day.round(1) %> a day this week
+                    &middot; <%= per_day.round(1) %>/day this week
                   <% end %>
                   <% if eta %>
-                    &middot; caught up <%= (Date.current + eta).strftime("~%-d %b") %>
+                    &middot; ETA <%= (Date.current + eta).strftime("~%-d %b") %>
                   <% end %>
                 </span>
               </div>
@@ -80,8 +80,8 @@
         <div class="key">
           <span><i class="lg-held"></i>complete</span>
           <span><i class="lg-short"></i>short or claimed</span>
-          <span><i class="lg-nofile"></i>Slack has no file</span>
-          <span><i class="lg-before"></i>never fetched</span>
+          <span><i class="lg-nofile"></i>unavailable</span>
+          <span><i class="lg-before"></i>not fetched</span>
         </div>
       </div>
     <% end %>

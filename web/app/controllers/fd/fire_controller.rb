@@ -15,17 +15,17 @@ module Fd
       @endings = Case.ending_tally
       @closed_count = Case.where.not(resolved_at: nil).count
 
-      @guards = worst_first(MemberGuard.still_on.to_a)
+      @guards = by_severity(MemberGuard.active.to_a)
       @orphaned = @guards.count(&:orphaned?)
-      @names = Names.for(@guards.flat_map(&:people_named) + @guards.map(&:subject_id))
+      @names = Names.for(@guards.flat_map(&:referenced_user_ids) + @guards.map(&:subject_id))
       @channels = ChannelNames.for(@guards.map(&:channel_id))
     end
 
     private
 
-    WEIGHT = Action::WORST_FIRST
+    WEIGHT = Action::SEVERITY_ORDER
 
-    def worst_first(guards)
+    def by_severity(guards)
       guards.sort_by do |guard|
         [WEIGHT.index(guard.kind) || WEIGHT.size, -guard.opened_at.to_i]
       end

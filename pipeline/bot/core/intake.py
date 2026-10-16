@@ -25,14 +25,14 @@ def root_ts(event):
     return event.get("thread_ts") or event.get("ts")
 
 
-FIND = """
+FIND_CONVERSATION = """
 SELECT id FROM fd.intake_conversations WHERE channel_id = %s AND thread_ts = %s
 """
 
 
 def conversation(conn, channel_id, thread_ts, member_user_id=None):
     ensure_member(conn, member_user_id)
-    row = conn.execute(FIND, (channel_id, thread_ts)).fetchone()
+    row = conn.execute(FIND_CONVERSATION, (channel_id, thread_ts)).fetchone()
     if row:
         return row[0]
 
@@ -41,7 +41,7 @@ def conversation(conn, channel_id, thread_ts, member_user_id=None):
         "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
         (channel_id, thread_ts, member_user_id),
     )
-    return conn.execute(FIND, (channel_id, thread_ts)).fetchone()[0]
+    return conn.execute(FIND_CONVERSATION, (channel_id, thread_ts)).fetchone()[0]
 
 
 def rename_anonymous_files(conn, conversation_id):
@@ -62,7 +62,7 @@ def record(conn, event, direction="inbound", sent_by=None):
     author = event.get("user") if direction == "inbound" else None
     ensure_member(conn, author)
 
-    convo = conversation(conn, channel_id, root_ts(event), author)
+    conversation_id = conversation(conn, channel_id, root_ts(event), author)
     body = event.get("text")
     blocks = event.get("blocks")
     attachments = event.get("attachments")
@@ -75,7 +75,7 @@ def record(conn, event, direction="inbound", sent_by=None):
         "ON CONFLICT (channel_id, ts) DO UPDATE SET last_seen_at = now() "
         "RETURNING id, (xmax = 0) AS inserted",
         (
-            convo,
+            conversation_id,
             channel_id,
             ts,
             event.get("thread_ts"),
@@ -110,7 +110,7 @@ def record(conn, event, direction="inbound", sent_by=None):
     )
     conn.execute(
         "UPDATE fd.intake_conversations SET last_message_at = %s WHERE id = %s",
-        (parse.posted_at(ts), convo),
+        (parse.posted_at(ts), conversation_id),
     )
 
     attach(conn, message_id, event)

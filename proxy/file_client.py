@@ -7,7 +7,7 @@ READ = "files.read"
 METHODS = frozenset({READ})
 
 UPSTREAM_TIMEOUT = 30
-MOST_BYTES = 12 * 1024 * 1024
+MAX_BYTES = 12 * 1024 * 1024
 SLACK_HOSTS = (".slack.com", ".slack-edge.com")
 FALLBACK_TYPE = "application/octet-stream"
 
@@ -17,10 +17,10 @@ class FileError(RuntimeError):
 
 
 def cookie():
-    said = os.environ.get("SLACK_D_COOKIE", "").strip()
-    if not said:
+    value = os.environ.get("SLACK_D_COOKIE", "").strip()
+    if not value:
         raise FileError("SLACK_D_COOKIE must be set to read a file")
-    return said
+    return value
 
 
 def hosted_by_slack(url):
@@ -45,7 +45,7 @@ class SlackOnlyRedirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         target = urllib.parse.urljoin(req.full_url, newurl)
         if not plain_https_address(target) or not hosted_by_slack(target):
-            raise FileError("slack sent the file somewhere else")
+            raise FileError("redirect outside Slack refused")
         return super().redirect_request(req, fp, code, msg, headers, target)
 
 
@@ -53,30 +53,30 @@ OPENER = urllib.request.build_opener(SlackOnlyRedirects)
 
 
 def url_of(params):
-    said = str(params.get("url") or "").strip()
-    if not said:
+    url = str(params.get("url") or "").strip()
+    if not url:
         raise FileError("url is required")
-    if not said.startswith("https://") or not plain_https_address(said):
-        raise FileError("the file url must be a plain https address")
-    if not hosted_by_slack(said):
-        raise FileError("the file is not hosted by slack")
-    return said
+    if not url.startswith("https://") or not plain_https_address(url):
+        raise FileError("file url must be plain https")
+    if not hosted_by_slack(url):
+        raise FileError("file url is not hosted by Slack")
+    return url
 
 
 def read(params):
     url = url_of(params)
-    asked = urllib.request.Request(url, headers={"Cookie": f"d={cookie()}"})
+    request = urllib.request.Request(url, headers={"Cookie": f"d={cookie()}"})
     try:
-        with OPENER.open(asked, timeout=UPSTREAM_TIMEOUT) as answer:
-            body = answer.read(MOST_BYTES + 1)
-            kind = answer.headers.get("Content-Type") or FALLBACK_TYPE
+        with OPENER.open(request, timeout=UPSTREAM_TIMEOUT) as response:
+            body = response.read(MAX_BYTES + 1)
+            content_type = response.headers.get("Content-Type") or FALLBACK_TYPE
     except urllib.error.HTTPError as failure:
-        raise FileError(f"slack answered {failure.code} for the file") from failure
+        raise FileError(f"Slack returned {failure.code}") from failure
     except urllib.error.URLError as failure:
-        raise FileError(f"slack could not be reached for the file: {failure.reason}") from failure
+        raise FileError(f"Slack unreachable: {failure.reason}") from failure
 
-    if len(body) > MOST_BYTES:
-        raise FileError("the file is larger than the proxy will carry")
-    if kind.startswith("text/html"):
-        raise FileError("slack answered with a sign-in page, not the file")
-    return body, kind
+    if len(body) > MAX_BYTES:
+        raise FileError(f"file exceeds {MAX_BYTES} bytes")
+    if content_type.startswith("text/html"):
+        raise FileError("Slack returned a sign-in page")
+    return body, content_type

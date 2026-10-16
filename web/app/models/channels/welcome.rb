@@ -1,6 +1,6 @@
 module Channels
   class Welcome
-    Step = Struct.new(:key, :label, :count, :share, :lost, keyword_init: true)
+    Step = Struct.new(:key, :label, :count, :share, :dropoff, keyword_init: true)
 
     attr_reader :row
 
@@ -28,12 +28,12 @@ module Channels
       fast = row.answered_fast.to_i
 
       [
-        Step.new(key: "landed", label: "posted here first", count: newcomers,
-          share: 100.0, lost: nil),
+        Step.new(key: "first_post", label: "posted here first", count: newcomers,
+          share: 100.0, dropoff: nil),
         Step.new(key: "answered", label: "a human replied", count: answered,
-          share: pct(answered, newcomers), lost: newcomers - answered),
+          share: pct(answered, newcomers), dropoff: newcomers - answered),
         Step.new(key: "fast", label: "replied to inside #{fast_label}", count: fast,
-          share: pct(fast, newcomers), lost: answered - fast)
+          share: pct(fast, newcomers), dropoff: answered - fast)
       ]
     end
 
@@ -43,7 +43,7 @@ module Channels
 
       Step.new(key: "returned", label: "posted again within 30 days",
         count: row.returned_day_30.to_i, share: pct(row.returned_day_30.to_i, measured),
-        lost: measured - row.returned_day_30.to_i)
+        dropoff: measured - row.returned_day_30.to_i)
     end
 
     def median_latency

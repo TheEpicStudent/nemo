@@ -10,7 +10,7 @@ log = logging.getLogger("bot.nemo")
 PER_PASS = 20
 GIVE_UP_AFTER = 3
 
-WAITING = """
+PENDING_KICKS = """
 SELECT id, guard_id, channel_id, subject_id, attempts
 FROM fd.bot_kicks
 WHERE done_at IS NULL AND attempts < %s
@@ -18,16 +18,16 @@ ORDER BY queued_at
 LIMIT %s
 """
 
-FINISHED = "UPDATE fd.bot_kicks SET done_at = now(), outcome = %s, attempts = attempts + 1 WHERE id = %s"
+MARK_DONE = "UPDATE fd.bot_kicks SET done_at = now(), outcome = %s, attempts = attempts + 1 WHERE id = %s"
 
-RETRY = "UPDATE fd.bot_kicks SET outcome = %s, attempts = attempts + 1 WHERE id = %s"
+RECORD_RETRY = "UPDATE fd.bot_kicks SET outcome = %s, attempts = attempts + 1 WHERE id = %s"
 
 _lock = threading.Lock()
 
 
 def bot_account(client, subject_id):
     if subject_id.startswith("B"):
-        user_id, label, app_id = bot_watch.bot_face(client, subject_id)
+        user_id, label, app_id = bot_watch.bot_info(client, subject_id)
         return user_id, label, app_id
     user = userbots.get_user(client, subject_id)
     if user.get("is_bot") is not True:
@@ -36,8 +36,8 @@ def bot_account(client, subject_id):
     return subject_id, user.get("real_name") or profile.get("real_name"), profile.get("api_app_id")
 
 
-def kick(client, waiting):
-    kick_id, guard_id, channel_id, subject_id, attempts = waiting
+def kick_bot(client, pending_kick):
+    kick_id, guard_id, channel_id, subject_id, attempts = pending_kick
     user_id, label, app_id = bot_account(client, subject_id)
     if user_id is None:
         return kick_id, "not a bot"
@@ -59,14 +59,14 @@ def drain(client):
         return 0
     try:
         with session() as conn:
-            waiting = conn.execute(WAITING, (GIVE_UP_AFTER, PER_PASS)).fetchall()
+            pending_kicks = conn.execute(PENDING_KICKS, (GIVE_UP_AFTER, PER_PASS)).fetchall()
 
         finished_count = 0
-        for one in waiting:
-            kick_id, outcome = kick(client, one)
+        for one in pending_kicks:
+            kick_id, outcome = kick_bot(client, one)
             finished = not outcome.startswith("failed") or one[4] + 1 >= GIVE_UP_AFTER
             with session() as conn:
-                conn.execute(FINISHED if finished else RETRY, (outcome, kick_id))
+                conn.execute(MARK_DONE if finished else RECORD_RETRY, (outcome, kick_id))
             finished_count += finished
         return finished_count
     finally:

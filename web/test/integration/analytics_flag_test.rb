@@ -2,7 +2,7 @@ require "test_helper"
 
 class AnalyticsFlagTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
     Fd::Flag.delete_all
     Current.forget_flags
@@ -17,7 +17,7 @@ class AnalyticsFlagTest < ActionDispatch::IntegrationTest
     Fd::Flag.set!(:analytics, false, by: @me.user_id)
   end
 
-  test "with it off, every analytics page sends you to the queue" do
+  test "analytics pages with analytics flag off redirect to fd cases with alert" do
     disable_analytics
 
     [community_path, channels_path, engine_path].each do |where|
@@ -27,14 +27,14 @@ class AnalyticsFlagTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "with it off, the pipeline's buttons are refused too, not just its page" do
+  test "engine sync with analytics flag off redirects to fd cases" do
     disable_analytics
 
     post engine_sync_path
     assert_redirected_to fd_cases_path
   end
 
-  test "with it on, the pages still load" do
+  test "channels and community pages with analytics flag default render" do
     get channels_path
     assert_response :success
 
@@ -42,7 +42,7 @@ class AnalyticsFlagTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
-  test "turning it off does not take the channel names with it" do
+  test "fd case show with analytics flag off renders" do
     disable_analytics
     kase = make_case
     Fd::CaseThread.create!(case_id: kase.id, channel_id: "C0LOUNGE", thread_ts: "1.1",

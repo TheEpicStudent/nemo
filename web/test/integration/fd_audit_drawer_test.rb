@@ -3,13 +3,13 @@ require "test_helper"
 class FdAuditDrawerTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
-  WHO = "UDRAWWHO".freeze
+  ACTOR_ID = "UDRAWWHO".freeze
   AT = Time.utc(2026, 9, 29, 15, 37, 20)
   UA = "Mozilla/5.0 (Macintosh) Slack/4.41 drawer-test".freeze
 
   setup do
-    hold_role!("UDRAWBOSS", "community_manager")
-    @ff = hold_role!("UDRAWFF", "firefighter")
+    grant_role!("UDRAWBOSS", "community_manager")
+    @ff = grant_role!("UDRAWFF", "firefighter")
     sign_in_as(@ff)
     @ua = as_pipeline_value("INSERT INTO slack.user_agent (ua, app, os) VALUES (?, 'Slack desktop', 'macOS') " \
                             "ON CONFLICT (md5(ua)) DO UPDATE SET app = EXCLUDED.app RETURNING id", UA)
@@ -22,7 +22,7 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
     as_pipeline(sql, *binds).first.values.first
   end
 
-  def slack!(action: "user_login", at: AT, actor: WHO, payload: nil)
+  def slack!(action: "user_login", at: AT, actor: ACTOR_ID, payload: nil)
     id = SecureRandom.uuid
     payload ||= {
       id: id, action: action,
@@ -44,7 +44,7 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
     css_select(".side-facts dt").find { |term| term.text.squish == label }&.next_element&.text&.squish
   end
 
-  test "the side pane lays the event out as fields, with the raw event folded" do
+  test "event pane renders fields and collapsed raw JSON" do
     id = slack!
 
     get fd_audit_event_path(source: "slack", id: id)
@@ -61,9 +61,9 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
     assert_select "details.audit-panel-rawbox pre", /Kid Realname/
   end
 
-  test "without identity.read the email, address, location and real names stay out" do
+  test "event pane without identity.read masks IP and omits network email and name" do
     id = slack!
-    move_capability!("firefighter", "identity.read", false, by: "UDRAWBOSS")
+    override_capability!("firefighter", "identity.read", false, by: "UDRAWBOSS")
 
     get fd_audit_event_path(source: "slack", id: id)
     assert_equal "Hidden", fact("IP")
@@ -74,7 +74,7 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
     assert_match "plans.pdf", fact("Target")
   end
 
-  test "related events are the same actor within 15 minutes, each opening in the drawer" do
+  test "event pane related rows list only same actor events within 15 minutes" do
     id = slack!
     related_id = slack!(action: "user_logout", at: AT + 5.minutes)
     slack!(action: "user_logout", at: AT + 40.minutes)
@@ -82,11 +82,11 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
 
     get fd_audit_event_path(source: "slack", id: id)
     links = css_select(".side-related a.side-related-row")
-    assert_equal [fd_audit_event_path(source: "slack", id: related_id)], links.map { |one| one["href"] }
+    assert_equal [fd_audit_event_path(source: "slack", id: related_id)], links.map { |link| link["href"] }
     assert_select ".side-related-all", count: 0
   end
 
-  test "a busy quarter hour links to all of it" do
+  test "event pane with 11 related events caps rows at 10 and links to all" do
     id = slack!
     11.times { |n| slack!(at: AT + (n + 1).minutes) }
 
@@ -95,7 +95,7 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
     assert_select ".side-related-all[href*='session'], .side-related-all[href*='after']", 1
   end
 
-  test "an event with nothing extra still shows what it has" do
+  test "event pane with empty payload renders kicker and no raw JSON details" do
     id = slack!(payload: {})
 
     get fd_audit_event_path(source: "slack", id: id)
@@ -104,27 +104,27 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
     assert_select "details.audit-panel-rawbox", count: 0
   end
 
-  test "the audit page keeps an empty side pane beside the rows, and each row opens its event there" do
+  test "audit page renders side pane frame and rows with data-event-url" do
     id = slack!
 
-    get fd_audit_path(q: "actor:#{WHO}")
+    get fd_audit_path(q: "actor:#{ACTOR_ID}")
 
     assert_select ".work.has-side > aside.side-pane > turbo-frame#audit-panel[data-controller=side-pane]"
     assert_select %(turbo-frame#audit-results[data-controller~="audit-rows"])
     assert_select %(tr.audit-row[data-event-url="#{fd_audit_event_path(source: "slack", id: id)}"][tabindex="0"])
   end
 
-  test "an event named in the address opens in the side pane on load" do
+  test "audit page event param sets panel src for slack source and not unknown source" do
     id = slack!
 
-    get fd_audit_path(q: "actor:#{WHO}", event: "slack:#{id}")
+    get fd_audit_path(q: "actor:#{ACTOR_ID}", event: "slack:#{id}")
     assert_select "turbo-frame#audit-panel[src=?]", fd_audit_event_path(source: "slack", id: id)
 
-    get fd_audit_path(q: "actor:#{WHO}", event: "nowhere:#{id}")
+    get fd_audit_path(q: "actor:#{ACTOR_ID}", event: "nowhere:#{id}")
     assert_select "turbo-frame#audit-panel:not([src])"
   end
 
-  test "the network line counts the accounts seen on that address" do
+  test "event pane network fact includes account count on the IP" do
     id = slack!
     %w[UDRAWIPONE UDRAWIPTWO].each do |user_id|
       as_pipeline(<<~SQL.squish, user_id)
@@ -140,18 +140,18 @@ class FdAuditDrawerTest < ActionDispatch::IntegrationTest
     assert_equal "Example Net · GB stable, 2 accounts on this IP", fact("Network")
   end
 
-  test "the pane opens the member and their linked accounts" do
-    member!(WHO)
+  test "event pane with member.links links to member and links tab" do
+    member!(ACTOR_ID)
     member!("UDRAWALT")
     as_pipeline("INSERT INTO fd.member_link (a_user_id, b_user_id, score, top_signal, signals) " \
-                "VALUES (?, ?, 6.0, 'ip_exact', '{}'::jsonb)", *[WHO, "UDRAWALT"].sort)
-    seeded!("fd.member_link", "a_user_id", [WHO, "UDRAWALT"].min)
-    move_capability!("firefighter", "member.links", true, by: "UDRAWBOSS")
+                "VALUES (?, ?, 6.0, 'ip_exact', '{}'::jsonb)", *[ACTOR_ID, "UDRAWALT"].sort)
+    seeded!("fd.member_link", "a_user_id", [ACTOR_ID, "UDRAWALT"].min)
+    override_capability!("firefighter", "member.links", true, by: "UDRAWBOSS")
     id = slack!
 
     get fd_audit_event_path(source: "slack", id: id)
 
-    assert_select %(.side-pivots a[href="#{fd_member_path(WHO)}"]), text: /Open member/
-    assert_select %(.side-pivots a[href="#{fd_member_path(WHO, tab: "links")}"]), text: /1 linked account/
+    assert_select %(.side-pivots a[href="#{fd_member_path(ACTOR_ID)}"]), text: /Open member/
+    assert_select %(.side-pivots a[href="#{fd_member_path(ACTOR_ID, tab: "links")}"]), text: /1 linked account/
   end
 end

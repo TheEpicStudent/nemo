@@ -99,19 +99,19 @@ module ActiveSupport
         "#{qualified_table} is nobody's to write, so the grant proves nothing"
     end
 
-    def hold_role!(user_id, role)
+    def grant_role!(user_id, role)
       Account.find_or_create_by!(user_id: user_id)
       Authz::Grant.grant!(user_id, kind: "role", name: role, by: "test")
       Current.forget_roles
       Account.find(user_id)
     end
 
-    def drop_roles!(user_id)
+    def revoke_roles!(user_id)
       Authz::Grant.live.for_person(user_id).roles.find_each { |row| row.revoke!(by: "test") }
       Current.forget_roles
     end
 
-    def move_capability!(role, key, allowed, by: "test")
+    def override_capability!(role, key, allowed, by: "test")
       Authz::Override.upsert({ role: role, capability: key, allowed: allowed,
                                changed_by: by, changed_at: Time.current },
         unique_by: %i[role capability])
@@ -131,7 +131,7 @@ module ActiveSupport
       app
     end
 
-    def with_a_real_cache
+    def with_memory_store
       was = Rails.cache
       Rails.cache = ActiveSupport::Cache::MemoryStore.new
       yield

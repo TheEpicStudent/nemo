@@ -56,14 +56,14 @@ module Fd
     end
 
     def validation_error
-      return "no word given" if word_param.blank?
-      return "word is over #{MAX_WORD_LENGTH} characters" if word_param.length > MAX_WORD_LENGTH
+      return "Enter a word" if word_param.blank?
+      return "Keep it under #{MAX_WORD_LENGTH} characters" if word_param.length > MAX_WORD_LENGTH
       return nil unless match_mode == AutomodWord::REGEX
 
       Regexp.new(word_param)
       nil
     rescue RegexpError => failure
-      "that regex does not compile: #{failure.message}"
+      "Invalid regex: #{failure.message}"
     end
 
     def redirect_with_alert(message)

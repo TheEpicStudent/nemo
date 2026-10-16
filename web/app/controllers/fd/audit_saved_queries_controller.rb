@@ -20,8 +20,8 @@ module Fd
 
     def destroy
       saved = AuditSavedQuery.find_by(id: params[:id])
-      return redirect_with_alert("Not saved") if saved.nil?
-      return redirect_with_alert("Only its author can remove it") unless saved.removable_by?(current_account)
+      return redirect_with_alert("Saved query not found") if saved.nil?
+      return redirect_with_alert("Author only") unless saved.removable_by?(current_account)
 
       writing do
         saved.destroy!

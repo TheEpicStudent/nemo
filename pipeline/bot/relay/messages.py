@@ -8,7 +8,7 @@ from bot.relay import file_notices, intake_files
 
 log = logging.getLogger("bot.relay")
 
-LOOK_BACK = 30
+THREAD_REPLIES_LIMIT = 30
 
 INSERT_FILE = """
 INSERT INTO fd.intake_files
@@ -25,14 +25,14 @@ VALUES (%s, %s, %s, %s, now())
 ON CONFLICT DO NOTHING
 """
 
-FIRST_ANSWER_FOR = """
+SET_FIRST_REPLIED_AT = """
 UPDATE fd.case_reports SET first_replied_at = now()
 WHERE id = (SELECT report_id FROM fd.intake_conversations WHERE id = %s)
   AND first_replied_at IS NULL
 """
 
 
-def shared_at(file, channel_id):
+def file_share_ts(file, channel_id):
     shares = (file or {}).get("shares") or {}
     for kind in ("public", "private"):
         for shared_channel_id, entries in (shares.get(kind) or {}).items():
@@ -53,7 +53,7 @@ class MessageRelay:
     def __init__(self, client=None):
         self.client = client
 
-    def hand_off(self, conversation_id, message_id, anonymous=True):
+    def submit_report(self, conversation_id, message_id, anonymous=True):
         opener = bot_user_id(self.client, "relay")
         with session() as conn:
             already = case.existing(conn, conversation_id)
@@ -110,22 +110,22 @@ class MessageRelay:
             log.info("relay: outbox %s is for a closed conversation", queued.id)
             return False
 
-        words = (queued.body or "").strip()
+        text = (queued.body or "").strip()
         files = queued.files or []
-        if not words and not files:
+        if not text and not files:
             outbox.mark_error(conn, queued.id, "the message was empty", True)
             log.warning("relay: outbox %s had neither words nor a file", queued.id)
             return False
 
         try:
-            message_ts = self.post_message(queued) if words else None
+            message_ts = self.post_message(queued) if text else None
             uploaded = self.upload_files(conn, queued)
         except Exception as failure:
-            outbox.mark_error(conn, queued.id, failure, queued.last_try)
+            outbox.mark_error(conn, queued.id, failure, queued.final_attempt)
             log.warning("relay: outbox %s did not go: %s", queued.id, failure)
             return False
 
-        if words and message_ts is None:
+        if text and message_ts is None:
             outbox.mark_error(conn, queued.id, "Slack returned no message ID", True)
             return False
 
@@ -147,7 +147,7 @@ class MessageRelay:
         self.store_sent_files(conn, message_id, uploaded)
         outbox.sent(conn, queued.id, message_id)
         if queued.kind == "reply":
-            conn.execute(FIRST_ANSWER_FOR, (queued.conversation_id,))
+            conn.execute(SET_FIRST_REPLIED_AT, (queued.conversation_id,))
         return True
 
     def deliver_edit(self, conn, queued):
@@ -170,7 +170,7 @@ class MessageRelay:
                     direction="outbound", sent_by=queued.requested_by,
                 )
         except Exception as failure:
-            outbox.mark_error(conn, queued.id, failure, queued.last_try)
+            outbox.mark_error(conn, queued.id, failure, queued.final_attempt)
             log.warning("relay: edit %s did not go: %s", queued.id, failure)
             return False
         outbox.sent(conn, queued.id, message_id)
@@ -229,12 +229,12 @@ class MessageRelay:
                 "original_h": one.get("original_h") or sent.get("original_h"),
                 "size": len(body),
                 "id": sent.get("id"),
-                "ts": self.resolve_destination(sent, queued.channel_id, queued.thread_ts),
+                "ts": self.resolve_file_ts(sent, queued.channel_id, queued.thread_ts),
             })
         return uploaded
 
-    def resolve_destination(self, file, channel_id, thread_ts):
-        ts = shared_at(file, channel_id)
+    def resolve_file_ts(self, file, channel_id, thread_ts):
+        ts = file_share_ts(file, channel_id)
         if ts:
             return ts
 
@@ -244,7 +244,7 @@ class MessageRelay:
 
         try:
             file_info = self.client.files_info(file=file_id)
-            ts = shared_at(file_info.get("file"), channel_id)
+            ts = file_share_ts(file_info.get("file"), channel_id)
             if ts:
                 return ts
         except Exception as failure:
@@ -255,7 +255,7 @@ class MessageRelay:
     def find_file_in_thread(self, file_id, channel_id, thread_ts):
         try:
             response = self.client.conversations_replies(
-                channel=channel_id, ts=thread_ts, limit=LOOK_BACK
+                channel=channel_id, ts=thread_ts, limit=THREAD_REPLIES_LIMIT
             )
         except Exception as failure:
             log.warning("relay: could not read the thread to place %s: %s", file_id, failure)

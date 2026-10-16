@@ -43,7 +43,7 @@ module Prometheus
       return false unless Roster.configured?
 
       rows = Roster.every_appointment.filter_map { |record| row_from(record) }.uniq { |row| row.values_at(:user_id, :channel_id) }
-      return refuse_to_empty if rows.empty? && Appointment.exists?
+      return skip_empty_reconcile if rows.empty? && Appointment.exists?
 
       Appointment.transaction do
         Appointment.delete_all
@@ -56,7 +56,7 @@ module Prometheus
       false
     end
 
-    def self.refuse_to_empty
+    def self.skip_empty_reconcile
       Rails.logger.error(
         "[prometheus] the roster came back empty while #{Appointment.count} rows are held, " \
         "so nothing was changed"

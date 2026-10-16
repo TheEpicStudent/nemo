@@ -19,10 +19,10 @@
   <% end %>
 <% end %>
 
-<% seat_warning = channel_seat_label(@nemo_inside, @standing) %>
-<% if seat_warning %>
+<% membership_warning = channel_membership_label(@nemo_inside, @standing) %>
+<% if membership_warning %>
   <div class="toolbar">
-    <%= seat_warning %>
+    <%= membership_warning %>
     <% if offers_nemo_join?(@channel_id, @standing) %>
       <div class="toolbar-end">
         <%= button_to "Join channel", fd_channel_join_path(@channel_id), params: { tab: @tab },

@@ -28,7 +28,7 @@ CASE_RESOLUTION = """
 SELECT resolved_at, resolution, duplicate_of FROM fd.cases WHERE id = %s
 """
 
-WAKE = """
+CLEAR_RESOLUTION = """
 UPDATE fd.cases
 SET resolved_at = NULL, resolution = NULL, updated_at = now(),
     woke_at = now(), woke_from = %s, woke_notified_at = NULL
@@ -63,8 +63,8 @@ def reopen(conn, case_id, by):
     if row is None or row[0] is None or row[2] is not None:
         return None
 
-    was = row[1]
-    conn.execute(WAKE, (was, case_id))
+    previous_resolution = row[1]
+    conn.execute(CLEAR_RESOLUTION, (previous_resolution, case_id))
     reopen_reports(conn, case_id, by)
     audit.record(
         conn,
@@ -72,14 +72,14 @@ def reopen(conn, case_id, by):
         case_id,
         "reopened",
         by,
-        before={"resolved_at": str(row[0]), "resolution": was},
+        before={"resolved_at": str(row[0]), "resolution": previous_resolution},
         after={
             "resolved_at": None,
             "resolution": None,
             "why": "the reporter wrote back",
         },
     )
-    return was
+    return previous_resolution
 
 
 def existing(conn, conversation_id):

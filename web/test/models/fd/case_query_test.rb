@@ -17,99 +17,99 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
     query(viewer: viewer, **params).relation.where(id: case_ids).ids
   end
 
-  test "an empty request lands on the open cases" do
+  test "view defaults to attention without params" do
     assert_equal "attention", query.view
   end
 
-  test "a value outside the vocabulary is ignored, not raised" do
+  test "unknown param values fall back to defaults and do not raise" do
     assert_equal "attention", query(view: "; drop table").view
     assert_equal "any", query(age: "300d")["age"]
     assert_equal "opened", query(sort: "sideways")["sort"]
     assert_equal "anyone", query(assignee: "not a user id")["assignee"]
   end
 
-  test "a member id is accepted for assignee and subject, anything else is not" do
+  test "assignee accepts a member id and subject rejects a non id value" do
     assert_equal "U08K3F2QX", query(assignee: "U08K3F2QX")["assignee"]
     assert_equal "anyone", query(subject: "bob")["subject"]
   end
 
-  test "needs attention keeps every open case, claimed or not" do
+  test "attention view includes every open case assigned or not" do
     listed_ids = ids
     assert_includes listed_ids, @recent.id, "unassigned"
     assert_includes listed_ids, @stale.id, "six days old"
-    assert_includes listed_ids, @assigned.id, "somebody is on it, but it is still open"
-    assert_not_includes listed_ids, @done.id, "resolved, so it is off the queue"
+    assert_includes listed_ids, @assigned.id, "assigned and open"
+    assert_not_includes listed_ids, @done.id, "resolved"
   end
 
-  test "aging only keeps what has sat past five days" do
+  test "aging view includes only cases older than five days" do
     listed_ids = ids(view: "aging")
     assert_equal [@stale.id], listed_ids
   end
 
-  test "mine follows the viewer, and is empty for somebody else" do
+  test "mine view lists the viewer's cases and none for another viewer" do
     assert_equal [@assigned.id], ids(view: "mine")
     assert_empty ids(view: "mine", viewer: "USOMEBODY")
   end
 
-  test "resolved this month reads resolved_at, not opened_at" do
+  test "resolved view filters by resolved_at and not opened_at" do
     assert_equal [@done.id], ids(view: "resolved"),
-      "the case was opened twenty days ago and closed yesterday"
+      "resolved case missing from resolved view"
   end
 
-  test "everything is everything" do
+  test "everything view includes all cases" do
     assert_equal 4, ids(view: "everything").size
   end
 
-  test "a facet turns the view off, they are never both in force" do
+  test "facet param clears the view and resets status to any" do
     filtered_query = query(view: "mine", category: "spam")
-    assert_nil filtered_query.view, "filtering wins, so no view is current"
+    assert_nil filtered_query.view, "view set while a facet is applied"
     assert_equal "spam", filtered_query["category"]
-    assert_equal "any", filtered_query["status"], "the view's implied status goes with it"
+    assert_equal "any", filtered_query["status"], "status not reset to any when the view is cleared"
   end
 
-  test "a view sets the facets it implies, so the pills agree with the tab" do
+  test "mine view sets assignee me and status open and marks assignee on" do
     mine_view_query = query(view: "mine")
     assert_equal "me", mine_view_query["assignee"]
     assert_equal "open", mine_view_query["status"]
     assert mine_view_query.facets.find { |f| f.key == "assignee" }.on
   end
 
-  test "changing a facet from inside a view expands that view into plain filters" do
+  test "facet_params expands the view into status and assignee params" do
     expanded_params = query(view: "mine").facet_params("category" => "spam")
 
     assert_equal({ "status" => "open", "assignee" => "me", "category" => "spam" }, expanded_params)
-    assert_not expanded_params.key?("view"), "the link must not carry the view it just left"
+    assert_not expanded_params.key?("view"), "view key present in facet_params"
   end
 
-  test "the title names the view, or reads as a sentence once filtering takes over" do
+  test "title uses the view name or a sentence built from the facets" do
     assert_equal "Mine", query(view: "mine").title
-    assert_equal "Every case, spam, mass pings or invites", query(category: "spam").title
+    assert_equal "All cases, spam, mass pings or invites", query(category: "spam").title
     assert_equal "Open, older than five days and unassigned",
       query(status: "open", age: "5d", assignee: "nobody").title
   end
 
-  test "the url carries the view or the facets, never both" do
+  test "to_params returns either the view or the facets" do
     assert_empty query.to_params
     assert_equal({ "view" => "mine" }, query(view: "mine").to_params)
     assert_equal({ "category" => "spam" }, query(category: "spam", age: "any").to_params)
   end
 
-  test "clearing the last facet a view implied leaves the view rather than landing back in it" do
+  test "facet_params clearing the last implied facet returns view none" do
     facet_params = query(view: "attention").facet_params("status" => "any")
     assert_equal({ "view" => "none" }, facet_params,
-      "an empty link would be read as a bare queue, which defaults straight back to a view")
+      "empty params would fall back to the default view")
 
     none_query = query(view: "none")
     assert_nil none_query.view
-    assert_equal "Every case", none_query.title
+    assert_equal "All cases", none_query.title
     assert_equal 4, ids(view: "none").size
   end
 
-  test "the status facet can override the view, since a view is not a status" do
+  test "status param overrides the status implied by the everything view" do
     assert_equal [@done.id], ids(view: "everything", status: "resolved")
   end
 
-  test "only the four primary facets sit inline until one of the others is set" do
+  test "inline_facets lists four primary facets until another facet is set" do
     bare = query(view: "none")
     assert_equal %w[status age assignee sort], bare.inline_facets.map(&:key)
     assert_equal %w[category subject actions opened resolved], bare.more_facets.map(&:key)
@@ -119,7 +119,7 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
     assert_equal %w[subject actions opened resolved], filtered_query.more_facets.map(&:key)
   end
 
-  test "every view reports a count" do
+  test "view_counts returns an integer for every view" do
     counts = Fd::CaseQuery.view_counts("UME")
     assert_equal Fd::CaseQuery::VIEWS.keys.sort, counts.keys.sort
     assert counts.values.all? { |n| n.is_a?(Integer) }
@@ -132,7 +132,7 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
     end
   end
 
-  test "the one counting query agrees with running each view on its own" do
+  test "view_counts matches the relation count of each view" do
     make_case(opened_at: 9.days.ago)
     make_case(opened_at: 1.hour.ago, assign: "UME")
     make_case(opened_at: 2.hours.ago, assign: "UOTHER")
@@ -141,7 +141,7 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
     assert_equal counts_per_view("UME"), Fd::CaseQuery.view_counts("UME")
   end
 
-  test "the counts still agree when nobody is signed in" do
+  test "view_counts matches the relation count of each view for a nil viewer" do
     make_case(opened_at: 1.hour.ago, assign: "UOTHER")
 
     assert_equal counts_per_view(nil), Fd::CaseQuery.view_counts(nil)
@@ -153,31 +153,31 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
                          category_key: category }.merge(attrs))
   end
 
-  test "a case with actions is about what its actions say" do
+  test "violations uses the action category when the case has actions" do
     kase = make_case(category_key: "spam")
     act_on(kase, category: "harassment_general")
 
     assert_equal ["harassment_general"], kase.reload.violations,
-      "the action is what was actually decided"
+      "violations did not use the action category"
   end
 
-  test "a case names every violation its actions name" do
+  test "violations lists the category of every action" do
     kase = make_case(category_key: "spam")
     act_on(kase, category: "harassment_general")
     act_on(kase, category: "adult")
 
     assert_equal %w[harassment_general adult].sort, kase.reload.violations.sort,
-      "two actions can be about two different things"
+      "violations missing a category of one action"
   end
 
-  test "a reversed action no longer says what the case was about" do
+  test "violations ignores reversed actions" do
     kase = make_case(category_key: "spam")
     act_on(kase, category: "harassment_general", reversed_at: Time.current, reversed_by: "UME")
 
     assert_equal ["spam"], kase.reload.violations
   end
 
-  test "a case with no actions falls back to its own violation" do
+  test "violations falls back to category_key when the case has no actions" do
     kase = make_case(category_key: "spam")
 
     assert_equal ["spam"], kase.violations
@@ -187,23 +187,23 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
     query(view: "everything", category: category).relation.ids
   end
 
-  test "filtering by violation finds the case its actions name, not its own" do
+  test "category filter matches action categories and not the case category_key" do
     kase = make_case(category_key: "spam")
     act_on(kase, category: "harassment_general")
 
     assert_includes ids_in_category("harassment_general"), kase.id,
-      "the filter must find what the queue shows"
+      "category filter missed the case with a matching action category"
     assert_not_includes ids_in_category("spam"), kase.id,
-      "the case column no longer speaks once an action has"
+      "category filter matched the case category_key"
   end
 
-  test "filtering still finds a case that has no actions" do
+  test "category filter matches category_key when the case has no actions" do
     kase = make_case(category_key: "spam")
 
     assert_includes ids_in_category("spam"), kase.id
   end
 
-  test "the batch lookup agrees with the one built per case" do
+  test "violations_for matches violations per case" do
     first = make_case(category_key: "spam")
     act_on(first, category: "adult")
     second = make_case(category_key: "spam")
@@ -215,39 +215,39 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
     assert_equal ["spam"], second.violations
   end
 
-  test "the queue opens with the oldest case first" do
+  test "everything view orders cases oldest opened first" do
     assert_equal [@stale.id, @recent.id, @assigned.id], ids(view: "everything") - [@done.id],
-      "the case that has waited longest is the one that needs somebody"
+      "everything view is not ordered oldest first"
   end
 
-  test "the resolved view opens with the most recently closed first" do
+  test "resolved view orders cases by resolved_at descending" do
     older = make_case(opened_at: 30.days.ago, resolved_at: 9.days.ago, resolution: "no_action")
     newer = make_case(opened_at: 2.days.ago, resolved_at: 1.hour.ago, resolution: "no_action")
     resolved_ids = query(view: "resolved").relation.where(id: [older.id, newer.id, @done.id]).ids
 
     assert_equal [newer.id, @done.id, older.id], resolved_ids,
-      "nobody scrolls to the bottom of a resolved list to see what just closed"
+      "resolved view is not ordered newest resolved first"
     assert_equal "resolved", query(view: "resolved")["sort"]
     assert_equal "desc", query(view: "resolved")["dir"]
   end
 
-  test "asking for the newest first still works" do
+  test "dir desc reverses the everything view order" do
     oldest_first = ids(view: "everything")
 
     assert_equal oldest_first.reverse, ids(view: "everything", dir: "desc")
   end
 
-  test "sorting a column starts in the default direction, then reverses, then clears" do
+  test "sort_params keeps the default direction then reverses then drops sort" do
     bare = query.sort_params("case")
     assert_equal "case", bare["sort"]
     assert_not_includes bare.keys, "dir",
-      "a fresh column starts in the default direction, so dir stays out of the url"
+      "dir present for a fresh column"
 
     ascending = query(sort: "case")
-    assert_equal "desc", ascending.sort_params("case")["dir"], "clicking again reverses it"
+    assert_equal "desc", ascending.sort_params("case")["dir"], "dir not desc for the second click"
 
     descending = query(sort: "case", dir: "desc")
     assert_not_includes descending.sort_params("case").keys, "sort",
-      "a third click drops back to the default sort"
+      "sort present for the third click"
   end
 end

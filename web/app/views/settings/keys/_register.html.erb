@@ -1,4 +1,4 @@
-<%= render layout: "fd/modal", locals: { id: "new-app", title: "Register an app" } do %>
+<%= render layout: "fd/modal", locals: { id: "new-app", title: "Register app" } do %>
   <%= form_with url: settings_apps_path, method: :post, html: { autocomplete: "off" } do %>
     <div class="modal-body form-body">
       <label class="field-label">
@@ -7,20 +7,18 @@
               placeholder: "Design Triage Bot", autofocus: true %>
       </label>
       <label class="field-label">
-        What it does
-        <%= text_area_tag :blurb, nil, id: nil, class: "textarea", rows: 2, maxlength: Api::App::MAX_BLURB,
-              placeholder: "members see this when they opt in" %>
+        Description
+        <%= text_area_tag :blurb, nil, id: nil, class: "textarea", rows: 2, maxlength: Api::App::MAX_BLURB %>
       </label>
       <label class="field-label">
-        What for
+        Reason
         <%= text_area_tag :reason, nil, id: nil, class: "textarea", rows: 2,
-              maxlength: Api::AccessRequest::MAX_REASON,
-              placeholder: "a reviewer reads this" %>
+              maxlength: Api::AccessRequest::MAX_REASON %>
       </label>
     </div>
     <div class="modal-foot">
       <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
-      <%= submit_tag "Send", class: "btn btn-primary" %>
+      <%= submit_tag "Submit", class: "btn btn-primary" %>
     </div>
   <% end %>
 <% end %>

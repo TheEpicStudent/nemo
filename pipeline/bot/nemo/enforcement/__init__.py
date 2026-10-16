@@ -11,8 +11,8 @@ __all__ = ["CHANNEL_ENFORCEMENTS", "ENFORCEMENTS", "account_age", "channel_ban",
            "purge", "readonly", "shush", "slowmode"]
 
 
-def take_up(client, conn, guard):
+def enforce(client, conn, guard):
     enforcement = ENFORCEMENTS.get(guard["kind"])
     if enforcement is None:
         return False
-    return enforcement.take_up(client, conn, guard)
+    return enforcement.enforce(client, conn, guard)

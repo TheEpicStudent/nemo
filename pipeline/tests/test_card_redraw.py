@@ -49,8 +49,8 @@ def report_case(**over):
     return case
 
 
-def test_a_card_slack_will_not_edit_is_left_as_it_is(monkeypatch):
-    monkeypatch.setattr(channel, "gather", lambda conn, case_id: report_case())
+def test_refresh_card_edit_refused_keeps_card_and_marks_digest(monkeypatch):
+    monkeypatch.setattr(channel, "fetch_case", lambda conn, case_id: report_case())
     conn, slack = Conn(), Slack("cant_update_message")
 
     assert channel.refresh_card(slack, conn, 15) == "1.1"
@@ -60,8 +60,8 @@ def test_a_card_slack_will_not_edit_is_left_as_it_is(monkeypatch):
     assert conn.args_for("SET card_digest = %s")[0][1] == 10, "kept as drawn so the sweep moves on"
 
 
-def test_a_report_card_is_edited_where_it_was_posted(monkeypatch):
-    monkeypatch.setattr(channel, "gather", lambda conn, case_id: report_case())
+def test_refresh_card_edits_in_stored_card_channel(monkeypatch):
+    monkeypatch.setattr(channel, "fetch_case", lambda conn, case_id: report_case())
     slack = Slack()
 
     channel.refresh_card(slack, Conn(), 15, "C_NOW")
@@ -69,8 +69,8 @@ def test_a_report_card_is_edited_where_it_was_posted(monkeypatch):
     assert slack.calls_to("chat_update")[0]["channel"] == "C_OLD"
 
 
-def test_a_new_report_card_remembers_its_channel(monkeypatch):
-    monkeypatch.setattr(channel, "gather", lambda conn, case_id: report_case(
+def test_post_report_stores_card_channel_id(monkeypatch):
+    monkeypatch.setattr(channel, "fetch_case", lambda conn, case_id: report_case(
         forwarded_ts=None, card_channel_id=None, is_anonymous=True, reporter_user_id=None,
         message_id=None))
     conn = Conn()
@@ -80,7 +80,7 @@ def test_a_new_report_card_remembers_its_channel(monkeypatch):
     assert conn.args_for("SET forwarded_ts = %s")[0][:3][2] == "C_NOW"
 
 
-def test_threads_follow_the_report_card_into_its_channel():
+def test_card_channel_queries_use_report_card_channel_id():
     assert "r.card_channel_id" in channel.CARD_CHANNEL_FOR_CASE
     for query in (channel.FOLLOW_UP, channel.FILES_ON_CASE, channel.UNFURLS_ON_CASE):
         assert "r.card_channel_id" in query
@@ -91,7 +91,7 @@ def staff_case(card_ts="8.8"):
                                         None)}
 
 
-def test_a_staff_card_keeps_its_place_when_slack_refuses(monkeypatch):
+def test_case_queue_refresh_card_refusal_keeps_card_and_marks_digest(monkeypatch):
     conn, slack = Conn(staff_case()), Slack("message_not_found")
 
     assert case_queue.refresh_card(slack, conn, 41) == "8.8"
@@ -100,7 +100,7 @@ def test_a_staff_card_keeps_its_place_when_slack_refuses(monkeypatch):
     assert conn.args_for("SET card_digest = %s"), "a refusal is not retried every sweep"
 
 
-def test_a_staff_card_retries_after_a_passing_failure(monkeypatch):
+def test_case_queue_refresh_card_ratelimited_does_not_mark_digest(monkeypatch):
     conn, slack = Conn(staff_case()), Slack("ratelimited")
 
     assert case_queue.refresh_card(slack, conn, 41) == "8.8"

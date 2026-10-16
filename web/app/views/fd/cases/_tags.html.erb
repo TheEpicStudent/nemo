@@ -14,14 +14,14 @@
     </span>
   <% end %>
   <% if denied %>
-    <%= dead_button("Add tag", denied, "btn btn-ghost btn-sm") %>
+    <%= disabled_button("Add tag", denied, "btn btn-ghost btn-sm") %>
   <% else %>
     <%= form_with url: fd_case_tags_path(kase), method: :post, class: "contents",
           html: { autocomplete: "off" } do %>
       <%= render "shared/combobox", name: "name", kind: "tag", trigger: "Add tag",
             trigger_css: "btn btn-ghost btn-sm", url: fd_tag_search_path(case_id: kase.id),
             single: true, submit: true, least: 0, empty: "No tags found",
-            label: "Find or create a tag", placeholder: "Find or create a tag" %>
+            label: "Tag name", placeholder: "Tag name" %>
     <% end %>
   <% end %>
 </div>

@@ -47,7 +47,7 @@ PAYLOADS = MARKUP + TEMPLATES + INJECTION + UNICODE + PATHS + LONG + WHITESPACE
 
 SHORT_NAMES = ["a", "b", "c", "d", "e", "de", "hc", "ai"]
 
-POISON_SHARE = 0.02
+HOSTILE_NAME_SHARE = 0.02
 
 
 def as_channel_name(value):
@@ -58,7 +58,7 @@ def payload(rng):
     return PAYLOADS[rng.randrange(len(PAYLOADS))]
 
 
-def poison_channels(rng, channels):
+def rename_channels_hostile(rng, channels):
     if not channels:
         return 0
     renamed_count = 0
@@ -72,7 +72,7 @@ def poison_channels(rng, channels):
             remaining[i].name = as_channel_name(value)
             renamed_count += 1
     for channel in remaining[len(PAYLOADS):]:
-        if rng.random() < POISON_SHARE:
+        if rng.random() < HOSTILE_NAME_SHARE:
             channel.name = as_channel_name(f"{channel.name}{payload(rng)}")
             renamed_count += 1
     return renamed_count

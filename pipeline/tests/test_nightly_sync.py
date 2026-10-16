@@ -12,51 +12,51 @@ from lib.proxy_client import (
 )
 
 
-def test_a_dead_credential_is_not_retried():
+def test_retryable_internal_auth_error_returns_false():
     assert retryable(InternalAuthError("invalid_auth")) is False
 
 
-def test_a_cancelled_run_is_not_retried():
+def test_retryable_sync_cancelled_returns_false():
     assert retryable(SyncCancelled("cancel requested")) is False
 
 
-def test_a_rejected_request_is_not_retried():
+def test_retryable_proxy_allowlist_rejection_returns_false():
     assert retryable(ProxyError("method not in the allowlist")) is False
 
 
-def test_an_unreachable_proxy_is_retried_despite_subclassing_proxy_error():
+def test_retryable_proxy_unavailable_error_returns_true():
     exc = ProxyUnavailableError("connection refused")
     assert isinstance(exc, ProxyError)
     assert retryable(exc) is True
 
 
-def test_a_slack_side_failure_is_retried():
+def test_retryable_internal_api_error_returns_true():
     assert retryable(InternalApiError("ratelimited")) is True
 
 
-def test_an_ordinary_failure_is_retried():
+def test_retryable_runtime_and_key_errors_return_true():
     assert retryable(RuntimeError("boom")) is True
     assert retryable(KeyError("user_id")) is True
 
 
-def test_a_gateway_failure_from_the_proxy_is_retried():
+def test_retryable_proxy_gateway_status_returns_true():
     assert retryable(ProxyError("proxy returned 502: ")) is True
     assert retryable(ProxyError("proxy returned 503: ")) is True
     assert retryable(ProxyError("proxy returned 504: ")) is True
 
 
-def test_a_refused_request_from_the_proxy_is_still_not_retried():
+def test_retryable_proxy_refusal_status_returns_false():
     assert retryable(ProxyError("proxy returned 401: invalid bearer token")) is False
     assert retryable(ProxyError("proxy returned 403: method not allowed")) is False
     assert retryable(ProxyError("proxy returned 400: unknown credential")) is False
     assert retryable(ProxyError("proxy returned 500: ")) is False
 
 
-def test_a_walk_integrity_failure_is_not_retried():
+def test_retryable_walk_integrity_error_returns_false():
     assert retryable(ProxyError("search.messages: page repeated after 1500 records")) is False
 
 
-def test_preflight_names_the_dead_credential():
+def test_credential_faults_failed_credential_returns_error_text():
     report = {"ok": False, "credentials": {
         "internal": {"ok": False, "error": "invalid_auth"},
         "admin": {"ok": True, "user": "epsmnemosyne"},
@@ -64,7 +64,7 @@ def test_preflight_names_the_dead_credential():
     assert credential_faults(report) == ["internal: invalid_auth"]
 
 
-def test_preflight_is_quiet_when_both_credentials_hold():
+def test_credential_faults_both_credentials_ok_returns_empty():
     report = {"ok": True, "credentials": {
         "internal": {"ok": True, "user": "dracula"},
         "admin": {"ok": True, "user": "epsmnemosyne"},
@@ -72,11 +72,11 @@ def test_preflight_is_quiet_when_both_credentials_hold():
     assert credential_faults(report) == []
 
 
-def test_preflight_reports_a_missing_credential_without_an_error_string():
+def test_credential_faults_failed_credential_without_error_returns_not_ok():
     assert credential_faults({"credentials": {"admin": {"ok": False}}}) == ["admin: not ok"]
 
 
-def test_parent_status_cases():
+def test_parent_status_maps_counts_to_status():
     ok = []
     fails = [("a", "x")]
     assert parent_status(True, 5, 0, 0, ok) == "cancelled"
@@ -91,7 +91,7 @@ def test_parent_status_cases():
     assert parent_status(True, 0, 0, 0, ok) == "cancelled"
 
 
-def test_dbt_outcomes_split_fail_and_error_from_warn():
+def test_dbt_outcomes_separates_fail_and_error_from_warn():
     results = {"results": [
         {"unique_id": "test.mnemosyne.not_null_dim_member_user_id", "status": "pass"},
         {"unique_id": "test.mnemosyne.assert_cohort_dates_are_not_stamped", "status": "warn"},
@@ -105,12 +105,12 @@ def test_dbt_outcomes_split_fail_and_error_from_warn():
     assert dbt_outcomes({}) == ([], [])
 
 
-def test_preflight_treats_a_reply_with_no_credentials_as_a_fault():
+def test_credential_faults_reply_without_credentials_returns_proxy_fault():
     assert credential_faults({"detail": "invalid bearer token"}) == ["proxy: invalid bearer token"]
     assert credential_faults({}) == ["proxy: no credential report"]
 
 
-def test_a_gate_test_failure_refuses_to_publish(monkeypatch, tmp_path):
+def test_run_dbt_gate_test_failure_raises_runtime_error(monkeypatch, tmp_path):
     from jobs import nightly_sync
 
     results = tmp_path / "run_results.json"
@@ -124,11 +124,11 @@ def test_a_gate_test_failure_refuses_to_publish(monkeypatch, tmp_path):
     monkeypatch.setattr(nightly_sync, "build_lock",
                         lambda **kw: contextlib.nullcontext())
 
-    with pytest.raises(RuntimeError, match="refusing to publish"):
+    with pytest.raises(RuntimeError, match="gate test\\(s\\) failed"):
         nightly_sync.run_dbt()
 
 
-def test_an_ungated_test_failure_still_publishes_and_marks_the_run_partial(monkeypatch, tmp_path):
+def test_run_dbt_ungated_test_failure_does_not_raise(monkeypatch, tmp_path):
     from jobs import nightly_sync
 
     results = tmp_path / "run_results.json"
@@ -145,7 +145,7 @@ def test_an_ungated_test_failure_still_publishes_and_marks_the_run_partial(monke
     nightly_sync.run_dbt()
 
 
-def test_every_gate_test_names_a_singular_test_that_exists():
+def test_gate_tests_all_exist_as_singular_test_files():
     from pathlib import Path
 
     from jobs.nightly_sync import GATE_TESTS
@@ -155,7 +155,7 @@ def test_every_gate_test_names_a_singular_test_that_exists():
     assert set(GATE_TESTS) <= on_disk, set(GATE_TESTS) - on_disk
 
 
-def test_no_gate_test_downgrades_itself_to_a_warning():
+def test_gate_tests_have_no_warn_severity():
     from pathlib import Path
 
     from jobs.nightly_sync import GATE_TESTS
@@ -171,14 +171,14 @@ def test_no_gate_test_downgrades_itself_to_a_warning():
     )
 
 
-def test_a_clean_parent_records_no_fault():
+def test_parent_fault_ok_or_partial_without_failures_returns_none():
     from jobs.nightly_sync import parent_fault
 
     assert parent_fault("ok", False, []) == (None, None)
     assert parent_fault("partial", False, []) == (None, None)
 
 
-def test_a_partial_parent_still_names_the_stage_that_failed():
+def test_parent_fault_partial_with_failed_stage_names_stage():
     from jobs.nightly_sync import parent_fault
 
     klass, detail = parent_fault("partial", False, [("prometheans", "boom")])
@@ -186,7 +186,7 @@ def test_a_partial_parent_still_names_the_stage_that_failed():
     assert "prometheans" in detail
 
 
-def test_every_terminal_parent_outcome_is_classified():
+def test_parent_fault_terminal_statuses_return_class_and_detail():
     from jobs.nightly_sync import parent_fault, parent_status
 
     for cancelled, completed, skipped, cut, failed in [
@@ -200,7 +200,7 @@ def test_every_terminal_parent_outcome_is_classified():
         assert detail
 
 
-def test_every_check_module_is_wired_into_the_nightly():
+def test_record_quality_runs_every_check_module():
     import inspect
     from pathlib import Path
 
@@ -213,7 +213,7 @@ def test_every_check_module_is_wired_into_the_nightly():
     assert missing == [], f"check modules written but never run: {missing}"
 
 
-def test_a_failing_check_cannot_break_the_nightly():
+def test_record_quality_catches_check_exceptions_and_rolls_back():
     import inspect
 
     from jobs import nightly_sync
@@ -223,7 +223,7 @@ def test_a_failing_check_cannot_break_the_nightly():
     assert "conn.rollback()" in src
 
 
-def test_a_lock_timeout_reaps_the_previous_attempt_before_retrying():
+def test_run_stage_lock_timeout_reaps_orphaned_dbt():
     import inspect
 
     from jobs import nightly_sync
@@ -233,7 +233,7 @@ def test_a_lock_timeout_reaps_the_previous_attempt_before_retrying():
     assert "reap_orphaned_dbt(began)" in src
 
 
-def test_the_reap_only_touches_this_user_s_own_stale_dbt_backends():
+def test_orphaned_dbt_sql_targets_own_stale_dbt_backends():
     from jobs import nightly_sync
 
     sql = nightly_sync.ORPHANED_DBT_SQL
@@ -246,7 +246,7 @@ def test_the_reap_only_touches_this_user_s_own_stale_dbt_backends():
     assert "query_start < now() - make_interval" in sql
 
 
-def test_the_reap_survives_a_database_that_refuses_it():
+def test_reap_orphaned_dbt_connect_failure_returns_zero():
     from datetime import datetime, timezone
     from unittest import mock
 
@@ -256,7 +256,7 @@ def test_the_reap_survives_a_database_that_refuses_it():
         assert nightly_sync.reap_orphaned_dbt(datetime.now(timezone.utc)) == 0
 
 
-def test_dbt_builds_once_a_night_and_never_in_between():
+def test_sync_worker_source_excludes_run_dbt():
     import inspect
 
     from jobs import nightly_sync, sync_worker
@@ -268,7 +268,7 @@ def test_dbt_builds_once_a_night_and_never_in_between():
     assert nightly_sync.stages()[-1][0] == nightly_sync.TRANSFORM
 
 
-def test_every_dbt_build_takes_the_single_build_lock():
+def test_run_dbt_takes_build_lock():
     import inspect
 
     from jobs import nightly_sync
@@ -280,7 +280,7 @@ def test_every_dbt_build_takes_the_single_build_lock():
     )
 
 
-def test_the_reap_cannot_kill_a_backend_this_attempt_started():
+def test_orphaned_dbt_sql_filters_backends_started_before_attempt():
     from jobs import nightly_sync
 
     sql = nightly_sync.ORPHANED_DBT_SQL
@@ -290,7 +290,7 @@ def test_the_reap_cannot_kill_a_backend_this_attempt_started():
     )
 
 
-def test_the_reap_demands_a_floor_rather_than_defaulting_to_none():
+def test_reap_orphaned_dbt_before_parameter_has_no_default():
     import inspect
 
     from jobs import nightly_sync

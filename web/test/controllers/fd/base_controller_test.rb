@@ -11,7 +11,7 @@ class Fd::BaseControllerTest < ActiveSupport::TestCase
     controller._process_action_callbacks.select { |c| c.kind == :before }.map(&:filter)
   end
 
-  test "reads are not gated, every other verb is" do
+  test "read_only_request? is true for GET and HEAD and false for write verbs" do
     assert controller("GET").send(:read_only_request?)
     assert controller("HEAD").send(:read_only_request?)
     %w[POST PATCH PUT DELETE].each do |verb|
@@ -19,7 +19,7 @@ class Fd::BaseControllerTest < ActiveSupport::TestCase
     end
   end
 
-  test "a controller that writes without declaring a permission refuses to run" do
+  test "require_permission_declaration raises for a controller with no declared permission" do
     names = Fd::BaseController._process_action_callbacks.map(&:filter)
     assert_includes names, :require_permission_declaration
     assert_includes names, :require_account
@@ -29,23 +29,23 @@ class Fd::BaseControllerTest < ActiveSupport::TestCase
     assert_raises(RuntimeError) { bare.new.send(:require_permission_declaration) }
   end
 
-  test "the gate runs after sign in, so it never leaks to a stranger" do
+  test "require_account runs before require_permission_declaration" do
     names = Fd::BaseController._process_action_callbacks.map(&:filter)
     assert names.index(:require_account) < names.index(:require_permission_declaration)
   end
 
-  test "forgery protection runs before the gate" do
+  test "verify_authenticity_token runs before require_permission_declaration" do
     names = before_callbacks(Fd::CasesController)
     assert names.index(:verify_authenticity_token) < names.index(:require_permission_declaration)
   end
 
-  test "every conduct controller that writes declares what it needs" do
+  test "every writing Fd controller declares existing permission keys" do
     Rails.application.eager_load!
     writing = Fd::BaseController.descendants.reject do |controller|
       (controller.action_methods & %w[create update destroy]).empty?
     end
 
-    assert writing.size >= 15, "expected the whole conduct area, saw #{writing.size}"
+    assert writing.size >= 15, "expected at least 15 writing controllers, saw #{writing.size}"
     writing.each do |controller|
       assert controller.declared.any?, "#{controller} writes without a permission"
       controller.declared.each do |key|

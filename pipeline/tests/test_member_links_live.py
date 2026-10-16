@@ -2,18 +2,18 @@ from ingest import member_links as links
 from ingest import member_links_live as live
 
 
-def test_a_value_held_by_more_than_any_ceiling_is_never_loaded():
-    ceilings = [one.get("crowd_ceiling", 0) for one in links.signals().values()]
+def test_cap_exceeds_largest_signal_ceiling():
+    ceilings = [definition.get("crowd_ceiling", 0) for definition in links.signals().values()]
     assert live.CAP > max(ceilings)
 
 
-def test_only_pairs_with_a_touched_member_are_rescored_and_the_nightly_rebuild_settles_the_rest():
+def test_rescored_and_scope_user_sql_limit_to_touched_members():
     assert "SELECT user_id FROM touched" in live.RESCORED
-    assert "WHERE v.people <= %(cap)s" in live.SCOPE_USER
+    assert "WHERE v.user_count <= %(cap)s" in live.SCOPE_USER
     assert "SELECT value FROM scope_value WHERE kind = 'inviter'" in live.SCOPE_USER
 
 
-def test_home_ranges_load_whole_and_exits_load_whole_addresses_so_every_crowd_is_exact():
+def test_scope_sql_loads_whole_prefixes_and_exit_addresses():
     assert "WHERE n.class IS NULL OR n.class NOT IN ('rotating', 'vpn', 'hosting', 'tor')" in live.SCOPE_PREFIX
     assert "n.class IN ('rotating', 'vpn', 'hosting', 'tor')" in live.SCOPE_EXIT
     assert "WHERE e.user_id IN (SELECT user_id FROM rescored) AND e.ip IS NOT NULL" in live.SCOPE_EXIT
@@ -23,33 +23,33 @@ def test_home_ranges_load_whole_and_exits_load_whole_addresses_so_every_crowd_is
     assert "e.ip NOT IN (SELECT ip FROM scope_exit)" in live.SCOPE_LOGIN
 
 
-def test_the_scope_knows_the_exits_before_it_loads_sign_ins():
+def test_scope_orders_rescored_and_exit_before_login():
     order = list(live.SCOPE)
 
     assert order.index(live.RESCORED) < order.index(live.SCOPE_EXIT) < order.index(live.SCOPE_LOGIN)
     assert order.index(live.SCOPE_PREFIX) < order.index(live.SCOPE_LOGIN)
 
 
-def test_the_live_lane_reads_the_stored_shared_networks_and_whole_counts():
+def test_live_sources_use_shared_ip_table_and_over_cap():
     assert live.LIVE["shared_ip"] == "fd.shared_ip"
-    assert live.LIVE["crowded"] == "crowded"
+    assert live.LIVE["over_cap"] == "over_cap"
     assert "fd.shared_ip" in live.LIVE["sighting"]
 
 
-def test_the_country_check_reads_every_row_of_the_members_of_a_live_pair():
+def test_live_sighting_sql_reads_login_events_of_live_pair_members():
     assert "FROM fd.login_event WHERE user_id IN (SELECT a_user_id FROM link_pass" in live.LIVE["sighting"]
 
 
-def test_only_pairs_with_a_rescored_member_are_written_or_swept():
+def test_only_rescored_and_sweep_sql_limit_to_rescored_members():
     assert "a_user_id NOT IN (SELECT user_id FROM rescored)" in live.ONLY_RESCORED
     assert "l.a_user_id IN (SELECT user_id FROM rescored) OR l.b_user_id IN" in live.SWEEP
 
 
-def test_a_member_touched_again_mid_pass_stays_queued():
+def test_done_sql_deletes_touch_only_when_touched_at_unchanged():
     assert "t.touched_at = done.touched_at" in live.DONE_SQL
 
 
-def test_the_lane_measures_missing_totals_instead_of_waiting_for_a_rebuild(monkeypatch, capsys):
+def test_run_measures_missing_totals_without_full_rebuild(monkeypatch, capsys):
     executed = []
 
     class Conn:
@@ -90,33 +90,33 @@ class Queue:
         return self.recent if sql == live.RECENT_JOINS_SQL else self.queued
 
 
-def test_accounts_that_joined_this_week_are_rescored_first():
+def test_next_batch_returns_recent_joins_first():
     conn = Queue(recent=[("U1", "t1")], queued=[("U9", "t0")])
 
     assert live.next_batch(conn, 40) == [("U1", "t1")]
     assert conn.executed == [(live.RECENT_JOINS_SQL, (live.RECENT_JOIN_DAYS, 40))]
 
 
-def test_the_rest_of_the_queue_follows_when_no_new_account_waits():
+def test_next_batch_without_recent_joins_returns_touched_queue():
     conn = Queue(recent=[], queued=[("U9", "t0")])
 
     assert live.next_batch(conn, 40) == [("U9", "t0")]
     assert conn.executed[-1] == (live.TOUCHED_SQL, (40,))
 
 
-def test_new_accounts_come_first_by_join_age():
+def test_recent_joins_sql_filters_by_join_age_and_orders_by_touched_at():
     assert live.RECENT_JOIN_DAYS == 7
     assert "j.joined_at > now() - make_interval(days => %s)" in live.RECENT_JOINS_SQL
     assert "ORDER BY t.touched_at" in live.RECENT_JOINS_SQL
 
 
-def test_measuring_reads_whole_tables_and_the_stored_shared_networks():
+def test_measure_sources_map_to_whole_tables_and_shared_ip():
     assert live.MEASURE_SOURCES["login"] == "fd.login_event"
     assert live.MEASURE_SOURCES["identity"] == "fd.member_identity"
     assert live.MEASURE_SOURCES["shared_ip"] == "fd.shared_ip"
 
 
-def test_only_the_missing_totals_are_measured():
+def test_measure_with_one_missing_total_runs_one_query():
     class Conn:
         def __init__(self):
             self.executed = []
@@ -134,7 +134,7 @@ def test_only_the_missing_totals_are_measured():
     assert len(conn.executed) == 1
 
 
-def test_trait_changes_joins_and_bans_queue_the_member():
+def test_live_links_migration_adds_triggers_that_queue_member():
     import pathlib
 
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations" / "0199_live_links.sql").read_text()
@@ -144,7 +144,7 @@ def test_trait_changes_joins_and_bans_queue_the_member():
     assert "ON CONFLICT (user_id) DO UPDATE SET touched_at = EXCLUDED.touched_at" in sql
 
 
-def test_scoring_one_join_leaves_missing_totals_to_the_live_lane():
+def test_score_with_missing_wholes_returns_none():
     class Conn:
         def execute(self, _sql, _args=None):
             return self
@@ -155,7 +155,7 @@ def test_scoring_one_join_leaves_missing_totals_to_the_live_lane():
     assert live.score(Conn(), ["U1"]) is None
 
 
-def test_a_join_is_scored_after_it_is_screened():
+def test_join_watch_scores_links_after_screening():
     import pathlib
 
     from bot.nemo.surface import join_watch
@@ -164,7 +164,7 @@ def test_a_join_is_scored_after_it_is_screened():
     assert src.index("screening.screen(") < src.index("score_links(user[\"id\"])")
 
 
-def test_a_join_whose_scoring_fails_is_left_to_the_live_lane(monkeypatch, caplog):
+def test_score_links_with_failing_score_returns_none_and_logs(monkeypatch, caplog):
     import contextlib
 
     from bot.nemo.surface import join_watch
@@ -183,27 +183,27 @@ def test_a_join_whose_scoring_fails_is_left_to_the_live_lane(monkeypatch, caplog
     assert "the live lane will" in caplog.text
 
 
-def test_the_first_pass_takes_fifty_and_later_passes_fit_the_budget():
-    pace = live.Pace()
-    assert pace.batch(60) == live.FIRST_BATCH
+def test_batch_sizer_first_batch_then_scales_to_budget():
+    sizer = live.BatchSizer()
+    assert sizer.batch(60) == live.FIRST_BATCH
 
-    pace.record(50, 50, 30.0)
-    assert pace.batch(60) == 75
+    sizer.record(50, 50, 30.0)
+    assert sizer.batch(60) == 75
 
-    pace.record(75, 75, 450.0)
-    assert pace.batch(60) == live.SMALLEST_BATCH
-
-
-def test_a_quick_pass_at_most_doubles_the_next_batch():
-    pace = live.Pace()
-    pace.record(50, 2, 0.2)
-
-    assert pace.batch(60) == 100
-    pace.record(200, 200, 1.0)
-    assert pace.batch(60) == live.LARGEST_BATCH
+    sizer.record(75, 75, 450.0)
+    assert sizer.batch(60) == live.SMALLEST_BATCH
 
 
-def test_a_pass_records_its_steps_under_its_run_and_feeds_the_pace(monkeypatch):
+def test_batch_sizer_quick_pass_doubles_batch_up_to_largest():
+    sizer = live.BatchSizer()
+    sizer.record(50, 2, 0.2)
+
+    assert sizer.batch(60) == 100
+    sizer.record(200, 200, 1.0)
+    assert sizer.batch(60) == live.LARGEST_BATCH
+
+
+def test_run_records_steps_under_run_id_and_updates_batch_sizer(monkeypatch):
     import contextlib
 
     recorded = {}
@@ -224,7 +224,7 @@ def test_a_pass_records_its_steps_under_its_run_and_feeds_the_pace(monkeypatch):
 
     def fake_rescore(_conn, _catalogue, _wholes, touched, steps):
         for name in ("scope", "prepare", "gather", "settle"):
-            with live.timed(steps, name):
+            with live.timed_step(steps, name):
                 pass
         return len(touched), 3, 2, 1, {}
 
@@ -233,16 +233,16 @@ def test_a_pass_records_its_steps_under_its_run_and_feeds_the_pace(monkeypatch):
     monkeypatch.setattr(live, "ingest_run", fake_ingest_run)
     monkeypatch.setattr(live, "rescore", fake_rescore)
     monkeypatch.setattr(live, "record_steps", lambda _conn, run_id, steps: recorded.update(run_id=run_id, steps=steps))
-    pace = live.Pace()
+    sizer = live.BatchSizer()
 
-    assert live.run(Conn(), pace) == 2
+    assert live.run(Conn(), sizer) == 2
     assert recorded["run_id"] == 77
     assert [source for source, _started, _finished in recorded["steps"]] == [
         "member_links_live:scope", "member_links_live:prepare", "member_links_live:gather", "member_links_live:settle"]
-    assert pace.seconds_per_member is not None and pace.last_batch == live.FIRST_BATCH
+    assert sizer.seconds_per_member is not None and sizer.last_batch == live.FIRST_BATCH
 
 
-def test_steps_are_child_runs_of_the_pass_with_their_own_source():
+def test_steps_sql_inserts_child_runs_and_record_steps_skips_empty_input():
     from lib import db
 
     sql = db.STEPS_SQL

@@ -22,12 +22,12 @@ def open_destroy_modal(ctx):
 
 
 @on_action(card.NOTE, needs="thread.guard")
-def note_toggled(ctx):
+def update_destroy_modal(ctx):
     view = ctx.view
     if view.get("callback_id") != card.DESTROY_CALLBACK:
         return None
 
-    channel_id, thread_ts = card.opened(view)
+    channel_id, thread_ts = card.parse_metadata(view)
     values = card.submitted_values(view.get("state") or {})
     try:
         ctx.client.views_update(
@@ -41,14 +41,14 @@ def note_toggled(ctx):
 
 
 @on_view(card.DESTROY_CALLBACK, needs="thread.guard", refuse_block=card.REASON)
-def confirmed(ctx):
+def destroy_thread(ctx):
     values = card.submitted_values(ctx.view.get("state") or {})
     errors = card.validation_errors(values)
     if errors:
         return ctx.ack(response_action="errors", errors=errors)
 
     ctx.ack()
-    channel_id, thread_ts = card.opened(ctx.view)
+    channel_id, thread_ts = card.parse_metadata(ctx.view)
     if not channel_id or not thread_ts:
         return None
 

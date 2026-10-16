@@ -3,8 +3,8 @@ module Admin
     SEARCH_LIMIT = 100
 
     BANDS = [
-      ["public", "Everyone signed in"],
-      ["granted", "Named people only"]
+      ["public", "All signed-in users"],
+      ["granted", "Granted users"]
     ].freeze
 
     PICKER_LIMIT = 40
@@ -19,17 +19,17 @@ module Admin
       end
 
       render json: {
-        channels: biggest_first(scope).limit(PICKER_LIMIT)
+        channels: order_by_member_count(scope).limit(PICKER_LIMIT)
           .pluck(:channel_id, :name).map { |id, name| { id: id, name: name } },
         total: scope.count
       }
     end
 
-    SPAN = "LEFT JOIN analytics.fct_channel_span s " \
-           "ON s.channel_id = dim_channel.channel_id".freeze
+    CHANNEL_SPAN_JOIN = "LEFT JOIN analytics.fct_channel_span s " \
+                        "ON s.channel_id = dim_channel.channel_id".freeze
 
-    def biggest_first(scope)
-      scope.joins(SPAN).order(Arel.sql("s.total_members DESC NULLS LAST, dim_channel.name"))
+    def order_by_member_count(scope)
+      scope.joins(CHANNEL_SPAN_JOIN).order(Arel.sql("s.total_members DESC NULLS LAST, dim_channel.name"))
     end
 
     def index
@@ -38,7 +38,7 @@ module Admin
       @grants = Channels::Audience::Grant.live.to_a.group_by(&:channel_id)
       @activity = Channels::Activity.visible_ids.to_set
       @total = Analytics::DimChannel.where(archived: false).count
-      @bands = band(listed)
+      @bands = group_by_audience(listed_channels)
       @open = @bands.reject { |kind, _label, _rows| kind == "granted" }
         .sum { |_kind, _label, rows| rows.size }
       grant_rows = @grants.values.flatten
@@ -89,7 +89,7 @@ module Admin
         before: { "channel_id" => channel_id, "shown" => previously_on },
         after: { "channel_id" => channel_id, "shown" => requested_state == "on" })
       redirect_to admin_channels_path(q: params[:q].presence),
-        notice: "##{channel_id} #{requested_state == 'on' ? 'now shows' : 'no longer shows'} how posts did"
+        notice: "Message activity #{requested_state} for ##{channel_id}"
     end
 
     private
@@ -102,7 +102,7 @@ module Admin
       redirect_to admin_channels_path, alert: Community::Access.why_not(current_account, key)
     end
 
-    def listed
+    def listed_channels
       scope = Analytics::DimChannel.where(archived: false)
       if @q.present?
         return scope.where("dim_channel.name ILIKE ?", "%#{like_q}%")
@@ -116,7 +116,7 @@ module Admin
         .or(scope.where(channel_id: @activity.to_a)).order(:name)
     end
 
-    def band(channels)
+    def group_by_audience(channels)
       grouped = channels.group_by { |channel| audience(channel.channel_id) }
       BANDS.filter_map { |kind, label|
         rows = grouped[kind]

@@ -52,7 +52,7 @@ export default class extends Controller {
   }
 
   openOnFocus() {
-    if (!this.suppressWake && this.leastValue === 0 && !this.box.open) this.search()
+    if (!this.suppressOpenOnFocus && this.leastValue === 0 && !this.box.open) this.search()
   }
 
   toggle() {
@@ -110,9 +110,9 @@ export default class extends Controller {
     this.render()
     if (this.submitValue) return this.element.closest("form")?.requestSubmit()
 
-    this.suppressWake = true
+    this.suppressOpenOnFocus = true
     ;(this.inline ? this.inputTarget : this.triggerTarget).focus()
-    this.suppressWake = false
+    this.suppressOpenOnFocus = false
   }
 
   removeToken(event) {

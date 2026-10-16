@@ -2,7 +2,7 @@ require "test_helper"
 
 class ChannelsFilterTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UCHAN", "analytics")
+    @me = grant_role!("UCHAN", "analytics")
     sign_in_as(@me)
   end
 
@@ -24,9 +24,9 @@ class ChannelsFilterTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "every filterable field and operator builds SQL the controller's joins can answer" do
+  test "index returns 200 for every filter field and operator" do
     pairs = every_field_and_op
-    refute_empty pairs, "no field left to filter on, so this checks nothing"
+    refute_empty pairs, "no filter fields defined"
 
     broken = pairs.reject do |field, op|
       arity = Channels::Filter::OPS.fetch(field.kind).fetch(op).last
@@ -38,19 +38,19 @@ class ChannelsFilterTest < ActionDispatch::IntegrationTest
     assert_empty broken.map { |field, op| "#{field.key} #{op} => #{response.status}" }
   end
 
-  test "a date filter given the wrong shape of value drops the condition instead of breaking" do
+  test "index with date within filter given one value returns 200" do
     get_channels(c: { "0" => { "f" => "created", "op" => "within", "v" => ["2026-01-01"] } })
 
     assert_response :success
   end
 
-  test "the rolled window joins its own alias without colliding with the mart joins" do
+  test "index with first window preset returns 200" do
     get_channels(days: Channels::Window::PRESETS.first)
 
     assert_response :success
   end
 
-  test "every offered sort names a column the joins provide" do
+  test "index returns 200 for every SORT_SQL key" do
     refute_empty ChannelsController::SORT_SQL
 
     broken = ChannelsController::SORT_SQL.keys.reject do |key|
@@ -58,6 +58,6 @@ class ChannelsFilterTest < ActionDispatch::IntegrationTest
       response.status == 200
     end
 
-    assert_empty broken, "these sorts broke: #{broken.join(', ')}"
+    assert_empty broken, "sort keys not returning 200: #{broken.join(', ')}"
   end
 end

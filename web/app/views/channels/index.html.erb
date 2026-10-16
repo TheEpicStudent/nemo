@@ -74,8 +74,8 @@
                 title: "Newcomers landing",
                 x_label: "newcomers who posted here", y_label: "newcomers who posted again",
                 n_label: "newcomer messages",
-                corners: { tl: "SMALL AND STICKY", tr: "WORKING",
-                           bl: "QUIET", br: "LANDING, NOT STAYING" } %>
+                corners: { tl: "LOW VOLUME, HIGH RETENTION", tr: "HIGH VOLUME, HIGH RETENTION",
+                           bl: "LOW VOLUME, LOW RETENTION", br: "HIGH VOLUME, LOW RETENTION" } %>
         </turbo-frame>
       <% end %>
     </div>
@@ -98,9 +98,9 @@
               <% row["v"].each { |v| concat hidden_field_tag("c[#{i}][v][]", v, id: nil) } %>
             <% end %>
             <%= hidden_field_tag :match, @filter.match, id: nil %>
-            <%= search_field_tag :q, @q, placeholder: "Search public channels by name",
+            <%= search_field_tag :q, @q, placeholder: "Search channels",
                   class: "queue-search-input", autocomplete: "off",
-                  aria: { label: "Search public channels by name" } %>
+                  aria: { label: "Search channels" } %>
           <% end %>
 
           <% @filter.conditions.each_with_index do |condition, i| %>
@@ -132,11 +132,11 @@
               <%= render "shared/date_range", url: channels_path,
                     start_on: @window.start_date, end_on: @window.end_date,
                     min: @window.floor, max: @window.ceiling,
-                    carry: { q: @q.presence, sort: @sort, direction: @direction }.compact,
+                    hidden_params: { q: @q.presence, sort: @sort, direction: @direction }.compact,
                     presets: @window.choices.map { |days| {
-                      label: days == @window.pulled_days ? "All measured" : "Last #{days} days",
+                      label: days == @window.loaded_days ? "All measured" : "Last #{days} days",
                       current: !@window.custom? && days == @window.days,
-                      href: channel_query(days: (days unless days == @window.pulled_days),
+                      href: channel_query(days: (days unless days == @window.loaded_days),
                                           start: nil, end: nil) } } %>
             <% end %>
           </div>

@@ -29,7 +29,7 @@ TOKEN = "xoxb-secret"
     (b"\x00\x00\x00\x20ftypavif" + b"\x00" * 8, None),
     (b"", None),
 ])
-def test_media_type_reads_the_bytes(head, mimetype):
+def test_media_type_header_bytes_return_detected_mimetype(head, mimetype):
     assert blobs.media_type(head) == mimetype
 
 
@@ -37,7 +37,7 @@ def test_media_type_reads_the_bytes(head, mimetype):
     ("image/png", True), ("IMAGE/JPEG; charset=binary", True), ("video/mp4", True),
     ("image/svg+xml", False), ("text/html", False), ("application/pdf", False), (None, False),
 ])
-def test_is_media_type_allows_only_images_and_videos(declared, allowed):
+def test_is_media_type_declared_type_allows_images_and_videos_only(declared, allowed):
     assert blobs.is_media_type(declared) is allowed
 
 
@@ -47,35 +47,35 @@ def redirect(from_url, to_url):
     return handler.redirect_request(request, io.BytesIO(), 302, "Found", {}, to_url)
 
 
-def test_redirect_outside_slack_is_refused():
+def test_redirect_outside_slack_raises_http_error():
     with pytest.raises(urllib.error.HTTPError, match="outside Slack"):
         redirect("https://files.slack.com/files-pri/T1-F1/a.png", "https://evil.example/steal")
 
 
-def test_redirect_to_http_is_refused():
+def test_redirect_to_http_raises_http_error():
     with pytest.raises(urllib.error.HTTPError):
         redirect("https://files.slack.com/files-pri/T1-F1/a.png", "http://files.slack.com/a.png")
 
 
-def test_redirect_to_another_slack_host_drops_the_token():
+def test_redirect_to_other_slack_host_drops_authorization():
     redirected = redirect("https://files.slack.com/files-pri/T1-F1/a.png", "https://files.slack-edge.com/a.png")
 
     assert redirected.get_header("Authorization") is None
 
 
-def test_redirect_on_the_same_host_keeps_the_token():
+def test_redirect_same_host_preserves_authorization():
     redirected = redirect("https://files.slack.com/files-pri/T1-F1/a.png", "https://files.slack.com/files-pri/T1-F1/b.png")
 
     assert redirected.get_header("Authorization") == f"Bearer {TOKEN}"
 
 
-def test_redirect_limit_is_small():
+def test_slack_only_redirect_max_redirections_is_three():
     assert slack_files.SlackOnlyRedirect.max_redirections == 3
 
 
 @pytest.mark.parametrize("url", ["https://evil.example/a.png", "http://files.slack.com/a.png",
                                  "https://files.slack.com.evil.example/a.png", "file:///etc/passwd", None])
-def test_download_refuses_urls_outside_slack_without_a_request(monkeypatch, url):
+def test_download_non_slack_url_returns_refused_without_request(monkeypatch, url):
     monkeypatch.setattr(slack_files.OPENER, "open", lambda *args, **kwargs: pytest.fail("no request expected"))
 
     assert slack_files.download(url, TOKEN, 100) == (None, "refused", blobs.NOT_SLACK_URL)
@@ -103,13 +103,13 @@ class FakeResponse:
     (FakeResponse(PNG, length="999"), "too_large"),
     (FakeResponse(b"<html>login</html>", content_type="text/html"), "refused"),
 ])
-def test_download_reads_slack_files_within_the_limit(monkeypatch, response, state):
+def test_download_slack_response_returns_state_by_size_and_type(monkeypatch, response, state):
     monkeypatch.setattr(slack_files.OPENER, "open", lambda request, timeout: response)
 
     assert slack_files.download("https://files.slack.com/files-pri/T1-F1/a.png", TOKEN, 100)[1] == state
 
 
-def test_attachments_fetch_returns_nothing_unless_stored(monkeypatch):
+def test_attachments_fetch_refused_download_returns_none(monkeypatch):
     monkeypatch.setattr(attachments.slack_files, "download", lambda url, token, limit: (None, "refused", "html"))
 
     assert attachments.fetch("https://files.slack.com/a.png", TOKEN, 100) is None
@@ -132,7 +132,7 @@ def drain_calls(monkeypatch):
     return calls
 
 
-def test_drain_refuses_declared_non_media_without_downloading(drain_calls, monkeypatch):
+def test_drain_declared_non_media_marks_refused_without_download(drain_calls, monkeypatch):
     drain_calls["rows"].append((1, "F1", "https://files.slack.com/a.pdf", 10, "application/pdf"))
     monkeypatch.setattr(intake_files, "download", lambda *args: pytest.fail("no download expected"))
 
@@ -140,7 +140,7 @@ def test_drain_refuses_declared_non_media_without_downloading(drain_calls, monke
     assert drain_calls["failed"] == [(1, "refused", blobs.NOT_MEDIA)]
 
 
-def test_drain_stores_the_type_read_from_the_bytes(drain_calls, monkeypatch):
+def test_drain_stores_mimetype_detected_from_bytes(drain_calls, monkeypatch):
     drain_calls["rows"] += [(1, "F1", "https://files.slack.com/a.jpg", 10, "image/jpeg"),
                             (2, "F2", "https://files.slack.com/b.png", 10, "image/png")]
     bodies = {"https://files.slack.com/a.jpg": PNG, "https://files.slack.com/b.png": b"<html></html>"}
@@ -158,11 +158,11 @@ def test_drain_stores_the_type_read_from_the_bytes(drain_calls, monkeypatch):
     ("refused", blobs.HTML_BODY, "Not sent: a&amp;b.mp4 (could not be downloaded). Send it again or send a link."),
     ("failed", "timeout", "Not sent: a&amp;b.mp4 (could not be downloaded). Send it again or send a link."),
 ])
-def test_notice_text_names_the_reason(state, error, text):
+def test_notice_text_state_and_error_return_message(state, error, text):
     assert file_notices.notice_text(state, error, "a&b.mp4") == text
 
 
-def test_file_label_falls_back_to_file():
+def test_file_label_none_returns_file():
     assert reply.file_label(None) == "file"
 
 
@@ -213,7 +213,7 @@ def notice_setup(monkeypatch, claimed):
     return conn, recorded
 
 
-def test_post_notices_tells_the_reporter_once_per_claimed_file(monkeypatch):
+def test_post_notices_claimed_file_posts_one_notice_and_records_outbound(monkeypatch):
     conn, recorded = notice_setup(monkeypatch, claimed={1})
     client = NoticeSlack()
 
@@ -222,7 +222,7 @@ def test_post_notices_tells_the_reporter_once_per_claimed_file(monkeypatch):
     assert recorded == [(file_notices.SUBTYPE, "outbound")]
 
 
-def test_post_notices_releases_the_claim_when_slack_fails(monkeypatch):
+def test_post_notices_slack_failure_releases_claims(monkeypatch):
     conn, recorded = notice_setup(monkeypatch, claimed={1, 2})
 
     assert file_notices.post_notices(NoticeSlack(failing=True)) == 0
@@ -230,8 +230,8 @@ def test_post_notices_releases_the_claim_when_slack_fails(monkeypatch):
     assert recorded == []
 
 
-def test_dropped_files_query_skips_closed_and_unsent_conversations():
-    sql = file_notices.DROPPED_FILES
+def test_unnotified_files_filters_open_conversations_and_unnotified_inbound():
+    sql = file_notices.UNNOTIFIED_FILES
     assert "c.handed_off_at IS NOT NULL AND c.closed_at IS NULL" in sql
     assert "f.reporter_notified_at IS NULL" in sql
     assert "m.direction = 'inbound'" in sql

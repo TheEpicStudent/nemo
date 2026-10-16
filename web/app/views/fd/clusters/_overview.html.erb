@@ -14,7 +14,6 @@
       <%= person_label(conflict.a_user_id) %> and <%= person_label(conflict.b_user_id) %> marked
       <%= Fd::LinkVerdict::VERDICTS.fetch(conflict.verdict).downcase %> by <%= person_label(conflict.decided_by) %>
       (<%= time_ago(conflict.decided_at) %>)<%= " · link #{number_with_precision(conflict.score, precision: 1)}" if conflict.score %>
-      · other links still hold them in one cluster
       <% if cluster.conflicts.size > 1 %> · <%= pluralize(cluster.conflicts.size - 1, "more conflict") %><% end %>
     </div>
   </div>
@@ -58,7 +57,7 @@
     <div class="cluster-stat"><dt>First join</dt><dd class="cluster-stat-date"><%= cluster.first_join ? on_day(cluster.first_join) : "n/a" %></dd></div>
     <div class="cluster-stat"><dt>Last join</dt><dd class="cluster-stat-date"><%= cluster.last_join ? time_ago(cluster.last_join) : "n/a" %></dd></div>
   </dl>
-  <% flags = cluster_flags(ring: cluster.ring?, conflict: cluster.conflict?, returns: returns.size, all_gone: cluster.active.empty?) %>
+  <% flags = cluster_flags(ring: cluster.ring?, conflict: cluster.conflict?, returns: returns.size, all_deactivated: cluster.active.empty?) %>
   <% if flags.present? %><div class="ccard-foot"><%= flags %></div><% end %>
 </section>
 

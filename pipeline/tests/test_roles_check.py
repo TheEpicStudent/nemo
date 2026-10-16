@@ -21,14 +21,14 @@ def named(results):
     return {assertion: (status, observed) for assertion, status, observed, _ in results}
 
 
-def test_three_roles_read_as_the_separated_mode():
+def test_deployment_mode_declared_with_expected_roles_reports_separated_mode():
     results = named(check(conn) for check in roles.CHECKS for conn in [Cluster(roles.EXPECTED_ROLES)])
     status, observed = results["the deployment mode is declared"]
     assert status == "pass"
     assert roles.SEPARATED_MODE in observed
 
 
-def test_a_shared_login_is_a_known_mode_not_a_failure():
+def test_deployment_mode_declared_without_roles_passes_with_shared_mode():
     conn = Cluster([])
     assertion, status, observed, _ = roles.deployment_mode_declared(conn)
     assert (assertion, status) == ("the deployment mode is declared", "pass")
@@ -36,20 +36,20 @@ def test_a_shared_login_is_a_known_mode_not_a_failure():
     assert "capability checks" in observed
 
 
-def test_the_separation_checks_are_skipped_when_the_login_is_shared():
+def test_separation_checks_with_shared_login_are_skipped():
     for check in roles.CHECKS[1:]:
         assertion, status, observed, _ = check(Cluster(["rails_app"]))
         assert status == "skipped", assertion
         assert roles.SHARED_MODE in observed
 
 
-def test_the_separation_checks_still_bite_when_the_roles_exist():
+def test_separation_checks_with_roles_present_and_nonzero_counts_fail():
     for check in roles.CHECKS[1:]:
         assertion, status, _, _ = check(Cluster(roles.EXPECTED_ROLES, counts=3))
         assert status == "fail", assertion
 
 
-def test_a_skipped_check_is_not_an_error():
+def test_severity_of_skipped_and_pass_is_info_and_fail_is_error():
     assert roles.severity_of("skipped") == "info"
     assert roles.severity_of("pass") == "info"
     assert roles.severity_of("fail") == "error"

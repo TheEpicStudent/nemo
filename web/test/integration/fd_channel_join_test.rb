@@ -2,18 +2,18 @@ require "test_helper"
 
 class FdChannelJoinTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
     @channel = Analytics::DimChannel.where(archived: false).where("channel_id LIKE 'C%'")
       .order(:channel_id).first
     skip "the corpus has no public channel" if @channel.nil?
     @id = @channel.channel_id
-    seat_nemo!(false)
+    join_nemo!(false)
   end
 
   def connection = ActiveRecord::Base.connection
 
-  def seat_nemo!(inside)
+  def join_nemo!(inside)
     connection.execute(
       "INSERT INTO fd.channel_membership (channel_id, inside) " \
       "VALUES (#{connection.quote(@id)}, #{inside}) " \
@@ -28,33 +28,33 @@ class FdChannelJoinTest < ActionDispatch::IntegrationTest
     )
   end
 
-  def nemo_answers(state, error = nil)
+  def wait_for_stub(state, error = nil)
     test = self
     lambda do |join_request, **|
       join_request.update!(state: state, error: error, finished_at: Time.current) unless
         state == Fd::ChannelJoinRequest::QUEUED
-      test.seat_nemo!(true) if state == Fd::ChannelJoinRequest::JOINED
+      test.join_nemo!(true) if state == Fd::ChannelJoinRequest::JOINED
       join_request.reload
     end
   end
 
   def join_with(state, error = nil)
     original_wait = Fd::ChannelJoinRequest.method(:wait_for)
-    Fd::ChannelJoinRequest.define_singleton_method(:wait_for, &nemo_answers(state, error))
+    Fd::ChannelJoinRequest.define_singleton_method(:wait_for, &wait_for_stub(state, error))
     post fd_channel_join_path(@id), params: { tab: "readonly" }
   ensure
     Fd::ChannelJoinRequest.define_singleton_method(:wait_for, original_wait)
   end
 
-  test "a public channel nemo is not in offers to join" do
+  test "channel page with nemo not joined shows warning and join button" do
     get fd_channel_path(@id)
 
     assert_select "p.sev-crit", "Nemo is not a member of this channel"
     assert_select "form[action=?] button", fd_channel_join_path(@id), text: "Join channel"
   end
 
-  test "a channel nemo is in shows neither the warning nor the button" do
-    seat_nemo!(true)
+  test "channel page with nemo joined shows no warning and no join button" do
+    join_nemo!(true)
 
     get fd_channel_path(@id)
 
@@ -62,7 +62,7 @@ class FdChannelJoinTest < ActionDispatch::IntegrationTest
     assert_select "form[action=?]", fd_channel_join_path(@id), count: 0
   end
 
-  test "a private channel that needs an invite offers no join button" do
+  test "channel page with needs invite refusal shows invite note and no join button" do
     record_join!("refused", FdChannelsHelper::NEEDS_INVITE)
 
     get fd_channel_path(@id)
@@ -71,7 +71,7 @@ class FdChannelJoinTest < ActionDispatch::IntegrationTest
     assert_select "form[action=?]", fd_channel_join_path(@id), count: 0
   end
 
-  test "joining queues a request and the warning goes once nemo is in" do
+  test "join creates a request and removes the warning once nemo has joined" do
     join_with(Fd::ChannelJoinRequest::JOINED)
 
     assert_redirected_to fd_channel_path(@id, tab: "readonly")
@@ -85,39 +85,39 @@ class FdChannelJoinTest < ActionDispatch::IntegrationTest
     assert_select "form[action=?]", fd_channel_join_path(@id), count: 0
   end
 
-  test "a refused join shows nemo's reason" do
+  test "join refused by nemo sets alert with the reason" do
     join_with(Fd::ChannelJoinRequest::REFUSED, "is_archived")
 
     assert_equal "Join failed: is_archived", flash[:alert]
   end
 
-  test "a join refused for a private channel asks for an invite" do
+  test "join refused with needs invite sets the invite note alert" do
     join_with(Fd::ChannelJoinRequest::REFUSED, FdChannelsHelper::NEEDS_INVITE)
 
     assert_equal FdChannelsHelper::INVITE_NOTE, flash[:alert]
   end
 
-  test "a join nemo has not answered yet says so" do
+  test "join with a queued request sets the pending notice" do
     join_with(Fd::ChannelJoinRequest::QUEUED)
 
-    assert_equal "Nemo has not joined yet, reload in a moment", flash[:notice]
+    assert_equal "Join pending", flash[:notice]
   end
 
-  test "a second click while a request waits reuses it" do
+  test "join twice while queued keeps one queued request" do
     join_with(Fd::ChannelJoinRequest::QUEUED)
     join_with(Fd::ChannelJoinRequest::QUEUED)
 
     assert_equal 1, Fd::ChannelJoinRequest.queued.where(channel_id: @id).count
   end
 
-  test "a legacy private channel id is refused before asking nemo" do
+  test "join with a private channel id sets alert and creates no request" do
     post fd_channel_join_path("G01PRIVATE")
 
-    assert_equal "Nemo can only join a public channel by itself", flash[:alert]
+    assert_equal "Public channel required", flash[:alert]
     assert_equal 0, Fd::ChannelJoinRequest.count
   end
 
-  test "somebody without channel.guard cannot ask nemo to join" do
+  test "join without channel.guard creates no request" do
     delete logout_path
     sign_in_as(Account.create!(user_id: "UNOBODY"))
 

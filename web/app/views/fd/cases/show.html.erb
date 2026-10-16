@@ -1,10 +1,10 @@
-<% content_for :page_title, violations_label(@case.violations, short: true) || "No violation set" %>
+<% content_for :page_title, violations_label(@case.violations, short: true) || "No category" %>
 <% content_for :page_face do %>
   <span class="triad-id">#<%= @case.id %></span>
 <% end %>
 <% content_for :head_context do %>
   <span class="triad-sep" aria-hidden="true">&middot;</span>
-  <span class="queue-age <%= age_ink(case_age_seconds(@case)) unless @case.resolved? %>">
+  <span class="queue-age <%= age_class(case_age_seconds(@case)) unless @case.resolved? %>">
     <%= @case.resolved? ? "closed" : case_age_label(case_age_seconds(@case)) %>
   </span>
   <% if @case.subject_user_ids.any? %>
@@ -17,7 +17,7 @@
 <% content_for :pane do %>
   <%= render "pane", cases: @pane_cases, views: @pane_views, query: @pane_query,
         priors_by_user: @pane_priors, violations: @pane_violations, open_id: @case.id,
-        reachable: @pane_reachable %>
+        reachable: @pane_reachable_report_ids %>
 <% end %>
 
 <% content_for :head_actions do %>
@@ -29,7 +29,7 @@
     <%= gated_button "case.reopen", case_action_button("history", "Reopen"),
           fd_case_resolution_path(@case), on: @case,
           method: :delete, form: { class: "contents", data: { turbo_confirm:
-            "Reopen case #{@case.id}? It goes back in the queue." } } %>
+            "Reopen case #{@case.id}?" } } %>
   <% else %>
     <% unless @case.assigned_to?(current_account.user_id) %>
       <%= gated_button "case.open", case_action_button("shield", "Claim", shortcut: "c"),
@@ -47,40 +47,39 @@
   <%= render layout: "shared/dropdown", locals: {
         label: "More actions", trigger: menu_dots } do %>
       <% unless @case.resolved? %>
-        <%= opens_modal "case.people", menu_item("category", "Set the violation"),
+        <%= opens_modal "case.people", menu_item("category", "Set category"),
               opens: "set-category", on: @case %>
-        <p class="menu-group">Who holds it</p>
+        <p class="menu-group">Assignees</p>
         <% if @case.assigned_to?(current_account.user_id) %>
-          <%= gated_button "case.open", menu_item("hand", "Put it back in the queue"),
+          <%= gated_button "case.open", menu_item("hand", "Unclaim"),
                 fd_case_claim_path(@case), on: @case, method: :delete %>
         <% elsif @case.assigned? %>
-          <%= gated_button "case.open", menu_item("join", "Put myself on it too"),
+          <%= gated_button "case.open", menu_item("join", "Assign me"),
                 fd_case_claim_path(@case), on: @case, method: :post %>
         <% end %>
         <% @case.assignees.oldest_first.each do |row| %>
           <% next if row.user_id == current_account.user_id %>
-          <%= gated_button "case.open", menu_item("hand", "Take @#{row.user_id} off it"),
+          <%= gated_button "case.open", menu_item("hand", "Unassign @#{row.user_id}"),
                 fd_case_assignee_path(@case, row.user_id), on: @case, method: :delete,
                 form: { class: "contents", data: { turbo_confirm:
-                  "Take @#{row.user_id} off case #{@case.id}?" } } %>
+                  "Unassign @#{row.user_id} from case #{@case.id}?" } } %>
         <% end %>
-        <%= opens_modal "case.open", menu_item("join", "Assign somebody"),
+        <%= opens_modal "case.open", menu_item("join", "Assign member"),
               opens: "assign-case", on: @case %>
 
-        <p class="menu-group">Closes this case</p>
+        <p class="menu-group">Close</p>
         <%= opens_modal "case.resolve", menu_item("merge", "Merge into another case"),
               opens: "merge-case", on: @case %>
         <% unless @case.assigned? %>
-          <%= opens_modal "case.resolve", menu_item("resolve", "Resolve without claiming",
-                note: "Closes it under your name without putting you on it"),
+          <%= opens_modal "case.resolve", menu_item("resolve", "Resolve without claiming"),
                 opens: "resolve-case", on: @case %>
         <% end %>
       <% end %>
       <% if @case.resolved? %>
-        <%= gated_button "case.reopen", menu_item("hand", "Reopen this case"),
+        <%= gated_button "case.reopen", menu_item("hand", "Reopen"),
               fd_case_resolution_path(@case), on: @case, method: :delete,
               form: { class: "contents", data: { turbo_confirm:
-                "Reopen case #{@case.id}? It goes back in the queue." } } %>
+                "Reopen case #{@case.id}?" } } %>
       <% end %>
   <% end %>
 <% end %>
@@ -115,16 +114,15 @@
 
   <% if @case.duplicate_of %>
     <div class="warnbar">
-      <span>Closed as a duplicate of
-        <%= link_to "case #{@case.duplicate_of}", fd_case_path(@case.duplicate_of), class: "lnk" %>,
-        which carries everything from here.</span>
+      <span>Duplicate of
+        <%= link_to "case #{@case.duplicate_of}", fd_case_path(@case.duplicate_of), class: "lnk" %></span>
     </div>
   <% end %>
 
   <div class="<%= @tab == "report" ? "card report-solo" : "case-tab-body" %>">
     <% if @tab == "report" %>
       <%= render "chat", kase: @case, reports: @reports, chat: @chat, earlier: @earlier_chat,
-            messages: @conversation_messages, queued: @queued, thread: @thread,
+            messages: @conversation_messages, queued: @queued_replies, thread: @thread,
             conversation: @thread_conversation, message_count: @conversation_count %>
     <% end %>
 
@@ -150,7 +148,7 @@
           <span class="empty-mark">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M20 14a8 8 0 1 0-16 0"/><path d="m15 10-3.4 3.4"/></svg>
           </span>
-          <p class="empty-title">No action taken yet</p>
+          <p class="empty-title">No actions</p>
           <div class="empty-do">
             <%= opens_modal "case.act", "Log an action", opens: "log-action", on: @case,
                   css: "btn btn-primary" %>
@@ -163,7 +161,7 @@
       <div class="section-head">
         <h2 class="section-title">Notes</h2>
         <div class="section-tools">
-          <%= opens_modal "case.note", "Add a note", opens: "add-note" %>
+          <%= opens_modal "case.note", "Add note", opens: "add-note" %>
         </div>
       </div>
       <% if @notes.any? %>
@@ -187,9 +185,9 @@
           <span class="empty-mark">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14v12H8l-3 3z"/></svg>
           </span>
-          <p class="empty-title">No notes yet</p>
+          <p class="empty-title">No notes</p>
           <div class="empty-do">
-            <%= opens_modal "case.note", "Add a note", opens: "add-note", css: "btn btn-primary" %>
+            <%= opens_modal "case.note", "Add note", opens: "add-note", css: "btn btn-primary" %>
           </div>
         </div>
       <% end %>
@@ -225,7 +223,7 @@
         </p>
       <% else %>
         <div class="empty">
-          <p class="empty-title">Nothing recorded yet</p>
+          <p class="empty-title">No events</p>
         </div>
       <% end %>
     <% end %>
@@ -260,13 +258,13 @@
 
 <% @live_actions.each do |action| %>
   <%= render layout: "fd/modal", locals: { id: "reverse-#{action.id}",
-        title: "Reverse this action", sub: action_option_label(action),
+        title: "Reverse action", sub: action_option_label(action),
         open: params[:do] == "reverse-#{action.id}" } do %>
     <%= form_with url: fd_case_reversals_path(@case), method: :post, html: { autocomplete: "off" } do %>
       <%= hidden_field_tag :action_id, action.id, id: nil %>
       <div class="modal-body">
         <label class="field-label">
-          Why
+          Reason
           <%= text_area_tag :reversal_reason, submitted_value(:reversal_reason), rows: 3,
                 class: "textarea", id: nil,
                 maxlength: Fd::ReversalsController::MAX_REASON %>
@@ -274,9 +272,8 @@
         <%= field_wrong(:reversal_reason) %>
       </div>
       <div class="modal-foot">
-        <p class="modal-note">It stops standing. The record keeps both it and the reversal.</p>
         <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
-        <%= submit_tag "Reverse it", class: "btn btn-primary" %>
+        <%= submit_tag "Reverse", class: "btn btn-primary" %>
       </div>
     <% end %>
   <% end %>
@@ -298,20 +295,20 @@
     </div>
     <div class="modal-foot">
       <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
-      <%= submit_tag "Log it", class: "btn btn-primary" %>
+      <%= submit_tag "Log", class: "btn btn-primary" %>
     </div>
   <% end %>
   </div>
 <% end %>
 
 <%= render layout: "fd/modal", locals: { id: "set-category",
-      title: "Set the violation",
+      title: "Set category",
       sub: "case #{@case.id}",
       open: params[:do] == "category" } do %>
   <%= form_with url: fd_case_path(@case), method: :patch, html: { autocomplete: "off" } do %>
     <div class="modal-body">
       <div class="field-label">
-        <span>What kind of thing it is</span>
+        <span>Category</span>
         <%= render "shared/choice", name: :category_key,
               chosen: category_label(Fd::InfractionCategory.active_keys.first),
               options: Fd::InfractionCategory.active_keys.each_with_index.map { |key, i| {
@@ -321,7 +318,7 @@
     </div>
     <div class="modal-foot">
       <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
-      <%= submit_tag "Set it", class: "btn btn-primary" %>
+      <%= submit_tag "Save", class: "btn btn-primary" %>
     </div>
   <% end %>
 <% end %>
@@ -334,12 +331,12 @@
         search_url: fd_member_search_path(case_id: @case.id) %>
 <% end %>
 
-<%= render layout: "fd/modal", locals: { id: "add-note", title: "Add a note",
+<%= render layout: "fd/modal", locals: { id: "add-note", title: "Add note",
       open: params[:do] == "note" } do %>
   <%= form_with url: fd_case_notes_path(@case), method: :post, html: { autocomplete: "off" } do %>
     <div class="modal-body">
       <div class="field-label">
-        <span>What it is about</span>
+        <span>About</span>
         <div class="segmented">
           <label>
             <%= radio_button_tag :about, "case", true, id: nil %>
@@ -354,35 +351,35 @@
         </div>
       </div>
       <label class="field-label">
-        The note
+        Note
         <%= render "fd/mention_field", name: :body, value: submitted_value(:body), rows: 4,
               url: fd_member_search_path(case_id: @case.id),
-              placeholder: "type @ to name somebody" %>
+              placeholder: nil %>
       </label>
       <%= field_wrong(:body) %>
     </div>
     <div class="modal-foot">
       <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
-      <%= submit_tag "Save the note", class: "btn btn-primary" %>
+      <%= submit_tag "Save", class: "btn btn-primary" %>
     </div>
   <% end %>
 <% end %>
 
 <% unless @case.resolved? %>
 <%= render layout: "fd/modal", locals: { id: "resolve-case",
-      title: "Resolve case #{@case.id}", label: "Resolve this case",
+      title: "Resolve case #{@case.id}", label: "Resolve case",
       open: params[:do] == "resolve",
-      sub: @case.assigned? ? safe_join(["Assigned to ", to_sentence(@case.assignee_user_ids.map { |id| person_name(id) })]) : "Not assigned to anybody" } do %>
+      sub: @case.assigned? ? safe_join(["Assigned to ", to_sentence(@case.assignee_user_ids.map { |id| person_name(id) })]) : "Unassigned" } do %>
       <%= form_with url: fd_case_resolution_path(@case), method: :post, html: { autocomplete: "off" } do %>
         <div class="modal-body">
           <% if @live_actions.any? %>
             <div class="field-label">
-              <span>Why it is closing</span>
-              <div class="quote-block"><%= closing_because(@live_actions) %></div>
+              <span>Reason</span>
+              <div class="quote-block"><%= closing_reason(@live_actions) %></div>
             </div>
           <% else %>
             <label class="field-label">
-              Why it is closing
+              Reason
               <%= select_tag :close_reason,
                     options_for_select(close_reason_options), class: "select" %>
             </label>
@@ -401,7 +398,7 @@
               </span>
             </label>
             <label class="field-label only only-notifying">
-              What they are told
+              Message to reporter
               <%= text_area_tag :member_message, Fd::Resolution::DEFAULT_MESSAGE, rows: 3,
                     class: "textarea", maxlength: Fd::IntakeOutbox::MAX_LENGTH %>
             </label>

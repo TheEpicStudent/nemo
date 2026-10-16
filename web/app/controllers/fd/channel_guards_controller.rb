@@ -52,7 +52,7 @@ module Fd
 
       return redirect_to(return_path, notice: "Slow mode disabled") if slowmode?
 
-      redirect_to return_path, notice: "#{guard_label_text.upcase_first} turned off; the list is kept"
+      redirect_to return_path, notice: "#{guard_label_text.upcase_first} turned off"
     end
 
     private
@@ -116,7 +116,7 @@ module Fd
 
     def turned_on_notice(restored_count)
       notice = "#{guard_label_text.upcase_first} turned on"
-      restored_count.positive? ? "#{notice}, #{restored_count} kept on the list" : notice
+      restored_count.positive? ? "#{notice} · #{restored_count} allowed restored" : notice
     end
 
     def guard_label_text
@@ -156,27 +156,27 @@ module Fd
 
     def seconds
       value = params[:seconds].to_s.strip
-      value.present? ? value.to_i : ChannelGuard::SECONDS_TO_START
+      value.present? ? value.to_i : ChannelGuard::DEFAULT_SLOWMODE_SECONDS
     end
 
     def min_age_days
       value = params[:min_age_days].to_s.strip
-      value.present? ? value.to_i : ChannelGuard::DAYS_TO_START
+      value.present? ? value.to_i : ChannelGuard::DEFAULT_ACCOUNT_AGE_DAYS
     end
 
     def settings_error
       case kind
       when ChannelGuard::SLOWMODE
-        if params[:seconds].to_s.strip.present? && !seconds.between?(1, ChannelGuard::SLOWEST)
-          return "Enter 1 to #{ChannelGuard::SLOWEST} seconds"
+        if params[:seconds].to_s.strip.present? && !seconds.between?(1, ChannelGuard::MAX_SLOWMODE_SECONDS)
+          return "Enter 1 to #{ChannelGuard::MAX_SLOWMODE_SECONDS} seconds"
         end
         error = starting_end.last
         return error if error
         return "Enter a reason" if params[:reason].to_s.strip.blank?
       when ChannelGuard::ACCOUNT_AGE
         return nil if params[:min_age_days].to_s.strip.blank?
-        return "say how many days, from 1 to #{ChannelGuard::OLDEST}" unless
-          min_age_days.between?(1, ChannelGuard::OLDEST)
+        return "Enter 1 to #{ChannelGuard::MAX_ACCOUNT_AGE_DAYS} days" unless
+          min_age_days.between?(1, ChannelGuard::MAX_ACCOUNT_AGE_DAYS)
       end
 
       nil

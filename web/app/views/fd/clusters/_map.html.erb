@@ -16,7 +16,7 @@
     <svg viewBox="0 0 <%= layout.width %> <%= layout.height %>" role="img"
          class="<%= "is-crowded" if node < Fd::ClusterLayout::NODE_RADII.first.last %> <%= "is-packed" if layout.packed? %>"
          style="max-width: <%= layout.width %>px"
-         aria-label="Accounts in this cluster and the links between them">
+         aria-label="Link graph">
       <% cluster.edges.each do |edge| %>
         <% a, b = points[edge.a_user_id], points[edge.b_user_id] %>
         <% next if a.nil? || b.nil? %>

@@ -1,6 +1,6 @@
 class HomeController < ApplicationController
   before_action :fire_engine_first, only: :index
-  before_action { needs(:analytics) }
+  before_action { require_flag(:analytics) }
 
   OPEN_LIMIT = 25
 

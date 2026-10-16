@@ -79,8 +79,8 @@
         <%= render "fd/custom_end" %>
         <label class="field-label">
           Cooldown (seconds)
-          <%= number_field_tag :seconds, Fd::ChannelGuard::SECONDS_TO_START, class: "input", id: nil,
-                min: 1, max: Fd::ChannelGuard::SLOWEST, required: true %>
+          <%= number_field_tag :seconds, Fd::ChannelGuard::DEFAULT_SLOWMODE_SECONDS, class: "input", id: nil,
+                min: 1, max: Fd::ChannelGuard::MAX_SLOWMODE_SECONDS, required: true %>
         </label>
         <label class="tickline">
           <%= check_box_tag :threads, "1", false, class: "tick", id: nil %>

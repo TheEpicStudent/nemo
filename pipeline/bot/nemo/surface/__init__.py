@@ -193,7 +193,7 @@ def declared():
     return ENTRIES
 
 
-def fanned(entries):
+def run_entries(entries):
     runners = [(one, guarded(one)) for one in entries]
 
     def run(ack=None, body=None, client=None, payload=None):
@@ -220,7 +220,7 @@ def register(app):
         grouped.setdefault((entry.kind, entry.key), []).append(entry)
 
     for (kind, key), entries in grouped.items():
-        hooks[kind](key)(fanned(entries))
+        hooks[kind](key)(run_entries(entries))
 
     log.info("nemo: %d Slack surface(s) on %d listener(s)", len(ENTRIES), len(grouped))
     return ENTRIES

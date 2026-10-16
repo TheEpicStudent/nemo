@@ -4,7 +4,7 @@ import psycopg
 
 from lib import sources
 
-TUNED_SQL = "SELECT source, name, value FROM app.engine_setting"
+ENGINE_SETTINGS_SQL = "SELECT source, name, value FROM app.engine_setting"
 
 LAST_OK_SQL = """
 SELECT max(finished_at)
@@ -26,11 +26,11 @@ UNREADABLE = object()
 _warned = False
 
 
-def tuned(conn):
+def read_settings(conn):
     global _warned
     try:
         with conn.cursor() as cur:
-            cur.execute(TUNED_SQL)
+            cur.execute(ENGINE_SETTINGS_SQL)
             return {(source, name): val for source, name, val in cur.fetchall()}
     except psycopg.Error as exc:
         conn.rollback()
@@ -42,10 +42,10 @@ def tuned(conn):
 
 
 def value(conn, source, name, fallback):
-    tuned_values = tuned(conn)
-    if tuned_values is UNREADABLE:
+    engine_settings = read_settings(conn)
+    if engine_settings is UNREADABLE:
         return fallback
-    return tuned_values.get((source, name), fallback)
+    return engine_settings.get((source, name), fallback)
 
 
 def cadence(conn, key):

@@ -16,11 +16,11 @@
   <div class="srow">
     <div class="stat-key">
       <i class="dot <%= nightly.last == "run" ? "run" : (nightly.last(2).include?("ok") ? "live" : "stale") %>"></i>
-      <b>The nightly</b>
+      <b>Nightly</b>
     </div>
-    <div class="cells" role="group" aria-label="the nightly, the last <%= nights.size %> nights">
+    <div class="cells" role="group" aria-label="Nightly, last <%= nights.size %> nights">
       <% nightly.each_with_index do |cell, i| %>
-        <i class="<%= cell %>" tabindex="0" role="img" data-tip="<%= night_tip("The nightly", nights[i], cell) %>"
+        <i class="<%= cell %>" tabindex="0" role="img" data-tip="<%= night_tip("Nightly", nights[i], cell) %>"
            aria-label="<%= nights[i].strftime("%-d %b") %>, <%= labels[cell] %>"></i>
       <% end %>
     </div>
@@ -36,7 +36,7 @@
       <i class="dot <%= state %>"></i>
       <b><%= source.key %></b>
     </div>
-    <div class="cells" role="group" aria-label="<%= source.key %>, the last <%= nights.size %> nights">
+    <div class="cells" role="group" aria-label="<%= source.key %>, last <%= nights.size %> nights">
       <% cells.each_with_index do |cell, i| %>
         <i class="<%= cell %>" tabindex="0" role="img" data-tip="<%= night_tip(source.key, nights[i], cell) %>"
            aria-label="<%= nights[i].strftime("%-d %b") %>, <%= labels[cell] %>"></i>
@@ -50,12 +50,12 @@
 
 <div class="key">
   <span><i class="lg-ran"></i>ran</span>
-  <span><i class="lg-part"></i>ran, some of it failed</span>
-  <span><i class="lg-skip"></i>guard skipped it, nothing to do</span>
+  <span><i class="lg-part"></i>partial</span>
+  <span><i class="lg-skip"></i>skipped</span>
   <span><i class="lg-stop"></i>cancelled</span>
   <span><i class="lg-gone"></i>abandoned</span>
   <span><i class="lg-fail"></i>failed</span>
-  <span><i class="lg-none"></i>the job did not run</span>
-  <span><i class="lg-wait"></i>not started yet</span>
+  <span><i class="lg-none"></i>not run</span>
+  <span><i class="lg-wait"></i>not started</span>
   <span><i class="lg-run"></i>running</span>
 </div>

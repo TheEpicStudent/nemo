@@ -10,7 +10,7 @@
     <%= button_to(@orphaned ? "Release" : "Cancel", engine_cancel_path,
           class: "btn", form: { class: "contents" }) %>
   <% else %>
-    <%= button_to "Run the nightly now", engine_sync_path,
+    <%= button_to "Run nightly", engine_sync_path,
           class: "btn btn-primary", form: { class: "contents" } %>
   <% end %>
 <% end %>
@@ -36,7 +36,7 @@
       <span class="metric-value <%= @orphaned ? "crit" : run_status_color(@run) %>"><%= @run.nil? ? "No run" : (@orphaned ? "Stuck" : @run.status.to_s.upcase_first) %></span>
       <span class="metric-note">
         <% if @run.nil? %>
-          <span>Nothing recorded yet</span>
+          <span>No data</span>
         <% elsif @orphaned %>
           <%= worker_chip(@worker) %>
         <% else %>
@@ -47,7 +47,7 @@
     </div>
 
     <div class="metric">
-      <span class="metric-key">How far</span>
+      <span class="metric-key">Progress</span>
       <span class="metric-value">
         <% if @progress %>
           <%= @progress.step_index %><% if @progress.step_total %><small>of <%= @progress.step_total %></small><% end %>
@@ -56,25 +56,25 @@
         <% end %>
       </span>
       <span class="metric-note">
-        <span><%= @run&.running? ? "Running now" : (@run ? "Finished" : "Waiting on the first run") %></span>
+        <span><%= @run&.running? ? "Running now" : (@run ? "Finished" : "No run") %></span>
       </span>
     </div>
 
     <div class="metric">
-      <span class="metric-key">Running</span>
+      <span class="metric-key">Duration</span>
       <span class="metric-value">
         <%= @run ? run_duration(@run) : "n/a" %><% if @run&.running? %><small>so far</small><% end %>
       </span>
       <span class="metric-note">
-        <span><%= @run ? "Started #{@run.started_at.strftime("%-d %b, %H:%M")}" : "No run yet" %></span>
+        <span><%= @run ? "Started #{@run.started_at.strftime("%-d %b, %H:%M")}" : "No run" %></span>
       </span>
     </div>
 
     <div class="metric">
-      <span class="metric-key">Missed, last <%= EngineController::NIGHTS %></span>
+      <span class="metric-key">Missed, last <%= EngineController::NIGHT_COUNT %></span>
       <span class="metric-value"><%= missed_nights %></span>
       <span class="metric-note">
-        <span><%= missed_nights.zero? ? "Ran every night" : "#{"Night".pluralize(missed_nights)} it never ran" %></span>
+        <span><%= missed_nights.zero? ? "None" : "#{"Night".pluralize(missed_nights)} not run" %></span>
       </span>
     </div>
   </div>
@@ -87,7 +87,7 @@
           <% if @run.running? && !@orphaned %>
             <%= image_tag "nemo.png", class: "sync-fish", alt: "", width: 800, height: 483 %>
           <% end %>
-          <%= link_to "Open the run", engine_run_path(@run.id), class: "btn btn-ghost" %>
+          <%= link_to "Open run", engine_run_path(@run.id), class: "btn btn-ghost" %>
         </div>
       <% end %>
     </div>
@@ -95,14 +95,14 @@
       <% if @steps.any? %>
         <%= render "stage_progress", steps: @steps %>
       <% else %>
-        <div class="empty"><p class="empty-title">No steps yet</p></div>
+        <div class="empty"><p class="empty-title">No steps</p></div>
       <% end %>
     </div>
   </div>
 
   <div class="section">
     <div class="section-head">
-      <h2 class="section-title">The last <%= EngineController::NIGHTS %> nights</h2>
+      <h2 class="section-title">Last <%= EngineController::NIGHT_COUNT %> nights</h2>
     </div>
     <div class="card card-flush">
       <%= render "nightly_heatmap", matrix: @matrix, nights: @nights, nightly: @nightly %>

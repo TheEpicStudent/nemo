@@ -35,19 +35,19 @@ ON CONFLICT (day, table_name) DO UPDATE SET
 GROWTH_SQL = """
 WITH history AS (
     SELECT table_name, day, bytes,
-           (bytes - lag(bytes) OVER held) / nullif(day - lag(day) OVER held, 0) AS grew
+           (bytes - lag(bytes) OVER per_table) / nullif(day - lag(day) OVER per_table, 0) AS grew
     FROM ingest.table_size
     WHERE day >= current_date - %(window)s - 1
-    WINDOW held AS (PARTITION BY table_name ORDER BY day)
+    WINDOW per_table AS (PARTITION BY table_name ORDER BY day)
 )
-SELECT today.table_name, today.bytes, today.grew,
-       percentile_cont(0.5) WITHIN GROUP (ORDER BY earlier.grew) AS median,
-       count(earlier.grew) AS days
-FROM history today
-LEFT JOIN history earlier
-       ON earlier.table_name = today.table_name AND earlier.day < today.day AND earlier.grew IS NOT NULL
-WHERE today.day = current_date
-GROUP BY today.table_name, today.bytes, today.grew
+SELECT latest.table_name, latest.bytes, latest.grew,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY prior_day.grew) AS median,
+       count(prior_day.grew) AS days
+FROM history latest
+LEFT JOIN history prior_day
+       ON prior_day.table_name = latest.table_name AND prior_day.day < latest.day AND prior_day.grew IS NOT NULL
+WHERE latest.day = current_date
+GROUP BY latest.table_name, latest.bytes, latest.grew
 """
 
 MARK_SQL = """

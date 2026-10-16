@@ -31,51 +31,51 @@ EVIDENCE = {
 
 PAIRS_SQL = """
 WITH ev AS ({evidence}),
-crowd AS (
-    SELECT value, count(DISTINCT user_id) AS people,
+value_user_count AS (
+    SELECT value, count(DISTINCT user_id) AS user_count,
            count(DISTINCT user_id) FILTER (WHERE user_id IN (SELECT user_id FROM banned_member)) AS banned
     FROM ev GROUP BY 1
 ),
 counted AS (
-    SELECT value, people, greatest(2, least(people, people - banned + 1)) AS counted
-    FROM crowd WHERE people >= 2
+    SELECT value, user_count, greatest(2, least(user_count, user_count - banned + 1)) AS counted
+    FROM value_user_count WHERE user_count >= 2
 ),
-keep AS (
-    SELECT value, people, counted, people > %(ceiling)s AS ring_only
-    FROM counted WHERE counted BETWEEN 2 AND %(ceiling)s {not_crowded_value}
+eligible AS (
+    SELECT value, user_count, counted, user_count > %(ceiling)s AS above_ceiling
+    FROM counted WHERE counted BETWEEN 2 AND %(ceiling)s {exclude_over_cap_value}
 ),
-small AS (
+candidate AS (
     SELECT e.user_id, e.value, e.first_seen, e.last_seen
-    FROM ev e JOIN keep k ON k.value = e.value
-){oldest}
+    FROM ev e JOIN eligible k ON k.value = e.value
+){oldest_account_cte}
 SELECT least(a.user_id, b.user_id) AS a_user_id,
        greatest(a.user_id, b.user_id) AS b_user_id,
        a.value,
-       k.people,
+       k.user_count,
        {score} AS score,
        least(a.first_seen, b.first_seen) AS first_seen,
        greatest(a.last_seen, b.last_seen) AS last_seen
-FROM small a
-JOIN small b ON b.value = a.value AND b.user_id > a.user_id
-JOIN keep k ON k.value = a.value
-           AND (NOT k.ring_only
+FROM candidate a
+JOIN candidate b ON b.value = a.value AND b.user_id > a.user_id
+JOIN eligible k ON k.value = a.value
+           AND (NOT k.above_ceiling
                 OR a.user_id IN (SELECT user_id FROM banned_member)
-                OR b.user_id IN (SELECT user_id FROM banned_member)){star}
+                OR b.user_id IN (SELECT user_id FROM banned_member)){oldest_account_filter}
 """
 
 RARITY_SCORE = "%(weight)s::numeric * rarity(%(whole)s::numeric, k.counted)"
 FLAT_SCORE = "%(weight)s::numeric"
 
-OLDEST_HOLDER = """,
-oldest AS (
+OLDEST_ACCOUNT_CTE = """,
+oldest_account AS (
     SELECT DISTINCT ON (s.value) s.value, s.user_id
-    FROM small s
+    FROM candidate s
     LEFT JOIN {joins} j ON j.user_id = s.user_id
     ORDER BY s.value, j.joined_at NULLS LAST, s.user_id
 )"""
 
-STAR_FILTER = """
-JOIN oldest o ON o.value = a.value
+OLDEST_ACCOUNT_FILTER = """
+JOIN oldest_account o ON o.value = a.value
 WHERE o.user_id IN (a.user_id, b.user_id)
    OR EXISTS (SELECT 1 FROM fd.member_link_verdict v
               WHERE v.a_user_id = least(a.user_id, b.user_id) AND v.b_user_id = greatest(a.user_id, b.user_id))"""
@@ -92,34 +92,34 @@ TOGETHER_EVIDENCE = """
 
 TOGETHER_SQL = """
 WITH ev AS (""" + TOGETHER_EVIDENCE + """),
-crowd AS (
-    SELECT bucket, count(DISTINCT user_id) AS people FROM ev GROUP BY 1
+bucket_user_count AS (
+    SELECT bucket, count(DISTINCT user_id) AS user_count FROM ev GROUP BY 1
 ),
-keep AS (
-    SELECT bucket, people FROM crowd WHERE people BETWEEN 2 AND %(ceiling)s
+eligible AS (
+    SELECT bucket, user_count FROM bucket_user_count WHERE user_count BETWEEN 2 AND %(ceiling)s
 ),
-small AS (
-    SELECT e.user_id, e.joined_at, e.bucket FROM ev e JOIN keep k ON k.bucket = e.bucket
+candidate AS (
+    SELECT e.user_id, e.joined_at, e.bucket FROM ev e JOIN eligible k ON k.bucket = e.bucket
 )
 SELECT least(a.user_id, b.user_id) AS a_user_id,
        greatest(a.user_id, b.user_id) AS b_user_id,
        to_char(least(a.joined_at, b.joined_at), 'YYYY-MM-DD HH24:MI') AS value,
-       k.people,
-       %(weight)s::numeric * rarity(%(whole)s::numeric, k.people) AS score,
+       k.user_count,
+       %(weight)s::numeric * rarity(%(whole)s::numeric, k.user_count) AS score,
        least(a.joined_at, b.joined_at) AS first_seen,
        greatest(a.joined_at, b.joined_at) AS last_seen
-FROM small a
-JOIN small b ON b.bucket = a.bucket AND b.user_id > a.user_id
+FROM candidate a
+JOIN candidate b ON b.bucket = a.bucket AND b.user_id > a.user_id
             AND b.joined_at BETWEEN a.joined_at - make_interval(secs => %(window)s)
                                 AND a.joined_at + make_interval(secs => %(window)s)
-JOIN keep k ON k.bucket = a.bucket
+JOIN eligible k ON k.bucket = a.bucket
 """
 
 SHARED_ISP = """
 CREATE TEMP TABLE shared_isp ON COMMIT DROP AS
 SELECT isp,
        count(DISTINCT ip)::numeric / greatest(count(DISTINCT user_id), 1) AS ips_each,
-       count(DISTINCT user_id) AS people
+       count(DISTINCT user_id) AS user_count
 FROM fd.login_event
 WHERE isp IS NOT NULL
 GROUP BY isp
@@ -137,35 +137,35 @@ WHERE e.ip IS NOT NULL
 SHARED_INDEX = "CREATE INDEX ON shared_ip (ip)"
 
 SAVE_SHARED_SQL = """
-WITH gone AS (DELETE FROM fd.shared_ip WHERE ip NOT IN (SELECT ip FROM shared_ip))
+WITH removed_ip AS (DELETE FROM fd.shared_ip WHERE ip NOT IN (SELECT ip FROM shared_ip))
 INSERT INTO fd.shared_ip (ip) SELECT ip FROM shared_ip ON CONFLICT (ip) DO NOTHING
 """
 
 SAVE_WHOLES_SQL = """
 INSERT INTO fd.link_signal_stat (signal, whole, computed_at)
-SELECT signal, whole, now() FROM unnest(%s::text[], %s::numeric[]) AS one (signal, whole)
+SELECT signal, whole, now() FROM unnest(%s::text[], %s::numeric[]) AS stat (signal, whole)
 ON CONFLICT (signal) DO UPDATE SET whole = EXCLUDED.whole, computed_at = EXCLUDED.computed_at
 """
 
 SELECT_WHOLES_SQL = "SELECT signal, whole FROM fd.link_signal_stat"
 
-QUIET = "SET LOCAL fd.quiet_links = 'on'"
+SET_QUIET_LINKS = "SET LOCAL fd.quiet_links = 'on'"
 
 RARITY = """
-CREATE OR REPLACE FUNCTION pg_temp.rarity(whole numeric, crowd numeric)
+CREATE OR REPLACE FUNCTION pg_temp.rarity(whole numeric, user_count numeric)
 RETURNS numeric AS $$
     SELECT CASE
-        WHEN whole <= 2 OR crowd <= 1 THEN 1::numeric
-        WHEN crowd >= whole THEN 0::numeric
-        ELSE least(1, greatest(0, ln(whole / crowd) / ln(whole / 2)))
+        WHEN whole <= 2 OR user_count <= 1 THEN 1::numeric
+        WHEN user_count >= whole THEN 0::numeric
+        ELSE least(1, greatest(0, ln(whole / user_count) / ln(whole / 2)))
     END
 $$ LANGUAGE sql IMMUTABLE
 """
 
-STAGE = """
+CREATE_LINK_PART = """
 CREATE TEMP TABLE link_part (
     a_user_id text, b_user_id text, signal text, value text,
-    people integer, score numeric, first_seen timestamptz, last_seen timestamptz
+    user_count integer, score numeric, first_seen timestamptz, last_seen timestamptz
 ) ON COMMIT DROP
 """
 
@@ -339,7 +339,7 @@ WITH banned AS (
     WHERE action IN ('user_deactivated', 'user_reactivated') AND entity_id IS NOT NULL
     GROUP BY 1
 ),
-held AS (
+active_ban AS (
     SELECT user_id, banned_at FROM banned
     WHERE banned_at IS NOT NULL AND banned_at > coalesce(back_at, '-infinity'::timestamptz)
 )"""
@@ -351,7 +351,7 @@ WITH deactivation AS (
     WHERE action = 'user_deactivated' AND entity_id IS NOT NULL
     ORDER BY entity_id, at DESC
 ),
-held AS (
+active_ban AS (
     SELECT d.user_id, d.banned_at
     FROM deactivation d
     WHERE d.actor_id IS DISTINCT FROM d.user_id AND d.actor_id <> ALL(%(bot_user_ids)s)
@@ -361,7 +361,7 @@ held AS (
 
 BANNED_MEMBER = """
 CREATE TEMP TABLE banned_member ON COMMIT DROP AS""" + STAFF_BANNED + """
-SELECT user_id FROM held
+SELECT user_id FROM active_ban
 """
 
 INVITES = """
@@ -387,85 +387,85 @@ ARRIVAL_EVIDENCE = {
               AND e.last_at >= j.joined_at - interval '5 minutes'
             GROUP BY 1, 2
         ),
-        crowd AS (
-            SELECT ip, count(DISTINCT user_id) AS people FROM ev GROUP BY 1
+        ip_user_count AS (
+            SELECT ip, count(DISTINCT user_id) AS user_count FROM ev GROUP BY 1
         ),
-        keep AS (
-            SELECT ip, people FROM crowd WHERE people BETWEEN 2 AND %(ceiling)s
+        eligible AS (
+            SELECT ip, user_count FROM ip_user_count WHERE user_count BETWEEN 2 AND %(ceiling)s
         )
         SELECT least(a.user_id, b.user_id) AS a_user_id,
                greatest(a.user_id, b.user_id) AS b_user_id,
-               host(a.ip) AS value, k.people, %(weight)s::numeric AS score,
+               host(a.ip) AS value, k.user_count, %(weight)s::numeric AS score,
                least(a.at, b.at) AS first_seen, greatest(a.at, b.at) AS last_seen
         FROM ev a
-        JOIN keep k ON k.ip = a.ip
+        JOIN eligible k ON k.ip = a.ip
         JOIN ev b ON b.ip = a.ip AND b.user_id > a.user_id
                  AND b.at BETWEEN a.at - make_interval(secs => %(window)s)
                               AND a.at + make_interval(secs => %(window)s)
     """,
     "invited_by": """
         WITH invites AS (""" + INVITES + """),
-        crowd AS (
-            SELECT actor_id, count(*) AS people FROM invites GROUP BY 1
+        actor_invite_count AS (
+            SELECT actor_id, count(*) AS user_count FROM invites GROUP BY 1
         )
         SELECT least(i.actor_id, i.entity_id) AS a_user_id,
                greatest(i.actor_id, i.entity_id) AS b_user_id,
-               i.actor_id AS value, c.people,
-               %(weight)s::numeric * rarity(%(whole)s::numeric, (c.people + 1)::numeric) AS score,
+               i.actor_id AS value, c.user_count,
+               %(weight)s::numeric * rarity(%(whole)s::numeric, (c.user_count + 1)::numeric) AS score,
                i.at AS first_seen, i.at AS last_seen
         FROM invites i
-        JOIN crowd c ON c.actor_id = i.actor_id
-        WHERE c.people <= %(ceiling)s {not_crowded_actor}
+        JOIN actor_invite_count c ON c.actor_id = i.actor_id
+        WHERE c.user_count <= %(ceiling)s {exclude_over_cap_actor}
     """,
     "after_ban_address": BANNED + """,
-        used AS (
+        banned_use AS (
             SELECT DISTINCT s.user_id, s.ip, h.banned_at
             FROM sighting s
-            JOIN held h ON h.user_id = s.user_id
+            JOIN active_ban h ON h.user_id = s.user_id
             WHERE s.class = 'stable' AND s.hour <= h.banned_at
         ),
-        crowd AS (
-            SELECT ip, count(DISTINCT user_id) AS people
-            FROM sighting WHERE ip IN (SELECT ip FROM used) GROUP BY 1
+        ip_user_count AS (
+            SELECT ip, count(DISTINCT user_id) AS user_count
+            FROM sighting WHERE ip IN (SELECT ip FROM banned_use) GROUP BY 1
         ),
-        arrived AS (
+        later_use AS (
             SELECT user_id, ip, min(hour) AS first_at
-            FROM sighting WHERE ip IN (SELECT ip FROM used) GROUP BY 1, 2
+            FROM sighting WHERE ip IN (SELECT ip FROM banned_use) GROUP BY 1, 2
         )
         SELECT least(u.user_id, a.user_id) AS a_user_id,
                greatest(u.user_id, a.user_id) AS b_user_id,
-               host(u.ip) AS value, c.people, %(weight)s::numeric AS score,
+               host(u.ip) AS value, c.user_count, %(weight)s::numeric AS score,
                u.banned_at AS first_seen, a.first_at AS last_seen
-        FROM used u
-        JOIN crowd c ON c.ip = u.ip AND c.people <= %(ceiling)s
-        JOIN arrived a ON a.ip = u.ip AND a.user_id <> u.user_id AND a.first_at > u.banned_at
+        FROM banned_use u
+        JOIN ip_user_count c ON c.ip = u.ip AND c.user_count <= %(ceiling)s
+        JOIN later_use a ON a.ip = u.ip AND a.user_id <> u.user_id AND a.first_at > u.banned_at
     """,
     "after_ban_exit": STAFF_BANNED + """,
-        person AS (
+        human_member AS (
             SELECT user_id FROM {member} WHERE NOT is_bot
         ),
         exit_use AS (
             SELECT e.user_id, e.ip, e.ua_id, min(e.first_at) AS first_at
             FROM {login} e
             JOIN fd.ip_network n ON n.ip_prefix = e.ip_prefix AND n.class IN ('vpn', 'hosting')
-            WHERE e.ip IS NOT NULL AND e.ua_id IS NOT NULL AND e.user_id IN (SELECT user_id FROM person)
+            WHERE e.ip IS NOT NULL AND e.ua_id IS NOT NULL AND e.user_id IN (SELECT user_id FROM human_member)
             GROUP BY 1, 2, 3
         ),
-        crowd AS (
-            SELECT ip, count(DISTINCT user_id) AS people FROM exit_use GROUP BY 1
+        ip_user_count AS (
+            SELECT ip, count(DISTINCT user_id) AS user_count FROM exit_use GROUP BY 1
         ),
         banned_use AS (
             SELECT x.user_id, x.ip, x.ua_id, h.banned_at
             FROM exit_use x
-            JOIN held h ON h.user_id = x.user_id
+            JOIN active_ban h ON h.user_id = x.user_id
             WHERE x.first_at <= h.banned_at
         )
         SELECT least(u.user_id, x.user_id) AS a_user_id,
                greatest(u.user_id, x.user_id) AS b_user_id,
-               host(u.ip) AS value, c.people, %(weight)s::numeric AS score,
+               host(u.ip) AS value, c.user_count, %(weight)s::numeric AS score,
                u.banned_at AS first_seen, x.first_at AS last_seen
         FROM banned_use u
-        JOIN crowd c ON c.ip = u.ip AND c.people <= %(ceiling)s
+        JOIN ip_user_count c ON c.ip = u.ip AND c.user_count <= %(ceiling)s
         JOIN exit_use x ON x.ip = u.ip AND x.ua_id = u.ua_id AND x.user_id <> u.user_id
                        AND x.first_at > u.banned_at
                        AND x.first_at <= u.banned_at + make_interval(days => %(window)s)
@@ -478,23 +478,23 @@ ARRIVAL_EVIDENCE = {
             WHERE length(u.ua) >= {shortest}
             GROUP BY 1, 2
         ),
-        crowd AS (
-            SELECT ua, count(*) AS people FROM agent GROUP BY 1
-            HAVING count(*) BETWEEN 2 AND %(ceiling)s {not_crowded_ua}
+        ua_user_count AS (
+            SELECT ua, count(*) AS user_count FROM agent GROUP BY 1
+            HAVING count(*) BETWEEN 2 AND %(ceiling)s {exclude_over_cap_ua}
         ),
-        used AS (
+        banned_agent_use AS (
             SELECT a.user_id, a.ua, h.banned_at
             FROM agent a
-            JOIN held h ON h.user_id = a.user_id
-            JOIN crowd c ON c.ua = a.ua
+            JOIN active_ban h ON h.user_id = a.user_id
+            JOIN ua_user_count c ON c.ua = a.ua
             WHERE a.first_at <= h.banned_at
         )
         SELECT least(u.user_id, b.user_id) AS a_user_id,
                greatest(u.user_id, b.user_id) AS b_user_id,
-               u.ua AS value, c.people, %(weight)s::numeric AS score,
+               u.ua AS value, c.user_count, %(weight)s::numeric AS score,
                u.banned_at AS first_seen, b.first_at AS last_seen
-        FROM used u
-        JOIN crowd c ON c.ua = u.ua
+        FROM banned_agent_use u
+        JOIN ua_user_count c ON c.ua = u.ua
         JOIN agent b ON b.ua = u.ua AND b.user_id <> u.user_id AND b.first_at > u.banned_at
     """,
 }
@@ -514,48 +514,48 @@ WITH ev AS (
            OR EXISTS (SELECT 1 FROM {shared_ip} s WHERE s.ip = e.ip))
     GROUP BY 1, 2
 ),
-crowd AS (
-    SELECT value, count(*) AS people FROM ev GROUP BY 1
+value_user_count AS (
+    SELECT value, count(*) AS user_count FROM ev GROUP BY 1
 ),
-keep AS (
-    SELECT value, people FROM crowd WHERE people BETWEEN 2 AND %(ceiling)s
+eligible AS (
+    SELECT value, user_count FROM value_user_count WHERE user_count BETWEEN 2 AND %(ceiling)s
 ),
-small AS (
+candidate AS (
     SELECT e.user_id, e.value, e.seen, e.anonymized, j.joined_at
     FROM ev e
-    JOIN keep k ON k.value = e.value
+    JOIN eligible k ON k.value = e.value
     JOIN {joins} j ON j.user_id = e.user_id
 )
 SELECT least(a.user_id, b.user_id) AS a_user_id,
        greatest(a.user_id, b.user_id) AS b_user_id,
-       a.value, k.people,
+       a.value, k.user_count,
        CASE WHEN a.anonymized THEN %(vpn_weight)s ELSE %(weight)s END::numeric AS score,
        least(a.seen, b.seen) AS first_seen, greatest(a.seen, b.seen) AS last_seen
-FROM small a
-JOIN small b ON b.value = a.value AND b.user_id > a.user_id
+FROM candidate a
+JOIN candidate b ON b.value = a.value AND b.user_id > a.user_id
             AND b.joined_at BETWEEN a.joined_at - make_interval(days => %(window)s)
                                 AND a.joined_at + make_interval(days => %(window)s)
-JOIN keep k ON k.value = a.value
+JOIN eligible k ON k.value = a.value
 """
 
-PART = """
-INSERT INTO link_part (a_user_id, b_user_id, signal, value, people, score, first_seen, last_seen)
-SELECT a_user_id, b_user_id, %(name)s, value, people, score, first_seen, last_seen
-FROM ({pairs}) one
+INSERT_PART = """
+INSERT INTO link_part (a_user_id, b_user_id, signal, value, user_count, score, first_seen, last_seen)
+SELECT a_user_id, b_user_id, %(name)s, value, user_count, score, first_seen, last_seen
+FROM ({pairs}) scored
 WHERE score > 0
 """
 
-COLLAPSED_PART = """
-INSERT INTO link_part (a_user_id, b_user_id, signal, value, people, score, first_seen, last_seen)
+INSERT_COLLAPSED_PART = """
+INSERT INTO link_part (a_user_id, b_user_id, signal, value, user_count, score, first_seen, last_seen)
 SELECT DISTINCT ON (a_user_id, b_user_id)
-       a_user_id, b_user_id, %(name)s, value, people, score, first_seen, last_seen
-FROM ({pairs}) one
+       a_user_id, b_user_id, %(name)s, value, user_count, score, first_seen, last_seen
+FROM ({pairs}) scored
 WHERE score > 0
 ORDER BY a_user_id, b_user_id, score DESC, value
 """
 
-MANY = """
-INSERT INTO link_part (a_user_id, b_user_id, signal, value, people, score, first_seen, last_seen)
+INSERT_MANY_ADDRESSES = """
+INSERT INTO link_part (a_user_id, b_user_id, signal, value, user_count, score, first_seen, last_seen)
 SELECT a_user_id, b_user_id, %(name)s, count(DISTINCT value)::text || ' addresses', NULL,
        %(weight)s::numeric, min(first_seen), max(last_seen)
 FROM link_part
@@ -573,7 +573,7 @@ WITH family_of AS (
 ),
 best AS (
     SELECT DISTINCT ON (a_user_id, b_user_id, signal)
-           a_user_id, b_user_id, signal, value, people, score, first_seen, last_seen
+           a_user_id, b_user_id, signal, value, user_count, score, first_seen, last_seen
     FROM link_part
     ORDER BY a_user_id, b_user_id, signal, score DESC, value
 ),
@@ -598,11 +598,11 @@ pair AS (
     GROUP BY a_user_id, b_user_id
     HAVING sum(score) >= %(floor)s AND bool_or(NOT corroborating)
 ),
-named AS (
+pair_signals AS (
     SELECT b.a_user_id, b.b_user_id,
            (array_agg(b.signal ORDER BY b.score DESC, b.signal))[1] AS top_signal,
            jsonb_object_agg(b.signal, jsonb_build_object(
-               'value', b.value, 'people', b.people, 'score', round(b.score::numeric, 3))) AS signals
+               'value', b.value, 'people', b.user_count, 'score', round(b.score::numeric, 3))) AS signals
     FROM best b
     JOIN pair p ON p.a_user_id = b.a_user_id AND p.b_user_id = b.b_user_id
     GROUP BY b.a_user_id, b.b_user_id
@@ -610,7 +610,7 @@ named AS (
 SELECT p.a_user_id, p.b_user_id, p.score, n.top_signal, p.top_family, p.families, n.signals,
        p.first_seen, p.last_seen, NULL::text AS label
 FROM pair p
-JOIN named n ON n.a_user_id = p.a_user_id AND n.b_user_id = p.b_user_id
+JOIN pair_signals n ON n.a_user_id = p.a_user_id AND n.b_user_id = p.b_user_id
 """
 
 PASS_INDEX = "CREATE INDEX ON link_pass (a_user_id, b_user_id)"
@@ -626,7 +626,7 @@ WHERE s.country IS NOT NULL
 
 PRESENCE_INDEX = "CREATE INDEX ON presence (user_id, hour)"
 
-AGAINST = """
+COUNTRY_CONFLICT = """
 UPDATE link_pass p
 SET score = round(p.score + %(weight)s::numeric, 3),
     families = p.families || jsonb_build_object('against', %(weight)s::numeric)
@@ -635,8 +635,8 @@ FROM (
     FROM link_pass l
     JOIN presence a ON a.user_id = l.a_user_id
     JOIN presence b ON b.user_id = l.b_user_id AND b.hour = a.hour AND b.country <> a.country
-) clash
-WHERE clash.a_user_id = p.a_user_id AND clash.b_user_id = p.b_user_id
+) country_conflict
+WHERE country_conflict.a_user_id = p.a_user_id AND country_conflict.b_user_id = p.b_user_id
 """
 
 STAFF_TEST = """
@@ -702,7 +702,7 @@ FULL = {
     "audit": "slack.audit_event",
     "shared_ip": "shared_ip",
     "sighting": "sighting",
-    "crowded": None,
+    "over_cap": None,
 }
 
 
@@ -739,15 +739,15 @@ def families(config=None):
 
 def signals(config=None):
     config = config or catalogue()
-    signal_defs = {name: {**one, "family": NETWORK} for name, one in config["network_signals"].items()}
-    signal_defs.update({name: {**one, "family": DEVICE} for name, one in config["device_signals"].items()})
-    signal_defs.update({name: {**one, "family": IDENTITY} for name, one in config["identity_signals"].items()})
-    signal_defs.update({name: {**one, "family": NAME} for name, one in config["name_signals"].items()})
-    signal_defs.update({name: {**one, "family": ARRIVAL} for name, one in config["arrival_signals"].items()})
+    signal_defs = {name: {**definition, "family": NETWORK} for name, definition in config["network_signals"].items()}
+    signal_defs.update({name: {**definition, "family": DEVICE} for name, definition in config["device_signals"].items()})
+    signal_defs.update({name: {**definition, "family": IDENTITY} for name, definition in config["identity_signals"].items()})
+    signal_defs.update({name: {**definition, "family": NAME} for name, definition in config["name_signals"].items()})
+    signal_defs.update({name: {**definition, "family": ARRIVAL} for name, definition in config["arrival_signals"].items()})
     return signal_defs
 
 
-def against(config=None):
+def country_conflict_settings(config=None):
     return (config or catalogue())["against"]
 
 
@@ -764,25 +764,25 @@ def staff_members(identities, staff):
 
 def family_table(config):
     caps = families(config)
-    rows = [(name, one["family"], caps[one["family"]]["cap"], bool(one.get("corroborating")))
-            for name, one in signals(config).items()]
+    rows = [(name, definition["family"], caps[definition["family"]]["cap"], bool(definition.get("corroborating")))
+            for name, definition in signals(config).items()]
     return {"signals": [row[0] for row in rows], "families": [row[1] for row in rows],
             "caps": [row[2] for row in rows], "corroborating": [row[3] for row in rows]}
 
 
-def not_crowded(sources, column):
-    if not sources.get("crowded"):
+def exclude_over_cap(sources, column):
+    if not sources.get("over_cap"):
         return ""
-    return f"AND {column} NOT IN (SELECT value FROM {sources['crowded']} WHERE signal = %(name)s)"
+    return f"AND {column} NOT IN (SELECT value FROM {sources['over_cap']} WHERE signal = %(name)s)"
 
 
 def names_for(sources, settings, sightings):
     return {**sources, "sightings": sightings, "shortest": SHORTEST_AGENT,
             "range_ceiling": settings.get("range_ceiling", 20), "shortest_local": SHORTEST_LOCAL,
             "shortest_name": SHORTEST_NAME, "longest_stem": SHORTEST_LONG_STEM,
-            "not_crowded_value": not_crowded(sources, "value"),
-            "not_crowded_ua": not_crowded(sources, "ua"),
-            "not_crowded_actor": not_crowded(sources, "i.actor_id")}
+            "exclude_over_cap_value": exclude_over_cap(sources, "value"),
+            "exclude_over_cap_ua": exclude_over_cap(sources, "ua"),
+            "exclude_over_cap_actor": exclude_over_cap(sources, "i.actor_id")}
 
 
 def source_of(name):
@@ -805,12 +805,12 @@ def evidence(name, settings, sightings, sources=FULL):
     source = source_of(name)
     if source is None:
         return None, None
-    star = settings.get("link_to_oldest", False)
+    link_to_oldest = settings.get("link_to_oldest", False)
     return PAIRS_SQL.format(
         evidence=source.format(**names),
         score=RARITY_SCORE if settings.get("rarity_discount", True) else FLAT_SCORE,
-        oldest=OLDEST_HOLDER.format(**names) if star else "",
-        star=STAR_FILTER if star else "",
+        oldest_account_cte=OLDEST_ACCOUNT_CTE.format(**names) if link_to_oldest else "",
+        oldest_account_filter=OLDEST_ACCOUNT_FILTER if link_to_oldest else "",
         **names), args
 
 
@@ -879,7 +879,7 @@ def load_mailboxes(conn, config, sources=FULL):
 
 def prepare(conn, config, sources=FULL):
     conn.execute(RARITY)
-    conn.execute(STAGE)
+    conn.execute(CREATE_LINK_PART)
     conn.execute(BANNED_MEMBER.format(**sources), {"bot_user_ids": list(BOT_USER_IDS)})
     conn.execute("ANALYZE banned_member")
     conn.execute(SIGHTING.format(**sources))
@@ -889,7 +889,7 @@ def prepare(conn, config, sources=FULL):
     conn.execute("ANALYZE staff_member")
 
 
-def gather(conn, config, wholes, sources=FULL):
+def load_signal_pairs(conn, config, wholes, sources=FULL):
     sightings = sightings_of(config)
     counted = {}
 
@@ -899,7 +899,7 @@ def gather(conn, config, wholes, sources=FULL):
             continue
         if name in wholes:
             args["whole"] = wholes[name]
-        template = COLLAPSED_PART if name in COLLAPSED else PART
+        template = INSERT_COLLAPSED_PART if name in COLLAPSED else INSERT_PART
         sql = template.format(pairs=pairs.replace("rarity(", "pg_temp.rarity("))
         with conn.cursor() as cur:
             cur.execute(sql, {**args, "name": name})
@@ -909,14 +909,14 @@ def gather(conn, config, wholes, sources=FULL):
         many = signals(config).get(name)
         if many:
             with conn.cursor() as cur:
-                cur.execute(MANY, {"name": name, "weight": many["weight"], "single": single})
+                cur.execute(INSERT_MANY_ADDRESSES, {"name": name, "weight": many["weight"], "single": single})
                 counted[name] = cur.rowcount
     return counted
 
 
-def settle(conn, config, sources=FULL, sweep=SWEEP, lap=lambda _step: None, write=UPSERT_SQL, write_params=None):
+def score_pairs(conn, config, sources=FULL, sweep=SWEEP, lap=lambda _step: None, write=UPSERT_SQL, write_params=None):
     thresholds = scoring(config)
-    labelled = {}
+    label_counts = {}
     with conn.cursor() as cur:
         cur.execute(PASS, {**family_table(config), "floor": thresholds["floor"]})
         cur.execute(PASS_INDEX)
@@ -925,11 +925,11 @@ def settle(conn, config, sources=FULL, sweep=SWEEP, lap=lambda _step: None, writ
         cur.execute(PRESENCE.format(**sources))
         cur.execute(PRESENCE_INDEX)
         cur.execute("ANALYZE presence")
-        cur.execute(AGAINST, {"weight": against(config)[TWO_COUNTRIES]["weight"]})
-        countered = cur.rowcount
+        cur.execute(COUNTRY_CONFLICT, {"weight": country_conflict_settings(config)[TWO_COUNTRIES]["weight"]})
+        country_conflict_count = cur.rowcount
         lap("countries")
         cur.execute(STAFF_TEST)
-        labelled["staff_test"] = cur.rowcount
+        label_counts["staff_test"] = cur.rowcount
         lap("labels")
         cur.execute(BELOW_FLOOR, {"floor": thresholds["floor"]})
         cur.execute(write, write_params)
@@ -940,7 +940,7 @@ def settle(conn, config, sources=FULL, sweep=SWEEP, lap=lambda _step: None, writ
             removed = cur.rowcount
         cur.execute("SELECT count(*) FROM link_pass")
         retained = cur.fetchone()[0]
-    return retained, changed, removed, countered, labelled
+    return retained, changed, removed, country_conflict_count, label_counts
 
 
 def build_shadow(conn, config, variant):
@@ -948,10 +948,10 @@ def build_shadow(conn, config, variant):
     conn.execute("ANALYZE shared_ip")
     prepare(conn, config)
     wholes = measure(conn, config)
-    gather(conn, config, wholes)
+    load_signal_pairs(conn, config, wholes)
     conn.execute("ANALYZE link_part")
     conn.execute(SHADOW_CLEAR_SQL, {"variant": variant})
-    retained, _written, _removed, _countered, _labelled = settle(
+    retained, _written, _removed, _country_conflict_count, _label_counts = score_pairs(
         conn, config, sweep=None, write=SHADOW_INSERT_SQL, write_params={"variant": variant})
     conn.commit()
     return retained
@@ -970,24 +970,24 @@ def run(conn):
         lap_start = now
 
     with ingest_run(conn, SOURCE) as counts:
-        conn.execute(QUIET)
+        conn.execute(SET_QUIET_LINKS)
         shared_ip_count = mark_shared(conn, config)
         conn.execute("ANALYZE shared_ip")
         prepare(conn, config)
         wholes = measure(conn, config)
         save_wholes(conn, wholes)
-        signal_counts = gather(conn, config, wholes)
+        signal_counts = load_signal_pairs(conn, config, wholes)
         conn.execute("ANALYZE link_part")
         lap("gather")
-        retained, changed, removed, countered, labelled = settle(conn, config, lap=lap)
+        retained, changed, removed, country_conflict_count, label_counts = score_pairs(conn, config, lap=lap)
         conn.commit()
         lap("write")
         counts.rows_in = changed
 
     per_signal = ", ".join(f"{name} {n}" for name, n in sorted(signal_counts.items()) if n)
-    per_label = ", ".join(f"{count} labelled {name}" for name, count in labelled.items())
+    per_label = ", ".join(f"{count} labelled {name}" for name, count in label_counts.items())
     print(f"{SOURCE}: {retained} link(s) kept, {changed} written, {removed} dropped, "
-          f"{countered} lowered by activity in two countries, {per_label}, "
+          f"{country_conflict_count} lowered by activity in two countries, {per_label}, "
           f"{shared_ip_count} address(es) on shared networks treated as rotating ({per_signal})")
     print(f"{SOURCE}: took " + ", ".join(f"{step} {seconds:.0f}s" for step, seconds in step_seconds.items()))
     return changed

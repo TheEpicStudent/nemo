@@ -34,7 +34,7 @@ def block_ids(view):
     return [block.get("block_id") for block in view["blocks"]]
 
 
-def test_lock_view_asks_for_optional_duration_and_reason():
+def test_lock_view_has_optional_duration_and_reason_blocks():
     view = card.lock_view(CHANNEL_ID, THREAD)
 
     assert block_ids(view) == [card.LOCK_DURATION, card.REASON]
@@ -43,7 +43,7 @@ def test_lock_view_asks_for_optional_duration_and_reason():
     assert view["submit"]["text"] == "Lock"
 
 
-def test_lock_view_custom_adds_the_end_picker():
+def test_lock_view_custom_adds_until_block():
     assert block_ids(card.lock_view(CHANNEL_ID, THREAD, custom=True)) == [card.LOCK_DURATION, card.UNTIL, card.REASON]
 
 
@@ -58,7 +58,7 @@ def test_locked_view_shows_status_reason_and_required_extend():
     assert view["submit"]["text"] == "Save"
 
 
-def test_submitted_values_reads_the_lock_picker():
+def test_submitted_values_lock_picker_returns_duration_and_reason():
     state = {"values": {
         card.LOCK_DURATION: {card.LOCK_DURATION: {"selected_option": {"value": "2h"}}},
         card.REASON: {card.REASON: {"value": " raid "}},
@@ -78,7 +78,7 @@ def test_submitted_values_reads_the_lock_picker():
     ({"starting": False, "reason": ""}, {card.LOCK_EXTEND: "Select how long to extend."}),
     ({"starting": False, "reason": "", "extend": "1h"}, None),
 ])
-def test_lock_errors_checks_reason_extend_and_end(over, errors):
+def test_lock_errors_validates_reason_extend_and_end(over, errors):
     assert card.lock_errors(values(**over), NOW) == errors
 
 
@@ -89,7 +89,7 @@ def test_lock_errors_checks_reason_extend_and_end(over, errors):
     ({"starting": False, "extend": "2h"}, lock_row(), END + dt.timedelta(hours=2)),
     ({"starting": False, "extend": "30m"}, lock_row(expires_at=None), NOW + dt.timedelta(minutes=30)),
 ])
-def test_lock_end_starts_now_or_extends_the_current_end(over, current, expected):
+def test_lock_end_starts_now_or_extends_current_end(over, current, expected):
     assert card.lock_end(values(**over), current, NOW) == expected
 
 
@@ -121,7 +121,7 @@ class SurfaceCtx:
         self.thread_ts = THREAD
         self.trigger_id = "T1"
         self.acked = []
-        self.said = []
+        self.ephemeral_messages = []
 
     def ack(self, **kwargs):
         self.acked.append(kwargs)
@@ -130,10 +130,10 @@ class SurfaceCtx:
         return None
 
     def post_ephemeral(self, message, channel_id=None, thread_ts=None):
-        self.said.append(message)
+        self.ephemeral_messages.append(message)
 
     def post_ephemeral_or_dm(self, message, channel_id=None, thread_ts=None):
-        self.said.append(message)
+        self.ephemeral_messages.append(message)
 
 
 @contextlib.contextmanager
@@ -163,7 +163,7 @@ def live(monkeypatch):
     return state
 
 
-def test_open_lock_modal_on_a_locked_thread_shows_the_status(live):
+def test_open_lock_modal_locked_thread_shows_status_view(live):
     ctx = SurfaceCtx()
 
     thread_lock.open_lock_modal(ctx)
@@ -171,60 +171,60 @@ def test_open_lock_modal_on_a_locked_thread_shows_the_status(live):
     assert ctx.client.opened[0]["view"]["submit"]["text"] == "Save"
 
 
-def test_open_lock_modal_on_a_destroying_thread_refuses(live):
+def test_open_lock_modal_destroying_thread_refuses(live):
     live["row"] = lock_row(kind=guards.DESTROY)
     ctx = SurfaceCtx()
 
     thread_lock.open_lock_modal(ctx)
 
     assert ctx.client.opened == []
-    assert ctx.said == ["Thread already being destroyed"]
+    assert ctx.ephemeral_messages == ["Thread already being destroyed"]
 
 
-def test_unlocked_lifts_by_the_moderator_and_closes_the_modal(live):
+def test_unlock_thread_lifts_lock_and_updates_view(live):
     ctx = SurfaceCtx(locked_submission())
 
-    assert thread_lock.unlocked(ctx) == 5
+    assert thread_lock.unlock_thread(ctx) == 5
     assert live["lifted"] == [(5, MOD)]
     assert ctx.client.updated[0]["view"]["callback_id"] == card.UNLOCKED_CALLBACK
-    assert ctx.said == ["Thread unlocked"]
+    assert ctx.ephemeral_messages == ["Thread unlocked"]
 
 
-def test_confirmed_extend_moves_the_end_and_confirms(live):
+def test_submit_lock_extend_moves_end_and_confirms(live):
     ctx = SurfaceCtx(locked_submission("2h"))
 
-    thread_lock.confirmed(ctx)
+    thread_lock.submit_lock(ctx)
 
     assert live["extended"] == [(5, END + dt.timedelta(hours=2), MOD)]
-    assert ctx.said == [f"Lock extended · ends {short_end(END + dt.timedelta(hours=2))}"]
+    assert ctx.ephemeral_messages == [f"Lock extended · ends {short_end(END + dt.timedelta(hours=2))}"]
 
 
-def test_confirmed_extend_after_the_lock_ended_is_refused(live):
+def test_submit_lock_extend_after_lock_ended_is_refused(live):
     live["row"] = None
     ctx = SurfaceCtx(locked_submission("2h"))
 
-    thread_lock.confirmed(ctx)
+    thread_lock.submit_lock(ctx)
 
     assert live["extended"] == []
-    assert ctx.said == ["Lock already ended"]
+    assert ctx.ephemeral_messages == ["Lock already ended"]
 
 
-def test_confirmed_extend_without_a_choice_returns_errors(live):
+def test_submit_lock_extend_without_choice_acks_errors(live):
     ctx = SurfaceCtx(locked_submission(None))
 
-    thread_lock.confirmed(ctx)
+    thread_lock.submit_lock(ctx)
 
     assert ctx.acked == [{"response_action": "errors", "errors": {card.LOCK_EXTEND: "Select how long to extend."}}]
 
 
-def test_duration_picked_custom_reshapes_with_the_end_picker(live):
+def test_reshape_lock_on_duration_custom_adds_until_block(live):
     live["row"] = None
     view = card.lock_view(CHANNEL_ID, THREAD)
     view.update(id="V1", hash="H1")
     view["state"] = {"values": {card.LOCK_DURATION: {card.LOCK_DURATION: {"selected_option": {"value": "custom"}}}}}
     ctx = SurfaceCtx(view)
 
-    thread_lock.duration_picked(ctx)
+    thread_lock.reshape_lock_on_duration(ctx)
 
     assert card.UNTIL in block_ids(ctx.client.updated[0]["view"])
 
@@ -245,7 +245,7 @@ class WarningConn:
 
 @pytest.mark.parametrize(("error", "removed"), [(None, [5]), ("message_not_found", [5]),
                                                 ("channel_not_found", [5]), ("ratelimited", [])])
-def test_remove_lock_warnings_marks_removed_or_retries(monkeypatch, error, removed):
+def test_remove_lock_warnings_delete_error_controls_removed_ids(monkeypatch, error, removed):
     conn = WarningConn([(5, CHANNEL_ID, THREAD, "1700000000.000500")])
     monkeypatch.setattr(guard_actions, "session", lambda: session_of(conn))
     client = Client(delete_error=error)
@@ -255,12 +255,12 @@ def test_remove_lock_warnings_marks_removed_or_retries(monkeypatch, error, remov
     assert conn.removed == removed
 
 
-def test_warnings_to_remove_takes_ended_locks_with_a_notice():
+def test_warnings_to_remove_sql_selects_ended_locks_with_notice():
     assert "kind = 'lock' AND state IN ('done', 'failed') AND warned_ts IS NOT NULL" in guards.WARNINGS_TO_REMOVE
     assert "warning_removed_at IS NULL" in guards.WARNINGS_TO_REMOVE
 
 
-def test_destroy_on_a_locked_thread_ends_the_lock_first(monkeypatch):
+def test_destroy_thread_on_locked_thread_finishes_lock_then_opens_destroy(monkeypatch):
     calls = []
     monkeypatch.setattr(thread_destroy, "session", lambda: session_of(object()))
     monkeypatch.setattr(guards, "live_on_thread", lambda conn, channel_id, thread_ts: lock_row())
@@ -273,5 +273,5 @@ def test_destroy_on_a_locked_thread_ends_the_lock_first(monkeypatch):
     view = card.destroy_view(CHANNEL_ID, THREAD)
     view["state"] = {"values": {card.REASON: {card.REASON: {"value": "raid"}}}}
 
-    assert thread_destroy.confirmed(SurfaceCtx(view)) == 6
+    assert thread_destroy.destroy_thread(SurfaceCtx(view)) == 6
     assert calls == [("finish", 5, "done", MOD), ("open", guards.DESTROY)]

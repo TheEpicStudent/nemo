@@ -8,17 +8,17 @@ from lib.paths import CAPABILITIES_FILE
 CAPABILITIES = yaml.safe_load(CAPABILITIES_FILE.read_text())["capabilities"]
 
 
-def test_every_surface_names_a_capability_or_is_open():
+def test_surface_entries_declare_capability_or_open_to_all():
     undeclared = [one for one in surface.ENTRIES if not one.open_to_all and not one.needs]
     assert undeclared == [], f"these write without declaring a capability: {undeclared}"
 
 
-def test_every_named_capability_exists():
+def test_surface_entry_capabilities_exist_in_capabilities_file():
     named = {one.needs for one in surface.ENTRIES if one.needs}
     assert named <= set(CAPABILITIES), f"unknown capabilities: {named - set(CAPABILITIES)}"
 
 
-def test_declared_refuses_an_undeclared_surface():
+def test_declared_undeclared_entry_raises_undeclared_capability_error():
     entry = surface.SurfaceEntry(surface.ACTION, "loose_button", None, lambda ctx: None)
     surface.ENTRIES.append(entry)
     try:
@@ -28,7 +28,7 @@ def test_declared_refuses_an_undeclared_surface():
         surface.ENTRIES.remove(entry)
 
 
-def test_the_thread_guards_are_registered():
+def test_thread_guard_surfaces_are_registered():
     keys = {(one.kind, one.key) for one in surface.ENTRIES}
     assert ("shortcut", "destroy_thread") in keys
     assert ("shortcut", "lock_thread") in keys
@@ -36,20 +36,20 @@ def test_the_thread_guards_are_registered():
     assert ("view", "thread_lock") in keys
 
 
-def test_only_the_join_watcher_handles_team_join():
+def test_team_join_event_has_only_record_team_join_handler():
     from bot.nemo.surface import join_watch
 
     join_handlers = [one.fn for one in surface.ENTRIES if (one.kind, one.key) == (surface.EVENT, "team_join")]
-    assert join_handlers == [join_watch.arrived], "a second fd.member_joins writer makes every joiner look known"
+    assert join_handlers == [join_watch.record_team_join], "a second fd.member_joins writer makes every joiner look known"
 
 
-def test_the_message_watcher_is_open_to_everyone():
+def test_event_entries_are_open_to_all():
     event_entries = [one for one in surface.ENTRIES if one.kind == surface.EVENT]
     assert event_entries, "the guarded-thread watcher is not registered"
     assert all(one.open_to_all for one in event_entries)
 
 
-def test_one_key_gets_one_listener_that_runs_every_handler():
+def test_run_entries_calls_every_handler_for_key():
     calls = []
     entries = [
         surface.SurfaceEntry(surface.EVENT, "message", None, lambda ctx: calls.append("first"),
@@ -57,11 +57,11 @@ def test_one_key_gets_one_listener_that_runs_every_handler():
         surface.SurfaceEntry(surface.EVENT, "message", None, lambda ctx: calls.append("second"),
                       open_to_all=True),
     ]
-    surface.fanned(entries)(ack=None, body={}, client=None, payload={})
+    surface.run_entries(entries)(ack=None, body={}, client=None, payload={})
     assert calls == ["first", "second"], "bolt stops at the first answer, so we must fan out"
 
 
-def test_one_failing_handler_does_not_silence_the_others():
+def test_run_entries_failing_handler_does_not_stop_others():
     calls = []
 
     def raising_handler(ctx):
@@ -72,11 +72,11 @@ def test_one_failing_handler_does_not_silence_the_others():
         surface.SurfaceEntry(surface.EVENT, "message", None, lambda ctx: calls.append("still ran"),
                       open_to_all=True),
     ]
-    surface.fanned(entries)(ack=None, body={}, client=None, payload={})
+    surface.run_entries(entries)(ack=None, body={}, client=None, payload={})
     assert calls == ["still ran"], "a handler that throws must not take the others down"
 
 
-def test_an_event_without_an_ack_does_not_blow_up():
+def test_guarded_event_without_ack_runs_handler():
     calls = []
     entry = surface.SurfaceEntry(surface.EVENT, "message", None, lambda ctx: calls.append("ok"),
                           open_to_all=True)
@@ -92,7 +92,7 @@ class NoopApp:
         return hook
 
 
-def test_the_firehouse_and_the_guard_share_the_message_key():
+def test_register_adds_multiple_message_event_handlers():
     handlers.register(NoopApp(), lambda *a, **k: None)
     on_message = [one for one in surface.ENTRIES
                   if one.kind == surface.EVENT and one.key == "message"]
@@ -100,26 +100,26 @@ def test_the_firehouse_and_the_guard_share_the_message_key():
     assert any(one.tag == "handlers.on_message" for one in on_message)
 
 
-def test_a_cold_guard_cache_does_not_silence_enforcement():
+def test_is_watched_before_cache_load_returns_true():
     from bot.nemo import guards
 
     saved_loaded, saved_watched = guards._loaded, set(guards._watched)
     try:
         guards._loaded = False
         guards._watched.clear()
-        assert guards.watching("C_ANY", "1.1") is True, "a cold cache must defer to the database"
+        assert guards.is_watched("C_ANY", "1.1") is True, "a cold cache must defer to the database"
         guards._loaded = True
-        assert guards.watching("C_ANY", "1.1") is False
+        assert guards.is_watched("C_ANY", "1.1") is False
     finally:
         guards._loaded, guards._watched = saved_loaded, saved_watched
 
 
-def test_the_listener_names_the_arguments_bolt_injects():
+def test_listeners_name_bolt_injected_arguments():
     import inspect
 
     from bot.nemo import surface as s
 
-    for handler in (s.fanned([]), s.guarded(s.SurfaceEntry(s.EVENT, "message", None,
+    for handler in (s.run_entries([]), s.guarded(s.SurfaceEntry(s.EVENT, "message", None,
                                                  lambda ctx: None, open_to_all=True))):
         named = inspect.getfullargspec(handler).args
         assert set(s.INJECTED) <= set(named), (
@@ -127,16 +127,16 @@ def test_the_listener_names_the_arguments_bolt_injects():
         )
 
 
-def test_a_missing_admin_is_recognised_and_a_real_failure_is_not():
+def test_channel_missing_matches_channel_errors_only():
     from bot.core import privileged
 
-    assert privileged.absent(Exception("channel_not_found"))
-    assert privileged.absent(Exception("not_in_channel"))
-    assert not privileged.absent(Exception("invalid_auth: missing_scope"))
-    assert not privileged.absent(Exception("message_not_found"))
+    assert privileged.channel_missing(Exception("channel_not_found"))
+    assert privileged.channel_missing(Exception("not_in_channel"))
+    assert not privileged.channel_missing(Exception("invalid_auth: missing_scope"))
+    assert not privileged.channel_missing(Exception("message_not_found"))
 
 
-def test_a_delete_invites_the_admin_then_retries_once():
+def test_remove_channel_missing_invites_admin_then_retries_once():
     from bot.core import privileged
     from bot.nemo import guard_actions
 

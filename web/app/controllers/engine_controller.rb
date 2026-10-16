@@ -1,19 +1,19 @@
 class EngineController < ApplicationController
-  before_action { needs(:analytics) }
+  before_action { require_flag(:analytics) }
   before_action :require_operating
 
   FRESHNESS_WINDOW = 30.days
-  SUCCESS_FLOOR = 60.days
-  TYPICAL_OF = 10
-  NIGHTS = 30
+  SUCCESS_LOOKBACK = 60.days
+  TYPICAL_RUN_COUNT = 10
+  NIGHT_COUNT = 30
 
   TABS = { "runs" => "Runs", "sources" => "Sources", "coverage" => "Coverage",
            "queues" => "Queues", "backfill" => "Backfill", "archive" => "Archive",
            "storage" => "Storage", "faults" => "Faults", "tuning" => "Tuning" }.freeze
-  GROUPS = { "The night" => %w[runs sources], "What landed" => %w[coverage archive storage],
-             "Work waiting" => %w[queues backfill],
-             "Whether to trust it" => %w[faults tuning] }.freeze
-  MUTE_FOR = 1.day
+  GROUPS = { "Ingest" => %w[runs sources], "Data" => %w[coverage archive storage],
+             "Work" => %w[queues backfill],
+             "Reliability" => %w[faults tuning] }.freeze
+  MUTE_DURATION = 1.day
   TAXONOMY_WINDOW = 30.days
   SLICE_STRIP_DAYS = 60
   DAY_SOURCES = %w[member_days channel_days].freeze
@@ -76,7 +76,7 @@ class EngineController < ApplicationController
   def ack_incident
     return redirect_tuning_denied unless may_community?("ops.engine")
 
-    row = remember_incident(params[:source_key], params[:kind], muted_until: nil)
+    row = record_incident_ack(params[:source_key], params[:kind], muted_until: nil)
     redirect_to engine_path(tab: "faults"), notice: "#{row.source_key} acknowledged"
   rescue ActiveRecord::RecordInvalid => e
     redirect_to engine_path(tab: "faults"), alert: e.record.errors.full_messages.to_sentence
@@ -85,7 +85,7 @@ class EngineController < ApplicationController
   def mute_incident
     return redirect_tuning_denied unless may_community?("ops.engine")
 
-    row = remember_incident(params[:source_key], params[:kind], muted_until: MUTE_FOR.from_now)
+    row = record_incident_ack(params[:source_key], params[:kind], muted_until: MUTE_DURATION.from_now)
     redirect_to engine_path(tab: "faults"), notice: "#{row.source_key} muted for 24 hours"
   rescue ActiveRecord::RecordInvalid => e
     redirect_to engine_path(tab: "faults"), alert: e.record.errors.full_messages.to_sentence
@@ -94,7 +94,7 @@ class EngineController < ApplicationController
   def override_breaker
     return redirect_tuning_denied unless may_community?("ops.engine")
 
-    row = remember_incident(params[:source_key], "breaker", muted_until: MUTE_FOR.from_now)
+    row = record_incident_ack(params[:source_key], "breaker", muted_until: MUTE_DURATION.from_now)
     redirect_to engine_path(tab: "faults"), notice: "Breaker #{row.source_key} suppressed for 24 hours"
   rescue ActiveRecord::RecordInvalid => e
     redirect_to engine_path(tab: "faults"), alert: e.record.errors.full_messages.to_sentence
@@ -146,7 +146,7 @@ class EngineController < ApplicationController
         after: { "source" => row.source, "name" => row.name })
     end
 
-    redirect_to engine_path(tab: "tuning"), notice: "#{params[:name]} reset to its file default"
+    redirect_to engine_path(tab: "tuning"), notice: "#{params[:name]} reset to default"
   end
 
   def show
@@ -179,7 +179,7 @@ class EngineController < ApplicationController
     worker_missing = orphaned?
     if @active_request&.cancel!(worker_unavailable: worker_missing)
       audit(@active_request, "cancelled", "worker_gone" => worker_missing)
-      redirect_to engine_path, notice: worker_missing ? "released, no worker" : "cancel requested"
+      redirect_to engine_path, notice: worker_missing ? "Cancelled, no worker" : "Cancel requested"
     else
       redirect_to engine_path, alert: "Nothing to cancel"
     end
@@ -301,7 +301,7 @@ class EngineController < ApplicationController
 
   def night_dates
     last = Date.current
-    ((last - (NIGHTS - 1))..last).to_a
+    ((last - (NIGHT_COUNT - 1))..last).to_a
   end
 
   def night_matrix(nights)
@@ -359,7 +359,7 @@ class EngineController < ApplicationController
       actor: current_account.user_id, request_id: request.request_id, after: after)
   end
 
-  def remember_incident(source_key, kind, muted_until:)
+  def record_incident_ack(source_key, kind, muted_until:)
     row = Ingest::IncidentAck.find_or_initialize_by(source_key: source_key.to_s, kind: kind.to_s)
     row.update!(acked_by: current_account.user_id, acked_at: Time.current, muted_until: muted_until)
     Fd::Audit.record(row, muted_until ? "muted" : "acked",
@@ -445,13 +445,13 @@ class EngineController < ApplicationController
       .pluck(:ds)
     return 0 if days.empty?
 
-    run = 1
-    days.each_cons(2) do |later, earlier|
-      break unless (later - earlier).to_i == 1
+    streak = 1
+    days.each_cons(2) do |newer, older|
+      break unless (newer - older).to_i == 1
 
-      run += 1
+      streak += 1
     end
-    run
+    streak
   end
 
   def run_span(run)
@@ -461,7 +461,7 @@ class EngineController < ApplicationController
     seconds < 60 ? "#{seconds}s" : "#{seconds / 60}m"
   end
 
-  def last_success_by_stage(since = SUCCESS_FLOOR.ago)
+  def last_success_by_stage(since = SUCCESS_LOOKBACK.ago)
     Analytics::FctIngestRun
       .where(status: "ok", source_key: Engine::Source::KEYS)
       .where(finished_at: since..)
@@ -496,7 +496,7 @@ class EngineController < ApplicationController
 
   TYPICAL_SQL = <<~SQL.freeze
     SELECT s.source_key,
-           percentile_cont(0.5) WITHIN GROUP (ORDER BY recent.seconds) AS typical
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY recent_run.seconds) AS typical
     FROM   unnest(ARRAY[:keys]::text[]) AS s(source_key)
     CROSS  JOIN LATERAL (
       SELECT extract(epoch FROM finished_at - started_at) AS seconds
@@ -504,22 +504,22 @@ class EngineController < ApplicationController
       WHERE  source_key = s.source_key AND status = 'ok'
         AND  finished_at IS NOT NULL AND finished_at >= :since
       ORDER  BY finished_at DESC
-      LIMIT  :of
-    ) recent
+      LIMIT  :run_count
+    ) recent_run
     GROUP  BY s.source_key
   SQL
 
   def typical_seconds
     rows = ApplicationRecord.connection.select_rows(
       ApplicationRecord.sanitize_sql([TYPICAL_SQL, keys: Engine::Source::KEYS,
-                                      since: FRESHNESS_WINDOW.ago, of: TYPICAL_OF])
+                                      since: FRESHNESS_WINDOW.ago, run_count: TYPICAL_RUN_COUNT])
     )
     rows.filter_map { |key, typical| [key, typical.to_f] if typical }.to_h
   end
 
   ROWS_IN_SQL = <<~SQL.freeze
-    WITH newest AS (
-      SELECT s.source_key, latest.parent_run_id, latest.rows_in
+    WITH latest_ok_run AS (
+      SELECT s.source_key, ok_run.parent_run_id, ok_run.rows_in
       FROM   unnest(ARRAY[:keys]::text[]) AS s(source_key)
       CROSS  JOIN LATERAL (
         SELECT parent_run_id, rows_in
@@ -528,16 +528,16 @@ class EngineController < ApplicationController
           AND  rows_in IS NOT NULL AND finished_at >= :since
         ORDER  BY finished_at DESC
         LIMIT  1
-      ) latest
+      ) ok_run
     )
     SELECT n.source_key,
            CASE WHEN n.parent_run_id IS NULL THEN n.rows_in
-                ELSE (SELECT sum(rows_in) FROM analytics.fct_ingest_run sibling
-                      WHERE sibling.parent_run_id = n.parent_run_id
-                        AND sibling.source_key = n.source_key
-                        AND sibling.status = 'ok' AND sibling.rows_in IS NOT NULL)
+                ELSE (SELECT sum(rows_in) FROM analytics.fct_ingest_run child_run
+                      WHERE child_run.parent_run_id = n.parent_run_id
+                        AND child_run.source_key = n.source_key
+                        AND child_run.status = 'ok' AND child_run.rows_in IS NOT NULL)
            END AS rows_in
-    FROM   newest n
+    FROM   latest_ok_run n
   SQL
 
   def last_rows_in

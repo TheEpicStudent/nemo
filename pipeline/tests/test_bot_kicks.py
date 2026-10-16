@@ -16,8 +16,8 @@ def session_of(conn):
 
 
 class Conn:
-    def __init__(self, waiting=()):
-        self.waiting = list(waiting)
+    def __init__(self, queued_rows=()):
+        self.queued_rows = list(queued_rows)
         self.executed = []
 
     def execute(self, sql, args=None):
@@ -25,7 +25,7 @@ class Conn:
         return self
 
     def fetchall(self):
-        return self.waiting
+        return self.queued_rows
 
     def args_for(self, sql):
         return [args for one, args in self.executed if one == sql]
@@ -42,9 +42,9 @@ class Slack:
 
 
 @pytest.fixture
-def kicking(monkeypatch):
+def kick_state(monkeypatch):
     state = {"kicked": [], "events": [], "outcome": "kicked"}
-    monkeypatch.setattr(userbots, "_people", {})
+    monkeypatch.setattr(userbots, "_users", {})
     monkeypatch.setattr(bot_watch, "_apps", {"B1": (BOT_USER, "spammer", "A1")})
     monkeypatch.setattr(bot_watch, "exempt_bot_ids", lambda: {"UEXEMPT"})
     monkeypatch.setattr(whoami, "bot_user_id", lambda client, name: "UNEMO")
@@ -55,29 +55,29 @@ def kicking(monkeypatch):
     return state
 
 
-def drain(monkeypatch, waiting, client=None):
-    conn = Conn(waiting)
+def drain(monkeypatch, queued_rows, client=None):
+    conn = Conn(queued_rows)
     monkeypatch.setattr(bot_kicks, "session", lambda: session_of(conn))
     return bot_kicks.drain(client or Slack()), conn
 
 
-def test_drain_kicks_a_bot_by_its_bot_id_and_logs_it(monkeypatch, kicking):
-    finished, conn = drain(monkeypatch, [(5, 9, CHANNEL_ID, "B1", 0)])
+def test_drain_bot_id_subject_kicks_and_records_enforcement(monkeypatch, kick_state):
+    drained_count, conn = drain(monkeypatch, [(5, 9, CHANNEL_ID, "B1", 0)])
 
-    assert finished == 1
-    assert kicking["kicked"] == [(CHANNEL_ID, BOT_USER)]
-    (args, kwargs), = kicking["events"]
+    assert drained_count == 1
+    assert kick_state["kicked"] == [(CHANNEL_ID, BOT_USER)]
+    (args, kwargs), = kick_state["events"]
     assert args == (9, CHANNEL_ID, BOT_USER, "kicked")
     assert (kwargs["bot_id"], kwargs["label"], kwargs["notice_wanted"]) == ("B1", "spammer", True)
-    assert conn.args_for(bot_kicks.FINISHED) == [("kicked", 5)]
+    assert conn.args_for(bot_kicks.MARK_DONE) == [("kicked", 5)]
 
 
-def test_drain_kicks_a_bot_user_by_its_user_id(monkeypatch, kicking):
+def test_drain_bot_user_id_subject_kicks(monkeypatch, kick_state):
     client = Slack(users={BOT_USER: {"is_bot": True, "real_name": "spammer", "profile": {"api_app_id": "A1"}}})
 
     drain(monkeypatch, [(5, 9, CHANNEL_ID, BOT_USER, 0)], client)
 
-    assert kicking["kicked"] == [(CHANNEL_ID, BOT_USER)]
+    assert kick_state["kicked"] == [(CHANNEL_ID, BOT_USER)]
 
 
 @pytest.mark.parametrize(("subject_id", "users", "outcome"), [
@@ -86,27 +86,27 @@ def test_drain_kicks_a_bot_user_by_its_user_id(monkeypatch, kicking):
     ("UEXEMPT", {"UEXEMPT": {"is_bot": True}}, "exempt"),
     ("UNEMO", {"UNEMO": {"is_bot": True}}, "exempt"),
 ])
-def test_drain_never_kicks_people_or_exempt_bots(monkeypatch, kicking, subject_id, users, outcome):
-    _finished, conn = drain(monkeypatch, [(5, 9, CHANNEL_ID, subject_id, 0)], Slack(users=users))
+def test_drain_non_bot_or_exempt_subject_skips_kick(monkeypatch, kick_state, subject_id, users, outcome):
+    _drained_count, conn = drain(monkeypatch, [(5, 9, CHANNEL_ID, subject_id, 0)], Slack(users=users))
 
-    assert kicking["kicked"] == []
-    assert conn.args_for(bot_kicks.FINISHED) == [(outcome, 5)]
-
-
-def test_drain_bot_not_in_the_channel_is_done_without_a_log(monkeypatch, kicking):
-    kicking["outcome"] = "away"
-
-    _finished, conn = drain(monkeypatch, [(5, 9, CHANNEL_ID, "B1", 0)])
-
-    assert kicking["events"] == []
-    assert conn.args_for(bot_kicks.FINISHED) == [("away", 5)]
+    assert kick_state["kicked"] == []
+    assert conn.args_for(bot_kicks.MARK_DONE) == [(outcome, 5)]
 
 
-@pytest.mark.parametrize(("attempts", "sql"), [(0, bot_kicks.RETRY), (2, bot_kicks.FINISHED)])
-def test_drain_failed_kick_retries_then_gives_up(monkeypatch, kicking, attempts, sql):
-    kicking["outcome"] = "failed: cant_kick_self"
+def test_drain_bot_outside_channel_marks_done_without_enforcement_record(monkeypatch, kick_state):
+    kick_state["outcome"] = "away"
 
-    finished, conn = drain(monkeypatch, [(5, 9, CHANNEL_ID, "B1", attempts)])
+    _drained_count, conn = drain(monkeypatch, [(5, 9, CHANNEL_ID, "B1", 0)])
+
+    assert kick_state["events"] == []
+    assert conn.args_for(bot_kicks.MARK_DONE) == [("away", 5)]
+
+
+@pytest.mark.parametrize(("attempts", "sql"), [(0, bot_kicks.RECORD_RETRY), (2, bot_kicks.MARK_DONE)])
+def test_drain_failed_kick_retries_until_attempts_exhausted(monkeypatch, kick_state, attempts, sql):
+    kick_state["outcome"] = "failed: cant_kick_self"
+
+    drained_count, conn = drain(monkeypatch, [(5, 9, CHANNEL_ID, "B1", attempts)])
 
     assert conn.args_for(sql) == [("failed: cant_kick_self", 5)]
-    assert finished == (sql == bot_kicks.FINISHED)
+    assert drained_count == (sql == bot_kicks.MARK_DONE)

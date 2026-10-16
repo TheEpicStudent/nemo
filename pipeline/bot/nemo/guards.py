@@ -118,13 +118,13 @@ WHERE channel_id = %s AND thread_ts = %s
 ORDER BY is_primary DESC, added_at LIMIT 1
 """
 
-PENDING = """
+PENDING_DESTROYS = """
 SELECT id FROM fd.thread_guards
 WHERE kind = 'destroy' AND state IN ('warned', 'running')
 ORDER BY created_at LIMIT 5
 """
 
-LIFTING = """
+EXPIRED_LOCKS = """
 SELECT id FROM fd.thread_guards
 WHERE kind = 'lock' AND state IN ('warned', 'running') AND expires_at <= now()
 ORDER BY expires_at LIMIT 20
@@ -137,12 +137,12 @@ ON CONFLICT (guard_id, message_ts) DO NOTHING
 RETURNING message_ts
 """
 
-REMOVED = """
+MARK_MESSAGE_REMOVED = """
 UPDATE fd.thread_guard_messages SET removed_at = now()
 WHERE guard_id = %s AND message_ts = %s AND removed_at IS NULL
 """
 
-STILL_UP = """
+UNREMOVED_MESSAGES = """
 SELECT m.guard_id, m.channel_id, m.message_ts
 FROM fd.thread_guard_messages m
 JOIN fd.thread_guards g ON g.id = m.guard_id
@@ -151,12 +151,12 @@ ORDER BY m.at
 LIMIT %s
 """
 
-STRUCK = """
+MESSAGE_COUNT = """
 SELECT count(*)::integer FROM fd.thread_guard_messages
 WHERE guard_id = %s AND user_id = %s
 """
 
-OVER_THE_LINE = """
+USERS_OVER_THRESHOLD = """
 SELECT m.guard_id, m.user_id, count(*)::integer, g.channel_id, g.thread_ts
 FROM fd.thread_guard_messages m
 JOIN fd.thread_guards g ON g.id = m.guard_id
@@ -194,28 +194,28 @@ BOT_MEMBER = "SELECT coalesce(bool_or(m.is_bot), false) FROM fd.member m WHERE m
 
 _watched = set()
 _loaded = False
-_guard = threading.Lock()
+_lock = threading.Lock()
 
 
 def refresh(conn):
     global _loaded
     rows = {(row[0], row[1]) for row in conn.execute(LIVE).fetchall()}
-    with _guard:
+    with _lock:
         _watched.clear()
         _watched.update(rows)
         _loaded = True
     return len(rows)
 
 
-def watching(channel_id, thread_ts):
-    with _guard:
+def is_watched(channel_id, thread_ts):
+    with _lock:
         if not _loaded:
             return True
         return (channel_id, thread_ts) in _watched
 
 
 def has_live_guard(channel_id, thread_ts):
-    with _guard:
+    with _lock:
         return _loaded and (channel_id, thread_ts) in _watched
 
 
@@ -321,20 +321,20 @@ def record_message(conn, guard_id, channel_id, user_id, message_ts):
     conn.execute(INSERT_MESSAGE, (guard_id, message_ts, user_id, channel_id))
 
 
-def removed(conn, guard_id, message_ts):
-    conn.execute(REMOVED, (guard_id, message_ts))
+def mark_message_removed(conn, guard_id, message_ts):
+    conn.execute(MARK_MESSAGE_REMOVED, (guard_id, message_ts))
 
 
-def still_up(conn, limit):
-    return conn.execute(STILL_UP, (limit,)).fetchall()
+def unremoved_messages(conn, limit):
+    return conn.execute(UNREMOVED_MESSAGES, (limit,)).fetchall()
 
 
-def record_strike(conn, guard_id, user_id):
-    return conn.execute(STRUCK, (guard_id, user_id)).fetchone()[0]
+def message_count(conn, guard_id, user_id):
+    return conn.execute(MESSAGE_COUNT, (guard_id, user_id)).fetchone()[0]
 
 
-def over_the_line(conn, needed):
-    return conn.execute(OVER_THE_LINE, (needed,)).fetchall()
+def users_over_threshold(conn, needed):
+    return conn.execute(USERS_OVER_THRESHOLD, (needed,)).fetchall()
 
 
 def strike_count(conn, guard_id):
@@ -375,7 +375,7 @@ RETURNING id
 """
 
 
-def at(ts):
+def format_timestamp(ts):
     try:
         when = dt.datetime.fromtimestamp(float(ts), dt.UTC)
     except (TypeError, ValueError):
@@ -383,44 +383,44 @@ def at(ts):
     return when.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def whose(one, named):
+def author_label(one, names):
     user_id = one.get("user") or one.get("bot_id") or "unknown"
-    name = named.get(user_id) or one.get("username") or user_id
+    name = names.get(user_id) or one.get("username") or user_id
     return f"{user_id}|{name}"
 
 
-def line_for(one, named):
+def transcript_line(one, names):
     words = (one.get("text") or "").replace(chr(10), " ")
-    return f"[{at(one.get('ts'))}] <{whose(one, named)}> {words}"
+    return f"[{format_timestamp(one.get('ts'))}] <{author_label(one, names)}> {words}"
 
 
-def transcript_body(messages, named):
+def transcript_body(messages, names):
     lines = [
-        line_for(one, named)
+        transcript_line(one, names)
         for one in sorted(messages, key=lambda one: float(one.get("ts") or 0))
     ]
     return "\n".join(lines) + "\n"
 
 
-def store_transcript(conn, guard_id, channel_id, thread_ts, messages, named=None):
-    body = transcript_body(messages, named or {})
+def store_transcript(conn, guard_id, channel_id, thread_ts, messages, names=None):
+    body = transcript_body(messages, names or {})
     conn.execute(INSERT_TRANSCRIPT, (guard_id, channel_id, thread_ts, body))
     return body
 
 
-def pending(conn):
-    return [row[0] for row in conn.execute(PENDING).fetchall()]
+def pending_destroys(conn):
+    return [row[0] for row in conn.execute(PENDING_DESTROYS).fetchall()]
 
 
-def lifting(conn):
-    return [row[0] for row in conn.execute(LIFTING).fetchall()]
+def expired_locks(conn):
+    return [row[0] for row in conn.execute(EXPIRED_LOCKS).fetchall()]
 
 
 def start(conn, guard_id):
     return conn.execute(RUNNING, (guard_id,)).fetchone() is not None
 
 
-def progressed(conn, guard_id, deleted):
+def add_progress(conn, guard_id, deleted):
     conn.execute(PROGRESS, (deleted, guard_id))
 
 

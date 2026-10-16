@@ -38,8 +38,8 @@ def guard(**over):
     return row
 
 
-def standing(guard_row, reads, case_id=412, enforceable=True):
-    return {"enforceable": enforceable, "guard": guard_row, "reads": reads, "case_id": case_id}
+def standing(guard_row, relation, case_id=412, enforceable=True):
+    return {"enforceable": enforceable, "guard": guard_row, "relation": relation, "case_id": case_id}
 
 
 FUTURE = (dt.date.today() + dt.timedelta(days=30)).isoformat()
@@ -53,164 +53,164 @@ def submission(**over):
 
 
 def options(submitted, standing_):
-    return [value for value, _text in action.settle_options(submitted, standing_)]
+    return [value for value, _text in action.enforcement_options(submitted, standing_)]
 
 
-def test_a_record_only_kind_is_never_asked():
-    assert options(submission(type_key="warning"), standing(None, action.UNGUARDED,
+def test_enforcement_options_record_only_kind_returns_empty():
+    assert options(submission(type_key="warning"), standing(None, action.NO_GUARD,
                                                       enforceable=False)) == []
 
 
-def test_nothing_standing_is_not_asked_it_is_simply_taken():
-    assert options(submission(), standing(None, action.UNGUARDED)) == []
+def test_enforcement_options_no_guard_returns_empty():
+    assert options(submission(), standing(None, action.NO_GUARD)) == []
 
 
-def test_an_orphan_is_offered_for_adoption_first():
-    assert options(submission(), standing(guard(), action.ORPHANED)) == [action.ADOPT, action.RECORD]
+def test_enforcement_options_guard_without_case_offers_attach_then_log_only():
+    assert options(submission(), standing(guard(), action.NO_CASE)) == [action.ATTACH, action.LOG_ONLY]
 
 
-def test_a_guard_under_another_case_defaults_to_leaving_it_alone():
-    built = action.settle_blocks(submission(), standing(guard(case_id=318), action.ELSEWHERE))
+def test_enforcement_blocks_other_case_guard_defaults_to_log_only():
+    built = action.enforcement_blocks(submission(), standing(guard(case_id=318), action.OTHER_CASE))
     submitted_values = built[0]["element"]["initial_option"]["value"]
-    assert submitted_values == action.RECORD
-    assert options(submission(), standing(guard(case_id=318), action.ELSEWHERE)) == [
-        action.EXTEND, action.RECORD]
+    assert submitted_values == action.LOG_ONLY
+    assert options(submission(), standing(guard(case_id=318), action.OTHER_CASE)) == [
+        action.EXTEND, action.LOG_ONLY]
 
 
-def test_an_orphan_defaults_to_being_adopted():
-    built = action.settle_blocks(submission(), standing(guard(), action.ORPHANED))
-    assert built[0]["element"]["initial_option"]["value"] == action.ADOPT
+def test_enforcement_blocks_guard_without_case_defaults_to_attach():
+    built = action.enforcement_blocks(submission(), standing(guard(), action.NO_CASE))
+    assert built[0]["element"]["initial_option"]["value"] == action.ATTACH
 
 
-def test_a_kind_that_never_expires_is_not_offered_an_extension():
+def test_enforcement_options_indefinite_kind_omits_extend():
     guard_row = guard(kind="indef_ban", expires_at=None)
-    assert options(submission(type_key="indef_ban"), standing(guard_row, action.ELSEWHERE)) == []
+    assert options(submission(type_key="indef_ban"), standing(guard_row, action.OTHER_CASE)) == []
 
 
-def test_what_they_already_picked_survives_a_reshape():
-    built = action.settle_blocks(submission(settle=action.RECORD),
-                                 standing(guard(), action.ORPHANED))
-    assert built[0]["element"]["initial_option"]["value"] == action.RECORD
+def test_enforcement_blocks_keeps_submitted_enforcement():
+    built = action.enforcement_blocks(submission(enforcement=action.LOG_ONLY),
+                                      standing(guard(), action.NO_CASE))
+    assert built[0]["element"]["initial_option"]["value"] == action.LOG_ONLY
 
 
-def test_the_choice_sits_below_the_date_it_talks_about():
-    built = action.build_blocks(412, submission(), standing(guard(case_id=318), action.ELSEWHERE))
+def test_build_blocks_enforcement_follows_until():
+    built = action.build_blocks(412, submission(), standing(guard(case_id=318), action.OTHER_CASE))
     block_ids = [one.get("block_id") for one in built]
-    assert block_ids.index(action.UNTIL) < block_ids.index(action.SETTLE)
+    assert block_ids.index(action.UNTIL) < block_ids.index(action.ENFORCEMENT)
 
 
-def test_a_submit_with_nothing_standing_goes_straight_through():
+def test_requires_refresh_no_guard_returns_false():
     visible_blocks = {action.TARGET, action.KIND, action.UNTIL, action.REASON}
-    assert not action.requires_refresh(submission(), visible_blocks, standing(None, action.UNGUARDED))
+    assert not action.requires_refresh(submission(), visible_blocks, standing(None, action.NO_GUARD))
 
 
-def test_a_submit_that_never_saw_an_orphan_is_sent_back():
+def test_requires_refresh_enforcement_block_missing_returns_true():
     visible_blocks = {action.TARGET, action.KIND, action.UNTIL, action.REASON, action.GUARD_STATUS}
-    orphaned_standing = standing(guard(), action.ORPHANED)
+    orphaned_standing = standing(guard(), action.NO_CASE)
     assert action.requires_refresh(submission(), visible_blocks, orphaned_standing)
-    assert not action.requires_refresh(submission(), visible_blocks | {action.SETTLE}, orphaned_standing)
+    assert not action.requires_refresh(submission(), visible_blocks | {action.ENFORCEMENT}, orphaned_standing)
 
 
-def test_extending_without_a_date_is_refused():
-    wrong = action.validation_errors(submission(settle=action.EXTEND, expires_on=None))
-    assert action.UNTIL in wrong
+def test_validation_errors_extend_without_date_flags_until():
+    errors = action.validation_errors(submission(enforcement=action.EXTEND, expires_on=None))
+    assert action.UNTIL in errors
 
 
-def test_carrying_it_opens_a_guard_nemo_has_not_done_yet():
+def test_apply_enforcement_open_guard_inserts_pending_guard():
     conn = Conn({"INSERT INTO fd.member_guards": (9,), "UPDATE fd.actions": (1,)})
-    guard_id = memberguards.settled(conn, 1, submission(settle=action.APPLY),
-                                    standing(None, action.UNGUARDED), MOD)
+    guard_id = memberguards.apply_enforcement(conn, 1, submission(enforcement=action.OPEN_GUARD),
+                                              standing(None, action.NO_GUARD), MOD)
     assert guard_id == 9
-    opened = conn.args_for("INSERT INTO fd.member_guards")[0]
-    assert opened[0] == "shush"
-    assert opened[3] == 412
-    assert opened[7:9] == ("nemo", "pending")
+    insert_args = conn.args_for("INSERT INTO fd.member_guards")[0]
+    assert insert_args[0] == "shush"
+    assert insert_args[3] == 412
+    assert insert_args[7:9] == ("nemo", "pending")
     assert conn.args_for("UPDATE fd.actions")[0] == (9, 1)
 
 
-def test_nothing_standing_always_opens_a_guard_nemo_will_carry():
+def test_apply_enforcement_no_guard_defaults_to_pending_guard():
     conn = Conn({"INSERT INTO fd.member_guards": (9,), "UPDATE fd.actions": (1,)})
-    memberguards.settled(conn, 1, submission(), standing(None, action.UNGUARDED), MOD)
+    memberguards.apply_enforcement(conn, 1, submission(), standing(None, action.NO_GUARD), MOD)
     assert conn.args_for("INSERT INTO fd.member_guards")[0][7:9] == ("nemo", "pending")
 
 
-def test_a_workspace_guard_is_opened_without_a_channel():
+def test_apply_enforcement_shush_open_guard_has_no_channel():
     conn = Conn({"INSERT INTO fd.member_guards": (9,), "UPDATE fd.actions": (1,)})
-    memberguards.settled(conn, 1, submission(settle=action.APPLY, channel_id=CHANNEL_ID),
-                         standing(None, action.UNGUARDED), MOD)
+    memberguards.apply_enforcement(conn, 1, submission(enforcement=action.OPEN_GUARD, channel_id=CHANNEL_ID),
+                                   standing(None, action.NO_GUARD), MOD)
     assert conn.args_for("INSERT INTO fd.member_guards")[0][2] is None
 
 
-def test_a_channel_guard_keeps_the_channel_it_was_given():
+def test_apply_enforcement_channel_ban_keeps_channel_id():
     conn = Conn({"INSERT INTO fd.member_guards": (9,), "UPDATE fd.actions": (1,)})
-    memberguards.settled(conn, 1,
-                         submission(type_key="channel_ban", settle=action.APPLY, channel_id=CHANNEL_ID),
-                         standing(None, action.UNGUARDED), MOD)
+    memberguards.apply_enforcement(conn, 1,
+                                   submission(type_key="channel_ban", enforcement=action.OPEN_GUARD, channel_id=CHANNEL_ID),
+                                   standing(None, action.NO_GUARD), MOD)
     assert conn.args_for("INSERT INTO fd.member_guards")[0][2] == CHANNEL_ID
 
 
-def test_adopting_an_orphan_puts_it_on_this_case_and_links_the_action():
+def test_apply_enforcement_attach_sets_case_and_links_action():
     conn = Conn({"UPDATE fd.member_guards SET case_id": (7,), "UPDATE fd.actions": (1,)})
-    guard_id = memberguards.settled(conn, 1, submission(settle=action.ADOPT),
-                                    standing(guard(), action.ORPHANED), MOD)
+    guard_id = memberguards.apply_enforcement(conn, 1, submission(enforcement=action.ATTACH),
+                                              standing(guard(), action.NO_CASE), MOD)
     assert guard_id == 7
     assert conn.args_for("UPDATE fd.member_guards SET case_id")[0] == (412, 7)
     assert conn.args_for("UPDATE fd.actions")[0] == (7, 1)
 
 
-def test_an_orphan_left_alone_is_neither_touched_nor_linked():
+def test_apply_enforcement_log_only_without_case_leaves_guard_and_action_unlinked():
     conn = Conn({"UPDATE fd.actions": (1,)})
-    guard_id = memberguards.settled(conn, 1, submission(settle=action.RECORD),
-                                    standing(guard(), action.ORPHANED), MOD)
+    guard_id = memberguards.apply_enforcement(conn, 1, submission(enforcement=action.LOG_ONLY),
+                                              standing(guard(), action.NO_CASE), MOD)
     assert guard_id is None
     assert conn.args_for("UPDATE fd.member_guards SET case_id") == []
     assert conn.args_for("UPDATE fd.actions") == []
 
 
-def test_extending_moves_the_date_on_the_guard_that_already_exists():
+def test_apply_enforcement_extend_updates_expires_at():
     conn = Conn({"UPDATE fd.member_guards SET expires_at": (7,), "UPDATE fd.actions": (1,)})
-    memberguards.settled(conn, 1, submission(settle=action.EXTEND, expires_on="2026-04-01"),
-                         standing(guard(case_id=318), action.ELSEWHERE), MOD)
+    memberguards.apply_enforcement(conn, 1, submission(enforcement=action.EXTEND, expires_on="2026-04-01"),
+                                   standing(guard(case_id=318), action.OTHER_CASE), MOD)
     assert conn.args_for("UPDATE fd.member_guards SET expires_at")[0] == \
         (dt.datetime(2026, 4, 1, 23, 59, 59, tzinfo=dt.UTC), 7)
 
 
-def test_a_guard_under_another_case_left_alone_is_not_claimed():
+def test_apply_enforcement_log_only_other_case_returns_none():
     conn = Conn({"UPDATE fd.actions": (1,)})
-    guard_id = memberguards.settled(conn, 1, submission(settle=action.RECORD),
-                                    standing(guard(case_id=318), action.ELSEWHERE), MOD)
+    guard_id = memberguards.apply_enforcement(conn, 1, submission(enforcement=action.LOG_ONLY),
+                                              standing(guard(case_id=318), action.OTHER_CASE), MOD)
     assert guard_id is None
     assert conn.args_for("UPDATE fd.actions") == []
 
 
-def test_a_guard_already_on_this_case_is_linked_without_being_changed():
+def test_apply_enforcement_log_only_this_case_links_action_only():
     conn = Conn({"UPDATE fd.actions": (1,)})
-    guard_id = memberguards.settled(conn, 1, submission(settle=action.RECORD),
-                                    standing(guard(case_id=412), action.HERE), MOD)
+    guard_id = memberguards.apply_enforcement(conn, 1, submission(enforcement=action.LOG_ONLY),
+                                              standing(guard(case_id=412), action.THIS_CASE), MOD)
     assert guard_id == 7
     assert conn.args_for("UPDATE fd.member_guards SET case_id") == []
     assert conn.args_for("UPDATE fd.actions")[0] == (7, 1)
 
 
-def test_a_record_only_kind_writes_no_guard_at_all():
+def test_apply_enforcement_record_only_kind_executes_nothing():
     conn = Conn()
-    assert memberguards.settled(conn, 1, submission(type_key="warning"),
-                                standing(None, action.UNGUARDED, enforceable=False), MOD) is None
+    assert memberguards.apply_enforcement(conn, 1, submission(type_key="warning"),
+                                          standing(None, action.NO_GUARD, enforceable=False), MOD) is None
     assert conn.executed == []
 
 
-def test_losing_the_race_to_another_guard_leaves_the_action_unlinked():
+def test_apply_enforcement_open_guard_conflict_leaves_action_unlinked():
     conn = Conn({"UPDATE fd.actions": (1,)})
-    guard_id = memberguards.settled(conn, 1, submission(settle=action.APPLY),
-                                    standing(None, action.UNGUARDED), MOD)
+    guard_id = memberguards.apply_enforcement(conn, 1, submission(enforcement=action.OPEN_GUARD),
+                                              standing(None, action.NO_GUARD), MOD)
     assert guard_id is None
     assert conn.args_for("UPDATE fd.actions") == []
 
 
-def test_an_orphan_adopted_out_from_under_us_leaves_the_action_unlinked():
+def test_apply_enforcement_attach_conflict_leaves_action_unlinked():
     conn = Conn({"UPDATE fd.actions": (1,)})
-    guard_id = memberguards.settled(conn, 1, submission(settle=action.ADOPT),
-                                    standing(guard(), action.ORPHANED), MOD)
+    guard_id = memberguards.apply_enforcement(conn, 1, submission(enforcement=action.ATTACH),
+                                              standing(guard(), action.NO_CASE), MOD)
     assert guard_id is None
     assert conn.args_for("UPDATE fd.actions") == []
 
@@ -219,34 +219,34 @@ def verbs(conn):
     return [args[4] for args in conn.args_for("INSERT INTO fd.audit")]
 
 
-def test_opening_a_guard_is_written_down_against_the_guard():
+def test_apply_enforcement_open_guard_records_opened_audit():
     conn = Conn({"INSERT INTO fd.member_guards": (9,), "UPDATE fd.actions": (1,)})
-    memberguards.settled(conn, 1, submission(settle=action.APPLY),
-                         standing(None, action.UNGUARDED), MOD)
+    memberguards.apply_enforcement(conn, 1, submission(enforcement=action.OPEN_GUARD),
+                                   standing(None, action.NO_GUARD), MOD)
     recorded = conn.args_for("INSERT INTO fd.audit")[0]
     assert recorded[2:5] == ("member_guard", 9, "opened")
 
 
-def test_adopting_and_extending_are_written_down_too():
+def test_apply_enforcement_attach_and_extend_record_audit_verbs():
     conn = Conn({"UPDATE fd.member_guards SET case_id": (7,), "UPDATE fd.actions": (1,)})
-    memberguards.settled(conn, 1, submission(settle=action.ADOPT),
-                         standing(guard(), action.ORPHANED), MOD)
+    memberguards.apply_enforcement(conn, 1, submission(enforcement=action.ATTACH),
+                                   standing(guard(), action.NO_CASE), MOD)
     assert verbs(conn) == ["attached"]
 
     conn = Conn({"UPDATE fd.member_guards SET expires_at": (7,), "UPDATE fd.actions": (1,)})
-    memberguards.settled(conn, 1, submission(settle=action.EXTEND),
-                         standing(guard(case_id=318), action.ELSEWHERE), MOD)
+    memberguards.apply_enforcement(conn, 1, submission(enforcement=action.EXTEND),
+                                   standing(guard(case_id=318), action.OTHER_CASE), MOD)
     assert verbs(conn) == ["extended"]
 
 
-def test_leaving_a_guard_alone_is_not_written_down_as_a_change():
+def test_apply_enforcement_log_only_records_no_audit():
     conn = Conn({"UPDATE fd.actions": (1,)})
-    memberguards.settled(conn, 1, submission(settle=action.RECORD),
-                         standing(guard(case_id=412), action.HERE), MOD)
+    memberguards.apply_enforcement(conn, 1, submission(enforcement=action.LOG_ONLY),
+                                   standing(guard(case_id=412), action.THIS_CASE), MOD)
     assert verbs(conn) == []
 
 
-def test_every_verb_the_writes_use_is_declared_on_the_capability():
+def test_case_act_capability_declares_member_guard_events():
     import yaml
     from lib.paths import CAPABILITIES_FILE
 

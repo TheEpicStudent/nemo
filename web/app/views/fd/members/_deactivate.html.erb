@@ -1,5 +1,5 @@
 <%= render layout: "fd/modal", locals: { id: "member-deactivate",
-      title: "Deactivate the account", sub: member,
+      title: "Deactivate account", sub: member,
       open: params[:do] == "deactivate" } do %>
   <%= form_with url: fd_member_guards_path(user_id), method: :post,
         html: { autocomplete: "off",
@@ -7,7 +7,7 @@
     <%= hidden_field_tag :kind, Fd::MemberGuard::DEACTIVATION, id: nil %>
     <div class="modal-body">
       <label class="field-label">
-        Why
+        Reason
         <%= text_area_tag :reason, submitted_value(:reason) || local_assigns[:reason], rows: 3, class: "textarea", id: nil %>
       </label>
       <%= field_wrong(:reason) %>

@@ -6,24 +6,24 @@ class Analytics::MartCohortSurvivalTest < ActiveSupport::TestCase
       shares: shares)
   end
 
-  test "a curve is drawn as far as its last observed day, not to the horizon" do
+  test "Curve#last_filled_index returns the last non-nil index" do
     assert_equal 2, curve([100.0, 80.0, 60.0, nil, nil]).last_filled_index
   end
 
-  test "a cohort that has aged through the whole horizon is not partial" do
+  test "Curve#partial? is false with a full horizon and true with missing days" do
     horizon = (0..3).to_a
 
     assert_not curve([100.0, 80.0, 60.0, 40.0]).partial?(horizon)
     assert curve([100.0, 80.0, nil, nil]).partial?(horizon)
   end
 
-  test "an unobserved day reads as nothing, never as zero" do
+  test "Curve#at returns nil for an unobserved day" do
     assert_nil curve([100.0, nil]).at(1)
   end
 
-  test "survival never rises as the days pass" do
+  test "survival shares do not increase over time" do
     shares = [100.0, 74.0, 52.0, 28.0]
 
-    assert_equal shares, shares.sort.reverse, "a member who stopped cannot come back to the curve"
+    assert_equal shares, shares.sort.reverse, "shares must not increase"
   end
 end

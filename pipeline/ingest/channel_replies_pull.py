@@ -225,7 +225,7 @@ def enough_queued(conn, floor):
         return cur.fetchone() is not None
 
 
-def shared_queue(items, worker_count):
+def queue_per_worker(items, worker_count):
     shared = Queue()
     for item in items:
         shared.put(item)
@@ -299,7 +299,7 @@ def run(conn, budget=500, fetchers=DEFAULT_FETCHERS, stale_hours=6):
           + (f", {queued} newly queued" if queued else "")
           + f", {channel_count} channel(s) over {worker_count} fetcher(s)")
 
-    worker_queues = shared_queue(items, worker_count)
+    worker_queues = queue_per_worker(items, worker_count)
     totals = {"replies": 0, "rejected": 0, "touched": set()}
     lock, stop, errors = threading.Lock(), threading.Event(), []
     check = current_cancel()

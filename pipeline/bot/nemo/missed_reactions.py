@@ -26,8 +26,8 @@ ORDER BY 1, 2 DESC
 def close_reactions(client, channel_id, ts):
     response = client.reactions_get(channel=channel_id, timestamp=ts, full=True)
     reactions = ((response or {}).get("message") or {}).get("reactions") or []
-    named = [(reaction_watch.plain(one.get("name")), one.get("users") or []) for one in reactions]
-    return [(name, user_ids) for name, user_ids in named if reaction_watch.is_close_reaction(name)]
+    reaction_users = [(reaction_watch.plain(one.get("name")), one.get("users") or []) for one in reactions]
+    return [(name, user_ids) for name, user_ids in reaction_users if reaction_watch.is_close_reaction(name)]
 
 
 def resolver_id(conn, case_id, message_kind, user_ids, bot_user_id):
@@ -46,7 +46,7 @@ def close_case(client, case_id, message_kind, reactions, bot_user_id):
             user_id = resolver_id(conn, case_id, message_kind, user_ids, bot_user_id)
             if user_id is None:
                 continue
-            resolution = case_actions.close_quietly(conn, case_id, reaction_watch.resolution_for(reaction), user_id)
+            resolution = case_actions.close_without_notice(conn, case_id, reaction_watch.resolution_for(reaction), user_id)
         if resolution is not None:
             reaction_watch.after_resolve(client, case_id, resolution, user_id)
             log.info("nemo: case %s closed as %s from a %s reaction by %s made while stopped",

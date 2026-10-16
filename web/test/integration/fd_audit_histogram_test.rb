@@ -4,7 +4,7 @@ class FdAuditHistogramTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   setup do
-    @me = hold_role!("UHISTME", "community_manager")
+    @me = grant_role!("UHISTME", "community_manager")
     sign_in_as(@me)
   end
 
@@ -28,7 +28,7 @@ class FdAuditHistogramTest < ActionDispatch::IntegrationTest
 
   def chart = bars.to_h
 
-  test "the page folds the histogram above the rows and loads it once opened" do
+  test "index renders closed histogram details with a lazy turbo frame" do
     slack!(at: 1.hour.ago)
 
     get fd_audit_path(q: "action:user_login")
@@ -36,12 +36,12 @@ class FdAuditHistogramTest < ActionDispatch::IntegrationTest
       fd_audit_histogram_path(q: "action:user_login")
   end
 
-  test "an empty search draws no histogram" do
+  test "index with no matching events renders no histogram frame" do
     get fd_audit_path(q: "action:nothing_like_this")
     assert_select "turbo-frame#audit-histogram", count: 0
   end
 
-  test "it counts the last thirty days by default, a bar a day" do
+  test "histogram defaults to the last 30 days with one bar per day" do
     travel_to Time.utc(2026, 10, 10, 12) do
       sign_in_as(@me)
       slack!(at: Time.utc(2026, 10, 9, 10))
@@ -61,7 +61,7 @@ class FdAuditHistogramTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "it follows the search and its dates" do
+  test "histogram applies the query action and after before dates" do
     slack!(at: Time.utc(2026, 9, 2, 10))
     slack!(at: Time.utc(2026, 9, 3, 10))
     slack!(at: Time.utc(2026, 9, 3, 11), action: "user_logout")
@@ -70,7 +70,7 @@ class FdAuditHistogramTest < ActionDispatch::IntegrationTest
     assert_equal({ "2026-09-01" => 0, "2026-09-02" => 1, "2026-09-03" => 1, "2026-09-04" => 0 }, chart)
   end
 
-  test "days are the viewer's days" do
+  test "histogram buckets days in the viewer time zone" do
     member!("UHISTME")
     as_pipeline("UPDATE fd.member SET tz = 'America/New_York' WHERE user_id = 'UHISTME'")
     slack!(at: Time.utc(2026, 9, 3, 2, 30))
@@ -79,7 +79,7 @@ class FdAuditHistogramTest < ActionDispatch::IntegrationTest
     assert_equal({ "2026-09-02" => 1, "2026-09-03" => 0, "2026-09-04" => 0 }, chart)
   end
 
-  test "the last 24 hours is a bar an hour over 24 hours, not two days" do
+  test "last:24h histogram has 25 hourly bars and the index lists 2 rows" do
     travel_to Time.utc(2026, 10, 10, 12, 20) do
       sign_in_as(@me)
       slack!(at: Time.utc(2026, 10, 10, 11, 5))
@@ -102,7 +102,7 @@ class FdAuditHistogramTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "the last seven days is seven bars, today included" do
+  test "last:7d histogram has 7 daily bars ending today" do
     travel_to Time.utc(2026, 10, 10, 12) do
       sign_in_as(@me)
       get fd_audit_histogram_path(q: "last:7d")
@@ -110,14 +110,14 @@ class FdAuditHistogramTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "dragging across hours sets an hour range" do
+  test "index with start and end hours redirects to an hour range query" do
     get fd_audit_path(q: "last:24h", start: "2026-10-09T13:00", end: "2026-10-09T15:00")
     assert_redirected_to fd_audit_path(q: "after:2026-10-09T13:00 before:2026-10-09T16:00")
     follow_redirect!
     assert_select ".audit-token", text: /after:\s*2026-10-09T13:00/
   end
 
-  test "dragging across it sets the range on the same search" do
+  test "histogram enables brush and start end params redirect to a date range query" do
     get fd_audit_histogram_path(q: "action:user_login", view: "everything")
     node = css_select("[data-controller=chart]").first
     assert_equal "true", node["data-chart-brush-value"]
@@ -128,9 +128,9 @@ class FdAuditHistogramTest < ActionDispatch::IntegrationTest
       q: "action:user_login after:2026-09-02 before:2026-09-05")
   end
 
-  test "slack events are left out without audit.read" do
-    ff = hold_role!("UHISTFF", "firefighter")
-    move_capability!("firefighter", "audit.read", false, by: "UHISTME")
+  test "histogram excludes slack events without audit.read" do
+    ff = grant_role!("UHISTFF", "firefighter")
+    override_capability!("firefighter", "audit.read", false, by: "UHISTME")
     sign_in_as(ff)
     slack!(at: Time.utc(2026, 9, 2, 10))
 

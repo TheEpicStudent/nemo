@@ -22,7 +22,7 @@
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
     </span>
     <p class="empty-title">
-      <%= @search.searching? ? "Nothing matches #{@search.term}" : "Search the Fire Engine" %>
+      <%= @search.searching? ? "No matches for #{@search.term}" : "Search" %>
     </p>
     <% unless @search.searching? %>
       <div class="empty-keys">
@@ -35,8 +35,8 @@
     <% end %>
     <% if @search.searching? %>
       <div class="empty-do">
-        <%= link_to "Every case", fd_cases_path, class: "btn" %>
-        <%= link_to "Every member", fd_members_path, class: "btn" %>
+        <%= link_to "Cases", fd_cases_path, class: "btn" %>
+        <%= link_to "Members", fd_members_path, class: "btn" %>
       </div>
     <% end %>
   </div>

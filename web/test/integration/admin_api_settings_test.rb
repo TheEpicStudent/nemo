@@ -2,8 +2,8 @@ require "test_helper"
 
 class AdminApiSettingsTest < ActionDispatch::IntegrationTest
   setup do
-    @manager = hold_role!("UBOSS9", "community_manager")
-    hold_role!("UFIRE9", "firefighter")
+    @manager = grant_role!("UBOSS9", "community_manager")
+    grant_role!("UFIRE9", "firefighter")
     @client = make_app!("UOWNER9")
     @token, = Api::Token.mint!(@client, "Toolbox")
     sign_in_as(@manager)
@@ -13,16 +13,16 @@ class AdminApiSettingsTest < ActionDispatch::IntegrationTest
     Api::Setting::DEFAULTS.keys.index_with { |key| Api::Setting.value(key) }
   end
 
-  test "the tab lists every token with its owner and its rate" do
+  test "admin api page lists token name with key prefix and rate setting" do
     get admin_api_path
 
     assert_response :success
     assert_select ".data-table td", text: "Toolbox"
     assert_select ".data-table .tag", text: @token.display_prefix
-    assert_select ".setlist .setname", text: "Requests a minute, per key"
+    assert_select ".setlist .setname", text: "Requests per minute per key"
   end
 
-  test "a manager moves a dial, and it is written down" do
+  test "setting update by manager changes value and creates one event" do
     assert_difference -> { Api::Event.count }, 1 do
       patch admin_api_setting_path, params: { key: "rate_per_minute", value: 250 }
     end
@@ -33,7 +33,7 @@ class AdminApiSettingsTest < ActionDispatch::IntegrationTest
       [event.verb, event.actor_user_id, event.detail]
   end
 
-  test "a dial that does not exist, or a silly number, changes nothing" do
+  test "setting update with unknown key or invalid value changes nothing" do
     original_values = setting_values
 
     patch admin_api_setting_path, params: { key: "wingspan", value: 5 }
@@ -49,7 +49,7 @@ class AdminApiSettingsTest < ActionDispatch::IntegrationTest
     assert_equal 0, Api::Event.count
   end
 
-  test "a manager gives one token its own rate, and takes it away again" do
+  test "token rate update sets rate limit and blank value clears it" do
     patch admin_api_token_rate_path(@token), params: { value: 600 }
     assert_equal 600, @token.reload.rate
 
@@ -59,7 +59,7 @@ class AdminApiSettingsTest < ActionDispatch::IntegrationTest
     assert_equal 2, Api::Event.where(verb: "token_rate_set").count
   end
 
-  test "a manager revokes somebody else's token, and it is named to them" do
+  test "token destroy by manager revokes token and logs owner in event detail" do
     delete admin_api_token_path(@token)
 
     assert_predicate @token.reload, :revoked?
@@ -68,17 +68,17 @@ class AdminApiSettingsTest < ActionDispatch::IntegrationTest
     assert_match(/owned by UOWNER9/, event.detail)
   end
 
-  test "revoking the same token twice is refused rather than logged twice" do
+  test "token destroy on revoked token flashes alert and creates no event" do
     delete admin_api_token_path(@token)
 
     assert_no_difference -> { Api::Event.count } do
       delete admin_api_token_path(@token)
     end
 
-    assert_match(/No live key/, flash[:alert])
+    assert_match(/Live key not found/, flash[:alert])
   end
 
-  test "a firefighter cannot move a dial or touch a token" do
+  test "firefighter setting update and token destroy change nothing" do
     sign_in_as(Account.find("UFIRE9"))
 
     patch admin_api_setting_path, params: { key: "rate_per_minute", value: 999 }
@@ -89,7 +89,7 @@ class AdminApiSettingsTest < ActionDispatch::IntegrationTest
     assert_equal 0, Api::Event.count
   end
 
-  test "a firefighter cannot reach the page at all" do
+  test "admin api page for firefighter redirects to root" do
     sign_in_as(Account.find("UFIRE9"))
     get admin_api_path
 

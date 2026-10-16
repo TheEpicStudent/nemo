@@ -29,12 +29,12 @@ def rows_from(path):
             user_id = (row.get("User ID") or "").strip()
             created = row.get("Account created (UTC)") or ""
             if not USER_ID_RE.match(user_id):
-                print(f"{path.name}: skipping row with no usable User ID: {row}")
+                print(f"{path.name}: skipped row, invalid User ID: {row}")
                 continue
             try:
                 yield user_id, parse_created(created)
             except ValueError:
-                print(f"{path.name}: skipping {user_id}, unparseable date {created!r}")
+                print(f"{path.name}: skipped {user_id}, invalid date {created!r}")
 
 
 def run(conn, paths):
@@ -43,8 +43,8 @@ def run(conn, paths):
     for path in paths:
         for user_id, created in rows_from(path):
             if user_id in created_by_user and created_by_user[user_id] != created:
-                print(f"conflicting dates within the export for {user_id}: "
-                      f"{created_by_user[user_id].date()} vs {created.date()}, keeping the first seen")
+                print(f"conflicting dates for {user_id}: "
+                      f"{created_by_user[user_id].date()} vs {created.date()}, using the first")
                 rejected += 1
                 continue
             created_by_user[user_id] = created
@@ -63,10 +63,8 @@ def run(conn, paths):
         cur.execute("SELECT count(*) FROM raw.member_created_override WHERE user_id = ANY(%s)", (ids,))
         after = cur.fetchone()[0]
 
-    print(f"read {len(rows)} distinct member(s) across {len(paths)} file(s), "
-          f"{rejected} rejected for conflicting dates within the export")
-    print(f"{before} already had an override before this run, "
-          f"{after - before} newly inserted, {after} now in raw.member_created_override")
+    print(f"read {len(rows)} member(s) from {len(paths)} file(s), {rejected} conflicting")
+    print(f"{before} existing, {after - before} inserted, {after} total in raw.member_created_override")
 
 
 def main():

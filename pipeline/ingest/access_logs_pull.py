@@ -9,8 +9,8 @@ BACKFILL = "access_logs_backfill"
 METHOD = "team.accessLogs"
 CREDENTIAL = "admin"
 PAGE = 1000
-LAP_SECONDS = 120
-MOST_PAGES = 20
+OVERLAP_SECONDS = 120
+MAX_PAGES = 20
 BACKFILL_COMPLETE = "complete"
 BACKFILL_MARKER_MAX_AGE_HOURS = 24 * 365
 
@@ -23,29 +23,29 @@ SELECT min(first_at) FROM fd.login_event WHERE source = 'access_logs'
 """
 
 ROW_SQL = """
-INSERT INTO fd.login_event AS held
+INSERT INTO fd.login_event AS existing
     (user_id, source, hour, ip, ua_id, first_at, last_at, hits, seen, first_seen_at,
      country, region, isp)
 VALUES (%s, 'access_logs', %s, %s, %s, %s, %s, 1, %s, %s, %s, %s, %s)
 ON CONFLICT (user_id, source, hour, ip, ua_id) DO UPDATE SET
-    hits = held.hits + CASE WHEN EXCLUDED.last_at > held.last_at OR EXCLUDED.first_at < held.first_at
+    hits = existing.hits + CASE WHEN EXCLUDED.last_at > existing.last_at OR EXCLUDED.first_at < existing.first_at
                             THEN 1 ELSE 0 END,
-    first_at = least(EXCLUDED.first_at, held.first_at),
-    last_at = greatest(EXCLUDED.last_at, held.last_at),
-    seen = greatest(EXCLUDED.seen, held.seen),
-    first_seen_at = least(EXCLUDED.first_seen_at, held.first_seen_at),
-    country = coalesce(EXCLUDED.country, held.country),
-    region = coalesce(EXCLUDED.region, held.region),
-    isp = coalesce(EXCLUDED.isp, held.isp),
+    first_at = least(EXCLUDED.first_at, existing.first_at),
+    last_at = greatest(EXCLUDED.last_at, existing.last_at),
+    seen = greatest(EXCLUDED.seen, existing.seen),
+    first_seen_at = least(EXCLUDED.first_seen_at, existing.first_seen_at),
+    country = coalesce(EXCLUDED.country, existing.country),
+    region = coalesce(EXCLUDED.region, existing.region),
+    isp = coalesce(EXCLUDED.isp, existing.isp),
     updated_at = now()
-WHERE (held.first_at, held.last_at, held.seen, held.first_seen_at, held.country, held.region, held.isp)
-      IS DISTINCT FROM (least(EXCLUDED.first_at, held.first_at),
-                        greatest(EXCLUDED.last_at, held.last_at),
-                        greatest(EXCLUDED.seen, held.seen),
-                        least(EXCLUDED.first_seen_at, held.first_seen_at),
-                        coalesce(EXCLUDED.country, held.country),
-                        coalesce(EXCLUDED.region, held.region),
-                        coalesce(EXCLUDED.isp, held.isp))
+WHERE (existing.first_at, existing.last_at, existing.seen, existing.first_seen_at, existing.country, existing.region, existing.isp)
+      IS DISTINCT FROM (least(EXCLUDED.first_at, existing.first_at),
+                        greatest(EXCLUDED.last_at, existing.last_at),
+                        greatest(EXCLUDED.seen, existing.seen),
+                        least(EXCLUDED.first_seen_at, existing.first_seen_at),
+                        coalesce(EXCLUDED.country, existing.country),
+                        coalesce(EXCLUDED.region, existing.region),
+                        coalesce(EXCLUDED.isp, existing.isp))
 """
 
 
@@ -85,7 +85,7 @@ def hour_of(at):
     return at.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
 
 
-def landing_row(row, agents):
+def login_event_row(row, agents):
     user_id, at, ip, ua, country, region, isp, count, first_seen = row
     return (user_id, hour_of(at), ip, user_agents.id_of(agents, ua), at, at, count, first_seen,
             country, region, isp)
@@ -108,7 +108,7 @@ def insert_rows(conn, logins, counts):
     if rows:
         agents = user_agents.ids(conn, [row[3] for row in rows])
         with conn.cursor() as cur:
-            cur.executemany(ROW_SQL, sorted((landing_row(row, agents) for row in rows), key=order))
+            cur.executemany(ROW_SQL, sorted((login_event_row(row, agents) for row in rows), key=order))
             member_seen.logged_in(cur, [(row[0], row[1]) for row in rows])
     conn.commit()
     counts.rows_in += len(rows)
@@ -123,7 +123,7 @@ def newest_login_at(conn):
 def run(conn, client=None):
     client = client or ProxyClient.for_source(SOURCE)
     since = newest_login_at(conn)
-    stop_at = since - timedelta(seconds=LAP_SECONDS) if since else None
+    stop_at = since - timedelta(seconds=OVERLAP_SECONDS) if since else None
 
     pending = []
     inserted = 0
@@ -148,7 +148,7 @@ def run(conn, client=None):
                 caught_up = True
                 break
             pending.append(login)
-            if len(pending) >= PAGE * MOST_PAGES:
+            if len(pending) >= PAGE * MAX_PAGES:
                 break
             if len(pending) % PAGE == 0:
                 flush()
@@ -210,7 +210,7 @@ def backfill(conn, client=None):
                 oldest = first_seen
             batch.append(login)
             fetched += 1
-            if fetched >= PAGE * MOST_PAGES:
+            if fetched >= PAGE * MAX_PAGES:
                 capped = True
                 break
         entries.close()

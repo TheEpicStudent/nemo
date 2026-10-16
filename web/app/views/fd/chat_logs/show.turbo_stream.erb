@@ -1,5 +1,5 @@
-<% entries = @everything ? chat_entries(@reports, @chat, @conversation_messages, @queued) :
-     changed_chat_entries(@reports, @chat_changed, @messages_changed, @queued_changed) %>
+<% entries = @everything ? chat_entries(@reports, @chat, @conversation_messages, @queued_replies) :
+     changed_chat_entries(@reports, @chat_changed, @messages_changed, @queued_replies_changed) %>
 <% if entries.any? %><%= turbo_stream.remove("chat-empty-#{@case.id}") %><% end %>
 <% @sent_ids.each do |id| %><%= turbo_stream.remove("message-queued-#{id}") %><% end %>
 <turbo-stream action="upsert" target="chat-messages-<%= @case.id %>" version="<%= @version %>">

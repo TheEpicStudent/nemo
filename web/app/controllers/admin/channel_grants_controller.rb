@@ -17,9 +17,9 @@ module Admin
       end
       Current.forget_roles
 
-      redirect_to admin_person_path(person_user_id), notice: "##{channel_id} is now readable by them"
+      redirect_to admin_person_path(person_user_id), notice: "Access to ##{channel_id} granted"
     rescue ActiveRecord::RecordNotUnique
-      redirect_with_alert("They already have that channel")
+      redirect_with_alert("Already granted")
     end
 
     def destroy

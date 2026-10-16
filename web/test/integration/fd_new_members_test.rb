@@ -4,7 +4,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
   end
 
   def joined!(user_id, at:, source: "team_join", email: nil)
@@ -19,7 +19,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     Fd::NewMemberQuery.new(params.stringify_keys, actor: actor)
   end
 
-  test "the window is what was asked for, not everything ever" do
+  test "when filter week excludes older joiners and any includes them" do
     joined!("UNEW1", at: 2.hours.ago)
     joined!("UOLD1", at: 40.days.ago)
 
@@ -28,7 +28,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     assert_includes query({ "when" => "any" }).rows.map(&:user_id), "UOLD1"
   end
 
-  test "email is only there for somebody who may read identity" do
+  test "rows expose email and domain to an identity reader and nil email to no actor" do
     joined!("UE1", at: 1.hour.ago, email: "kid@school.example")
 
     row = query.rows.find { |one| one.user_id == "UE1" }
@@ -39,7 +39,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     assert_nil anonymous_query.rows.find { |one| one.user_id == "UE1" }.email
   end
 
-  test "a domain nobody else uses is called out, a shared one is not" do
+  test "lone_domain? is true for an unshared domain and false for a shared one" do
     joined!("UD1", at: 1.hour.ago, email: "one@lonely.example")
     joined!("UD2", at: 1.hour.ago, email: "two@shared.example")
     joined!("UD3", at: 2.hours.ago, email: "three@shared.example")
@@ -47,10 +47,10 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     rows = query.rows.index_by(&:user_id)
     assert rows["UD1"].lone_domain?
     assert_not rows["UD2"].lone_domain?
-    assert_equal 2, rows["UD2"].domain_people
+    assert_equal 2, rows["UD2"].domain_user_count
   end
 
-  test "somebody under a guard and somebody deactivated are told apart" do
+  test "guarded? and deactivated? separate a shush guard from a deactivation" do
     joined!("UG1", at: 1.hour.ago)
     joined!("UG2", at: 1.hour.ago)
     Fd::MemberGuard.create!(kind: "shush", subject_id: "UG1", opened_by: "UME",
@@ -67,7 +67,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     assert_equal ["UG2"], query({ "view" => "gone" }).rows.map(&:user_id)
   end
 
-  test "the tab counts are over the window, not over the tab you are on" do
+  test "views counts ignore the selected view" do
     joined!("UT1", at: 1.hour.ago)
     joined!("UT2", at: 1.hour.ago + 20.seconds)
     Fd::MemberGuard.create!(kind: "deactivation", subject_id: "UT1", opened_by: "UME",
@@ -78,7 +78,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     assert_equal 1, counts["gone"].count
   end
 
-  test "a domain filter nobody may read is refused rather than applied" do
+  test "domain filter resets to any without identity access and does not filter rows" do
     joined!("UF1", at: 1.hour.ago, email: "kid@school.example")
 
     anonymous_query = Fd::NewMemberQuery.new({ "domain" => "school.example" }, actor: nil)
@@ -86,7 +86,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     assert_includes anonymous_query.rows.map(&:user_id), "UF1"
   end
 
-  test "the page opens and lists who joined" do
+  test "new members index renders the turbo frame with the joiner domain" do
     joined!("UP1", at: 1.hour.ago, email: "kid@school.example")
     sign_in_as(@me)
 
@@ -96,7 +96,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     assert_match "school.example", response.body
   end
 
-  test "reading the joiners page leaves nothing in the engine's own trail" do
+  test "new members index writes no AccessLog row for a listed email" do
     joined!("UL1", at: 1.hour.ago, email: "kid@school.example")
     sign_in_as(@me)
 
@@ -106,7 +106,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a tab and a date range hold at the same time" do
+  test "window_params keeps view and view_params keeps when" do
     member_query = query({ "view" => "guarded", "when" => "day" })
 
     assert_equal "guarded", member_query.view, "picking a window must not drop the tab"
@@ -115,7 +115,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     assert_equal "day", member_query.view_params("gone")["when"]
   end
 
-  test "a search holds across a tab and a window" do
+  test "term is kept by window_params and view_params" do
     member_query = query({ "view" => "guarded", "when" => "day", "q" => "zev" })
 
     assert_equal "zev", member_query.term
@@ -124,7 +124,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     assert_equal "guarded", member_query.view
   end
 
-  test "a search finds them by handle, and by email only if identity is readable" do
+  test "q matches user id and matches email only for an identity reader" do
     joined!("US1", at: 1.hour.ago, email: "findme@school.example")
 
     assert_includes query({ "q" => "us1" }).rows.map(&:user_id), "US1"
@@ -133,7 +133,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     assert_not_includes anonymous_query.rows.map(&:user_id), "US1"
   end
 
-  test "picking several and confirming the count deactivates each one" do
+  test "bulk deactivations create one pending deactivation guard per user" do
     joined!("UX1", at: 1.hour.ago)
     joined!("UX2", at: 1.hour.ago)
     sign_in_as(@me)
@@ -147,16 +147,16 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
       .pluck(:enforcement_status).uniq
   end
 
-  test "a bulk deactivation with nobody picked changes nothing" do
+  test "bulk deactivations with empty user_ids create no guard and alert" do
     sign_in_as(@me)
 
     assert_no_difference -> { Fd::MemberGuard.count } do
       post fd_bulk_deactivations_path, params: { user_ids: [], reason: "raiding" }
     end
-    assert_match(/pick who this is about/, flash[:alert])
+    assert_match(/Select members/, flash[:alert])
   end
 
-  test "the reason is carried when there is one, and named when there is not" do
+  test "bulk deactivations store the reason and NO_REASON for a blank reason" do
     joined!("UZ1", at: 1.hour.ago)
     joined!("UZ2", at: 1.hour.ago)
     sign_in_as(@me)
@@ -169,18 +169,18 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
       Fd::MemberGuard.find_by(subject_id: "UZ2").reason
   end
 
-  test "somebody who may not deactivate cannot do it in bulk either" do
+  test "bulk deactivations create no guard when member.deactivate is denied" do
     joined!("UW1", at: 1.hour.ago)
     Authz::Override.create!(role: "firefighter", capability: "member.deactivate",
       allowed: false, changed_by: "UME")
-    sign_in_as(hold_role!("UFF", "firefighter"))
+    sign_in_as(grant_role!("UFF", "firefighter"))
 
     post fd_bulk_deactivations_path, params: { user_ids: %w[UW1], reason: "raiding" }
 
     assert_empty Fd::MemberGuard.where(subject_id: "UW1")
   end
 
-  test "one already standing is counted apart rather than opened twice" do
+  test "bulk deactivations skip a user with a deactivation guard and notify" do
     joined!("UV1", at: 1.hour.ago)
     Fd::MemberGuard.create!(kind: "deactivation", subject_id: "UV1", opened_by: "UME",
       reason: "already", enforced_by: "nemo", enforcement_status: "held")
@@ -189,10 +189,10 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     post fd_bulk_deactivations_path, params: { user_ids: %w[UV1], reason: "again" }
 
     assert_equal 1, Fd::MemberGuard.where(subject_id: "UV1").count
-    assert_match(/already had one standing/, flash[:notice])
+    assert_match(/already guarded/, flash[:notice])
   end
 
-  test "the standing column names the guard rather than counting it" do
+  test "rows expose kinds as the guard kind names" do
     joined!("UK1", at: 1.hour.ago)
     Fd::MemberGuard.create!(kind: "shush", subject_id: "UK1", opened_by: "UME",
       reason: "spam", enforced_by: "nemo", enforcement_status: "held", expires_at: 2.days.from_now)
@@ -200,7 +200,7 @@ class FdNewMembersTest < ActionDispatch::IntegrationTest
     assert_equal %w[shush], query.rows.find { |row| row.user_id == "UK1" }.kinds
   end
 
-  test "nothing is written down when there was no identity to read" do
+  test "new members index writes no AccessLog row when no email is listed" do
     joined!("UN1", at: 1.hour.ago)
     sign_in_as(@me)
 
@@ -214,7 +214,7 @@ class FdNewMemberCardTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
     member!("UJOIN", email: "kid@throwaway.example")
     as_pipeline("INSERT INTO fd.member_joins (user_id, joined_at, source) " \
@@ -237,7 +237,7 @@ class FdNewMemberCardTest < ActionDispatch::IntegrationTest
     SQL
   end
 
-  test "the card carries everything the firehouse note used to" do
+  test "new member card renders identity and last sign-in details" do
     get fd_new_member_path("UJOIN")
     assert_response :success
 
@@ -251,7 +251,7 @@ class FdNewMemberCardTest < ActionDispatch::IntegrationTest
     assert_match "\u{1F1F7}\u{1F1F8}", response.body, "the flag is drawn from the country"
   end
 
-  test "the table shows the address and the country it came from" do
+  test "new members table has IP and Country columns and no On domain or Last seen from column" do
     get fd_new_members_path
     assert_response :success
 
@@ -263,18 +263,18 @@ class FdNewMemberCardTest < ActionDispatch::IntegrationTest
     assert_match "Serbia", response.body
   end
 
-  test "the country survives a newer sign-in that carries none" do
+  test "card keeps the earlier country and uses the newest ip when a sign-in has no country" do
     signed_in!("203.0.113.9", "x", "Chrome 1", "Linux", at: "now() + interval '1 minute'")
 
     get fd_new_member_path("UJOIN")
     assert_response :success
     assert_match "Serbia", response.body,
-      "the audit log carries no country, so it must not hide the one the access log has"
+      "the country from the earlier row must be kept"
     assert_match "TELEKOM SRBIJA", response.body
-    assert_match "203.0.113.9", response.body, "the address still comes from the newest row"
+    assert_match "203.0.113.9", response.body, "the ip comes from the newest row"
   end
 
-  test "an address is wrapped so cloudflare leaves it alone" do
+  test "card wraps the email in email_off markers" do
     get fd_new_member_path("UJOIN")
     assert_match "<!--email_off-->", response.body
     assert_match "kid@throwaway.example", response.body
@@ -284,27 +284,27 @@ class FdNewMemberCardTest < ActionDispatch::IntegrationTest
     on = body.index("<!--/email_off-->")
     assert off < body.index("kid@throwaway.example")
     assert on > body.index("kid@throwaway.example"),
-      "cloudflare only skips an address sitting between the two markers"
+      "the email must sit between the email_off markers"
   end
 
-  test "the page wraps its addresses too, since turbo swaps it in undecoded" do
+  test "new members index wraps the email in email_off markers" do
     get fd_new_members_path
     assert_match "<!--email_off-->", response.body
     assert_match "kid@throwaway.example", response.body
   end
 
-  test "the card is a frame the page can swap in" do
+  test "card renders the turbo frame new-member-card" do
     get fd_new_member_path("UJOIN")
     assert_select %(turbo-frame[id="new-member-card"])
   end
 
-  test "opening a card leaves nothing in the engine's own trail either" do
+  test "card writes no AccessLog row" do
     assert_no_difference -> { AccessLog.count } do
       get fd_new_member_path("UJOIN")
     end
   end
 
-  test "somebody who never signed in still has a card" do
+  test "card for a member with no sign-in renders never signed in" do
     member!("UQUIET")
     as_pipeline("INSERT INTO fd.member_joins (user_id, joined_at, source) " \
                 "VALUES (?, now(), 'team_join') ON CONFLICT (user_id) DO NOTHING", "UQUIET")
@@ -315,12 +315,12 @@ class FdNewMemberCardTest < ActionDispatch::IntegrationTest
     assert_match "never signed in", response.body
   end
 
-  test "a joiner nobody has heard of is not found" do
+  test "card for an unknown user id returns 404" do
     get fd_new_member_path("UNOBODY")
     assert_response :not_found
   end
 
-  test "a card is reachable however long ago they joined" do
+  test "card renders for a member who joined 200 days ago" do
     as_pipeline("UPDATE fd.member_joins SET joined_at = now() - interval '200 days' " \
                 "WHERE user_id = ?", "UJOIN")
 

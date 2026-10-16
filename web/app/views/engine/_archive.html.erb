@@ -6,37 +6,37 @@
 
 <div class="section">
   <div class="section-head">
-    <h2 class="section-title">What we hold</h2>
+    <h2 class="section-title">Archive</h2>
   </div>
 
   <div class="grid g-1">
     <div class="card card-flush">
       <div class="card-head">
         <div>
-          <h2 class="card-title">What the archive holds</h2>
+          <h2 class="card-title">Totals</h2>
           <p class="card-sub">
             <% if totals.archived_days %>
               <%= totals.oldest_archived.to_date.strftime("%-d %b %Y") %>
               to <%= totals.newest_archived.to_date.strftime("%-d %b %Y") %>,
               <%= pluralize(number_with_delimiter(totals.archived_days), "day") %>
             <% else %>
-              Nothing has landed yet
+              No data
             <% end %>
-            <% if archive.beat %>
-              &middot; beat <%= short_age(archive.beat.beat_at) %> ago
+            <% if archive.heartbeat %>
+              &middot; heartbeat <%= short_age(archive.heartbeat.beat_at) %> ago
             <% end %>
           </p>
         </div>
-        <% if archive.beat %>
+        <% if archive.heartbeat %>
           <div class="card-tools">
-            <%= worker_state(archive.beat) %>
+            <%= worker_state(archive.heartbeat) %>
           </div>
         <% end %>
       </div>
 
       <dl class="fact-grid">
         <div class="fact">
-          <dt>Messages held</dt>
+          <dt>Messages archived</dt>
           <dd><%= number_with_delimiter(messages) %></dd>
         </div>
         <div class="fact">
@@ -48,7 +48,7 @@
           <dd><%= number_with_delimiter(replies) %></dd>
         </div>
         <div class="fact">
-          <dt>Channels holding</dt>
+          <dt>Channels archived</dt>
           <dd><%= number_with_delimiter(totals.holding) %> <span class="sub">of <%= number_with_delimiter(totals.reachable) %></span></dd>
         </div>
         <div class="fact">
@@ -58,7 +58,7 @@
           </dd>
         </div>
         <div class="fact">
-          <dt>Slack will not open</dt>
+          <dt>Unreachable</dt>
           <dd class="<%= "is-none" if totals.unreachable.zero? %>">
             <%= totals.unreachable.zero? ? "None" : pluralize(totals.unreachable, "channel") %>
           </dd>
@@ -70,7 +70,7 @@
           </dd>
         </div>
         <div class="fact">
-          <dt>Last walk</dt>
+          <dt>Last scan</dt>
           <dd class="<%= "is-none" if totals.last_walked_at.nil? %>">
             <%= totals.last_walked_at ? "#{short_age(totals.last_walked_at)} ago" : "Never" %>
           </dd>
@@ -98,7 +98,7 @@
                       <span><%= number_to_percentage(stage.visible_share, precision: 1) %></span>
                     </div>
                   <% else %>
-                    <span class="sub">Nothing to measure against yet</span>
+                    <span class="sub">n/a</span>
                   <% end %>
                 </td>
                 <td class="col-num">
@@ -127,7 +127,7 @@
       <div class="card card-flush">
         <div class="card-head">
           <div>
-            <h2 class="card-title">What the walker is working through</h2>
+            <h2 class="card-title">Queues</h2>
           </div>
         </div>
         <div class="scroll">
@@ -142,7 +142,7 @@
                 <th class="col-num">Short</th>
                 <th class="col-num">Dead</th>
                 <th class="col-num">Oldest</th>
-                <th class="col-num">Drains in</th>
+                <th class="col-num">ETA</th>
               </tr>
             </thead>
             <tbody>
@@ -162,7 +162,6 @@
             </tbody>
           </table>
         </div>
-        <p class="chart-note">The queues the archive worker drains, oldest work first</p>
       </div>
     <% end %>
   </div>
@@ -177,7 +176,7 @@
     <div class="card">
       <div class="card-head">
         <div>
-          <h2 class="card-title">Held against what Slack counted</h2>
+          <h2 class="card-title">Archived vs Slack count</h2>
         </div>
       </div>
       <div
@@ -188,39 +187,38 @@
         data-chart-data-value="<%= {
           labels: archive.days.map { |row| row.ds.to_s },
           datasets: [
-            { label: "Slack counted", data: archive.days.map { |row| row.slack_messages.to_i } },
-            { label: "Held here", data: archive.days.map { |row| row.messages_held.to_i } }
+            { label: "Slack count", data: archive.days.map { |row| row.slack_messages.to_i } },
+            { label: "Archived", data: archive.days.map { |row| row.messages_held.to_i } }
           ]
         }.to_json %>"
       ></div>
-      <p class="chart-note">Messages landed each day beside the number Slack's own analytics report for that day,
-        last <%= pluralize(archive.days.size, "day") %></p>
+      <p class="chart-note">Last <%= pluralize(archive.days.size, "day") %></p>
     </div>
   <% end %>
 
   <div class="card card-flush">
     <div class="card-head">
       <div>
-        <h2 class="card-title">Channels the archive covers least</h2>
+        <h2 class="card-title">Lowest coverage</h2>
       </div>
     </div>
-    <% if archive.worst.any? %>
+    <% if archive.lowest_coverage.any? %>
       <div class="scroll">
         <table class="data-table engine-wide-table">
           <thead>
             <tr>
               <th>Channel</th>
-              <th class="col-num">Members held</th>
-              <th class="col-num">Slack counted</th>
+              <th class="col-num">Member messages archived</th>
+              <th class="col-num">Slack count</th>
               <th class="col-num">Share</th>
               <th class="col-num">Threads</th>
               <th class="col-num">Replies</th>
-              <th class="col-num">Oldest held</th>
-              <th class="col-num">Newest held</th>
+              <th class="col-num">Oldest archived</th>
+              <th class="col-num">Newest archived</th>
             </tr>
           </thead>
           <tbody>
-            <% archive.worst.each do |row| %>
+            <% archive.lowest_coverage.each do |row| %>
               <tr>
                 <td><%= render "channel_cell", row: row %></td>
                 <td class="col-num"><%= number_with_delimiter(row.member_messages_held.to_i) %></td>
@@ -245,53 +243,52 @@
       </div>
     <% else %>
       <div class="empty">
-        <p class="empty-title">Nothing to compare yet</p>
+        <p class="empty-title">No data</p>
       </div>
     <% end %>
-    <p class="chart-note">Member messages we hold against the number Slack counted on the same days,
-      channels where Slack counted <%= number_with_delimiter(Engine::Archive::WORST_FLOOR) %> or more</p>
+    <p class="chart-note">Minimum Slack count <%= number_with_delimiter(Engine::Archive::MIN_CHANNEL_MESSAGES) %></p>
   </div>
 </div>
 
 <div class="section">
   <div class="section-head">
-    <h2 class="section-title">Still to walk</h2>
+    <h2 class="section-title">Pending</h2>
   </div>
 
   <div class="grid g-1">
     <div class="card card-flush">
       <div class="card-head">
         <div>
-          <h2 class="card-title">Not finished</h2>
+          <h2 class="card-title">Incomplete</h2>
         </div>
       </div>
-      <% if archive.waiting.any? %>
+      <% if archive.incomplete_channels.any? %>
         <div class="scroll">
           <table class="data-table engine-wide-table">
             <thead>
               <tr>
                 <th>Channel</th>
                 <th>State</th>
-                <th class="col-num">Held</th>
+                <th class="col-num">Archived</th>
                 <th class="col-num">Threads left</th>
-                <th class="col-num">Last walked</th>
-                <th>Why it stopped</th>
+                <th class="col-num">Last scan</th>
+                <th>Reason</th>
               </tr>
             </thead>
             <tbody>
-              <% archive.waiting.each do |row| %>
+              <% archive.incomplete_channels.each do |row| %>
                 <tr>
                   <td><%= render "channel_cell", row: row %></td>
                   <td>
                     <span class="chip <%= row.walked ? "chip-warn" : "chip-off" %>">
-                      <%= row.walked ? "Part walked" : "Never walked" %>
+                      <%= row.walked ? "Partial" : "Not scanned" %>
                     </span>
                   </td>
                   <td class="col-num"><%= number_with_delimiter(row.messages_held.to_i) %></td>
                   <td class="col-num"><%= number_with_delimiter([row.threads_known - row.threads_fetched, 0].max) %></td>
                   <td class="col-num"><%= row.last_walked_at ? "#{short_age(row.last_walked_at)} ago" : "n/a" %></td>
                   <td class="sub">
-                    <%= row.unreachable_reason.presence || "Still queued" %>
+                    <%= row.unreachable_reason.presence || "Queued" %>
                   </td>
                 </tr>
               <% end %>
@@ -300,7 +297,7 @@
         </div>
       <% else %>
         <div class="empty">
-          <p class="empty-title">Every channel is walked</p>
+          <p class="empty-title">None</p>
         </div>
       <% end %>
     </div>
@@ -308,7 +305,7 @@
     <div class="card card-flush">
       <div class="card-head">
         <div>
-          <h2 class="card-title">Could not read</h2>
+          <h2 class="card-title">Errors</h2>
         </div>
       </div>
       <% if archive.errors.any? %>
@@ -318,7 +315,7 @@
               <tr>
                 <th>Error</th>
                 <th class="col-num">Channels</th>
-                <th class="col-num">Last tried</th>
+                <th class="col-num">Last attempt</th>
               </tr>
             </thead>
             <tbody>
@@ -334,7 +331,7 @@
         </div>
       <% else %>
         <div class="empty">
-          <p class="empty-title">No walk errors</p>
+          <p class="empty-title">No errors</p>
         </div>
       <% end %>
     </div>

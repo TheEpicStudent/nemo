@@ -131,7 +131,7 @@ module Fd
     def total
       @total ||= if searched_page?
         searched.total
-      elsif searching? && hits.empty?
+      elsif searching? && matching_ids.empty?
         0
       else
         select_rows(<<~SQL).first["found"].to_i
@@ -141,10 +141,10 @@ module Fd
       end
     end
 
-    COUNTS_FOR = 5.minutes
+    COUNTS_TTL = 5.minutes
 
     def population
-      @population ||= Rails.cache.fetch("fd/member_query/population", expires_in: COUNTS_FOR) do
+      @population ||= Rails.cache.fetch("fd/member_query/population", expires_in: COUNTS_TTL) do
         Member.live.count
       end
     end
@@ -157,7 +157,7 @@ module Fd
     end
 
     def self.view_counts
-      Rails.cache.fetch("fd/member_query/view_counts", expires_in: COUNTS_FOR) do
+      Rails.cache.fetch("fd/member_query/view_counts", expires_in: COUNTS_TTL) do
         new({}).send(:counts_per_view)
       end
     end
@@ -215,13 +215,13 @@ module Fd
 
     def empty_note
       case view
-      when "history" then "Nobody has a conduct history yet."
-      when "open" then "Nobody has an open case."
-      when "priors" then "Nobody has two or more priors in 12 months."
-      when "notes" then "No standing notes on anybody."
+      when "history" then "No members with history"
+      when "open" then "No members with an open case"
+      when "priors" then "No members with priors"
+      when "notes" then "No standing notes"
       when "linked" then "No linked members"
       when "deactivated" then "No deactivated members"
-      else "No member matches this."
+      else "No matching members"
       end
     end
 
@@ -269,7 +269,7 @@ module Fd
     end
 
     def page_rows
-      return [] if searching? && hits.empty?
+      return [] if searching? && matching_ids.empty?
 
       (searching? ? searched_rows : browsed_rows).map { |row| row_from(row) }
     end
@@ -286,14 +286,14 @@ module Fd
     def browsed_rows
       select_rows(<<~SQL, limit: LIMIT, offset: (page - 1) * LIMIT)
         WITH #{listed(paged_ids)}
-        SELECT * FROM roster ORDER BY place
+        SELECT * FROM roster ORDER BY match_rank
       SQL
     end
 
     def all_rows
       return [] if searching? && matched.ids.empty?
 
-      select_rows(<<~SQL, searching? ? { hits: matched.ids } : {}).map { |row| row_from(row) }
+      select_rows(<<~SQL, searching? ? { matching_ids: matched.ids } : {}).map { |row| row_from(row) }
         WITH #{aggregates}
         SELECT * FROM roster WHERE #{roster_where} ORDER BY #{roster_order}
       SQL
@@ -314,8 +314,8 @@ module Fd
       searching? && !narrowed?
     end
 
-    def hits
-      @hits ||= searched_page? ? searched.ids : matched.ids
+    def matching_ids
+      @matching_ids ||= searched_page? ? searched.ids : matched.ids
     end
 
     def matched

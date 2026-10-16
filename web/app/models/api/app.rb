@@ -4,10 +4,10 @@ module Api
 
     MAX_NAME = 60
     MAX_BLURB = 500
-    SHORTEST_BLURB = 10
+    MIN_BLURB_LENGTH = 10
 
-    class TooThinError < StandardError; end
-    class UnnamedError < StandardError; end
+    class BlurbTooShortError < StandardError; end
+    class NameBlankError < StandardError; end
 
     has_many :tokens, class_name: "Api::Token", foreign_key: :app_id, inverse_of: :app
     has_one :approval, class_name: "Api::Approval", foreign_key: :app_id, inverse_of: :app
@@ -25,8 +25,8 @@ module Api
     def self.register!(owner_user_id, name:, blurb:)
       text = name.to_s.strip
       blurb_text = blurb.to_s.strip
-      raise UnnamedError if text.empty?
-      raise TooThinError if blurb_text.length < SHORTEST_BLURB
+      raise NameBlankError if text.empty?
+      raise BlurbTooShortError if blurb_text.length < MIN_BLURB_LENGTH
 
       create!(owner_user_id: owner_user_id, name: text.first(MAX_NAME),
         blurb: blurb_text.first(MAX_BLURB), slug: slug_for(text))

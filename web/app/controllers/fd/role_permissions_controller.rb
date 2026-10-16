@@ -21,7 +21,7 @@ module Fd
 
     def destroy
       rows = Authz::Override.all.to_a
-      return redirect_to(admin_roles_path, alert: "No overrides are set") if rows.empty?
+      return redirect_to(admin_roles_path, alert: "No overrides") if rows.empty?
 
       writing do
         rows.each do |row|
@@ -32,7 +32,7 @@ module Fd
         Current.forget_roles
       end
 
-      redirect_to admin_roles_path, notice: "#{rows.size} capability(s) reset to default"
+      redirect_to admin_roles_path, notice: "#{rows.size} #{'override'.pluralize(rows.size)} reset"
     end
 
     private
@@ -50,9 +50,9 @@ module Fd
 
     def check!(role, key, _allowed)
       raise_not_allowed "#{role} is not a role" unless Authz.role_names.include?(role)
-      raise_not_allowed "#{role} holds everything already" if Authz.superadmin?(role)
+      raise_not_allowed "#{role} has every capability" if Authz.superadmin?(role)
       raise_not_allowed "#{key} is not a capability" unless Authz.keys.include?(key)
-      raise_not_allowed "#{key} cannot be moved" if Authz.locked?(key)
+      raise_not_allowed "#{key} is locked" if Authz.locked?(key)
     end
 
     def back_to_default?(row)
@@ -70,10 +70,8 @@ module Fd
     end
 
     def override_notice(role, key, allowed)
-      label = Authz.role_label(role).downcase
-      return "#{label}s can now #{Authz.label(key).downcase}" if allowed
-
-      "#{key} is no longer theirs"
+      label = "#{Authz.role_label(role)}: #{Authz.label(key)}"
+      allowed ? "#{label} allowed" : "#{label} denied"
     end
 
     def raise_not_allowed(message)

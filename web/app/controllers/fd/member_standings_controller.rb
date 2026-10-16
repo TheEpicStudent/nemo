@@ -4,7 +4,7 @@ module Fd
 
     def show
       user_id = params[:member_id].to_s.upcase
-      guards = MemberGuard.worst_first(MemberGuard.standing_on(user_id))
+      guards = MemberGuard.by_severity(MemberGuard.standing_on(user_id))
 
       render partial: "fd/members/standing", layout: false, locals: {
         user_id: user_id, guards: guards, names: Names.for(referenced_user_ids(guards) + [user_id]),
@@ -16,7 +16,7 @@ module Fd
     private
 
     def referenced_user_ids(guards)
-      guards.flat_map(&:people_named) + guards.map(&:subject_id)
+      guards.flat_map(&:referenced_user_ids) + guards.map(&:subject_id)
     end
   end
 end

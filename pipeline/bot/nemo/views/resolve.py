@@ -9,7 +9,7 @@ CALLBACK = "case_resolve"
 
 TITLE_LIMIT = 24
 
-WHY = "resolve_why"
+RESOLUTION = "resolve_why"
 NOTE = "resolve_note"
 NOTIFY = "resolve_notify"
 MESSAGE = "resolve_message"
@@ -36,15 +36,15 @@ def default_message():
 
 
 def reasons():
-    submitted_values = {
+    pickable = {
         key: row
         for key, row in table()["resolutions"].items()
         if row.get("pick")
     }
-    return sorted(submitted_values, key=lambda key: submitted_values[key]["pick"])
+    return sorted(pickable, key=lambda key: pickable[key]["pick"])
 
 
-def forced(live_actions):
+def forced_resolution(live_actions):
     return "action_taken" if live_actions else None
 
 
@@ -67,17 +67,17 @@ def live_actions_text(live_actions):
     return "\n".join(line(one) for one in live_actions)
 
 
-def reason_input_block(live_actions):
-    if forced(live_actions):
+def resolution_block(live_actions):
+    if forced_resolution(live_actions):
         return {"type": "section", "text": {"type": "mrkdwn", "text": live_actions_text(live_actions)}}
 
     return {
         "type": "input",
-        "block_id": WHY,
+        "block_id": RESOLUTION,
         "label": {"type": "plain_text", "text": "Resolution"},
         "element": {
             "type": "static_select",
-            "action_id": WHY,
+            "action_id": RESOLUTION,
             "options": [
                 {"text": {"type": "plain_text", "text": label(key)}, "value": key}
                 for key in reasons()
@@ -88,7 +88,7 @@ def reason_input_block(live_actions):
 
 def build_view(case_id, live_actions=(), open_reports=0):
     blocks = [
-        reason_input_block(live_actions),
+        resolution_block(live_actions),
         {
             "type": "input",
             "block_id": NOTE,
@@ -98,10 +98,6 @@ def build_view(case_id, live_actions=(), open_reports=0):
                 "type": "rich_text_input",
                 "action_id": NOTE,
                 "min_lines": 2,
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "what happened",
-                },
             },
         },
     ]
@@ -136,10 +132,10 @@ def build_view(case_id, live_actions=(), open_reports=0):
                 "optional": True,
                 "label": {"type": "plain_text", "text": "Message to the reporter"},
                 "element": {
-                    "type": "plain_text_input",
+                    "type": "rich_text_input",
                     "action_id": MESSAGE,
-                    "multiline": True,
-                    "initial_value": default_message(),
+                    "min_lines": 2,
+                    "initial_value": richtext_value(default_message()),
                 },
             },
         ]
@@ -155,16 +151,21 @@ def build_view(case_id, live_actions=(), open_reports=0):
     }
 
 
+def richtext_value(text):
+    return {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [
+        {"type": "text", "text": text}]}]}
+
+
 def submitted_values(view_state, live_actions=()):
     values = view_state.get("values", {})
-    selected = (values.get(WHY, {}).get(WHY, {}).get("selected_option") or {}).get("value")
+    selected = (values.get(RESOLUTION, {}).get(RESOLUTION, {}).get("selected_option") or {}).get("value")
     checked_options = values.get(NOTIFY, {}).get(NOTIFY, {}).get("selected_options") or []
-    message = values.get(MESSAGE, {}).get(MESSAGE, {}).get("value")
+    message = richtext.flatten(values.get(MESSAGE, {}).get(MESSAGE, {}).get("rich_text_value"))
 
     note = richtext.flatten(values.get(NOTE, {}).get(NOTE, {}).get("rich_text_value"))
 
     return {
-        "resolution": forced(live_actions) or selected,
+        "resolution": forced_resolution(live_actions) or selected,
         "member_note": note or None,
         "notify_reporter": any(one.get("value") == NOTIFY_REPORTER for one in checked_options),
         "message": (message or "").strip() or default_message(),
@@ -173,9 +174,7 @@ def submitted_values(view_state, live_actions=()):
 
 def validation_errors(values):
     if not values.get("resolution"):
-        return {WHY: "Pick a resolution."}
-    if values.get("notify_reporter") and richtext.mentions(values.get("message")):
-        return {MESSAGE: "Mentions cannot be sent to the reporter. Write the name instead."}
+        return {RESOLUTION: "Select a resolution"}
     return None
 
 
@@ -202,7 +201,7 @@ def action_group_blocks(one):
     return built
 
 
-def echo_blocks(resolution, member_note, by, actions=(), case_id=None):
+def log_blocks(resolution, member_note, by, actions=(), case_id=None):
     built = [{
         "type": "context",
         "elements": [{"type": "mrkdwn", "text": by_line(resolution, by, case_id)}],

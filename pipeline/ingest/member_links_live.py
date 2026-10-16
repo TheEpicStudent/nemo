@@ -39,20 +39,20 @@ CREATE TEMP TABLE touched ON COMMIT DROP AS
 SELECT DISTINCT user_id FROM unnest(%(touched)s::text[]) AS user_id
 """
 
-HOLDERS = """
+TRAIT_USER_COUNT = """
 SELECT count(*) FROM (
     SELECT 1 FROM fd.member_trait h WHERE h.kind = v.kind AND h.value = v.value LIMIT %(cap)s + 1
-) held
+) capped
 """
 
-SESSION_HOLDERS = """
+SESSION_USER_COUNT = """
 SELECT count(*) FROM (
     SELECT DISTINCT h.user_id
     FROM slack.user_agent a
     JOIN fd.member_trait h ON h.kind = 'ua_id' AND h.value = a.id::text
     WHERE a.app = s.app AND a.os = s.os
     LIMIT %(cap)s + 1
-) held
+) capped
 """
 
 BUCKET = """
@@ -70,7 +70,7 @@ SELECT user_id FROM touched
 
 SCOPE_VALUE = f"""
 CREATE TEMP TABLE scope_value ON COMMIT DROP AS
-SELECT v.kind, v.value, ({HOLDERS}) AS people
+SELECT v.kind, v.value, ({TRAIT_USER_COUNT}) AS user_count
 FROM (SELECT DISTINCT kind, value FROM fd.member_trait
       WHERE user_id IN (SELECT user_id FROM rescored) AND kind NOT IN ('ip', 'ip_prefix')
       UNION
@@ -79,7 +79,7 @@ FROM (SELECT DISTINCT kind, value FROM fd.member_trait
 
 SCOPE_SESSION = f"""
 CREATE TEMP TABLE scope_session ON COMMIT DROP AS
-SELECT s.app, s.os, ({SESSION_HOLDERS}) AS people
+SELECT s.app, s.os, ({SESSION_USER_COUNT}) AS user_count
 FROM (SELECT DISTINCT a.app, a.os FROM slack.user_agent a
       WHERE a.app IS NOT NULL AND a.os IS NOT NULL
         AND a.id::text IN (SELECT value FROM scope_value WHERE kind = 'ua_id')) s
@@ -89,12 +89,12 @@ ANONYMIZED = "('rotating', 'vpn', 'hosting', 'tor')"
 
 SCOPE_PREFIX = f"""
 CREATE TEMP TABLE scope_prefix ON COMMIT DROP AS
-SELECT used.ip_prefix
+SELECT observed.ip_prefix
 FROM (SELECT DISTINCT network(set_masklen(value::inet,
                       CASE WHEN family(value::inet) = 4 THEN 24 ELSE 64 END)) AS ip_prefix
       FROM fd.member_trait
-      WHERE kind = 'ip_prefix' AND user_id IN (SELECT user_id FROM rescored)) used
-LEFT JOIN fd.ip_network n ON n.ip_prefix = used.ip_prefix
+      WHERE kind = 'ip_prefix' AND user_id IN (SELECT user_id FROM rescored)) observed
+LEFT JOIN fd.ip_network n ON n.ip_prefix = observed.ip_prefix
 WHERE n.class IS NULL OR n.class NOT IN {ANONYMIZED}
 """
 
@@ -110,15 +110,15 @@ SCOPE_AGENT = """
 CREATE TEMP TABLE scope_agent ON COMMIT DROP AS
 SELECT a.id AS ua_id FROM scope_value v
 JOIN slack.user_agent a ON a.id::text = v.value
-WHERE v.kind = 'ua_id' AND v.people <= %(cap)s
+WHERE v.kind = 'ua_id' AND v.user_count <= %(cap)s
 UNION
 SELECT a.id FROM scope_session s
 JOIN slack.user_agent a ON a.app = s.app AND a.os = s.os
-WHERE s.people <= %(cap)s
+WHERE s.user_count <= %(cap)s
 """
 
-DEVICE_HOLDER = """
-CREATE TEMP TABLE device_holder ON COMMIT DROP AS
+DEVICE_USER = """
+CREATE TEMP TABLE device_user ON COMMIT DROP AS
 SELECT DISTINCT h.user_id FROM scope_agent a
 JOIN fd.member_trait h ON h.kind = 'ua_id' AND h.value = a.ua_id::text
 """
@@ -132,7 +132,7 @@ SELECT e.* FROM fd.login_event e
 WHERE e.ip IN (SELECT ip FROM scope_exit)
 UNION ALL
 SELECT e.* FROM fd.login_event e
-WHERE e.user_id IN (SELECT user_id FROM device_holder)
+WHERE e.user_id IN (SELECT user_id FROM device_user)
   AND e.ua_id IN (SELECT ua_id FROM scope_agent)
   AND (e.ip_prefix IS NULL OR e.ip_prefix NOT IN (SELECT ip_prefix FROM scope_prefix))
   AND (e.ip IS NULL OR e.ip NOT IN (SELECT ip FROM scope_exit))
@@ -144,9 +144,9 @@ SELECT user_id FROM rescored
 UNION
 SELECT h.user_id FROM scope_value v
 JOIN fd.member_trait h ON h.kind = v.kind AND h.value = v.value
-WHERE v.people <= %(cap)s
+WHERE v.user_count <= %(cap)s
 UNION
-SELECT user_id FROM device_holder
+SELECT user_id FROM device_user
 UNION
 SELECT DISTINCT user_id FROM scope_login
 UNION
@@ -179,8 +179,8 @@ SCOPE_TABLES = (
     """,
 )
 
-CROWDED = """
-CREATE TEMP TABLE crowded ON COMMIT DROP AS
+OVER_CAP = """
+CREATE TEMP TABLE over_cap ON COMMIT DROP AS
 SELECT signal, value FROM (
     SELECT signals.signal, CASE WHEN v.kind = 'ua_id' THEN a.ua ELSE v.value END AS value
     FROM scope_value v
@@ -191,10 +191,10 @@ SELECT signal, value FROM (
                  ('inviter', 'invited_by')) AS signals (kind, signal)
       ON signals.kind = v.kind
     LEFT JOIN slack.user_agent a ON v.kind = 'ua_id' AND a.id::text = v.value
-    WHERE v.people > %(cap)s
+    WHERE v.user_count > %(cap)s
     UNION ALL
-    SELECT 'session_agent', app || ' / ' || os FROM scope_session WHERE people > %(cap)s
-) crowd
+    SELECT 'session_agent', app || ' / ' || os FROM scope_session WHERE user_count > %(cap)s
+) over_cap_value
 WHERE value IS NOT NULL
 """
 
@@ -221,20 +221,20 @@ LIVE = {
     "audit": "scope_audit",
     "shared_ip": "fd.shared_ip",
     "sighting": "(" + links.SIGHTING_SELECT.format(login=PAIRED, shared_ip="fd.shared_ip") + ")",
-    "crowded": "crowded",
+    "over_cap": "over_cap",
 }
 
 MEASURE_SOURCES = {**links.FULL, "shared_ip": "fd.shared_ip"}
 
 SCOPE = (TOUCHED, RESCORED, SCOPE_VALUE, SCOPE_SESSION, SCOPE_PREFIX, SCOPE_EXIT,
-         SCOPE_AGENT, DEVICE_HOLDER, SCOPE_LOGIN, SCOPE_USER, *SCOPE_TABLES, CROWDED)
+         SCOPE_AGENT, DEVICE_USER, SCOPE_LOGIN, SCOPE_USER, *SCOPE_TABLES, OVER_CAP)
 
 
 def scope(conn, touched):
     args = {"touched": touched, "cap": CAP}
     for sql in SCOPE:
         conn.execute(sql, args)
-    for table in ("rescored", "scope_login", "scope_user", "crowded"):
+    for table in ("rescored", "scope_login", "scope_user", "over_cap"):
         conn.execute(f"ANALYZE {table}")
     return conn.execute("SELECT count(*) FROM rescored").fetchone()[0]
 
@@ -259,7 +259,7 @@ def ensure_wholes(conn, catalogue, wholes):
 
 
 @dataclass
-class Pace:
+class BatchSizer:
     seconds_per_member: float | None = None
     last_batch: int = FIRST_BATCH
 
@@ -274,11 +274,11 @@ class Pace:
         self.seconds_per_member = seconds / max(members, 1)
 
 
-PACE = Pace()
+BATCH_SIZER = BatchSizer()
 
 
 @contextmanager
-def timed(steps, name):
+def timed_step(steps, name):
     started = datetime.now(UTC)
     yield
     steps.append((f"{SOURCE}:{name}", started, datetime.now(UTC)))
@@ -286,16 +286,16 @@ def timed(steps, name):
 
 def rescore(conn, catalogue, wholes, touched, steps=None):
     steps = [] if steps is None else steps
-    with timed(steps, "scope"):
+    with timed_step(steps, "scope"):
         rescored_count = scope(conn, touched)
-    with timed(steps, "prepare"):
+    with timed_step(steps, "prepare"):
         links.prepare(conn, catalogue, LIVE)
-    with timed(steps, "gather"):
-        signal_counts = links.gather(conn, catalogue, wholes, LIVE)
+    with timed_step(steps, "gather"):
+        signal_counts = links.load_signal_pairs(conn, catalogue, wholes, LIVE)
         conn.execute(ONLY_RESCORED)
         conn.execute("ANALYZE link_part")
-    with timed(steps, "settle"):
-        retained, changed, removed, _countered, _labelled = links.settle(conn, catalogue, LIVE, SWEEP)
+    with timed_step(steps, "settle"):
+        retained, changed, removed, _country_conflict_count, _label_counts = links.score_pairs(conn, catalogue, LIVE, SWEEP)
     return rescored_count, retained, changed, removed, signal_counts
 
 
@@ -317,10 +317,10 @@ def next_batch(conn, batch):
     return recent or conn.execute(TOUCHED_SQL, (batch,)).fetchall()
 
 
-def run(conn, pace=PACE):
+def run(conn, sizer=BATCH_SIZER):
     catalogue = links.catalogue()
     wholes = ensure_wholes(conn, catalogue, links.load_wholes(conn))
-    batch = pace.batch(sources.unit_budget_seconds(SOURCE))
+    batch = sizer.batch(sources.unit_budget_seconds(SOURCE))
     queued = next_batch(conn, batch)
     conn.commit()
     if not queued:
@@ -337,7 +337,7 @@ def run(conn, pace=PACE):
         counts.rows_in = changed
 
     seconds = time.monotonic() - started
-    pace.record(batch, len(touched), seconds)
+    sizer.record(batch, len(touched), seconds)
     print(f"{SOURCE}: {len(touched)} touched of a batch of {batch}, {rescored_count} rescored, {retained} link(s) kept, "
           f"{changed} written, {removed} dropped in {seconds:.2f}s ("
           + ", ".join(f"{source.split(':')[1]} {(finished - begun).total_seconds():.1f}s" for source, begun, finished in steps)

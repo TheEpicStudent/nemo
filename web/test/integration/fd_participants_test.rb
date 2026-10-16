@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdParticipantsTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     @kase = make_case
   end
 
@@ -11,120 +11,120 @@ class FdParticipantsTest < ActionDispatch::IntegrationTest
       params: { user_id: "UNEW" }.merge(params)
   end
 
-  def people
+  def extra_participants
     Fd::CaseParticipant.where(case_id: @kase.id).where.not(user_id: "USUB")
   end
 
-  test "a signed out visitor cannot add anybody" do
+  test "create signed out redirects to login and adds no participant" do
     add
     assert_redirected_to login_path
-    assert_empty people.to_a
+    assert_empty extra_participants.to_a
   end
 
-  test "anybody added by hand is a subject" do
+  test "create adds the user as a subject" do
     sign_in_as(@me)
     add(user_id: "UNEW")
 
-    assert_equal "subject", people.sole.role
-    assert_match(/the case is now also about @UNEW/, flash[:notice])
+    assert_equal "subject", extra_participants.sole.role
+    assert_match(/@UNEW added to case/, flash[:notice])
   end
 
-  test "a role asked for by hand is ignored, the menu only adds subjects" do
+  test "create with role reporter adds a subject" do
     sign_in_as(@me)
     add(user_id: "UTOLDUS", role: "reporter")
 
-    assert_equal "subject", people.sole.role,
-      "several reporters only come from a merge, never from this menu"
+    assert_equal "subject", extra_participants.sole.role,
+      "role param does not set the participant role"
   end
 
-  test "a second subject makes the case about both of them" do
+  test "create with a second user adds a second subject to the case" do
     sign_in_as(@me)
     add(user_id: "USECOND")
 
     assert_equal %w[USECOND USUB], @kase.reload.subject_user_ids
-    assert_match(/the case is now also about @USECOND/, flash[:notice])
+    assert_match(/@USECOND added to case/, flash[:notice])
   end
 
-  test "a handle typed with the at sign and in lower case still lands" do
+  test "create normalizes an at-prefixed lower case user_id" do
     sign_in_as(@me)
     add(user_id: "  @unew  ")
 
-    assert_equal "UNEW", people.sole.user_id
+    assert_equal "UNEW", extra_participants.sole.user_id
   end
 
-  test "a display name instead of a member id is refused" do
+  test "create with a non member id user_id is refused" do
     sign_in_as(@me)
     add(user_id: "bob")
 
-    assert_empty people.to_a
-    assert_match(/does not look like a Slack member id/, flash[:alert])
+    assert_empty extra_participants.to_a
+    assert_match(/Not a Slack member ID/, flash[:alert])
   end
 
-  test "a role asked for outside the menu is ignored, not obeyed" do
+  test "create with role witness adds a subject without alert" do
     sign_in_as(@me)
     add(role: "witness")
 
-    assert_equal "subject", people.sole.role
+    assert_equal "subject", extra_participants.sole.role
     assert_nil flash[:alert]
   end
 
-  test "adding the same person in the same role twice changes nothing" do
+  test "create twice with the same user keeps one participant" do
     sign_in_as(@me)
     add
     add
 
-    assert_equal 1, people.count
-    assert_nil flash[:alert], "a repeat is a no-op, not something to warn about"
-    assert_match(/already on this case, nothing changed/, flash[:notice])
+    assert_equal 1, extra_participants.count
+    assert_nil flash[:alert], "no alert for an already added user"
+    assert_match(/Already added/, flash[:notice])
   end
 
-  test "several subjects are added in one go" do
+  test "create with user_ids adds every user as a subject" do
     sign_in_as(@me)
     post fd_case_participants_path(@kase),
       params: { user_ids: %w[UONE UTWO UTHREE], role: "subject" }
 
-    assert_equal %w[UONE UTHREE UTWO], people.map(&:user_id).sort
-    assert_match(/the case is now also about @UONE, @UTWO, and @UTHREE/, flash[:notice])
+    assert_equal %w[UONE UTHREE UTWO], extra_participants.map(&:user_id).sort
+    assert_match(/@UONE, @UTWO, and @UTHREE added to case/, flash[:notice])
   end
 
-  test "a repeat among several does not stop the rest from landing" do
+  test "create with user_ids including an existing participant adds the others" do
     sign_in_as(@me)
     add(user_id: "UONE")
     post fd_case_participants_path(@kase),
       params: { user_ids: %w[UONE UTWO], role: "subject" }
 
-    assert_equal %w[UONE UTWO], people.map(&:user_id).sort,
-      "the duplicate must not abort the transaction the others are riding in"
-    assert_match(/the case is now also about @UTWO, 1 already there/, flash[:notice])
+    assert_equal %w[UONE UTWO], extra_participants.map(&:user_id).sort,
+      "existing participant does not abort the batch"
+    assert_match(/@UTWO added to case · 1 already added/, flash[:notice])
   end
 
-  test "one bad id in a batch refuses the whole batch" do
+  test "create with one invalid id in user_ids adds no participant" do
     sign_in_as(@me)
     post fd_case_participants_path(@kase),
       params: { user_ids: %w[UONE bob], role: "subject" }
 
-    assert_empty people.to_a
-    assert_match(/does not look like a Slack member id/, flash[:alert])
+    assert_empty extra_participants.to_a
+    assert_match(/Not a Slack member ID/, flash[:alert])
   end
 
-  test "one person can hold two roles on one case" do
+  test "participant can have subject and reporter roles on one case" do
     sign_in_as(@me)
     add(user_id: "UBOTH")
     Fd::CaseParticipant.create!(case_id: @kase.id, user_id: "UBOTH", role: "reporter")
 
-    assert_equal %w[reporter subject], people.map(&:role).sort
+    assert_equal %w[reporter subject], extra_participants.map(&:role).sort
   end
 
-  test "a case assigned to somebody else can still be added to" do
+  test "create on a case assigned to another user adds the participant" do
     @kase.assign!("UOTHER")
     sign_in_as(@me)
     add
 
-    assert_equal 1, people.count
-    assert_match(/the case is now also about @UNEW/, flash[:notice])
+    assert_equal 1, extra_participants.count
+    assert_match(/@UNEW added to case/, flash[:notice])
   end
 
-  test "adding writes a trail entry filed under the case" do
+  test "create writes an attached audit entry for the case" do
     sign_in_as(@me)
     add(user_id: "UNEW")
 
@@ -135,29 +135,29 @@ class FdParticipantsTest < ActionDispatch::IntegrationTest
     assert_equal "UME", entry.actor_user_id
   end
 
-  test "taking somebody off the case removes the row but not the record of it" do
+  test "destroy removes the participant and writes a detached audit entry" do
     sign_in_as(@me)
     add(user_id: "UWRONG")
     delete fd_case_participant_path(@kase, "UWRONG"), params: { role: "subject" }
 
-    assert_empty people.to_a
+    assert_empty extra_participants.to_a
     entry = Fd::AuditEntry.where(entity_type: "participant", entity_id: @kase.id,
       verb: "detached").sole
     assert_equal "UWRONG", entry.before["user_id"]
     assert_nil entry.after
   end
 
-  test "removing names the role, so the other one stays" do
+  test "destroy with role reporter keeps the subject row" do
     sign_in_as(@me)
     add(user_id: "UBOTH")
     Fd::CaseParticipant.create!(case_id: @kase.id, user_id: "UBOTH", role: "reporter")
 
     delete fd_case_participant_path(@kase, "UBOTH"), params: { role: "reporter" }
 
-    assert_equal ["subject"], people.map(&:role)
+    assert_equal ["subject"], extra_participants.map(&:role)
   end
 
-  test "a mistaken subject can be taken back off" do
+  test "destroy removes an added subject from subject_user_ids" do
     sign_in_as(@me)
     add(user_id: "UINNOCENT", role: "subject")
     delete fd_case_participant_path(@kase, "UINNOCENT"), params: { role: "subject" }
@@ -165,13 +165,13 @@ class FdParticipantsTest < ActionDispatch::IntegrationTest
     assert_equal ["USUB"], @kase.reload.subject_user_ids
   end
 
-  test "somebody who is not on the case cannot be removed from it" do
+  test "destroy for a user not on the case sets alert" do
     sign_in_as(@me)
     delete fd_case_participant_path(@kase, "USTRANGER"), params: { role: "subject" }
-    assert_match(/not on this case/, flash[:alert])
+    assert_match(/Not a participant/, flash[:alert])
   end
 
-  test "a member on another case cannot be removed through this one" do
+  test "destroy for a participant of another case keeps the row" do
     other = make_case(subject: "UELSE", opened_at: 1.day.ago)
     Fd::CaseParticipant.create!(case_id: other.id, user_id: "UTHEIRS", role: "subject")
 

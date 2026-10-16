@@ -5,7 +5,7 @@ module Fd
     CHANNEL_ID = /\AC[A-Z0-9]{2,}\z/
 
     def create
-      return redirect_with_alert("Nemo can only join a public channel by itself") unless
+      return redirect_with_alert("Public channel required") unless
         channel_id.match?(CHANNEL_ID)
 
       join_request = nil
@@ -19,7 +19,7 @@ module Fd
       if join_request.joined?
         redirect_to return_path, notice: "Nemo joined the channel"
       elsif join_request.queued?
-        redirect_to return_path, notice: "Nemo has not joined yet, reload in a moment"
+        redirect_to return_path, notice: "Join pending"
       else
         redirect_with_alert(refusal_text(join_request.error))
       end

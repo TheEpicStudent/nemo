@@ -1,6 +1,6 @@
 from psycopg.types.json import Jsonb
 
-GIVE_UP_AFTER = 3
+MAX_ATTEMPTS = 3
 
 STALE_CLAIM = "5 minutes"
 
@@ -50,7 +50,7 @@ WHERE id = %s AND sent_at IS NULL AND failed_at IS NULL AND claimed_at IS NULL
 RETURNING id
 """
 
-TO_ECHO = """
+TO_MIRROR = """
 SELECT o.id, o.body, o.mode, o.requested_by, r.forwarded_ts, r.card_channel_id
 FROM fd.intake_outbox o
 JOIN fd.intake_conversations c ON c.id = o.conversation_id
@@ -61,7 +61,7 @@ WHERE o.echoed_at IS NULL AND r.forwarded_ts IS NOT NULL
        OR coalesce(o.sent_at, o.failed_at) < now() - interval '2 minutes')
 """
 
-TO_TICK = """
+PENDING_REACTIONS = """
 SELECT o.id, coalesce(o.asked_in_channel, r.card_channel_id), coalesce(o.asked_at_ts, o.echoed_ts),
        o.failed_at, o.error
 FROM fd.intake_outbox o
@@ -76,7 +76,7 @@ ON_CASE = """
  AND c.report_id IN (SELECT id FROM fd.case_reports WHERE case_id = %s)
 """
 
-ECHO_ORDER = " ORDER BY o.requested_at LIMIT 50"
+MIRROR_ORDER = " ORDER BY o.requested_at LIMIT 50"
 
 
 def claim_sql(conversation_id=None):
@@ -94,31 +94,31 @@ UPDATE fd.intake_outbox SET sent_at = now(), message_id = %s, attempts = attempt
 WHERE id = %s AND sent_at IS NULL
 """
 
-TRIED = """
+INCREMENT_ATTEMPTS = """
 UPDATE fd.intake_outbox SET attempts = attempts + 1 WHERE id = %s
 """
 
-CLAIM_ECHO = """
+CLAIM_MIRROR = """
 UPDATE fd.intake_outbox SET echoed_at = now()
 WHERE id = %s AND echoed_at IS NULL
 RETURNING id
 """
 
-ECHOED = """
+MARK_MIRRORED = """
 UPDATE fd.intake_outbox SET echoed_ts = %s, echoed_as = %s WHERE id = %s
 """
 
-DROP_ECHO = """
+RELEASE_MIRROR = """
 UPDATE fd.intake_outbox SET echoed_at = NULL WHERE id = %s AND echoed_ts IS NULL
 """
 
-TICK_ORDER = " ORDER BY o.requested_at LIMIT 50"
+REACTION_ORDER = " ORDER BY o.requested_at LIMIT 50"
 
-TICKED = """
+MARK_REACTED = """
 UPDATE fd.intake_outbox SET ticked_at = now() WHERE id = %s
 """
 
-GAVE_UP = """
+MARK_FAILED = """
 UPDATE fd.intake_outbox
 SET attempts = attempts + 1, failed_at = now(), error = %s
 WHERE id = %s AND sent_at IS NULL
@@ -143,8 +143,8 @@ class QueuedMessage:
         ) = row
 
     @property
-    def last_try(self):
-        return self.attempts + 1 >= GIVE_UP_AFTER
+    def final_attempt(self):
+        return self.attempts + 1 >= MAX_ATTEMPTS
 
 
 def waiting(conn, conversation_id=None):
@@ -156,7 +156,7 @@ def waiting(conn, conversation_id=None):
     if not claimed:
         return []
 
-    rows = conn.execute(CLAIMED, ([one[0] for one in claimed],)).fetchall()
+    rows = conn.execute(CLAIMED, ([row[0] for row in claimed],)).fetchall()
     return [QueuedMessage(row) for row in rows]
 
 
@@ -188,42 +188,42 @@ def edit_reply(conn, channel_id, ts, body, edited_by):
         return outbox_id
     edit_id = queue(conn, conversation_id, "edit", body, edited_by, mode=mode,
                     requested_in=channel_id, requested_at=ts, edits_outbox_id=outbox_id)
-    claim_echo(conn, edit_id)
-    echoed(conn, edit_id, None, "user")
+    claim_mirror(conn, edit_id)
+    mark_mirrored(conn, edit_id, None, "user")
     return edit_id
 
 
-def to_echo(conn, case_id=None):
-    sql = TO_ECHO + (ON_CASE if case_id is not None else "") + ECHO_ORDER
+def to_mirror(conn, case_id=None):
+    sql = TO_MIRROR + (ON_CASE if case_id is not None else "") + MIRROR_ORDER
     return conn.execute(sql, (case_id,) if case_id is not None else ()).fetchall()
 
 
-def to_tick(conn):
-    return conn.execute(TO_TICK + TICK_ORDER).fetchall()
+def pending_reactions(conn):
+    return conn.execute(PENDING_REACTIONS + REACTION_ORDER).fetchall()
 
 
 def sent(conn, outbox_id, message_id):
     conn.execute(SENT, (message_id, outbox_id))
 
 
-def ticked(conn, outbox_id):
-    conn.execute(TICKED, (outbox_id,))
+def mark_reacted(conn, outbox_id):
+    conn.execute(MARK_REACTED, (outbox_id,))
 
 
-def claim_echo(conn, outbox_id):
-    return conn.execute(CLAIM_ECHO, (outbox_id,)).fetchone() is not None
+def claim_mirror(conn, outbox_id):
+    return conn.execute(CLAIM_MIRROR, (outbox_id,)).fetchone() is not None
 
 
-def echoed(conn, outbox_id, ts, how):
-    conn.execute(ECHOED, (ts, how, outbox_id))
+def mark_mirrored(conn, outbox_id, ts, how):
+    conn.execute(MARK_MIRRORED, (ts, how, outbox_id))
 
 
-def drop_echo(conn, outbox_id):
-    conn.execute(DROP_ECHO, (outbox_id,))
+def release_mirror(conn, outbox_id):
+    conn.execute(RELEASE_MIRROR, (outbox_id,))
 
 
-def mark_error(conn, outbox_id, error, give_up):
-    if give_up:
-        conn.execute(GAVE_UP, (str(error)[:500], outbox_id))
+def mark_error(conn, outbox_id, error, final):
+    if final:
+        conn.execute(MARK_FAILED, (str(error)[:500], outbox_id))
     else:
-        conn.execute(TRIED, (outbox_id,))
+        conn.execute(INCREMENT_ATTEMPTS, (outbox_id,))

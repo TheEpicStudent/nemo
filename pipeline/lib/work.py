@@ -165,7 +165,7 @@ def settle(conn, item, state, fetched=None, note=None):
         cur.execute(SETTLE_SQL, {"id": item.id, "fence": item.fence, "state": state,
                                  "fetched": fetched, "note": note and str(note)[:500]})
         if cur.rowcount == 0:
-            raise lease.FenceTokenExpiredError(f"work item {item.id}: fence {item.fence} is no longer ours")
+            raise lease.FenceTokenExpiredError(f"work item {item.id}: fence {item.fence} expired")
 
 
 def settle_many(conn, outcomes):
@@ -201,7 +201,7 @@ def release_mine(conn, kind=None):
         rows = cur.fetchall()
     conn.commit()
     if rows:
-        print(f"work: handed back {len(rows)} claimed unit(s) on the way out")
+        print(f"work: released {len(rows)} claimed unit(s)")
     return len(rows)
 
 
@@ -224,7 +224,7 @@ def revive(conn, kind=None, after_hours=REVIVE_HOURS):
         rows = cur.fetchall()
     conn.commit()
     if rows:
-        print(f"work: revived {len(rows)} dead unit(s) that failed for a fixable reason")
+        print(f"work: revived {len(rows)} dead unit(s)")
     return len(rows)
 
 

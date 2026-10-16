@@ -110,7 +110,7 @@ export default class extends Controller {
     this.at = 0
     const row = document.createElement("div")
     row.className = "palette-group"
-    row.textContent = "Search did not answer. Type again to retry."
+    row.textContent = "Search failed"
     this.resultsTarget.append(row)
   }
 
@@ -162,7 +162,7 @@ export default class extends Controller {
     if (this.rows.length === 0 && term.length > 0) {
       const none = document.createElement("div")
       none.className = "palette-group"
-      none.textContent = "Nothing found"
+      none.textContent = "No results"
       this.resultsTarget.append(none)
     }
 

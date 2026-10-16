@@ -42,17 +42,17 @@ class Counts:
     rows_rejected = 0
 
 
-def test_one_row_per_member_at_their_newest_time():
+def test_latest_pairs_return_one_row_per_member_at_newest_time():
     pairs = [("U2", EARLY), ("U1", LATE), ("U2", LATE), ("U1", EARLY)]
 
     assert member_seen.latest(pairs) == [("U1", LATE), ("U2", LATE)]
 
 
-def test_a_pair_without_a_member_or_a_time_is_dropped():
+def test_latest_pair_missing_member_or_time_is_dropped():
     assert member_seen.latest([("", LATE), (None, LATE), ("U1", None)]) == []
 
 
-def test_nothing_to_say_writes_nothing():
+def test_posted_and_logged_in_without_valid_pairs_execute_nothing():
     conn = Conn()
     member_seen.posted(conn, [])
     member_seen.logged_in(conn, [("U1", None)])
@@ -60,33 +60,33 @@ def test_nothing_to_say_writes_nothing():
     assert conn.executed == []
 
 
-def test_one_statement_carries_the_whole_batch():
+def test_posted_batch_executes_one_statement_with_latest_time_per_member():
     conn = Conn()
     member_seen.posted(conn, [("U2", EARLY), ("U1", LATE), ("U2", LATE)])
 
     assert conn.executed == [(member_seen.POSTED_SQL, (["U1", "U2"], [LATE, LATE]))]
 
 
-def test_the_times_only_move_forward():
+def test_posted_and_logged_in_sql_only_advance_times():
     for sql, column in ((member_seen.POSTED_SQL, "last_post_at"),
                         (member_seen.LOGGED_IN_SQL, "last_login_at")):
-        assert f"held.{column} >= fresh.at" in sql, "a member already this fresh is not touched"
-        assert f"seen.{column} < EXCLUDED.{column}" in sql
+        assert f"existing.{column} >= incoming.at" in sql, "a member already this fresh is not touched"
+        assert f"target.{column} < EXCLUDED.{column}" in sql
 
 
-def test_only_what_members_said_counts_as_them_posting():
+def test_member_posts_skips_subtype_bot_and_userless_messages():
     def row(**message):
         return archive.message_row("C1", message["ts"], 1, message, {})
 
     post = row(ts="1700000000.000100", user="U1", text="hi")
     joined = row(ts="1700000000.000200", user="U2", subtype="channel_join")
     bot = row(ts="1700000000.000300", bot_id="B1")
-    nobody = row(ts="1700000000.000400")
+    userless = row(ts="1700000000.000400")
 
-    assert archive.member_posts([post, joined, bot, nobody]) == [("U1", post[3])]
+    assert archive.member_posts([post, joined, bot, userless]) == [("U1", post[3])]
 
 
-def test_a_page_of_history_moves_each_poster_forward_once():
+def test_from_api_many_updates_member_seen_once_per_poster_with_latest_time():
     conn = Conn()
     archive.from_api_many(conn, "C1", [
         {"ts": "1700000000.000100", "user": "U1", "text": "hi"},
@@ -97,7 +97,7 @@ def test_a_page_of_history_moves_each_poster_forward_once():
     assert conn.member_seen_args() == [(["U1"], [archive.stamp("1700000100.000100")])]
 
 
-def test_an_access_log_row_is_a_login():
+def test_insert_rows_access_log_updates_member_seen_with_latest_login():
     conn = Conn()
     access_logs_pull.insert_rows(conn, [
         {"user_id": "U1", "date_first": 1790000000, "date_last": 1790003600},

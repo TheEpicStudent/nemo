@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdAssigneesTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     @kase = make_case
   end
 
@@ -14,21 +14,21 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     @kase.reload.assignee_user_ids
   end
 
-  test "a signed out visitor cannot assign anybody" do
+  test "assignees create signed out redirects to login and adds nothing" do
     add
     assert_redirected_to login_path
     assert_empty assignee_ids
   end
 
-  test "assigning somebody puts them on the case" do
+  test "assignees create adds user to case and sets notice" do
     sign_in_as(@me)
     add
 
     assert_equal ["UNEW"], assignee_ids
-    assert_match(/@UNEW is now on the case/, flash[:notice])
+    assert_match(/@UNEW assigned/, flash[:notice])
   end
 
-  test "assigning somebody else's case works too, case.open carries no scope" do
+  test "assignees create on case with another assignee adds second assignee" do
     @kase.assign!("UOTHER")
     sign_in_as(@me)
     add
@@ -37,48 +37,48 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     assert_nil flash[:alert]
   end
 
-  test "assigning the same person twice changes nothing" do
+  test "assignees create twice with same user keeps one assignee" do
     sign_in_as(@me)
     add
     add
 
     assert_equal ["UNEW"], assignee_ids
-    assert_match(/already on this case, nothing changed/, flash[:notice])
+    assert_match(/Already assigned/, flash[:notice])
   end
 
-  test "several people are assigned in one go" do
+  test "assignees create with user_ids adds every user" do
     sign_in_as(@me)
     post fd_case_assignees_path(@kase), params: { user_ids: %w[UONE UTWO] }
 
     assert_equal %w[UONE UTWO], assignee_ids.sort
-    assert_match(/@UONE and @UTWO are now on the case/, flash[:notice])
+    assert_match(/@UONE and @UTWO assigned/, flash[:notice])
   end
 
-  test "a repeat among several does not stop the rest from landing" do
+  test "assignees create with user_ids including existing assignee adds the others" do
     sign_in_as(@me)
     add(user_id: "UONE")
     post fd_case_assignees_path(@kase), params: { user_ids: %w[UONE UTWO] }
 
     assert_equal %w[UONE UTWO], assignee_ids.sort
-    assert_match(/@UTWO is now on the case, 1 already there/, flash[:notice])
+    assert_match(/@UTWO assigned · 1 already assigned/, flash[:notice])
   end
 
-  test "a handle typed with the at sign and in lower case still lands" do
+  test "assignees create normalizes at sign and lower case in user_id" do
     sign_in_as(@me)
     add(user_id: "  @unew  ")
 
     assert_equal ["UNEW"], assignee_ids
   end
 
-  test "a display name instead of a member id is refused" do
+  test "assignees create with non member id sets alert and adds nothing" do
     sign_in_as(@me)
     add(user_id: "bob")
 
     assert_empty assignee_ids
-    assert_match(/does not look like a Slack member id/, flash[:alert])
+    assert_match(/Not a Slack member ID/, flash[:alert])
   end
 
-  test "a resolved case cannot be assigned to" do
+  test "assignees create on resolved case sets alert and adds nothing" do
     @kase.update!(resolved_at: Time.current, resolution: "no_action")
     sign_in_as(@me)
     add
@@ -87,7 +87,7 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     assert_match(/already resolved/, flash[:alert])
   end
 
-  test "assigning writes a trail entry filed under the case" do
+  test "assignees create records attached audit entry for the case" do
     sign_in_as(@me)
     add(user_id: "UNEW")
 
@@ -98,7 +98,7 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     assert_equal "UME", entry.actor_user_id
   end
 
-  test "taking somebody off the case removes the row but not the record of it" do
+  test "assignees destroy removes assignee and records detached audit entry" do
     sign_in_as(@me)
     add(user_id: "UWRONG")
     delete fd_case_assignee_path(@kase, "UWRONG")
@@ -110,14 +110,14 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     assert_nil entry.after
   end
 
-  test "removing somebody who is not on the case is refused" do
+  test "assignees destroy with unassigned user sets Not assigned alert" do
     sign_in_as(@me)
     delete fd_case_assignee_path(@kase, "USTRANGER")
 
-    assert_match(/not on this case/, flash[:alert])
+    assert_match(/Not assigned/, flash[:alert])
   end
 
-  test "a member on another case cannot be removed through this one" do
+  test "assignees destroy with user assigned to another case keeps that assignee" do
     other = make_case(subject: "UELSE", opened_at: 1.day.ago)
     other.assign!("UTHEIRS")
 
@@ -125,10 +125,10 @@ class FdAssigneesTest < ActionDispatch::IntegrationTest
     delete fd_case_assignee_path(@kase, "UTHEIRS")
 
     assert_includes other.reload.assignee_user_ids, "UTHEIRS",
-      "the case in the url must own the row"
+      "assignee row belongs to the case in the url"
   end
 
-  test "removing works on a resolved case, only assigning is blocked" do
+  test "assignees destroy on resolved case removes assignee" do
     @kase.assign!("UWRONG")
     @kase.update!(resolved_at: Time.current, resolution: "no_action")
     sign_in_as(@me)

@@ -7,8 +7,8 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
   AT = Time.utc(2026, 9, 29, 15, 37, 20)
 
   setup do
-    hold_role!("UPIVBOSS", "community_manager")
-    @ff = hold_role!("UPIVFF", "firefighter")
+    grant_role!("UPIVBOSS", "community_manager")
+    @ff = grant_role!("UPIVFF", "firefighter")
     sign_in_as(@ff)
   end
 
@@ -24,7 +24,7 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     id
   end
 
-  def slim!(at:, session:, actor: WHO)
+  def audit_view!(at:, session:, actor: WHO)
     id = SecureRandom.uuid
     as_pipeline(<<~SQL.squish, id, at, actor, session)
       INSERT INTO slack.audit_view (id, at, action, actor_id, object_id, ip, session_id, ours)
@@ -37,7 +37,7 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     css_select("tr.audit-row .menu-pop a").to_h { |one| [one.text.squish, one["href"]] }
   end
 
-  test "each row offers a pivot for every value it has, and still opens the full event in one click" do
+  test "index row menu lists a pivot per value and links to the event panel" do
     id = slack!
 
     get fd_audit_path(q: "after:2026-09-01")
@@ -47,7 +47,7 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
       fd_audit_event_path(source: "slack", id: id)
   end
 
-  test "a channel pivot is only offered for a channel we can name" do
+  test "index row menu offers a channel pivot for a channel in raw.channel_dim" do
     slack!
     as_pipeline("INSERT INTO raw.channel_dim (channel_id, name, visibility) VALUES ('C0PIVCHAN', 'pivot-channel', 'public')")
     seeded!("raw.channel_dim", "channel_id", "C0PIVCHAN")
@@ -56,7 +56,7 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     assert_equal fd_audit_path(q: "after:2026-09-01 channel:C0PIVCHAN"), menu_links["Channel"]
   end
 
-  test "a value pivot swaps that term and keeps the rest of the search" do
+  test "index row menu appends pivot terms and omits Event when action is queried" do
     slack!
 
     get fd_audit_path(q: "after:2026-09-01 action:user_channel_join")
@@ -66,10 +66,10 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     assert_equal fd_audit_path(q: "after:2026-09-01 action:user_channel_join app:A0PIVAPP1"), links["App"]
   end
 
-  test "around an event starts a fresh search on that actor, 15 minutes either side, views included" do
+  test "Actor ±15 min pivot links to a 15 minute actor window and lists 2 rows" do
     slack!
-    slim!(at: AT + 10.minutes, session: 9999)
-    slim!(at: AT + 40.minutes, session: 9999)
+    audit_view!(at: AT + 10.minutes, session: 9999)
+    audit_view!(at: AT + 40.minutes, session: 9999)
     slack!(actor: "UPIVOTHER", at: AT + 1.minute)
 
     get fd_audit_path(q: "after:2026-09-01 action:user_channel_join")
@@ -80,10 +80,10 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     assert_equal 2, css_select("tr.audit-row").size
   end
 
-  test "the same session finds that session's events and views" do
+  test "Session pivot lists the events and views of the same session" do
     slack!
-    slim!(at: AT + 2.hours, session: 4242)
-    slim!(at: AT + 2.hours, session: 9999)
+    audit_view!(at: AT + 2.hours, session: 4242)
+    audit_view!(at: AT + 2.hours, session: 9999)
 
     get fd_audit_path(q: "after:2026-09-01")
     href = menu_links["Session"]
@@ -93,16 +93,16 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     assert_equal 2, css_select("tr.audit-row").size
   end
 
-  test "no address pivot without identity.read" do
+  test "index row menu omits the IP pivot without identity.read and keeps Actor" do
     slack!
-    move_capability!("firefighter", "identity.read", false, by: "UPIVBOSS")
+    override_capability!("firefighter", "identity.read", false, by: "UPIVBOSS")
 
     get fd_audit_path(q: "after:2026-09-01")
     assert_nil menu_links["IP"]
     assert menu_links["Actor"]
   end
 
-  test "an event with no payload still opens in the drawer" do
+  test "event with empty payload opens in the drawer without a raw section" do
     id = SecureRandom.uuid
     as_pipeline(<<~SQL.squish, id, AT)
       INSERT INTO slack.audit_event (id, at, action, actor_kind, actor_id, ours, payload, source_key)
@@ -119,7 +119,7 @@ class FdAuditPivotsTest < ActionDispatch::IntegrationTest
     assert_select ".side-pivots a.btn", text: /\AActor\s+@UPIVBARE\z/
   end
 
-  test "the drawer carries the same pivots" do
+  test "event drawer renders Session and Actor pivots" do
     id = slack!
 
     get fd_audit_event_path(source: "slack", id: id)

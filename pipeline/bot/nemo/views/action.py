@@ -16,23 +16,23 @@ WHERE = "action_where"
 REASON = "action_reason"
 CATEGORY = "action_category"
 GUARD_STATUS = "action_standing"
-SETTLE = "action_settle"
+ENFORCEMENT = "action_settle"
 
-UNGUARDED = "unguarded"
-ORPHANED = "orphaned"
-ELSEWHERE = "elsewhere"
-HERE = "here"
+NO_GUARD = "no_guard"
+NO_CASE = "no_case"
+OTHER_CASE = "other_case"
+THIS_CASE = "this_case"
 
-APPLY = "apply"
-ADOPT = "adopt"
+OPEN_GUARD = "apply"
+ATTACH = "adopt"
 EXTEND = "extend"
-RECORD = "record"
+LOG_ONLY = "record"
 
-SETTLE_DEFAULT = {
-    UNGUARDED: APPLY,
-    ORPHANED: ADOPT,
-    ELSEWHERE: RECORD,
-    HERE: RECORD,
+DEFAULT_ENFORCEMENT = {
+    NO_GUARD: OPEN_GUARD,
+    NO_CASE: ATTACH,
+    OTHER_CASE: LOG_ONLY,
+    THIS_CASE: LOG_ONLY,
 }
 
 REASON_LIMIT = 2000
@@ -190,36 +190,36 @@ def existing_guard_blocks(guard_status):
     ]
 
 
-def settle_options(values, guard_status):
+def enforcement_options(values, guard_status):
     guard_status = guard_status or {}
     if not guard_status.get("enforceable"):
         return []
 
-    reads = guard_status.get("reads") or UNGUARDED
-    if reads == UNGUARDED:
+    relation = guard_status.get("relation") or NO_GUARD
+    if relation == NO_GUARD:
         return []
-    if reads == ORPHANED:
+    if relation == NO_CASE:
         return [
-            (ADOPT, "Attach it to this case"),
-            (RECORD, "Leave it, only log this action"),
+            (ATTACH, "Attach to case"),
+            (LOG_ONLY, "Log only"),
         ]
 
     built = []
     if takes_expiry(values.get("type_key")):
-        built.append((EXTEND, "Change its end date to the date above"))
-    built.append((RECORD, "Only log this action"))
+        built.append((EXTEND, "Update end date"))
+    built.append((LOG_ONLY, "Log only"))
     return built if len(built) > 1 else []
 
 
-def settle_blocks(values, guard_status):
-    options = settle_options(values, guard_status)
+def enforcement_blocks(values, guard_status):
+    options = enforcement_options(values, guard_status)
     if not options:
         return []
 
-    reads = (guard_status or {}).get("reads") or UNGUARDED
-    selected = values.get("settle")
+    relation = (guard_status or {}).get("relation") or NO_GUARD
+    selected = values.get("enforcement")
     if selected not in dict(options):
-        selected = SETTLE_DEFAULT.get(reads, RECORD)
+        selected = DEFAULT_ENFORCEMENT.get(relation, LOG_ONLY)
 
     built = [
         {"text": {"type": "plain_text", "text": text}, "value": value}
@@ -229,11 +229,11 @@ def settle_blocks(values, guard_status):
     return [
         {
             "type": "input",
-            "block_id": SETTLE,
+            "block_id": ENFORCEMENT,
             "label": {"type": "plain_text", "text": "Enforcement"},
             "element": {
                 "type": "radio_buttons",
-                "action_id": SETTLE,
+                "action_id": ENFORCEMENT,
                 "options": built,
                 **({"initial_option": matches[0]} if matches else {}),
             },
@@ -263,7 +263,7 @@ def build_blocks(case_id, values, guard_status=None):
             "element": {
                 "type": "users_select",
                 "action_id": TARGET,
-                "placeholder": {"type": "plain_text", "text": "who this is about"},
+                "placeholder": {"type": "plain_text", "text": "Select a member"},
                 **(
                     {"initial_user": values["target_user_id"]}
                     if values.get("target_user_id")
@@ -279,7 +279,7 @@ def build_blocks(case_id, values, guard_status=None):
             "element": {
                 "type": "static_select",
                 "action_id": KIND,
-                "placeholder": {"type": "plain_text", "text": "pick one"},
+                "placeholder": {"type": "plain_text", "text": "Select an action"},
                 "options": choices(),
                 **kind_initial_option(key),
             },
@@ -335,7 +335,7 @@ def build_blocks(case_id, values, guard_status=None):
                 "element": {
                     "type": "conversations_select",
                     "action_id": WHERE,
-                    "placeholder": {"type": "plain_text", "text": "pick a channel"},
+                    "placeholder": {"type": "plain_text", "text": "Select a channel"},
                     **(
                         {"initial_conversation": values["channel_id"]}
                         if values.get("channel_id")
@@ -345,7 +345,7 @@ def build_blocks(case_id, values, guard_status=None):
             }
         )
 
-    built += settle_blocks(values, guard_status)
+    built += enforcement_blocks(values, guard_status)
 
     built += [
         {
@@ -356,7 +356,7 @@ def build_blocks(case_id, values, guard_status=None):
             "element": {
                 "type": "static_select",
                 "action_id": CATEGORY,
-                "placeholder": {"type": "plain_text", "text": "pick one"},
+                "placeholder": {"type": "plain_text", "text": "Select a violation"},
                 "options": category_choices(),
                 **category_initial_option(values.get("category_key")),
             },
@@ -370,7 +370,6 @@ def build_blocks(case_id, values, guard_status=None):
                 "action_id": REASON,
                 "multiline": True,
                 "max_length": REASON_LIMIT,
-                "placeholder": {"type": "plain_text", "text": "what they did"},
                 **({"initial_value": values["reason"]} if values.get("reason") else {}),
             },
         },
@@ -383,7 +382,7 @@ def build_view(case_id, subjects=(), category=None, values=None, guard_status=No
         "type": "modal",
         "callback_id": CALLBACK,
         "private_metadata": str(case_id),
-        "title": {"type": "plain_text", "text": "Log an action"},
+        "title": {"type": "plain_text", "text": "Log action"},
         "submit": {"type": "plain_text", "text": "Log"},
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": build_blocks(case_id, values or initial_values(subjects, category), guard_status),
@@ -393,7 +392,7 @@ def build_view(case_id, subjects=(), category=None, values=None, guard_status=No
 HEADER_TEXT_LIMIT = 150
 
 
-def echo_blocks(values, by, channel_name=None):
+def log_blocks(values, by, channel_name=None):
     built = [
         {
             "type": "header",
@@ -424,7 +423,7 @@ def requires_refresh(values, block_ids, guard_status=None):
         return True
     if (guard_status or {}).get("guard") and GUARD_STATUS not in block_ids:
         return True
-    return bool(settle_options(values, guard_status)) and SETTLE not in block_ids
+    return bool(enforcement_options(values, guard_status)) and ENFORCEMENT not in block_ids
 
 
 def submitted_values(view_state):
@@ -437,8 +436,8 @@ def submitted_values(view_state):
         "expires_on": values.get(UNTIL, {}).get(UNTIL, {}).get("selected_date"),
         "expires_time": values.get(UNTIL_TIME, {}).get(UNTIL_TIME, {}).get("selected_time"),
         "channel_id": values.get(WHERE, {}).get(WHERE, {}).get("selected_conversation"),
-        "settle": (
-            (values.get(SETTLE, {}).get(SETTLE, {}).get("selected_option") or {}).get("value")
+        "enforcement": (
+            (values.get(ENFORCEMENT, {}).get(ENFORCEMENT, {}).get("selected_option") or {}).get("value")
         ),
         "reason": (values.get(REASON, {}).get(REASON, {}).get("value") or "").strip(),
         "category_key": (
@@ -451,17 +450,17 @@ def submitted_values(view_state):
 def validation_errors(values):
     key = values.get("type_key")
     if not key:
-        return {KIND: "Pick an action."}
+        return {KIND: "Select an action"}
     if not values.get("target_user_id"):
-        return {TARGET: "Pick a member."}
+        return {TARGET: "Select a member"}
     if needs_expiry(key) and not values.get("expires_on"):
         return {UNTIL: f"A {label(key).lower()} needs an end date."}
     if values.get("expires_time") and not values.get("expires_on"):
         return {UNTIL: "Pick a date for the end time."}
     if needs_channel(key) and not values.get("channel_id"):
-        return {WHERE: f"A {label(key).lower()} needs a channel."}
-    if values.get("settle") == EXTEND and not values.get("expires_on"):
-        return {UNTIL: "Pick the new end date."}
+        return {WHERE: "Select a channel"}
+    if values.get("enforcement") == EXTEND and not values.get("expires_on"):
+        return {UNTIL: "Select an end date"}
     if not values.get("reason"):
         return {REASON: "Add a reason."}
     return None

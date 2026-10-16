@@ -4,8 +4,8 @@ class FdAuditGroupsTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   setup do
-    hold_role!("UGRPBOSS", "community_manager")
-    @ff = hold_role!("UGRPFF", "firefighter")
+    grant_role!("UGRPBOSS", "community_manager")
+    @ff = grant_role!("UGRPFF", "firefighter")
     sign_in_as(@ff)
   end
 
@@ -24,7 +24,7 @@ class FdAuditGroupsTest < ActionDispatch::IntegrationTest
     css_select(".audit-groups tbody tr").map { |row| row.css("td").map { |cell| cell.text.squish } }
   end
 
-  test "grouping by actor counts each one with first and last seen, busiest first" do
+  test "audit group=actor orders actors by event count desc with first and last times" do
     slack!(actor: "UGRPONE", at: 3.hours.ago)
     slack!(actor: "UGRPTWO", at: 2.hours.ago)
     slack!(actor: "UGRPTWO", at: 1.hour.ago)
@@ -32,13 +32,13 @@ class FdAuditGroupsTest < ActionDispatch::IntegrationTest
     get fd_audit_path(group: "actor")
     assert_response :success
     assert_select ".audit-groups th", "Actor"
-    assert_equal [%w[@UGRPTWO 2], %w[@UGRPONE 1]], cells.map { |one| one.first(2) }
+    assert_equal [%w[@UGRPTWO 2], %w[@UGRPONE 1]], cells.map { |row| row.first(2) }
     assert_select ".audit-groups tbody tr td.audit-when time", minimum: 4
     assert_select ".pager-at", /of \d+ actors?/
     assert_select ".audit-table:not(.audit-groups)", count: 0
   end
 
-  test "a group's count opens its events without the grouping" do
+  test "audit group count links to ungrouped events filtered by actor" do
     slack!(actor: "UGRPTWO")
 
     get fd_audit_path(group: "actor", q: "last:7d")
@@ -46,19 +46,19 @@ class FdAuditGroupsTest < ActionDispatch::IntegrationTest
     assert_equal fd_audit_path(q: "last:7d actor:UGRPTWO"), link["href"]
   end
 
-  test "apps group under their name and filter by app:" do
+  test "audit group=app shows app name with count and app: filter matches rows" do
     slack!(app: "A0GRPAPP1")
     slack!(app: "A0GRPAPP1", action: "user_logout")
     slack!
 
     get fd_audit_path(group: "app")
-    assert_equal [["Toolbox", "2"]], cells.map { |one| one.first(2) }
+    assert_equal [["Toolbox", "2"]], cells.map { |row| row.first(2) }
 
     get fd_audit_path(q: "app:A0GRPAPP1")
     assert_equal 2, css_select("tr.audit-row").size
   end
 
-  test "channels and actions group too" do
+  test "audit group=action and group=channel show label and count" do
     slack!(action: "user_channel_join", channel: "C0GRPCHAN")
     slack!(action: "user_channel_join", channel: "C0GRPCHAN")
 
@@ -66,10 +66,10 @@ class FdAuditGroupsTest < ActionDispatch::IntegrationTest
     assert_includes cells.map(&:first), "Joined a channel"
 
     get fd_audit_path(group: "channel")
-    assert_equal "2", cells.find { |one| one.first.present? }&.second
+    assert_equal "2", cells.find { |row| row.first.present? }&.second
   end
 
-  test "the grouping stays while filters and tabs change" do
+  test "audit filter links and view tabs keep group=actor" do
     get fd_audit_path(group: "actor")
 
     assert_select ".audit-filters a[href*='group=actor'][href*='last%3A7d']", "Last 7 days"
@@ -77,14 +77,14 @@ class FdAuditGroupsTest < ActionDispatch::IntegrationTest
     assert_select ".audit-filters a[href='#{fd_audit_path}']", "None"
   end
 
-  test "addresses only group for identity.read" do
+  test "audit group=address renders only with identity.read" do
     slack!
 
     get fd_audit_path(group: "address")
     assert_select ".audit-groups th", "IP"
     assert_includes cells.map(&:first), "81.2.69.144"
 
-    move_capability!("firefighter", "identity.read", false, by: "UGRPBOSS")
+    override_capability!("firefighter", "identity.read", false, by: "UGRPBOSS")
     get fd_audit_path(group: "address")
     assert_select ".audit-groups", count: 0
     assert_select ".audit-filters a", text: "Address", count: 0

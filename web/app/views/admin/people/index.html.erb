@@ -6,7 +6,7 @@
     <%= search_field_tag :q, @term, placeholder: "Search by name or Slack ID",
           class: "queue-search-input", autocomplete: "off", aria: { label: "Search people" } %>
   <% end %>
-  <span class="segmented" role="group" aria-label="role">
+  <span class="segmented" role="group" aria-label="Role">
     <%= link_to "All", admin_people_path(q: @term.presence),
           aria: { current: ("true" if @role.nil?) } %>
     <% Authz.role_names.each do |name| %>
@@ -51,7 +51,7 @@
                 </td>
                 <td><%= role_standing(user_id, roles: @roles_of[user_id] || [],
                           extras: @extras_of[user_id] || 0) %></td>
-                <td><%= acted_bar(@acted[user_id], @busiest) %></td>
+                <td><%= action_count_bar(@action_counts[user_id], @peak_actions) %></td>
                 <td class="col-btn">
                   <svg class="row-go" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
@@ -63,9 +63,9 @@
       </table>
     </div>
   <% elsif @term.present? || @role %>
-    <div class="empty"><p class="empty-title">Nobody matches</p></div>
+    <div class="empty"><p class="empty-title">No matches</p></div>
   <% else %>
-    <div class="empty"><p class="empty-title">Nobody holds a grant yet</p></div>
+    <div class="empty"><p class="empty-title">No people</p></div>
   <% end %>
 </div>
 

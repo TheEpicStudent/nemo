@@ -44,9 +44,9 @@ def harness(monkeypatch):
 
     monkeypatch.setattr(commands, "session", one_session)
     monkeypatch.setattr(commands.access, "may", lambda conn, user_id, capability, case=None: (True, None))
-    monkeypatch.setattr(commands.case_actions, "claimed",
+    monkeypatch.setattr(commands.case_actions, "record_claim",
                         lambda conn, case_id, user_id: recorded["claimed"].append(user_id))
-    monkeypatch.setattr(commands.case_actions, "assign_people",
+    monkeypatch.setattr(commands.case_actions, "assign_users",
                         lambda conn, case_id, users, by: recorded["assigned"].append(users))
     monkeypatch.setattr(commands.case_actions, "remove_assignee",
                         lambda conn, case_id, user, by: recorded["removed"].append(user))
@@ -61,7 +61,7 @@ def harness(monkeypatch):
     return recorded
 
 
-def test_commands_are_read_from_the_first_word():
+def test_parse_command_first_word_returns_command_and_arguments():
     assert commands.parse_command("!claim") == ("!claim", "")
     assert commands.parse_command("!Assign <@UA>  <@UB>") == ("!assign", "<@UA>  <@UB>")
     assert commands.parse_command("  ?Resolve ") == ("resolve", "")
@@ -70,7 +70,7 @@ def test_commands_are_read_from_the_first_word():
     assert commands.parse_command("!whatever") == (None, None)
 
 
-def test_parse_command_accepts_spaced_resolve():
+def test_parse_command_spaced_resolve_returns_resolve():
     assert commands.parse_command("? resolve") == ("resolve", "")
     assert commands.parse_command("?  RESOLVE ") == ("resolve", "")
     assert commands.parse_command("!  resolve") == ("resolve", "")
@@ -78,46 +78,46 @@ def test_parse_command_accepts_spaced_resolve():
     assert commands.parse_command("~?resolve") == ("resolve", "")
 
 
-def test_parse_command_keeps_resolve_sentences_as_replies():
+def test_parse_command_resolve_sentence_returns_none():
     assert commands.parse_command("? resolved it") == (None, None)
     assert commands.parse_command("? resolve this soon please") == (None, None)
     assert commands.parse_command("resolve") == (None, None)
     assert commands.parse_command("~resolve") == (None, None)
 
 
-def test_claiming_assigns_you(harness):
+def test_run_claim_records_claim_and_says_claimed(harness):
     outcome = commands.run("!claim", "", 39, "UME")
     assert harness["claimed"] == ["UME"]
     assert outcome["say"] == ["<@UME> claimed case 39"]
 
 
-def test_claiming_a_case_you_have_is_refused(harness):
+def test_run_claim_already_assigned_is_refused(harness):
     harness["conn"].assignees = ["UME", "UOTHER"]
     outcome = commands.run("!claim", "", 39, "UME")
     assert outcome["refused"] == "You are already assigned to case 39"
     assert harness["claimed"] == []
 
 
-def test_claiming_beside_somebody_else_works(harness):
+def test_run_claim_with_other_assignee_is_not_refused(harness):
     harness["conn"].assignees = ["UOTHER"]
     assert commands.run("!claim", "", 39, "UME")["refused"] is None
 
 
-def test_assign_adds_only_who_is_not_on_it(harness):
+def test_run_assign_skips_already_assigned_users(harness):
     harness["conn"].assignees = ["UA"]
     outcome = commands.run("!assign", "<@UA> <@UB|bob>", 39, "UME")
     assert harness["assigned"] == [["UB"]]
     assert outcome["say"] == ["<@UME> assigned case 39 to <@UB>"]
 
 
-def test_assign_with_nobody_new_or_nobody_named_is_refused(harness):
+def test_run_assign_without_new_or_named_users_is_refused(harness):
     harness["conn"].assignees = ["UA"]
     assert commands.run("!assign", "<@UA>", 39, "UME")["refused"] == (
         "<@UA> is already assigned to case 39")
     assert commands.run("!assign", "", 39, "UME")["refused"] == "Usage: `!assign @user`"
 
 
-def test_unassign_takes_people_off(harness):
+def test_run_unassign_removes_assignee_and_refuses_unassigned_user(harness):
     harness["conn"].assignees = ["UA", "UME"]
     outcome = commands.run("!unassign", "<@UME>", 39, "UME")
     assert harness["removed"] == ["UME"]
@@ -126,7 +126,7 @@ def test_unassign_takes_people_off(harness):
         "<@UZ> is not assigned to case 39")
 
 
-def test_a_note_lands_on_the_case_or_the_member(harness):
+def test_run_note_saves_case_note_or_member_note(harness):
     case = commands.run("!note", "spoke to them", 39, "UME")
     member = commands.run("!note", "<@UA> keeps doing this", 39, "UME")
     assert harness["noted"] == ["spoke to them"]
@@ -136,7 +136,7 @@ def test_a_note_lands_on_the_case_or_the_member(harness):
     assert commands.run("!note", "<@UA>", 39, "UME")["refused"].startswith("Usage")
 
 
-def test_note_with_bare_user_id_lands_on_the_member(harness):
+def test_run_note_with_bare_user_id_saves_member_note(harness):
     commands.run("!note", "U0123ABCD deactivated alt", 39, "UME")
     commands.run("!note", "URGENT check this", 39, "UME")
 
@@ -145,7 +145,7 @@ def test_note_with_bare_user_id_lands_on_the_member(harness):
     assert commands.run("!note", "U0123ABCD", 39, "UME")["refused"].startswith("Usage")
 
 
-def test_each_command_asks_for_its_own_permission():
+def test_needed_returns_capability_for_each_command():
     assert commands.needed("!note", "U0123ABCD text") == "member.note"
     assert commands.needed("!note", "<@UA> text") == "member.note"
     assert commands.needed("!note", "text") == "case.note"
@@ -153,7 +153,7 @@ def test_each_command_asks_for_its_own_permission():
     assert commands.needed("!case", "") == "case.read"
 
 
-def test_a_refused_command_is_taken_down_and_explained(harness, monkeypatch):
+def test_reply_refused_command_deletes_message_and_posts_ephemeral(harness, monkeypatch):
     monkeypatch.setattr(commands.access, "may", lambda conn, user_id, capability, case=None: (False, "no"))
     slack = Slack()
     event = {"channel": CHANNEL_ID, "ts": "2.0", "user": "UME"}
@@ -165,7 +165,7 @@ def test_a_refused_command_is_taken_down_and_explained(harness, monkeypatch):
     assert slack.calls_to("chat_postMessage") == []
 
 
-def test_a_command_that_worked_is_replaced_by_its_line(harness):
+def test_reply_successful_command_posts_message_and_deletes_command(harness):
     slack = Slack()
     event = {"channel": CHANNEL_ID, "ts": "2.0", "user": "UME"}
 
@@ -175,7 +175,7 @@ def test_a_command_that_worked_is_replaced_by_its_line(harness):
     assert harness["deleted"] == ["2.0"]
 
 
-def test_a_note_stays_and_is_marked_saved(harness):
+def test_reply_note_adds_reaction_and_keeps_message(harness):
     slack = Slack()
     event = {"channel": CHANNEL_ID, "ts": "2.0", "user": "UME"}
 
@@ -185,7 +185,7 @@ def test_a_note_stays_and_is_marked_saved(harness):
     assert harness["deleted"] == []
 
 
-def test_a_refusal_nemo_cannot_take_down_is_crossed_instead(monkeypatch):
+def test_delete_command_failed_delete_adds_x_reaction(monkeypatch):
     def fail(channel_id, ts, max_retries=2):
         raise RuntimeError("proxy down")
 
@@ -197,5 +197,5 @@ def test_a_refusal_nemo_cannot_take_down_is_crossed_instead(monkeypatch):
     assert slack.calls_to("reactions_add")[0]["name"] == "x"
 
 
-def test_case_link_is_the_header(harness):
+def test_run_case_returns_case_header_line(harness):
     assert commands.run("!case", "", 39, "UME")["say"] == ["Case 39"]

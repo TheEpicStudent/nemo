@@ -19,12 +19,12 @@ def claim(guard_id):
         return True
 
 
-def drop(guard_id):
+def release(guard_id):
     with _lock:
         _running.discard(guard_id)
 
 
-def invite_the_admin(client, channel_id):
+def invite_admin(client, channel_id):
     who = privileged.admin_user_id()
     if not who:
         return False
@@ -43,11 +43,11 @@ def remove(client, channel_id, ts, max_retries=2):
         privileged.delete_message(channel_id, ts, max_retries=max_retries)
         return True
     except Exception as failure:
-        if not privileged.absent(failure):
+        if not privileged.channel_missing(failure):
             raise
         log.info("nemo: the admin account is not in %s, inviting it", channel_id)
 
-    if not invite_the_admin(client, channel_id):
+    if not invite_admin(client, channel_id):
         raise RuntimeError(f"the admin account could not join {channel_id}")
 
     privileged.delete_message(channel_id, ts, max_retries=max_retries)
@@ -76,14 +76,14 @@ def post_destroy_notice(client, conn, channel_id, thread_ts, by, deleted=0):
         log.warning("nemo: could not say that %s was destroyed: %s", channel_id, failure)
 
 
-def signed(by):
+def signature_block(by):
     return {
         "type": "context",
         "elements": [{"type": "mrkdwn", "text": f"Fire Department \u00b7 <@{by}>"}],
     }
 
 
-def leave_note(client, guard_id, channel_id, thread_ts, by):
+def post_note(client, guard_id, channel_id, thread_ts, by):
     with session() as conn:
         note_row = guards.note_for(conn, guard_id)
     if note_row is None:
@@ -98,7 +98,7 @@ def leave_note(client, guard_id, channel_id, thread_ts, by):
     try:
         response = client.chat_postMessage(
             channel=channel_id, thread_ts=thread_ts, text=text,
-            blocks=[note, signed(by)], unfurl_links=False,
+            blocks=[note, signature_block(by)], unfurl_links=False,
         )
     except Exception as failure:
         log.warning("nemo: guard %s could not leave the note: %s", guard_id, failure)
@@ -111,20 +111,20 @@ def leave_note(client, guard_id, channel_id, thread_ts, by):
     return ts
 
 
-def notice_still_posted(messages, thread_ts, note_ts=None):
+def unremoved_timestamps(messages, thread_ts, note_ts=None):
     excluded_ts = {thread_ts, note_ts} if note_ts else {thread_ts}
     stamps = [one["ts"] for one in messages if one.get("ts") and one["ts"] not in excluded_ts]
     return stamps or [thread_ts]
 
 
-def names_for(client, messages):
-    named = {}
+def user_names(client, messages):
+    names = {}
     for one in messages:
         user_id = one.get("user")
-        if not user_id or user_id in named:
+        if not user_id or user_id in names:
             continue
-        named[user_id] = profile.profile(client, user_id)["name"]
-    return named
+        names[user_id] = profile.profile(client, user_id)["name"]
+    return names
 
 
 def run_destroy(client, guard_id):
@@ -133,7 +133,7 @@ def run_destroy(client, guard_id):
     try:
         return destroy(client, guard_id)
     finally:
-        drop(guard_id)
+        release(guard_id)
 
 
 def destroy(client, guard_id):
@@ -155,12 +155,12 @@ def destroy(client, guard_id):
             guards.refresh(conn)
         return 0
 
-    named = names_for(client, messages)
+    names = user_names(client, messages)
     with session() as conn:
-        guards.store_transcript(conn, gid, channel_id, thread_ts, messages, named)
+        guards.store_transcript(conn, gid, channel_id, thread_ts, messages, names)
     log.info("nemo: guard %s kept %s message(s) before deleting", gid, len(messages))
 
-    note_ts = leave_note(client, gid, channel_id, thread_ts, by)
+    note_ts = post_note(client, gid, channel_id, thread_ts, by)
 
     deleted, failed = 0, None
     for _ in range(guards.MAX_PASSES):
@@ -172,7 +172,7 @@ def destroy(client, guard_id):
             failed = str(failure)[:200]
             break
 
-        stamps = notice_still_posted(messages, thread_ts, note_ts)
+        stamps = unremoved_timestamps(messages, thread_ts, note_ts)
 
         removed_count = 0
         for ts in stamps:
@@ -184,7 +184,7 @@ def destroy(client, guard_id):
 
         deleted += removed_count
         with session() as conn:
-            guards.progressed(conn, gid, removed_count)
+            guards.add_progress(conn, gid, removed_count)
 
         if removed_count == 0:
             failed = "slack refused every delete in a pass"
@@ -231,7 +231,7 @@ def remove_lock_warnings(client):
         try:
             client.chat_delete(channel=channel_id, ts=warned_ts)
         except Exception as failure:
-            if not (privileged.already_deleted(failure) or privileged.absent(failure)):
+            if not (privileged.already_deleted(failure) or privileged.channel_missing(failure)):
                 log.warning("nemo: guard %s lock notice not removed yet: %s", guard_id, failure)
                 continue
         try:
@@ -268,7 +268,7 @@ def after_guard_change(client, guard_id):
     update_lock_notice(client, guard_id)
 
 
-def note_it(conn, guard, user_id, ts):
+def record_guarded_message(conn, guard, user_id, ts):
     gid, _kind, channel_id, _thread_ts, _state, _by, warned_ts, _expires = guard
 
     if warned_ts is None or ts <= warned_ts:
@@ -278,7 +278,7 @@ def note_it(conn, guard, user_id, ts):
     return True
 
 
-def delete_notice(client, guard_id, channel_id, ts):
+def delete_guarded_message(client, guard_id, channel_id, ts):
     try:
         remove(client, channel_id, ts)
     except Exception as failure:
@@ -288,15 +288,15 @@ def delete_notice(client, guard_id, channel_id, ts):
         log.info("nemo: guard %s found %s already gone", guard_id, ts)
 
     with session() as conn:
-        guards.removed(conn, guard_id, ts)
+        guards.mark_message_removed(conn, guard_id, ts)
     return True
 
 
-def threshold_met(guard, user_id):
+def record_and_escalate(guard, user_id):
     gid, _kind, channel_id, thread_ts, _state, _by, _warned, _expires = guard
 
     with session() as conn:
-        count = guards.record_strike(conn, gid, user_id)
+        count = guards.message_count(conn, gid, user_id)
         needed = privileged.strikes_needed(conn)
     if count < needed:
         return None
@@ -313,13 +313,13 @@ STILL_UP_PER_SWEEP = 200
 
 def sweep_removals(client):
     with session() as conn:
-        waiting = guards.still_up(conn, STILL_UP_PER_SWEEP)
+        waiting = guards.unremoved_messages(conn, STILL_UP_PER_SWEEP)
     if not waiting:
         return 0
 
     removed_count = 0
     for guard_id, channel_id, ts in waiting:
-        if delete_notice(client, guard_id, channel_id, ts):
+        if delete_guarded_message(client, guard_id, channel_id, ts):
             removed_count += 1
 
     log.info("nemo: cleared %s of %s message(s) the guard could not remove first time",
@@ -350,9 +350,9 @@ def escalate(guard_id, user_id, channel_id, thread_ts, messages):
 def sweep_strikes():
     needed = privileged.strikes_needed()
     with session() as conn:
-        over = guards.over_the_line(conn, needed)
+        over = guards.users_over_threshold(conn, needed)
 
-    done = 0
+    escalated_count = 0
     for guard_id, user_id, messages, channel_id, thread_ts in over:
         if not claim(guard_id):
             continue
@@ -362,10 +362,10 @@ def sweep_strikes():
             log.warning("nemo: guard %s could not escalate %s: %s", guard_id, user_id, failure)
             continue
         finally:
-            drop(guard_id)
+            release(guard_id)
 
         if outcome:
-            done += 1
+            escalated_count += 1
             log.warning("nemo: guard %s -> sessions %s for %s after %s message(s)",
                         guard_id, outcome, user_id, messages)
-    return done
+    return escalated_count

@@ -7,7 +7,7 @@
   <% if ChannelsController::RANGED_VIEWS.include?(@view) %>
     <%= render "shared/date_range", url: channel_path(@channel),
           start_on: @start_date, end_on: @end_date, min: @range_min, max: @range_max,
-          carry: { view: @view }.compact,
+          hidden_params: { view: @view }.compact,
           presets: ChannelsController::RANGE_PRESETS.map { |days| {
             label: "Last #{days} days", current: @range_preset == days,
             href: channel_view_path(days: days) } } %>
@@ -25,14 +25,14 @@
 
 <div class="stack">
   <%= render "identity", channel: @channel, snapshot: @snapshot, standing: @standing,
-        crowd: @member_counts, team_stats: @team_stats %>
+        member_counts: @member_counts, team_stats: @team_stats %>
 
   <% case @view %>
   <% when "overview" %>
-    <%= render "activity", pulse: @pulse, crowd: @member_counts, clock: @clock,
+    <%= render "activity", pulse: @pulse, member_counts: @member_counts, clock: @clock,
           range: @range, start_date: @start_date, end_date: @end_date %>
   <% when "activity" %>
-    <%= render "participants", crowd: @member_counts, snapshot: @snapshot, channel: @channel %>
+    <%= render "participants", member_counts: @member_counts, snapshot: @snapshot, channel: @channel %>
   <% when "newcomers" %>
     <%= render "welcome", welcome: @welcome, scorecard_rows: @scorecard_rows %>
   <% when "messages" %>

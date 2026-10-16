@@ -5,11 +5,11 @@ module Fd
     PACKED_NODE = 11
     NODE_GAP = 12
     RING_MIN = 92
-    LABEL_ROOM = 44
-    HOVER_ROOM = 10
+    LABEL_CLEARANCE = 44
+    HOVER_CLEARANCE = 10
     GROUP_GAP = 28
     MARGIN = 24
-    PULL = 0.35
+    EDGE_CURVE = 0.35
     PAIR_WIDTH = 360
     PAIR_HEIGHT = 150
     PAIR_SPAN = 150
@@ -44,8 +44,8 @@ module Fd
       return format("M%<ax>.1f %<ay>.1f L%<bx>.1f %<by>.1f", ax: a.x, ay: a.y, bx: b.x, by: b.y) if straight
 
       centre = groups[a.group]
-      cx = centre.x + ((((a.x + b.x) / 2) - centre.x) * PULL)
-      cy = centre.y + ((((a.y + b.y) / 2) - centre.y) * PULL)
+      cx = centre.x + ((((a.x + b.x) / 2) - centre.x) * EDGE_CURVE)
+      cy = centre.y + ((((a.y + b.y) / 2) - centre.y) * EDGE_CURVE)
       format("M%<ax>.1f %<ay>.1f Q%<cx>.1f %<cy>.1f %<bx>.1f %<by>.1f",
         ax: a.x, ay: a.y, cx: cx, cy: cy, bx: b.x, by: b.y)
     end
@@ -63,7 +63,7 @@ module Fd
       linked, loose = grouped.partition { |members| members.size > 1 }
       sets = loose.size > 1 ? linked + [loose.flatten] : linked + loose
       @groups = sets.each_with_index.map { |members, index| shape(members, index, loose: loose.size > 1 && members == loose.flatten) }
-      place
+      position_groups
       @points = {}
       groups.each { |group| point_group(group) }
       fit
@@ -94,7 +94,7 @@ module Fd
         end
         break unless changed
       end
-      attach_loners(labels)
+      attach_isolated(labels)
       labels.group_by { |_user_id, label| label }.values.map { |pairs| pairs.map(&:first) }
         .sort_by { |members| [-members.size, members.map { |user_id| @order[user_id] }.min] }
     end
@@ -107,7 +107,7 @@ module Fd
       weights.max_by { |label, weight| [weight, -@order[label]] }.first
     end
 
-    def attach_loners(labels)
+    def attach_isolated(labels)
       counts = labels.values.tally
       @ids.each do |user_id|
         next unless counts[labels[user_id]] == 1
@@ -144,8 +144,8 @@ module Fd
       hub = loose ? nil : hub_of(members)
       others = (members - [hub]).sort_by { |user_id| @order[user_id] }
       ring = others.empty? ? 0 : [RING_MIN, others.size * ((2 * node) + NODE_GAP) / (2 * Math::PI)].max
-      room = packed? ? HOVER_ROOM : LABEL_ROOM
-      Group.new(index: index, hub: hub, others: others, ring: ring, reach: ring + node + room)
+      clearance = packed? ? HOVER_CLEARANCE : LABEL_CLEARANCE
+      Group.new(index: index, hub: hub, others: others, ring: ring, reach: ring + node + clearance)
     end
 
     def hub_of(members)
@@ -155,8 +155,8 @@ module Fd
       end
     end
 
-    def place
-      rows = shelves
+    def position_groups
+      rows = group_rows
       widths = rows.map { |row| row.sum { |group| 2 * group.reach } + (GROUP_GAP * (row.size - 1)) }
       widest = widths.max
       top = 0.0
@@ -172,11 +172,11 @@ module Fd
       end
     end
 
-    def shelves
+    def group_rows
       target = [groups.map { |group| 2 * group.reach }.max,
                 Math.sqrt(groups.sum { |group| (2 * group.reach)**2 } * ASPECT)].max
       groups.each_with_object([[]]) do |group, rows|
-        used = rows.last.sum { |placed| (2 * placed.reach) + GROUP_GAP }
+        used = rows.last.sum { |row_group| (2 * row_group.reach) + GROUP_GAP }
         rows << [] if rows.last.any? && used + (2 * group.reach) > target + GROUP_GAP
         rows.last << group
       end

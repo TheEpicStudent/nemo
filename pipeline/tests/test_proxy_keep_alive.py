@@ -65,7 +65,7 @@ def proxy():
         one.stop()
 
 
-def test_calls_on_one_thread_share_one_connection(proxy):
+def test_call_repeated_on_one_thread_reuses_one_connection(proxy):
     server = proxy()
     client = server.client()
 
@@ -77,7 +77,7 @@ def test_calls_on_one_thread_share_one_connection(proxy):
     assert len(server.connections) == 1
 
 
-def test_a_new_client_on_the_same_thread_reuses_the_connection(proxy):
+def test_call_from_new_client_on_same_thread_reuses_connection(proxy):
     server = proxy()
 
     server.client().call("chat.delete", max_retries=0)
@@ -86,7 +86,7 @@ def test_a_new_client_on_the_same_thread_reuses_the_connection(proxy):
     assert len(server.connections) == 1
 
 
-def test_without_keep_alive_every_call_opens_a_connection(proxy):
+def test_call_without_keep_alive_opens_connection_per_call(proxy):
     server = proxy()
     client = server.client(keep_alive=False)
 
@@ -96,7 +96,7 @@ def test_without_keep_alive_every_call_opens_a_connection(proxy):
     assert len(server.connections) == 2
 
 
-def test_a_connection_idle_too_long_is_replaced(proxy, monkeypatch):
+def test_call_after_keepalive_idle_seconds_opens_new_connection(proxy, monkeypatch):
     server = proxy()
     client = server.client()
     monkeypatch.setattr(proxy_client, "KEEPALIVE_IDLE_SECONDS", -1)
@@ -107,7 +107,7 @@ def test_a_connection_idle_too_long_is_replaced(proxy, monkeypatch):
     assert len(server.connections) == 2
 
 
-def test_a_connection_the_proxy_closed_is_retried_once_on_a_fresh_one(proxy):
+def test_call_after_server_closes_connection_retries_on_new_connection(proxy):
     server = proxy(close_after_first=True)
     client = server.client()
 
@@ -118,7 +118,7 @@ def test_a_connection_the_proxy_closed_is_retried_once_on_a_fresh_one(proxy):
     assert len(server.connections) == 2
 
 
-def test_other_threads_get_their_own_connection(proxy):
+def test_call_from_other_thread_opens_separate_connection(proxy):
     server = proxy()
     client = server.client()
 
@@ -130,7 +130,7 @@ def test_other_threads_get_their_own_connection(proxy):
     assert len(server.connections) == 2
 
 
-def test_a_refusal_still_raises_with_its_status(proxy):
+def test_call_with_429_raises_proxy_error_with_http_status(proxy):
     server = proxy(status=429)
 
     with pytest.raises(ProxyError) as caught:
@@ -140,7 +140,7 @@ def test_a_refusal_still_raises_with_its_status(proxy):
     assert "budget: spent" in str(caught.value)
 
 
-def test_nemo_admin_calls_keep_their_connection(monkeypatch):
+def test_privileged_proxy_enables_keep_alive(monkeypatch):
     from bot.core import privileged
 
     monkeypatch.setenv("PROXY_TOKEN_NEMO", "t")
@@ -149,7 +149,7 @@ def test_nemo_admin_calls_keep_their_connection(monkeypatch):
     assert privileged.proxy().keep_alive is True
 
 
-def test_a_kept_connection_turns_off_nagle(proxy):
+def test_call_connection_sets_tcp_nodelay(proxy):
     import socket
 
     server = proxy()

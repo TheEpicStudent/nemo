@@ -27,20 +27,20 @@
       </div>
 
       <label class="field-label">
-        Why
+        Reason
         <%= text_field_tag :note, nil, class: "input", id: nil %>
       </label>
 
       <% if submitted_value(:domain).present? %>
         <label class="opt">
           <%= check_box_tag :anyway, "1", false, id: nil, class: "tick" %>
-          <span><span class="opt-label">Add it anyway</span></span>
+          <span><span class="opt-label">Add anyway</span></span>
         </label>
       <% end %>
     </div>
     <div class="modal-foot">
       <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
-      <%= submit_tag "Add it", class: "btn btn-primary" %>
+      <%= submit_tag "Add", class: "btn btn-primary" %>
     </div>
   <% end %>
 <% end %>

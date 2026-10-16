@@ -1,26 +1,26 @@
 class Current < ActiveSupport::CurrentAttributes
-  attribute :moved, :flipped, :tuned, :effective_capabilities, :effective_roles, :categories
+  attribute :role_overrides, :flag_states, :engine_settings, :effective_capabilities, :effective_roles, :categories
 
   def role_permissions
-    self.moved ||= Authz::Override.pluck(:role, :capability, :allowed)
+    self.role_overrides ||= Authz::Override.pluck(:role, :capability, :allowed)
       .each_with_object({}) { |(role, key, allowed), map| map[[role, key]] = allowed }
   end
 
   def forget_roles
-    self.moved = nil
+    self.role_overrides = nil
     self.effective_capabilities = nil
     self.effective_roles = nil
   end
 
   def flags
-    self.flipped ||= Fd::Flag.flipped
+    self.flag_states ||= Fd::Flag.states
   end
 
   def forget_flags
-    self.flipped = nil
+    self.flag_states = nil
   end
 
-  def forget_tuned
-    self.tuned = nil
+  def forget_engine_settings
+    self.engine_settings = nil
   end
 end

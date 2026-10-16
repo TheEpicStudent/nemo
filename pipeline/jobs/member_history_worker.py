@@ -27,7 +27,7 @@ def prepare_if_new(conn, prepared):
     if prepared is not None and (latest_input is None or latest_input <= prepared):
         return prepared
     queued = prepare_member_history(conn)
-    print(f"{WORKER}: prepared the queue for new inputs, {queued} newly queued")
+    print(f"{WORKER}: queued {queued} member(s) for new inputs")
     return latest_input
 
 
@@ -55,7 +55,7 @@ def main():
             print(f"{WORKER}: {exc}")
             raise SystemExit(1) from exc
 
-    print(f"{WORKER}: draining member_history continuously, {poll}s idle poll")
+    print(f"{WORKER}: draining member_history, idle poll {poll}s")
     prepared = None
     while True:
         state = {"note": "draining"}
@@ -67,7 +67,7 @@ def main():
                     "idle, every member searched" if not searched else f"idle after searching {searched}"
                 )
                 if searched:
-                    print(f"{WORKER}: searched {searched} member(s) this wake")
+                    print(f"{WORKER}: searched {searched} member(s)")
         except Exception as exc:
             print(f"{WORKER}: drain failed, {type(exc).__name__}: {exc}")
         time.sleep(poll)

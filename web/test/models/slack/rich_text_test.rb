@@ -9,18 +9,18 @@ class Slack::RichTextTest < ActiveSupport::TestCase
     )
   end
 
-  test "a plain run of text is a paragraph" do
+  test "for renders a text element as a paragraph" do
     assert_equal "<p class=\"richtext-text\">big news</p>",
       render([{ "type" => "text", "text" => "big news" }])
   end
 
-  test "newlines inside one run become breaks" do
+  test "for renders newlines in a text element as br" do
     html = render([{ "type" => "text", "text" => "one\ntwo" }])
 
     assert_match(/one<br>two/, html)
   end
 
-  test "every style slack sends is marked up" do
+  test "for renders the bold italic strike and code styles as markup" do
     html = render([
       { "type" => "text", "text" => "b", "style" => { "bold" => true } },
       { "type" => "text", "text" => "i", "style" => { "italic" => true } },
@@ -34,33 +34,33 @@ class Slack::RichTextTest < ActiveSupport::TestCase
     assert_match(%r{<code class="richtext-code">c</code>}, html)
   end
 
-  test "styles stack on one run" do
+  test "for nests bold and italic styles on one text element" do
     html = render([{ "type" => "text", "text" => "loud",
                      "style" => { "bold" => true, "italic" => true } }])
 
     assert_match(%r{<em><strong>loud</strong></em>}, html)
   end
 
-  test "a link opens in a new tab and never trusts the scheme" do
+  test "for renders an https link with href and rel noopener and omits href for a javascript url" do
     html = render([{ "type" => "link", "url" => "https://hack.af/x", "text" => "here" }])
     assert_match(/href="https:\/\/hack.af\/x"/, html)
     assert_match(/rel="noopener"/, html)
 
-    bare = render([{ "type" => "link", "url" => "javascript:alert(1)", "text" => "no" }])
-    assert_no_match(/href/, bare)
+    javascript_html = render([{ "type" => "link", "url" => "javascript:alert(1)", "text" => "no" }])
+    assert_no_match(/href/, javascript_html)
   end
 
-  test "a link with no label shows the url" do
+  test "for renders a link without text using the url as label" do
     html = render([{ "type" => "link", "url" => "https://hack.af/x" }])
 
     assert_match(/>https:\/\/hack.af\/x</, html)
   end
 
-  test "an emoji keeps its colons, since slack sends no unicode" do
+  test "for renders an emoji element as its :name:" do
     assert_match(/:fear:/, render([{ "type" => "emoji", "name" => "fear" }]))
   end
 
-  test "a member reads as a name when one is known, an id when not" do
+  test "for renders a user mention as @name when known and as @id otherwise" do
     html = render([{ "type" => "user", "user_id" => "U1" }], names: { "U1" => "quinn" })
     assert_match(/@quinn/, html)
     assert_no_match(/title=/, html)
@@ -68,18 +68,18 @@ class Slack::RichTextTest < ActiveSupport::TestCase
     assert_match(/@U2/, render([{ "type" => "user", "user_id" => "U2" }]))
   end
 
-  test "a channel reads as a name when one is known" do
+  test "for renders a channel mention as #name when known" do
     html = render([{ "type" => "channel", "channel_id" => "C1" }], channels: { "C1" => "lounge" })
 
     assert_match(/#lounge/, html)
   end
 
-  test "a broadcast reads as the word slack shows" do
+  test "for renders broadcast elements as @channel and @here" do
     assert_match(/@channel/, render([{ "type" => "broadcast", "range" => "channel" }]))
     assert_match(/@here/, render([{ "type" => "broadcast", "range" => "here" }]))
   end
 
-  test "a quoted message links to it in slack" do
+  test "for renders a message_mention as a link to its url with its text" do
     html = render([{ "type" => "message_mention", "message_ts" => "1790111676.119469",
                      "channel_id" => "C0A1", "text" => "what they said",
                      "url" => "https://hackclub.enterprise.slack.com/archives/C0A1/p1790111676119469" }])
@@ -88,11 +88,11 @@ class Slack::RichTextTest < ActiveSupport::TestCase
     assert_match(/what they said/, html)
   end
 
-  test "an unknown element falls back to whatever text it carries" do
+  test "for renders an unknown element type using its text" do
     assert_match(/leftovers/, render([{ "type" => "citation", "text" => "leftovers" }]))
   end
 
-  test "a caller can render its own user and channel chips" do
+  test "for renders user and channel mentions with the user_chip and channel_chip callbacks" do
     html = Slack::RichText.for(
       { "blocks" => [{ "type" => "rich_text",
                        "elements" => [{ "type" => "rich_text_section", "elements" => [
@@ -108,7 +108,7 @@ class Slack::RichTextTest < ActiveSupport::TestCase
     assert_no_match(/richtext-mention/, html)
   end
 
-  test "markup in a message is escaped, never rendered" do
+  test "for escapes html in text elements" do
     html = render([{ "type" => "text", "text" => "<script>alert(1)</script>" }])
 
     assert_not_includes html.downcase, "<script"
@@ -119,7 +119,7 @@ class Slack::RichTextTest < ActiveSupport::TestCase
     Slack::RichText.for({ "blocks" => [{ "type" => "rich_text", "elements" => [part] }] })
   end
 
-  test "channel_ids walks blocks for every channel element" do
+  test "channel_ids returns each channel id once across channel elements" do
     message = { "blocks" => [{ "type" => "rich_text", "elements" => [
       { "type" => "rich_text_section", "elements" => [
         { "type" => "channel", "channel_id" => "C0ONE000" },
@@ -132,14 +132,14 @@ class Slack::RichTextTest < ActiveSupport::TestCase
     assert_equal %w[C0ONE000 C0TWO000], Slack::RichText.channel_ids(message)
   end
 
-  test "channel_ids finds nothing in a message with no blocks" do
+  test "channel_ids returns empty for a message without blocks and for nil" do
     assert_equal [], Slack::RichText.channel_ids({ "text" => "just words" })
     assert_equal [], Slack::RichText.channel_ids(nil)
   end
 
   def row(text) = { "type" => "rich_text_section", "elements" => [{ "type" => "text", "text" => text }] }
 
-  test "a bullet list is a ul, an ordered list an ol" do
+  test "for renders bullet lists as ul and ordered lists as ol" do
     bullets = rich_text_for({ "type" => "rich_text_list", "style" => "bullet", "elements" => [row("one")] })
     assert_match(%r{<ul class="richtext-list richtext-indent-0"><li>}, bullets)
 
@@ -147,21 +147,21 @@ class Slack::RichTextTest < ActiveSupport::TestCase
     assert_match(%r{<ol class="richtext-list richtext-indent-0">}, ordered)
   end
 
-  test "an indented list says how deep it is, within reason" do
+  test "for caps list indent at richtext-indent-5" do
     html = rich_text_for({ "type" => "rich_text_list", "style" => "bullet", "indent" => 99,
                      "elements" => [row("deep")] })
 
     assert_match(/richtext-indent-5/, html)
   end
 
-  test "an ordered list that starts late says where" do
+  test "for renders an ordered list offset as the start attribute" do
     html = rich_text_for({ "type" => "rich_text_list", "style" => "ordered", "offset" => 4,
                      "elements" => [row("five")] })
 
     assert_match(/start="5"/, html)
   end
 
-  test "a quote is a blockquote and preformatted text is a pre" do
+  test "for renders rich_text_quote as blockquote and rich_text_preformatted as pre" do
     quote = rich_text_for({ "type" => "rich_text_quote",
                       "elements" => [{ "type" => "text", "text" => "they said" }] })
     assert_match(%r{<blockquote class="richtext-quote">they said</blockquote>}, quote)
@@ -171,18 +171,18 @@ class Slack::RichTextTest < ActiveSupport::TestCase
     assert_match(%r{<pre class="richtext-pre"><code>puts 1</code></pre>}, pre)
   end
 
-  test "a message with no blocks falls back to its text" do
+  test "for renders the text of a message without blocks" do
     html = Slack::RichText.for({ "text" => "just words" })
 
     assert_match(/just words/, html)
   end
 
-  test "a message with nothing at all renders nothing" do
+  test "for returns an empty string for an empty hash and for nil" do
     assert_equal "", Slack::RichText.for({})
     assert_equal "", Slack::RichText.for(nil)
   end
 
-  test "a divider is a rule and an unknown block is left out" do
+  test "for renders a divider block as hr and omits an unknown block type" do
     html = Slack::RichText.for({ "blocks" => [{ "type" => "divider" },
                                               { "type" => "image", "image_url" => "x" }] })
 
@@ -190,7 +190,7 @@ class Slack::RichTextTest < ActiveSupport::TestCase
     assert_no_match(/image/, html)
   end
 
-  test "a section block renders its text" do
+  test "for renders the text of a section block" do
     html = Slack::RichText.for({ "blocks" => [{ "type" => "section",
                                                 "text" => { "type" => "mrkdwn", "text" => "hello" } }] })
 

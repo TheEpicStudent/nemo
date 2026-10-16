@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdMemberSearchTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     unique_display_names = Fd::Member.live.where.not(display_name: "")
       .group(:display_name).having("count(*) = 1").order(:display_name).pluck(:display_name)
     @member = Fd::Member.live.find_by(display_name: unique_display_names.first)
@@ -21,19 +21,19 @@ class FdMemberSearchTest < ActionDispatch::IntegrationTest
     JSON.parse(response.body).fetch("members")
   end
 
-  test "a signed out visitor cannot search members" do
+  test "search signed out redirects to login" do
     get fd_member_search_path(q: "ada")
     assert_redirected_to login_path
   end
 
-  test "searching by part of a name finds them" do
+  test "search by member name returns that member" do
     sign_in_as(@me)
     part = @member.name
 
     assert_includes search_members(part).map { |row| row["id"] }, @member.user_id
   end
 
-  test "search is case blind, because nobody types the way the profile was written" do
+  test "search returns the same members for lower and upper case terms" do
     sign_in_as(@me)
     part = @member.name
 
@@ -41,7 +41,7 @@ class FdMemberSearchTest < ActionDispatch::IntegrationTest
       search_members(part.upcase).map { |row| row["id"] }
   end
 
-  test "a whole member id is looked up directly, so a paste always works" do
+  test "search by full member id returns exactly that member" do
     sign_in_as(@me)
     results = search_members(@member.user_id)
 
@@ -49,18 +49,18 @@ class FdMemberSearchTest < ActionDispatch::IntegrationTest
     assert_equal @member.user_id, results.first["id"]
   end
 
-  test "a lowercase pasted id still resolves" do
+  test "search by lowercase member id returns that member" do
     sign_in_as(@me)
     assert_equal @member.user_id, search_members(@member.user_id.downcase).first["id"]
   end
 
-  test "one letter is not a search, so the list stays empty" do
+  test "search with one character or an empty term returns no members" do
     sign_in_as(@me)
     assert_empty search_members("a")
     assert_empty search_members("")
   end
 
-  test "results carry what the token needs to draw itself" do
+  test "search result includes name and a one character initial" do
     sign_in_as(@me)
     row = search_members(@member.name).find { |result| result["id"] == @member.user_id }
 
@@ -69,40 +69,40 @@ class FdMemberSearchTest < ActionDispatch::IntegrationTest
     assert_equal 1, row["initial"].length
   end
 
-  test "a percent sign is a character to search for, not a wildcard" do
+  test "search treats percent signs as literals and returns no members" do
     sign_in_as(@me)
     assert_empty search_members("%%%")
   end
 
-  test "the list is capped, so one common syllable cannot return the workspace" do
+  test "search results for a and an total at most Fd::Member::LIMIT" do
     sign_in_as(@me)
     assert_operator search_members("a").size + search_members("an").size, :<=, Fd::Member::LIMIT
   end
 
-  test "deleted and bot members stay out of the name search" do
+  test "search by name excludes deleted and bot members and id lookup finds them" do
     sign_in_as(@me)
     hidden = Fd::Member.where(is_deleted: true).or(Fd::Member.where(is_bot: true)).first
     skip "the corpus has no deleted or bot member" if hidden.nil?
 
     assert_not_includes search_members(hidden.name).map { |row| row["id"] }, hidden.user_id
     assert_equal hidden.user_id, search_members(hidden.user_id).first["id"],
-      "a direct id lookup still finds them, since a case may name one"
+      "id lookup did not return the deleted or bot member"
   end
 
-  test "a real name finds them, since it is not just a handle search" do
+  test "search by real name returns that member" do
     sign_in_as(@me)
     name = @named.identity.real_name.downcase
 
     assert_includes search_members(name).map { |row| row["id"] }, @named.user_id
   end
 
-  test "an email finds the person it belongs to" do
+  test "search by email returns that member" do
     sign_in_as(@me)
 
     assert_includes search_members(@named.identity.email).map { |row| row["id"] }, @named.user_id
   end
 
-  test "searching by real name or email is not an identity read" do
+  test "search by real name or email writes no AccessLog row" do
     sign_in_as(@me)
     before = AccessLog.count
 
@@ -110,12 +110,12 @@ class FdMemberSearchTest < ActionDispatch::IntegrationTest
     search_members(@named.identity.email)
 
     assert_equal before, AccessLog.count,
-      "the roster shows no identity field, so finding somebody through one discloses nothing"
+      "AccessLog count changed after identity search"
   end
 
-  test "somebody whose role does not carry identity.read cannot find a person by real name" do
-    firefighter = hold_role!("UFF2", "firefighter")
-    move_capability!("firefighter", "identity.read", false, by: "UME")
+  test "search by real name without identity.read does not return that member" do
+    firefighter = grant_role!("UFF2", "firefighter")
+    override_capability!("firefighter", "identity.read", false, by: "UME")
     name = @named.identity.real_name.downcase
 
     sign_in_as(firefighter)
@@ -123,9 +123,9 @@ class FdMemberSearchTest < ActionDispatch::IntegrationTest
     assert_not_includes search_members(name).map { |row| row["id"] }, @named.user_id
   end
 
-  test "somebody without identity.read still finds people by handle or display name" do
-    firefighter = hold_role!("UFF3", "firefighter")
-    move_capability!("firefighter", "identity.read", false, by: "UME")
+  test "search by member name without identity.read returns that member and no AccessLog row" do
+    firefighter = grant_role!("UFF3", "firefighter")
+    override_capability!("firefighter", "identity.read", false, by: "UME")
     before = AccessLog.count
 
     sign_in_as(firefighter)
@@ -133,24 +133,24 @@ class FdMemberSearchTest < ActionDispatch::IntegrationTest
     assert_includes search_members(@member.name).map { |row| row["id"] }, @member.user_id
     assert_equal before, AccessLog.count
   end
-  test "the picker never runs the roster aggregates" do
+  test "suggest_sql excludes roster aggregates" do
     sql = Fd::MemberFinder.new("dra", actor: @me).suggest_sql(8)
 
-    assert_not_includes sql, "case_participants", "a type-ahead must not aggregate conduct"
+    assert_not_includes sql, "case_participants", "suggest_sql references case_participants"
     assert_not_includes sql, "fd.actions"
     assert_not_includes sql, "notes"
     assert_not_includes sql, "count("
   end
 
-  test "asking from a case looks up that one case, and still no aggregates" do
+  test "suggest_sql with case_id filters participant.case_id and excludes aggregates" do
     sql = Fd::MemberFinder.new("dra", actor: @me).suggest_sql(8, case_id: 7)
 
-    assert_includes sql, "party.case_id = 7"
-    assert_not_includes sql, "count(", "who is on this case is a lookup, not a tally"
+    assert_includes sql, "participant.case_id = 7"
+    assert_not_includes sql, "count(", "suggest_sql contains count("
     assert_not_includes sql, "fd.actions"
   end
 
-  test "the case a search is asked from only reorders it" do
+  test "search with case_id returns the same members with the case subject first" do
     sign_in_as(@me)
     kase = make_case(subject: @member.user_id)
 
@@ -161,10 +161,10 @@ class FdMemberSearchTest < ActionDispatch::IntegrationTest
     assert_equal @member.user_id, on_case.first
   end
 
-  test "a term too short for a trigram is refused rather than scanned" do
+  test "search with a two character term returns no members and MIN_TERM is 3" do
     sign_in_as(@me)
 
-    assert_empty search_members("dr"), "two characters cannot use the trigram index"
+    assert_empty search_members("dr"), "two character term returned members"
     assert_equal 3, Fd::Member::MIN_TERM
   end
 end

@@ -25,7 +25,7 @@ module Fd
       @channels
     end
 
-    def people = sorted.map(&:opened_by)
+    def opener_user_ids = sorted.map(&:opened_by)
 
     private
 

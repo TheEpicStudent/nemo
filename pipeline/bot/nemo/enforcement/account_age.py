@@ -17,14 +17,14 @@ IN_CHANNEL = (
 )
 
 DAYS_REMAINING = """
-SELECT ceil(extract(epoch FROM (known.at + make_interval(days => %s)) - now()) / 86400)::int
+SELECT ceil(extract(epoch FROM (join_time.at + make_interval(days => %s)) - now()) / 86400)::int
 FROM (
     SELECT coalesce(j.joined_at, m.claimed_at) AS at
-    FROM (SELECT %s::text AS user_id) asked
-    LEFT JOIN fd.member_joins j ON j.user_id = asked.user_id
-    LEFT JOIN analytics.dim_member m ON m.user_id = asked.user_id
-) known
-WHERE known.at IS NOT NULL
+    FROM (SELECT %s::text AS user_id) requested
+    LEFT JOIN fd.member_joins j ON j.user_id = requested.user_id
+    LEFT JOIN analytics.dim_member m ON m.user_id = requested.user_id
+) join_time
+WHERE join_time.at IS NOT NULL
 """
 
 
@@ -42,8 +42,8 @@ def on_message(ctx):
     if not channel_id:
         return None
 
-    guard = channelguards.guarding(channel_id, KIND)
-    if guard is None or guard.lets_past(subject_id):
+    guard = channelguards.active_guard(channel_id, KIND)
+    if guard is None or guard.allows(subject_id):
         return None
 
     days = guard.min_age_days()

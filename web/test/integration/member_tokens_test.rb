@@ -17,14 +17,14 @@ class MemberTokensTest < ActionDispatch::IntegrationTest
     post settings_tokens_path, params: { app_id: @client.id, name: name, lifetime: lifetime }
   end
 
-  test "the form does not go through turbo, so the answer is not thrown away" do
+  test "keys page token form sets data-turbo=false" do
     get settings_keys_path
 
     assert_select "form[action=?][data-turbo=false]", settings_tokens_path, 1,
-      "turbo drive discards a 200 from a form post, and the key would never be seen"
+      "token form must set data-turbo=false"
   end
 
-  test "creating a key renders the one and only time it is shown" do
+  test "token create renders the secret modal and creates one token" do
     assert_difference -> { Api::Token.count }, 1 do
       mint
     end
@@ -35,7 +35,7 @@ class MemberTokensTest < ActionDispatch::IntegrationTest
     assert_select ".warn-line"
   end
 
-  test "the key on screen is the real one, and is not what we stored" do
+  test "token create stores the digest and not the secret" do
     mint
     secret = css_select(".secret code").sole.text
     token = Api::Token.sole
@@ -45,25 +45,25 @@ class MemberTokensTest < ActionDispatch::IntegrationTest
     assert secret.start_with?(Api::Token::KEY_PREFIX)
   end
 
-  test "the chosen expiry is the one written down" do
+  test "token create with lifetime 30 sets expires_at 30 days out" do
     mint(lifetime: "30")
 
     assert_in_delta 30.days.from_now, Api::Token.sole.expires_at, 1.minute
   end
 
-  test "no expiry is a real choice, not a default" do
+  test "token create with lifetime never stores nil expires_at" do
     mint(lifetime: "never")
 
     assert_nil Api::Token.sole.expires_at
   end
 
-  test "a made up expiry falls back rather than storing nothing" do
+  test "token create with an unknown lifetime defaults to 90 days" do
     mint(lifetime: "forever and ever")
 
     assert_in_delta 90.days.from_now, Api::Token.sole.expires_at, 1.minute
   end
 
-  test "an unnamed key is refused" do
+  test "token create with blank name creates no token and redirects" do
     assert_no_difference -> { Api::Token.count } do
       mint(name: "  ")
     end
@@ -71,7 +71,7 @@ class MemberTokensTest < ActionDispatch::IntegrationTest
     assert_redirected_to settings_keys_path
   end
 
-  test "minting is written to the audit log with its life" do
+  test "token create writes a token_minted event with the lifetime detail" do
     mint(lifetime: "30")
 
     event = Api::Event.where(verb: "token_minted").sole
@@ -79,14 +79,14 @@ class MemberTokensTest < ActionDispatch::IntegrationTest
     assert_equal "Toolbox, Toolbox, 30 days", event.detail
   end
 
-  test "past the cap it is refused, and a revoked key frees a slot" do
+  test "token create past tokens_per_owner is refused until a token is revoked" do
     cap = Api::Setting.value("tokens_per_owner")
     cap.times { |i| mint(name: "key #{i}") }
     assert_equal cap, Api::Token.count
 
     mint(name: "one too many")
     assert_equal cap, Api::Token.count
-    assert_match(/already holds #{cap}/, flash[:alert])
+    assert_match(/Key limit reached \(#{cap}\)/, flash[:alert])
 
     Api::Token.first.revoke!(by: @member.user_id)
     mint(name: "room now")
@@ -94,7 +94,7 @@ class MemberTokensTest < ActionDispatch::IntegrationTest
     assert_equal cap + 1, Api::Token.count
   end
 
-  test "an expired key does not hold a slot" do
+  test "expired token does not count toward tokens_per_owner" do
     cap = Api::Setting.value("tokens_per_owner")
     cap.times { |i| mint(name: "key #{i}") }
     Api::Token.first.update!(expires_at: 1.day.ago)
@@ -104,7 +104,7 @@ class MemberTokensTest < ActionDispatch::IntegrationTest
     assert_equal cap + 1, Api::Token.count
   end
 
-  test "nobody can mint while the public api is off" do
+  test "token create with public_api flag off creates no token" do
     Fd::Flag.set!(:public_api, false, by: "UBOSS")
 
     assert_no_difference -> { Api::Token.count } do
@@ -112,7 +112,7 @@ class MemberTokensTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "signed out, nobody can mint at all" do
+  test "token create signed out redirects to login and creates no token" do
     delete logout_path
 
     assert_no_difference -> { Api::Token.count } do

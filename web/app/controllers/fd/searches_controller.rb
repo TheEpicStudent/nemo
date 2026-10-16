@@ -129,8 +129,8 @@ module Fd
       case_commands + [
         { kind: "do", icon: "plus", title: "Open case", sub: nil, key: "case.open",
           url: fd_cases_path(open: "1") },
-        { kind: "do", icon: "case", title: "Go to the cases", sub: nil, url: fd_cases_path },
-        { kind: "do", icon: "person", title: "Go to the members", sub: nil, url: fd_members_path }
+        { kind: "do", icon: "case", title: "Go to cases", sub: nil, url: fd_cases_path },
+        { kind: "do", icon: "person", title: "Go to members", sub: nil, url: fd_members_path }
       ].compact
     end
 
@@ -151,10 +151,10 @@ module Fd
 
     def result_groups(search)
       @names = Names.for(search.groups.flat_map { |group| named_in(group) })
-      people = member_ids(search)
-      @context = MemberContext.for(people)
-      @priors = Case.prior_counts_for(people)
-      @open = Case.open_counts_for(people)
+      user_ids = member_ids(search)
+      @context = MemberContext.for(user_ids)
+      @prior_counts = Case.prior_counts_for(user_ids)
+      @open_counts = Case.open_counts_for(user_ids)
 
       search.groups.map do |group|
         { key: group.key, label: group.label, total: group.total,
@@ -164,7 +164,7 @@ module Fd
 
     def default_groups
       [
-        { key: "waiting", label: "Waiting on you", total: 1, rows: waiting },
+        { key: "waiting", label: "Unassigned", total: 1, rows: waiting },
         { key: "do", label: "Do", total: 1, rows: gated([
           { kind: "do", icon: "plus", title: "Open case", sub: nil, key: "case.open",
             url: fd_cases_path }
@@ -246,10 +246,10 @@ module Fd
       parts << helpers.tenure_label(member_context&.tenure_days)
       parts << "#{helpers.number_with_delimiter(member_context.messages_posted)} messages" if
         member_context&.messages_posted
-      priors = @priors.fetch(member.user_id, 0)
+      priors = @prior_counts.fetch(member.user_id, 0)
       parts << helpers.pluralize(priors, "prior") if priors.positive?
-      open = @open.fetch(member.user_id, 0)
-      parts << "#{open} open" if open.positive?
+      open_count = @open_counts.fetch(member.user_id, 0)
+      parts << "#{open_count} open" if open_count.positive?
       parts.compact.join(" · ")
     end
 

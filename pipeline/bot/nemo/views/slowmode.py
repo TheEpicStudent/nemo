@@ -16,9 +16,9 @@ DISABLE = "slowmode_off"
 
 TITLE = "Slow mode"
 REASON_LIMIT = 500
-SHORTEST = 1
-LONGEST = 3600
-STARTING_SECONDS = 30
+MIN_SECONDS = 1
+MAX_SECONDS = 3600
+DEFAULT_SECONDS = 30
 
 CUSTOM = lengths.CUSTOM
 DURATIONS = lengths.DURATIONS
@@ -28,7 +28,7 @@ def metadata(channel_id, thread_ts):
     return json.dumps({"channel_id": channel_id, "thread_ts": thread_ts})
 
 
-def opened(view):
+def parse_metadata(view):
     try:
         values = json.loads(view.get("private_metadata") or "{}")
     except ValueError:
@@ -64,8 +64,8 @@ def until_block():
 def seconds_block(seconds=None):
     return {"type": "input", "block_id": SECONDS, "label": plain("Cooldown (seconds)"),
             "element": {"type": "number_input", "action_id": SECONDS, "is_decimal_allowed": False,
-                        "min_value": str(SHORTEST), "max_value": str(LONGEST),
-                        "initial_value": str(seconds or STARTING_SECONDS)}}
+                        "min_value": str(MIN_SECONDS), "max_value": str(MAX_SECONDS),
+                        "initial_value": str(seconds or DEFAULT_SECONDS)}}
 
 
 def reason_block(reason=None):
@@ -133,21 +133,21 @@ def submitted_values(state):
     values = state.get("values", {})
     return {
         "starting": EXTEND not in values,
-        "duration": lengths.chosen(values, DURATION),
-        "extend": lengths.chosen(values, EXTEND),
-        "until": lengths.picked_time(values, UNTIL),
+        "duration": lengths.selected_value(values, DURATION),
+        "extend": lengths.selected_value(values, EXTEND),
+        "until": lengths.selected_datetime(values, UNTIL),
         "seconds": values.get(SECONDS, {}).get(SECONDS, {}).get("value"),
         "reason": (values.get(REASON, {}).get(REASON, {}).get("value") or "").strip(),
         "exempt": values.get(EXEMPT, {}).get(EXEMPT, {}).get("selected_users") or [],
     }
 
 
-def seconds_of(values):
+def parse_seconds(values):
     try:
         seconds = int(str(values.get("seconds") or "").strip())
     except ValueError:
         return None
-    return seconds if SHORTEST <= seconds <= LONGEST else None
+    return seconds if MIN_SECONDS <= seconds <= MAX_SECONDS else None
 
 
 def length_key(values):
@@ -168,8 +168,8 @@ def validation_errors(values, now=None):
     errors = lengths.end_errors(length_key(values), values["until"], UNTIL, now)
     if errors:
         return errors
-    if seconds_of(values) is None:
-        return {SECONDS: f"Enter {SHORTEST} to {LONGEST} seconds."}
+    if parse_seconds(values) is None:
+        return {SECONDS: f"Enter {MIN_SECONDS} to {MAX_SECONDS} seconds."}
     if not values["reason"]:
         return {REASON: "Add a reason."}
     return None
@@ -191,9 +191,9 @@ def confirmation(verb, seconds, expires_at, reason, channel_id=None):
     return f"Slow mode {verb}{where} · {summary(seconds, expires_at)} · Reason: {reason}"
 
 
-def held_back(seconds_remaining, body, in_thread):
+def removal_notice(seconds_remaining, body, in_thread):
     what = "reply" if in_thread else "message"
-    text = f"*Slow mode* · next {what} in {wait(seconds_remaining)}"
+    text = f"*Slow mode* · next {what} in {format_wait(seconds_remaining)}"
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     if body:
         blocks.append({"type": "rich_text", "elements": [{
@@ -202,7 +202,7 @@ def held_back(seconds_remaining, body, in_thread):
     return {"text": text, "blocks": blocks}
 
 
-def wait(seconds):
+def format_wait(seconds):
     if seconds < 60:
         return f"{seconds}s"
     return f"{(seconds + 59) // 60}m"

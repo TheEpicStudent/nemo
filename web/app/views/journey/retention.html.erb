@@ -1,4 +1,4 @@
-<% content_for :page_title, "Coming back" %>
+<% content_for :page_title, "Retention" %>
 
 <% last_30 = @retention.reverse.find { |r| r.retained_day_30_rate } %>
 <% last_90 = @retention.reverse.find { |r| r.retained_day_90_rate } %>

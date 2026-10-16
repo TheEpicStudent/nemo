@@ -24,7 +24,7 @@ class MessageActivityTest < ActionDispatch::IntegrationTest
   setup do
     @post = Analytics::FctMessage.where(is_reply: false).where.not(author_id: nil)
       .where("author_id ~ '^[UW]'").order(:posted_at).first
-    skip "the tiny seed holds no top-level post" if @post.nil?
+    skip "seed has no top-level post" if @post.nil?
     @author = Account.find_or_create_by!(user_id: @post.author_id)
     @path = message_activity_path(@post.channel_id, @post.ts)
     Rails.cache.clear
@@ -51,7 +51,7 @@ class MessageActivityTest < ActionDispatch::IntegrationTest
     Slack::ProxyClient.define_singleton_method(:call, original_call)
   end
 
-  test "the author sees how their own post did" do
+  test "show renders author activity stats from insights.messageStats" do
     enable_activity!
     sign_in_as(@author)
 
@@ -69,7 +69,7 @@ class MessageActivityTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "browser"
   end
 
-  test "a span can be picked" do
+  test "show with span 1h marks First hour current" do
     enable_activity!
     sign_in_as(@author)
 
@@ -81,54 +81,54 @@ class MessageActivityTest < ActionDispatch::IntegrationTest
     assert_match(/aria-current="true"[^>]*>First hour|First hour<\/a>/, response.body)
   end
 
-  test "somebody else is turned away with nothing shown" do
+  test "show for a non-author redirects to root without a Slack call" do
     enable_activity!
     sign_in_as(Account.find_or_create_by!(user_id: "UMSGOTHER"))
 
-    stub_slack(->(*) { flunk "slack was asked for a post that is not theirs" }) do
+    stub_slack(->(*) { flunk "unexpected Slack call for a non-author" }) do
       get @path
     end
 
     assert_redirected_to root_path
-    assert_match(/not yours/, flash[:alert])
+    assert_match(/Own posts only/, flash[:alert])
   end
 
-  test "a manager is turned away too, it is the author's alone" do
+  test "show for a community manager redirects to root without a Slack call" do
     enable_activity!
-    sign_in_as(hold_role!("UMSGBOSS", "community_manager"))
+    sign_in_as(grant_role!("UMSGBOSS", "community_manager"))
 
-    stub_slack(->(*) { flunk "slack was asked" }) do
+    stub_slack(->(*) { flunk "unexpected Slack call" }) do
       get @path
     end
 
     assert_redirected_to root_path
   end
 
-  test "a channel that does not show how posts did says so, even to the author" do
+  test "show without activity enabled renders Activity unavailable and no Slack call" do
     sign_in_as(@author)
 
-    stub_slack(->(*) { flunk "slack was asked about a channel that is not shown" }) do
+    stub_slack(->(*) { flunk "unexpected Slack call for a channel without activity" }) do
       get @path
     end
 
     assert_response :success
-    assert_includes response.body, "Activity is not shown for this channel"
+    assert_includes response.body, "Activity unavailable"
     refute_includes response.body, "Reach over time"
   end
 
-  test "a post the warehouse has not landed says so without asking slack" do
+  test "show with an unknown ts renders Post not found without a Slack call" do
     enable_activity!
     sign_in_as(@author)
 
-    stub_slack(->(*) { flunk "slack was asked" }) do
+    stub_slack(->(*) { flunk "unexpected Slack call" }) do
       get message_activity_path(@post.channel_id, "1.000001")
     end
 
     assert_response :success
-    assert_includes response.body, "This post is not here yet"
+    assert_includes response.body, "Post not found"
   end
 
-  test "when slack will not answer the page still stands" do
+  test "show renders No activity when Slack raises an error" do
     enable_activity!
     sign_in_as(@author)
 
@@ -137,10 +137,10 @@ class MessageActivityTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :success
-    assert_includes response.body, "No activity returned"
+    assert_includes response.body, "No activity"
   end
 
-  test "a stranger is sent to the door" do
+  test "show signed out redirects" do
     get @path
 
     assert_response :redirect

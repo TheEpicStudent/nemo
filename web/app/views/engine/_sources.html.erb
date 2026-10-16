@@ -3,7 +3,7 @@
 <div class="card card-flush">
   <div class="card-head">
     <div>
-      <h2 class="card-title">Every source</h2>
+      <h2 class="card-title">Sources</h2>
       <p class="card-sub">
         <%= pluralize(sources.size, "source") %>
         <% if stale_count.positive? %>
@@ -68,32 +68,32 @@
               <dt>Endpoint</dt><dd><%= source.endpoint %></dd>
               <dt>Credential</dt><dd><%= source.credential %></dd>
               <dt>Feeds</dt><dd class="is-text"><%= Array(source.feeds).join(", ") %></dd>
-              <dt>Last <%= EngineController::NIGHTS %></dt>
+              <dt>Last <%= EngineController::NIGHT_COUNT %></dt>
               <dd class="is-text">
                 <% if missed.positive? %>
                   missed <b><%= missed %></b> <%= "night".pluralize(missed) %>
                 <% else %>
-                  ran every night
+                  no missed nights
                 <% end %>
               </dd>
             </dl>
 
-            <div class="contract-key contract-key-next">Dials</div>
+            <div class="contract-key contract-key-next">Settings</div>
             <div class="dialrow">
-              <div class="dial-name">Cadence<span>how often the night runs it</span></div>
-              <div class="meta-fine">was <%= source.cadence %></div>
+              <div class="dial-name">Cadence</div>
+              <div class="meta-fine">default <%= source.cadence %></div>
               <%= render "setting_value", source: source.key, name: Engine::Setting::CADENCE, may_edit_setting: may_edit_setting %>
             </div>
             <div class="dialrow">
-              <div class="dial-name">Retention<span>how many days of its rows are kept</span></div>
-              <div class="meta-fine">was <%= Engine::Setting::KEEP %></div>
+              <div class="dial-name">Retention</div>
+              <div class="meta-fine">default <%= Engine::Setting::RETAIN_ALL %></div>
               <%= render "setting_value", source: source.key, name: Engine::Setting::RETENTION, may_edit_setting: may_edit_setting %>
             </div>
           </div>
 
           <div>
             <div class="contract-key">
-              What it output<% if run %> &middot; run <%= run.id %>, <%= run.started_at.strftime("%-d %b, %H:%M") %><% end %>
+              Output<% if run %> &middot; run <%= run.id %>, <%= run.started_at.strftime("%-d %b, %H:%M") %><% end %>
             </div>
             <% output = step_output.find { |out| out.source == source.key } %>
             <% if output&.output.present? %>
@@ -103,7 +103,7 @@
             <% end %>
             <div class="contract-actions">
               <% if active_request.nil? %>
-                <%= button_to "Run it now", engine_stage_path(stage: source.key),
+                <%= button_to "Run now", engine_stage_path(stage: source.key),
                       class: "btn", form: { class: "contents" } %>
               <% end %>
             </div>

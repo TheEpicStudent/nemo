@@ -34,7 +34,7 @@ module Fd
       assignee = kase.assignees.find_by(user_id: params[:id])
 
       if assignee.nil?
-        return redirect_to(fd_case_path(kase), alert: "They are not on this case")
+        return redirect_to(fd_case_path(kase), alert: "Not assigned")
       end
 
       writing do
@@ -55,21 +55,21 @@ module Fd
     end
 
     def validation_error(kase, user_ids)
-      return "say who to assign" if user_ids.empty?
+      return "Select a member" if user_ids.empty?
       unless user_ids.all? { |id| id.match?(MEMBER_ID) }
-        return "that does not look like a Slack member id"
+        return "Not a Slack member ID"
       end
-      return "case #{kase.id} is already resolved" if kase.resolved?
+      return "Case #{kase.id} is already resolved" if kase.resolved?
 
       nil
     end
 
     def assigned_notice(added, already_assigned)
-      return "everybody you picked was already on this case, nothing changed" if added.empty?
+      return "Already assigned" if added.empty?
 
       mentions = added.map { |id| "@#{id}" }.to_sentence
-      note = "#{mentions} #{added.many? ? "are" : "is"} now on the case"
-      already_assigned.any? ? "#{note}, #{already_assigned.size} already there" : note
+      note = "#{mentions} assigned"
+      already_assigned.any? ? "#{note} · #{already_assigned.size} already assigned" : note
     end
   end
 end

@@ -326,7 +326,7 @@ def file(req: CallRequest, client: Client = Depends(current_client)):
         wait, label = refused
         raise HTTPException(
             status_code=429,
-            detail=f"budget: {label} is spent, retry in {wait}s",
+            detail=f"budget: {label} exhausted, retry in {wait}s",
             headers={"Retry-After": str(wait)},
         )
 
@@ -368,7 +368,7 @@ def call(req: CallRequest, client: Client = Depends(current_client)):
         wait, label = refused
         raise HTTPException(
             status_code=429,
-            detail=f"budget: {label} is spent, retry in {wait}s",
+            detail=f"budget: {label} exhausted, retry in {wait}s",
             headers={"Retry-After": str(wait)},
         )
 
@@ -396,7 +396,7 @@ FAULT_ORIGIN = "X-Fault-Origin"
 
 
 @app.exception_handler(Exception)
-async def upstream_escaped(request: Request, exc: Exception):
+async def upstream_error_handler(request: Request, exc: Exception):
     if isinstance(exc, urllib.error.HTTPError):
         if exc.code == 429:
             return JSONResponse(
@@ -410,7 +410,7 @@ async def upstream_escaped(request: Request, exc: Exception):
     elif isinstance(exc, TRANSPORT_ERRORS):
         status, detail = 502, f"upstream unreachable: {type(exc).__name__}: {exc}"
     elif isinstance(exc, ValueError):
-        status, detail = 502, f"upstream returned a body that was not JSON: {exc}"
+        status, detail = 502, f"upstream response is not JSON: {exc}"
     else:
         status, detail = 500, f"{type(exc).__name__}: {exc}"
     logger.error("escaped into the catch-all: %s", detail)
@@ -418,7 +418,7 @@ async def upstream_escaped(request: Request, exc: Exception):
 
 
 @app.middleware("http")
-async def fault_origin(request: Request, call_next):
+async def add_fault_origin_header(request: Request, call_next):
     response = await call_next(request)
     if response.status_code >= 400:
         response.headers[FAULT_ORIGIN] = "proxy"

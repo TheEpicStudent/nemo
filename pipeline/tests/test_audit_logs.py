@@ -36,7 +36,7 @@ class Counts:
         self.rows_rejected = 0
 
 
-def test_an_entry_becomes_a_row_the_database_will_take():
+def test_monthly_row_maps_entry_fields_to_columns():
     row = pull.monthly_row(entry(), "audit_logs_tail", frozenset(), {}, None)
 
     assert str(row[0]) == entry()["id"]
@@ -46,15 +46,15 @@ def test_an_entry_becomes_a_row_the_database_will_take():
     assert row[7:9] == ("user", USER_ID)
 
 
-def test_an_entry_with_no_id_or_no_date_is_refused_rather_than_landed():
-    assert pull.landable(entry())
-    assert not pull.landable(entry(id=""))
-    assert not pull.landable(entry(id="not-a-uuid"))
-    assert not pull.landable(entry(date_create=None))
-    assert not pull.landable(entry(action=""))
+def test_is_valid_entry_rejects_invalid_id_date_or_action():
+    assert pull.is_valid_entry(entry())
+    assert not pull.is_valid_entry(entry(id=""))
+    assert not pull.is_valid_entry(entry(id="not-a-uuid"))
+    assert not pull.is_valid_entry(entry(date_create=None))
+    assert not pull.is_valid_entry(entry(action=""))
 
 
-def test_our_own_reads_are_marked_so_they_can_be_told_apart():
+def test_view_row_and_monthly_row_flag_events_from_own_app():
     entry_row = entry(action="public_channel_preview",
                  context={"app": {"id": APP, "name": "Nemo"}})
 
@@ -64,7 +64,7 @@ def test_our_own_reads_are_marked_so_they_can_be_told_apart():
     assert pull.monthly_row(entry(), "k", frozenset({APP}), {}, None)[12] is False
 
 
-def test_a_login_carries_the_address_the_agent_and_the_session():
+def test_login_row_maps_address_agent_and_session():
     row = pull.login_row(entry())
 
     assert row[0] == USER_ID
@@ -75,14 +75,14 @@ def test_a_login_carries_the_address_the_agent_and_the_session():
     assert str(row[6]) == entry()["id"]
 
 
-def test_every_own_session_action_with_an_address_makes_a_login_row():
+def test_login_row_for_session_actions_with_address_returns_row():
     assert pull.login_row(entry(action="user_login_failed")) is not None
     assert pull.login_row(entry(action="anomaly")) is not None
     assert pull.login_row(entry(action="file_downloaded"))[2] == "file_downloaded"
     assert pull.login_row(entry(action="user_channel_join", details={"type": "JOINED"})) is not None
 
 
-def test_actions_from_someone_else_s_session_make_no_login_row():
+def test_login_row_for_foreign_session_actions_returns_none():
     chrome = entry()["context"]["ua"]
     app = {"ip_address": "1.2.3.4", "ua": chrome, "app": {"id": APP}}
     script = {"ip_address": "1.2.3.4", "ua": "Slack Ruby Client/2.1.0"}
@@ -97,12 +97,12 @@ def test_actions_from_someone_else_s_session_make_no_login_row():
                                 actor={"type": "app", "app": {"id": APP}})) is None
 
 
-def test_a_sign_in_keeps_its_row_whatever_client_made_it():
+def test_login_row_for_user_login_from_script_client_returns_row():
     script = {"ip_address": "1.2.3.4", "ua": "Slack Ruby Client/2.1.0"}
     assert pull.login_row(entry(context=script)) is not None
 
 
-def test_script_clients_are_told_apart_from_people():
+def test_api_client_detects_script_user_agents():
     for ua in ("Slack Ruby Client/2.1.0", "ApiApp/1.0", "Python/3.12 aiohttp/3.9.5",
                "Bun/1.1.38", "python-requests/2.31.0", "slack_bolt/1.18"):
         assert useragent.api_client(ua), ua
@@ -111,18 +111,18 @@ def test_script_clients_are_told_apart_from_people():
         assert not useragent.api_client(ua), ua
 
 
-def test_a_login_with_nobody_behind_it_is_not_written_down():
+def test_login_row_without_actor_user_returns_none():
     assert pull.login_row(entry(actor={"type": "user", "user": {}})) is None
     assert pull.login_row(entry(actor={})) is None
 
 
-def test_a_session_that_is_not_a_number_does_not_stop_the_row():
+def test_login_row_with_non_numeric_session_sets_session_none():
     row = pull.login_row(entry(context={"session_id": "nonsense", "ip_address": "1.2.3.4"}))
     assert row[5] is None
     assert row[3] == "1.2.3.4"
 
 
-def test_the_prefix_is_the_database_s_job_so_two_hosts_on_one_range_group():
+def test_login_sql_leaves_ip_prefix_to_generated_column():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
             / "0144_login_prefix_is_the_network.sql").read_text()
     assert "GENERATED ALWAYS AS" in sql
@@ -130,7 +130,7 @@ def test_the_prefix_is_the_database_s_job_so_two_hosts_on_one_range_group():
     assert "ip_prefix" not in pull.LOGIN_SQL, "the prefix must not be written by hand"
 
 
-def test_tail_actions_default_to_all_and_accept_set_names(monkeypatch):
+def test_tail_actions_parses_default_set_names_and_explicit_list(monkeypatch):
     monkeypatch.delenv("AUDIT_TAIL_ACTIONS", raising=False)
     assert pull.tail_actions() is None
 
@@ -147,9 +147,9 @@ def test_tail_actions_default_to_all_and_accept_set_names(monkeypatch):
     assert pull.tail_actions() == ("user_login", "anomaly")
 
 
-def test_no_more_actions_are_asked_for_than_slack_will_take(monkeypatch):
+def test_tail_actions_over_cap_truncates_to_max_actions(monkeypatch):
     monkeypatch.setenv("AUDIT_TAIL_ACTIONS", ",".join(f"a{n}" for n in range(60)))
-    assert len(pull.tail_actions()) == pull.MOST_ACTIONS
+    assert len(pull.tail_actions()) == pull.MAX_ACTIONS
 
 
 class Refusing:
@@ -177,7 +177,7 @@ def refusal():
     return failure
 
 
-def test_one_action_slack_will_not_take_does_not_stop_the_rest(monkeypatch):
+def test_walk_with_refused_action_retries_without_refused_action(monkeypatch):
     pull.clear_refusals()
     client = Refusing()
     counts = Counts()
@@ -192,7 +192,7 @@ def test_one_action_slack_will_not_take_does_not_stop_the_rest(monkeypatch):
     pull.clear_refusals()
 
 
-def test_an_action_once_refused_is_not_asked_for_again(monkeypatch):
+def test_walk_after_refusal_omits_refused_action(monkeypatch):
     pull.clear_refusals()
     client = Refusing()
     pull.walk(client, Conn(), "k", counts_for(), actions=("user_login", "message_deleted"))
@@ -203,7 +203,7 @@ def test_an_action_once_refused_is_not_asked_for_again(monkeypatch):
     pull.clear_refusals()
 
 
-def test_a_pass_where_every_action_is_refused_lands_nothing_rather_than_everything():
+def test_walk_with_every_action_refused_returns_zero_counts():
     pull.clear_refusals()
     client = Refusing(bad="user_login")
     assert pull.walk(client, Conn(), "k", counts_for(), actions=("user_login",)) == (0, 0)
@@ -211,7 +211,7 @@ def test_a_pass_where_every_action_is_refused_lands_nothing_rather_than_everythi
     pull.clear_refusals()
 
 
-def test_a_refusal_with_no_action_filter_is_not_swallowed():
+def test_walk_without_actions_reraises_refusal():
     pull.clear_refusals()
 
     class AlwaysRefusing:
@@ -226,7 +226,7 @@ def counts_for():
     return Counts()
 
 
-def test_a_slice_covers_one_whole_day_in_utc():
+def test_bounds_returns_one_utc_day():
     start, stop = pull.bounds(dt.date(2026, 9, 29))
 
     assert start == dt.datetime(2026, 9, 29, tzinfo=dt.UTC)
@@ -234,7 +234,7 @@ def test_a_slice_covers_one_whole_day_in_utc():
     assert (stop - start) == dt.timedelta(days=1)
 
 
-def test_each_action_set_has_its_own_coverage_key():
+def test_source_key_for_action_sets_returns_distinct_keys():
     assert pull.source_key_for(pull.LOGIN_AND_CHANNEL_ACTIONS) == f"{pull.BACKFILL}:login_and_channel"
     assert pull.source_key_for(pull.LOGIN_ACTIONS) == f"{pull.BACKFILL}:login"
     assert pull.source_key_for(pull.CHANNEL_MEMBERSHIP_ACTIONS) == f"{pull.BACKFILL}:channel_membership"
@@ -246,13 +246,13 @@ def test_each_action_set_has_its_own_coverage_key():
     assert len(keys) == len(pull.ACTION_SETS)
 
 
-def test_every_action_set_fits_one_request():
+def test_action_sets_stay_within_max_actions_without_duplicates():
     for actions in pull.ACTION_SETS.values():
-        assert len(actions) <= pull.MOST_ACTIONS
+        assert len(actions) <= pull.MAX_ACTIONS
         assert len(set(actions)) == len(actions)
 
 
-def test_backfill_defaults_to_login_and_channel_actions():
+def test_backfill_default_actions_is_login_and_channel_set():
     import inspect
 
     actions = inspect.signature(pull.backfill).parameters["actions"].default
@@ -265,28 +265,28 @@ def test_identity_actions_extend_login_actions_with_account_changes():
     assert {"user_deactivated", "user_reactivated", "user_profile_updated"} <= set(pull.IDENTITY_ACTIONS)
 
 
-def test_backfill_set_names_default_to_login_and_channel(monkeypatch):
+def test_backfill_set_names_without_env_returns_login_and_channel(monkeypatch):
     monkeypatch.delenv("AUDIT_BACKFILL_SETS", raising=False)
 
     assert pull.backfill_set_names() == ("login_and_channel",)
     assert pull.backfill_sets() == (pull.LOGIN_AND_CHANNEL_ACTIONS,)
 
 
-def test_backfill_set_names_keep_order_and_drop_duplicates(monkeypatch):
+def test_backfill_set_names_preserves_order_and_dedupes(monkeypatch):
     monkeypatch.setenv("AUDIT_BACKFILL_SETS", " Identity , login_and_channel, identity ")
 
     assert pull.backfill_set_names() == ("identity", "login_and_channel")
     assert pull.backfill_sets() == (pull.IDENTITY_ACTIONS, pull.LOGIN_AND_CHANNEL_ACTIONS)
 
 
-def test_unknown_backfill_set_names_are_reported_and_skipped(monkeypatch):
+def test_unknown_backfill_sets_reports_unknown_and_backfill_sets_skips_them(monkeypatch):
     monkeypatch.setenv("AUDIT_BACKFILL_SETS", "identity,missing_set")
 
     assert pull.unknown_backfill_sets() == ("missing_set",)
     assert pull.backfill_sets() == (pull.IDENTITY_ACTIONS,)
 
 
-def test_backfill_next_runs_the_first_set_with_a_pending_day(monkeypatch):
+def test_backfill_next_runs_first_set_with_pending_day(monkeypatch):
     monkeypatch.setenv("AUDIT_BACKFILL_SETS", "identity,login_and_channel")
     pending = {pull.source_key_for(pull.LOGIN_AND_CHANNEL_ACTIONS)}
     monkeypatch.setattr(pull, "next_slice",
@@ -303,7 +303,7 @@ def test_backfill_next_runs_the_first_set_with_a_pending_day(monkeypatch):
     assert calls == [pull.LOGIN_AND_CHANNEL_ACTIONS]
 
 
-def test_backfill_next_returns_zero_when_every_set_is_covered(monkeypatch):
+def test_backfill_next_with_all_sets_covered_returns_zero(monkeypatch):
     monkeypatch.setenv("AUDIT_BACKFILL_SETS", "identity,login_and_channel")
     monkeypatch.setattr(pull, "next_slice", lambda conn, source_key, days: None)
     calls = []
@@ -313,24 +313,24 @@ def test_backfill_next_returns_zero_when_every_set_is_covered(monkeypatch):
     assert calls == []
 
 
-def test_an_agent_is_read_once_even_when_it_names_no_system():
+def test_unparsed_sql_selects_by_read_at_not_app_null():
     from ingest import useragent_reparse
 
-    assert "FROM slack.user_agent" in useragent_reparse.UNREAD
-    assert "read_at IS NULL" in useragent_reparse.UNREAD
-    assert "app IS NULL" not in useragent_reparse.UNREAD, (
+    assert "FROM slack.user_agent" in useragent_reparse.UNPARSED_SQL
+    assert "read_at IS NULL" in useragent_reparse.UNPARSED_SQL
+    assert "app IS NULL" not in useragent_reparse.UNPARSED_SQL, (
         "a runtime names no system, so a null os is a finished read, not a pending one; "
         "matching on it re-reads the newest rows forever and never reaches the backlog")
-    assert "read_at = now()" in useragent_reparse.REREAD
-    assert "coalesce(%s, app)" in useragent_reparse.REREAD, "a read must not clear what it has"
+    assert "read_at = now()" in useragent_reparse.UPDATE_PARSED_SQL
+    assert "coalesce(%s, app)" in useragent_reparse.UPDATE_PARSED_SQL, "a read must not clear what it has"
 
 
-def test_a_landed_agent_counts_as_already_read():
+def test_user_agents_upsert_sql_sets_read_at():
     assert "read_at" in user_agents.UPSERT_SQL and "now()" in user_agents.UPSERT_SQL, \
         "what the puller parses needs no second pass"
 
 
-def test_the_access_log_walk_stops_at_what_we_already_hold():
+def test_access_logs_pull_stops_at_newest_login_watermark():
     from ingest import access_logs_pull
 
     src = pathlib.Path(access_logs_pull.__file__).read_text()
@@ -338,15 +338,15 @@ def test_the_access_log_walk_stops_at_what_we_already_hold():
     assert "caught_up = True" in src and "break" in src, \
         "slack hands the access log back newest first, so the walk stops at the watermark"
     assert "walk.close()" in src, "the generator is closed so no further page is asked for"
-    assert access_logs_pull.LAP_SECONDS >= 1
-    assert access_logs_pull.MOST_PAGES >= 1, "a cold start must still be bounded"
+    assert access_logs_pull.OVERLAP_SECONDS >= 1
+    assert access_logs_pull.MAX_PAGES >= 1, "a cold start must still be bounded"
 
 
-def test_the_tail_laps_back_a_second_so_the_seam_cannot_drop_an_event():
-    assert pull.LAP_SECONDS >= 1
+def test_pull_overlap_seconds_is_at_least_one():
+    assert pull.OVERLAP_SECONDS >= 1
 
 
-def test_the_window_always_bounds_the_walk_even_when_resuming():
+def test_walk_with_start_cursor_passes_oldest_param():
     calls = []
 
     class Client:
@@ -363,7 +363,7 @@ def test_the_window_always_bounds_the_walk_even_when_resuming():
         "slack pages newest first, so oldest is the stop; without it the walk never ends"
 
 
-def test_a_resumed_walk_keeps_the_window_the_cursor_was_minted_for(monkeypatch):
+def test_save_and_load_window_cursor_round_trips_window(monkeypatch):
     saved = {}
     monkeypatch.setattr(pull, "save_cursor",
                         lambda _conn, _key, value: saved.update(value=value))
@@ -378,7 +378,7 @@ def test_a_resumed_walk_keeps_the_window_the_cursor_was_minted_for(monkeypatch):
     assert window == when, "an interrupted walk resumes on its own window, not a fresh one"
 
 
-def test_a_cursor_with_no_window_is_not_resumed(monkeypatch):
+def test_load_window_cursor_without_window_mark_returns_none_pair(monkeypatch):
     monkeypatch.setattr(pull, "get_cursor", lambda _conn, _key: "bare-cursor-no-mark")
     assert pull.load_window_cursor(Conn(), pull.TAIL) == (None, None)
 
@@ -386,13 +386,13 @@ def test_a_cursor_with_no_window_is_not_resumed(monkeypatch):
     assert pull.load_window_cursor(Conn(), pull.TAIL) == (None, None)
 
 
-def test_a_cursor_slack_will_not_take_is_dropped_so_the_tail_can_recover(monkeypatch):
+def test_tail_with_refused_cursor_clears_saved_cursor(monkeypatch):
     import contextlib
 
-    cleared = []
+    cursor_saves = []
     monkeypatch.setattr(pull, "get_cursor", lambda _conn, _key: "1790575062|stale")
     monkeypatch.setattr(pull, "save_cursor",
-                        lambda _conn, key, value: cleared.append((key, value)))
+                        lambda _conn, key, value: cursor_saves.append((key, value)))
     monkeypatch.setattr(pull, "watermark", lambda _conn: None)
 
     @contextlib.contextmanager
@@ -409,16 +409,16 @@ def test_a_cursor_slack_will_not_take_is_dropped_so_the_tail_can_recover(monkeyp
     with pytest.raises(ProxyError):
         pull.tail(Conn(), client=object())
 
-    assert (pull.TAIL, "") in cleared, "a wedged cursor must not survive the failed run"
+    assert (pull.TAIL, "") in cursor_saves, "a wedged cursor must not survive the failed run"
 
 
-def test_a_failure_that_is_not_a_refusal_leaves_the_cursor_where_it_was(monkeypatch):
+def test_tail_with_non_refusal_failure_preserves_saved_cursor(monkeypatch):
     import contextlib
 
-    cleared = []
+    cursor_saves = []
     monkeypatch.setattr(pull, "get_cursor", lambda _conn, _key: "1790575062|good")
     monkeypatch.setattr(pull, "save_cursor",
-                        lambda _conn, key, value: cleared.append((key, value)))
+                        lambda _conn, key, value: cursor_saves.append((key, value)))
     monkeypatch.setattr(pull, "watermark", lambda _conn: None)
 
     @contextlib.contextmanager
@@ -435,7 +435,7 @@ def test_a_failure_that_is_not_a_refusal_leaves_the_cursor_where_it_was(monkeypa
     with pytest.raises(ProxyError):
         pull.tail(Conn(), client=object())
 
-    assert cleared == [], "a passing cursor must survive a wobble at slack's end"
+    assert cursor_saves == [], "a passing cursor must survive a wobble at slack's end"
 
 
 class Conn:
@@ -483,10 +483,10 @@ class Conn:
         return [args for sql, args in self.executed if mark in sql]
 
 
-def test_landing_writes_the_event_and_the_login_from_one_pass():
+def test_insert_rows_writes_event_login_event_and_session_rows():
     conn, counts = Conn(), Counts()
-    later = entry(id=OTHER_ID, action="user_logout", date_create=entry()["date_create"] + 60)
-    inserted, logins = pull.insert_rows(conn, [entry(), later], "audit_logs_tail", frozenset(), counts)
+    logout_entry = entry(id=OTHER_ID, action="user_logout", date_create=entry()["date_create"] + 60)
+    inserted, logins = pull.insert_rows(conn, [entry(), logout_entry], "audit_logs_tail", frozenset(), counts)
 
     assert (inserted, logins) == (2, 2)
     assert counts.rows_in == 2
@@ -496,7 +496,7 @@ def test_landing_writes_the_event_and_the_login_from_one_pass():
     assert conn.args_for("INSERT INTO fd.login_session")[0] == [(SESSION, USER_ID, pull.stamp(entry()["date_create"]))]
 
 
-def test_an_event_already_held_adds_no_sighting():
+def test_insert_rows_with_existing_event_writes_no_login_event():
     conn, counts = Conn(), Counts()
     conn.existing_ids = frozenset({pull.event_uuid(entry()["id"])})
 
@@ -505,7 +505,7 @@ def test_an_event_already_held_adds_no_sighting():
     assert conn.args_for("INSERT INTO fd.login_event") == []
 
 
-def test_sightings_are_counted_per_member_address_agent_and_hour():
+def test_hourly_groups_rows_by_member_address_agent_and_hour():
     at = dt.datetime(2026, 9, 1, 12, 10, tzinfo=dt.UTC)
     ua = entry()["context"]["ua"]
     agents = {user_agents.digest(ua): 7}
@@ -525,7 +525,7 @@ def test_sightings_are_counted_per_member_address_agent_and_hour():
     ]
 
 
-def test_a_sign_in_names_the_owner_of_its_session_once():
+def test_session_rows_dedupes_to_earliest_login_per_session():
     login = pull.login_row(entry())
     repeat_login = pull.login_row(entry(date_create=entry()["date_create"] + 5))
     downloaded = pull.login_row(entry(action="file_downloaded"))
@@ -533,7 +533,7 @@ def test_a_sign_in_names_the_owner_of_its_session_once():
     assert pull.session_rows([repeat_login, login, downloaded]) == [(SESSION, USER_ID, login[1])]
 
 
-def test_only_a_login_that_worked_counts_as_being_seen():
+def test_insert_rows_with_failed_login_skips_member_seen():
     conn, counts = Conn(), Counts()
     failed = {"type": "user", "user": {"id": "U2", "name": "nope"}}
     pull.insert_rows(conn, [entry(), entry(id=OTHER_ID, action="user_login_failed", actor=failed)],
@@ -542,15 +542,15 @@ def test_only_a_login_that_worked_counts_as_being_seen():
     assert [ids for ids, _ in conn.args_for("INSERT INTO fd.member_seen")] == [[USER_ID]]
 
 
-def test_a_landed_event_is_never_written_twice():
+def test_insert_sql_uses_on_conflict_clauses():
     assert "ON CONFLICT (id, at) DO NOTHING\nRETURNING id" in pull.MONTHLY_SQL
     assert "ON CONFLICT (id, at) DO NOTHING\nRETURNING id" in pull.VIEW_SQL
     assert "ON CONFLICT (user_id, source, hour, ip, ua_id) DO UPDATE" in pull.LOGIN_SQL
-    assert "hits = held.hits + EXCLUDED.hits" in pull.LOGIN_SQL
+    assert "hits = existing.hits + EXCLUDED.hits" in pull.LOGIN_SQL
     assert "ON CONFLICT (audit_id) DO NOTHING" in pull.CHANNEL_SQL
 
 
-def test_an_address_slack_carried_fills_an_identity_we_never_had():
+def test_identity_row_with_actor_email_returns_identity():
     row = pull.identity_row(entry(actor={"type": "user", "user": {
         "id": USER_ID, "name": "Aleksa Lutovac", "email": "kid@throwaway.example"}}))
 
@@ -559,19 +559,19 @@ def test_an_address_slack_carried_fills_an_identity_we_never_had():
     assert row[2] == "kid@throwaway.example"
 
 
-def test_an_actor_with_no_address_leaves_the_identity_alone():
+def test_identity_row_without_email_returns_none():
     assert pull.identity_row(entry()) is None
     assert pull.identity_row(entry(actor={"type": "user", "user": {"id": USER_ID}})) is None
     assert pull.identity_row(entry(actor={"type": "app", "app": {"id": "A1"}})) is None
 
 
-def test_an_identity_we_already_hold_is_never_written_over():
+def test_identity_sql_coalesces_email_and_skips_purged():
     assert "coalesce(fd.member_identity.email, EXCLUDED.email)" in pull.IDENTITY_SQL
     assert "purged_at IS NULL" in pull.IDENTITY_SQL, "a purged identity must stay purged"
     assert "EXISTS (SELECT 1 FROM fd.member" in pull.IDENTITY_SQL
 
 
-def test_one_write_per_member_a_page_however_often_they_appear():
+def test_insert_rows_with_repeated_member_writes_one_identity_row():
     conn, counts = Conn(), Counts()
     actor = {"type": "user", "user": {"id": USER_ID, "name": "Zev", "email": "z@throwaway.example"}}
     pull.insert_rows(conn, [entry(actor=actor), entry(id="b", actor=actor), entry(id="c", actor=actor)],
@@ -589,7 +589,7 @@ def joined(**over):
     return entry(**row)
 
 
-def test_channel_row_for_join_records_channel():
+def test_channel_row_for_join_maps_channel_fields():
     row = pull.channel_row(joined())
 
     assert row[2] == USER_ID
@@ -600,7 +600,7 @@ def test_channel_row_for_join_records_channel():
     assert row[7] is False
 
 
-def test_leaving_is_kept_apart_from_arriving():
+def test_channel_row_for_leave_sets_departed_and_non_channel_action_returns_none():
     assert pull.channel_row(joined(action="user_channel_leave"))[6] == pull.DEPARTED
     assert pull.channel_row(joined(action="user_login")) is None
 
@@ -626,14 +626,14 @@ def test_insert_rows_projects_channel_joins_with_events():
     assert {one[6] for one in channel_rows} == {pull.JOINED, pull.DEPARTED}
 
 
-def test_member_channel_join_migration_backfills_org_wide():
+def test_member_channel_join_migration_backfills_audit_events_and_indexes_channel_time():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
             / "0148_member_channel_joins.sql").read_text()
     assert "FROM slack.audit_event" in sql, "the history already landed must be projected too"
     assert "ON fd.member_channel_join (channel_id, at DESC)" in sql, "fan-out is read by channel and time"
 
 
-def test_rename_room_to_channel_migration_renames_index_and_trigger_variable():
+def test_channel_rename_migration_renames_index_and_trigger_variable():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
             / "0234_rename_room_to_channel.sql").read_text()
     assert "RENAME TO member_channel_join_channel_idx" in sql
@@ -661,31 +661,31 @@ def test_rename_room_to_channel_migration_renames_index_and_trigger_variable():
     ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) FxiOS/127.0 Mobile Safari/605.1",
      "Firefox 127.0", "iOS 17.5"),
 ])
-def test_the_agent_string_is_read_into_an_app_and_a_system(agent, app, system):
+def test_useragent_parse_returns_app_and_os(agent, app, system):
     parsed = useragent.parse(agent)
     assert parsed["ua_app"] == app
     assert parsed["ua_os"] == system
 
 
-def test_an_agent_string_nobody_recognises_does_not_blow_up():
+def test_useragent_parse_unrecognised_string_returns_none_fields():
     assert useragent.parse("") == {"ua": None, "ua_app": None, "ua_os": None}
     assert useragent.parse("something else entirely")["ua_app"] is None
 
 
-def test_the_agent_string_is_kept_whole_however_long_it_is():
+def test_useragent_parse_long_string_preserves_full_ua():
     agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " + "Padding/1.0 " * 60 + "End/1"
     assert len(agent) > 700
     assert useragent.parse(agent)["ua"] == agent, "the raw agent string is never cut short"
 
 
-def test_a_version_is_kept_whole_rather_than_cut_to_its_first_number():
+def test_useragent_parse_preserves_full_version():
     parsed = useragent.parse("Mozilla/5.0 (Windows NT 10.0) Chrome/154.0.8037.55 Safari/537.36")
     assert parsed["ua_app"] == "Chrome 154.0.8037.55"
     assert not hasattr(useragent, "major"), "nothing should be rounding a version down"
     assert not hasattr(useragent, "short"), "nothing should be cutting a string short"
 
 
-def test_the_slack_phone_apps_are_told_apart_from_a_browser_on_the_phone():
+def test_useragent_parse_distinguishes_slack_ios_from_phone_browser():
     ios_agent = useragent.parse("com.tinyspeck.chatlyio/26.09.20 (iPhone; iOS 26.6.2; Scale/3.00)")
     browser = useragent.parse(
         "Mozilla/5.0 (iPhone; CPU iPhone OS 26_4_2 like Mac OS X) CriOS/154.0.8037.55 Safari/604.1")
@@ -696,10 +696,10 @@ def test_the_slack_phone_apps_are_told_apart_from_a_browser_on_the_phone():
     assert browser["ua_os"] == "iOS 26.4.2"
 
 
-def test_an_agent_landed_before_the_reader_knew_it_is_read_again():
+def test_unparsed_sql_selects_unread_rows_and_migration_adds_unread_index():
     from ingest import useragent_reparse
 
-    assert "WHERE read_at IS NULL" in useragent_reparse.UNREAD
+    assert "WHERE read_at IS NULL" in useragent_reparse.UNPARSED_SQL
 
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
             / "0193_login_event_by_hour.sql").read_text()
@@ -726,7 +726,7 @@ class Owners(Conn):
 SESSION = 12177102026566
 
 
-def test_an_action_in_another_member_s_session_is_dropped():
+def test_own_sessions_drops_actions_from_other_member_session():
     downloaded = pull.login_row(entry(action="file_downloaded"))
 
     assert pull.own_sessions(Owners(owners=[(SESSION, "U9")]), [downloaded]) == []
@@ -734,7 +734,7 @@ def test_an_action_in_another_member_s_session_is_dropped():
     assert pull.own_sessions(Owners(), [downloaded]) == [downloaded]
 
 
-def test_a_session_signed_into_in_the_same_batch_has_an_owner():
+def test_own_sessions_resolves_owner_from_login_in_same_batch():
     other = {"type": "user", "user": {"id": "U9", "name": "other"}}
     login = pull.login_row(entry(actor=other))
     downloaded = pull.login_row(entry(action="file_downloaded"))
@@ -742,7 +742,7 @@ def test_a_session_signed_into_in_the_same_batch_has_an_owner():
     assert pull.own_sessions(Owners(), [login, downloaded]) == [login]
 
 
-def test_an_address_slack_redacted_is_never_written_as_one():
+def test_login_row_with_redacted_address_sets_address_none():
     redacted = {"ip_address": "redacted", "ua": entry()["context"]["ua"]}
 
     assert pull.login_row(entry(action="file_downloaded", context=redacted)) is None
@@ -750,7 +750,7 @@ def test_an_address_slack_redacted_is_never_written_as_one():
     assert login is not None and login[3] is None
 
 
-def test_addresses_are_checked_and_written_in_one_form():
+def test_address_normalizes_valid_and_returns_none_for_invalid():
     assert pull.address(" 157.51.215.171 ") == "157.51.215.171"
     assert pull.address("2001:DB8::1") == "2001:db8::1"
     assert pull.address("redacted") is None
@@ -777,7 +777,7 @@ class Shape(Conn):
         return self.answer
 
 
-def test_a_full_event_gets_typed_columns_and_its_category():
+def test_monthly_row_maps_typed_columns_and_category():
     actor = {"type": "user", "user": {"id": USER_ID, "name": "zev", "email": "Zev@Example.COM"}}
     entity = {"type": "channel", "channel": {"id": "C0APH2MMHH7", "name": "lounge"}}
     agent = entry()["context"]["ua"]
@@ -793,24 +793,24 @@ def test_a_full_event_gets_typed_columns_and_its_category():
     assert row[15] == 12177102026566
 
 
-def test_an_event_slack_did_not_give_a_uuid_stays_out_of_the_new_tables():
+def test_monthly_row_and_view_row_with_non_uuid_id_return_none():
     assert pull.monthly_row(entry(id="not-a-uuid"), "k", frozenset(), {}, None) is None
     assert pull.view_row(entry(id="not-a-uuid"), 3, {}, frozenset()) is None
 
 
-def test_a_redacted_address_is_stored_as_no_address():
+def test_monthly_row_with_redacted_address_sets_ip_none():
     row = pull.monthly_row(entry(context={"ip_address": "redacted"}), "k", frozenset(), {}, None)
     assert row[13] is None
 
 
-def test_the_channel_comes_from_the_entity_whatever_its_kind():
+def test_channel_of_reads_channel_from_each_entity_type():
     assert pull.channel_of(entry(entity={"type": "channel", "channel": {"id": "C1"}})) == "C1"
     assert pull.channel_of(entry(entity={"type": "message", "message": {"channel": "C2"}})) == "C2"
     assert pull.channel_of(entry(entity={"type": "huddle", "huddle": {"channel_id": "C3"}})) == "C3"
     assert pull.channel_of(entry(entity={"type": "user", "user": {"id": "U1"}})) is None
 
 
-def test_high_volume_actions_go_to_the_slim_table_and_the_rest_to_the_monthly_one():
+def test_write_new_shape_routes_view_codes_to_audit_view_and_others_to_audit_event():
     agent = entry()["context"]["ua"]
     conn = Shape(codes=[("file_downloaded", 3)], agents=[(user_agents.digest(agent), 7)])
     downloaded = entry(id="0dc5d1ec-1111-2222-3333-444455556667", action="file_downloaded",
@@ -830,7 +830,7 @@ def test_high_volume_actions_go_to_the_slim_table_and_the_rest_to_the_monthly_on
     assert ensure["first"].day == 1 and ensure["ahead"] == pull.MONTHS_AHEAD
 
 
-def test_an_entry_without_a_uuid_is_dead_lettered_not_landed():
+def test_insert_rows_with_non_uuid_entry_counts_rejected_and_skips_insert():
     conn, counts = Conn(), Counts()
 
     inserted, _ = pull.insert_rows(conn, [entry(), entry(id="b")], "audit_logs_tail", frozenset(), counts)
@@ -840,7 +840,7 @@ def test_an_entry_without_a_uuid_is_dead_lettered_not_landed():
     assert len(conn.args_for("INSERT INTO slack.audit_event")[0]) == 1
 
 
-def test_the_move_to_hours_keeps_every_count_the_finder_reads():
+def test_login_event_by_hour_migration_aggregates_hourly_with_unique_key():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
            / "0193_login_event_by_hour.sql").read_text()
     assert "date_trunc('hour', e.at, 'UTC')" in sql
@@ -849,7 +849,7 @@ def test_the_move_to_hours_keeps_every_count_the_finder_reads():
     assert "WHERE session_id IS NOT NULL AND action = 'user_login'" in sql
 
 
-def test_months_are_created_by_their_owner_and_only_for_the_audit_tables():
+def test_audit_months_migration_defines_security_definer_for_audit_tables_only():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
            / "0191_audit_months_run_as_owner.sql").read_text()
     assert "SECURITY DEFINER" in sql and "SET search_path = slack, pg_temp" in sql
@@ -857,7 +857,7 @@ def test_months_are_created_by_their_owner_and_only_for_the_audit_tables():
     assert "FROM PUBLIC" in sql
 
 
-def test_the_move_copies_every_held_event_then_takes_the_old_name():
+def test_move_audit_events_migration_copies_rows_before_dropping_and_renaming():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
            / "0192_move_audit_events.sql").read_text()
     before_drop, after_drop = sql.split("DROP TABLE slack.audit_event;")
@@ -867,7 +867,7 @@ def test_the_move_copies_every_held_event_then_takes_the_old_name():
     assert "SECURITY DEFINER" in after_drop
 
 
-def test_the_move_carries_the_category_of_every_catalogued_action():
+def test_move_audit_events_migration_includes_category_for_every_catalogued_action():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
            / "0192_move_audit_events.sql").read_text()
     for action, definition in audit_actions.catalogue()["actions"].items():

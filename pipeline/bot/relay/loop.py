@@ -26,6 +26,6 @@ def start(relay, stopping):
         relay.deliver(payload)
 
     return (
-        loops.watching(NAME, (OUTBOX,), on_notify, stopping),
-        loops.sweeping(NAME, every(), lambda: once(relay), stopping),
+        loops.start_listener(NAME, (OUTBOX,), on_notify, stopping),
+        loops.run_periodically(NAME, every(), lambda: once(relay), stopping),
     )

@@ -4,7 +4,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
   end
 
@@ -17,14 +17,14 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     search_json(term)["groups"].find { |one| one["key"] == key }
   end
 
-  test "a signed out visitor gets nothing" do
+  test "search json after logout returns 401" do
     delete logout_path
     get fd_search_path(format: :json), params: { q: "raid" }
 
     assert_response :unauthorized
   end
 
-  test "an empty box offers what is waiting and what you can do" do
+  test "search with empty q returns groups waiting do page" do
     make_case(opened_at: 3.days.ago)
 
     keys = search_json("")["groups"].map { |one| one["key"] }
@@ -34,7 +34,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     assert_match(/unassigned case/, waiting.first["title"])
   end
 
-  test "a case row says what state it is in and who holds it" do
+  test "search case row has case title and category state sub and case url" do
     kase = make_case(opened_at: 2.days.ago, category_key: "spam", assign: "UME")
     kase.update!(member_note: "a raid from six accounts")
 
@@ -44,7 +44,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     assert_equal fd_case_path(kase), row["url"]
   end
 
-  test "a member row counts their priors and open cases" do
+  test "search member row sub counts priors and open cases" do
     member!("U0PALETTE1", handle: "quorvexpalette")
     action_taken_case = make_case(subject: "U0PALETTE1", opened_at: 20.days.ago, resolved_at: 10.days.ago,
       resolution: "action_taken")
@@ -57,7 +57,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     assert_match(/1 open/, row["sub"])
   end
 
-  test "a note row quotes the words around the match and points at its case" do
+  test "search note row has case title and match snippet and case url" do
     kase = make_case(opened_at: 2.days.ago)
     Fd::Note.create!(case_id: kase.id, body: "told them to drop it and they did", author: "UFF1")
 
@@ -67,7 +67,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     assert_equal fd_case_path(kase), row["url"]
   end
 
-  test "a group says how many it holds when the rows are capped" do
+  test "search group caps rows at 3 and reports total" do
     kase = make_case(opened_at: 2.days.ago)
     5.times { |n| Fd::Note.create!(case_id: kase.id, body: "raid #{n}", author: "UFF1") }
 
@@ -76,11 +76,11 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     assert_equal 5, notes["total"]
   end
 
-  test "a term nobody typed enough of finds nothing" do
+  test "search with one character q returns only waiting and do groups" do
     assert_empty search_json("a")["groups"].reject { |one| ["waiting", "do"].include?(one["key"]) }
   end
 
-  test "an empty box lists the pages from the sidebar" do
+  test "search with empty q lists sidebar pages under Go to label" do
     pages = group("", "page")["rows"].map { |one| one["title"] }
 
     assert_equal "Go to", group("", "page")["label"]
@@ -88,26 +88,26 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     assert_includes pages, "Audit log"
   end
 
-  test "a page is found by the start of a word in its name" do
+  test "search page group matches word prefix in page title" do
     assert_equal ["Audit log"], group("aud", "page")["rows"].map { |one| one["title"] }
     assert_equal ["Audit log"], group("log", "page")["rows"].map { |one| one["title"] }
   end
 
-  test "any term opens the audit log for the last 30 days" do
+  test "search audit group links to audit with last:30d" do
     row = group("raid", "audit")["rows"].first
 
     assert_equal "Audit log: raid", row["title"]
     assert_equal fd_audit_path(q: "raid last:30d"), row["url"]
   end
 
-  test "an address or an email becomes its own audit qualifier" do
+  test "search audit group maps ip or email or phrase to qualifiers" do
     assert_equal fd_audit_path(q: "ip:10.1.2.3 last:30d"), group("10.1.2.3", "audit")["rows"].first["url"]
     assert_equal fd_audit_path(q: "email:pix@example.net last:30d"),
       group("pix@example.net", "audit")["rows"].first["url"]
     assert_equal fd_audit_path(q: %("two words" last:30d)), group("two words", "audit")["rows"].first["url"]
   end
 
-  test "a member's cluster comes up beside them" do
+  test "search cluster group row has Clusters label and accounts sub and cluster url" do
     member!("UPIXRINGA", handle: "pixringa")
     member!("UPIXRINGB", handle: "pixringb")
     %w[UPIXRINGA UPIXRINGB].each do |user_id|
@@ -124,7 +124,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     assert_equal fd_cluster_path("UPIXRINGA"), row["url"]
   end
 
-  test "a scope keeps one kind and says so back" do
+  test "search with scope note returns only note group and scope" do
     kase = make_case(opened_at: 2.days.ago)
     Fd::Note.create!(case_id: kase.id, body: "a raid, six accounts", author: "UFF1")
     make_case(opened_at: 2.days.ago).update!(member_note: "a raid, six accounts")
@@ -136,7 +136,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     assert_equal ["note"], payload["groups"].map { |one| one["key"] }
   end
 
-  test "a pasted Slack link answers with the case holding that thread" do
+  test "search with Slack thread link returns the case with that thread" do
     kase = make_case(opened_at: 2.days.ago)
     Fd::CaseThread.create!(case_id: kase.id, channel_id: "C0266FRGV",
       thread_ts: "1754487721.123456", added_by: "UFF1", is_primary: true)
@@ -148,7 +148,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     assert_equal fd_case_path(kase), row["url"]
   end
 
-  test "a prefix alone drops the resting rows and shows that kind" do
+  test "search with hash prefix only returns scope case and case group" do
     make_case(opened_at: 2.days.ago)
     payload = search_json("#")
 
@@ -156,7 +156,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     assert_equal ["case"], payload["groups"].map { |one| one["key"] }
   end
 
-  test "a chevron turns the box into commands" do
+  test "search with chevron returns command scope and Open case command" do
     payload = search_json(">")
 
     assert_equal "command", payload["scope"]
@@ -164,13 +164,13 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     assert_includes titles, "Open case"
   end
 
-  test "commands filter as you keep typing" do
+  test "search with chevron and members filters commands to Go to members" do
     titles = search_json(">members").fetch("groups").sole["rows"].map { |row| row["title"] }
 
-    assert_equal ["Go to the members"], titles
+    assert_equal ["Go to members"], titles
   end
 
-  test "on a case, the commands act on that case" do
+  test "search commands with on_case return Resolve this case with case url" do
     kase = make_case(opened_at: 2.days.ago)
     get fd_search_path(format: :json), params: { q: ">", on_case: kase.id }
     rows = JSON.parse(response.body)["groups"].sole["rows"]
@@ -180,7 +180,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
     assert_equal fd_case_path(kase, do: "resolve"), resolve["url"]
   end
 
-  test "the page lists every group with its count" do
+  test "search html page with q renders" do
     kase = make_case(opened_at: 2.days.ago)
     kase.update!(member_note: "a raid from six accounts")
     Fd::Note.create!(case_id: kase.id, body: "the raid again", author: "UFF1")

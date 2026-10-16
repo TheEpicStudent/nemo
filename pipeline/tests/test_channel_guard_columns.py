@@ -26,7 +26,7 @@ def migrated_columns():
     return set(columns)
 
 
-def test_enforcement_insert_names_only_columns_the_migrations_create():
-    named = re.search(r"\((.*?)\)", channelguards.HAPPENED, re.S).group(1)
-    inserted = {one.strip() for one in named.split(",")}
+def test_channelguards_insert_event_uses_only_migrated_columns():
+    column_list = re.search(r"\((.*?)\)", channelguards.INSERT_EVENT, re.S).group(1)
+    inserted = {one.strip() for one in column_list.split(",")}
     assert inserted - migrated_columns() == set()

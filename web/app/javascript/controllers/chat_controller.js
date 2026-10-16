@@ -73,11 +73,11 @@ export default class extends Controller {
     this.pillTarget.dataset.mode = atReporter ? "reporter" : "team"
     this.dropTarget.hidden = !atReporter
     this.recipientTarget.textContent = atReporter
-      ? (this.anonymous ? "to reporter, anonymous" : "to reporter, from you")
+      ? (this.anonymous ? "reporter · anonymous" : "reporter · signed")
       : "internal"
     this.anonTarget.value = this.anonymous ? "1" : ""
     this.element.action = atReporter ? this.replyUrlValue : this.noteUrlValue
-    this.sendTarget.setAttribute("aria-label", atReporter ? "Send to the reporter" : "Send to the team")
+    this.sendTarget.setAttribute("aria-label", atReporter ? "Send to reporter" : "Send to team")
   }
 
   mentionPopupOpen() {

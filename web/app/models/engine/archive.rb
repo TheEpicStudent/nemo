@@ -3,9 +3,9 @@ module Engine
     WORKER = "archive_worker".freeze
     ERRORS_LIMIT = 10
     ERROR_WIDTH = 90
-    WORST_LIMIT = 12
-    WORST_FLOOR = 250
-    WAITING_LIMIT = 12
+    LOWEST_COVERAGE_LIMIT = 12
+    MIN_CHANNEL_MESSAGES = 250
+    INCOMPLETE_CHANNEL_LIMIT = 12
     COVERAGE_DAYS = 90
     QUEUES = %w[channel_tail channel_replies].freeze
 
@@ -75,13 +75,13 @@ module Engine
       end
     end
 
-    Report = Struct.new(:totals, :live, :stages, :worst, :waiting, :errors, :beat, :days,
+    Report = Struct.new(:totals, :live, :stages, :lowest_coverage, :incomplete_channels, :errors, :heartbeat, :days,
       :queues, keyword_init: true)
 
     def self.report
       totals = Totals.new(ApplicationRecord.connection.select_one(TOTALS_SQL))
-      Report.new(totals: totals, live: live(totals), stages: stages(totals), worst: worst,
-        waiting: waiting, errors: errors, beat: beat, days: days, queues: queues)
+      Report.new(totals: totals, live: live(totals), stages: stages(totals), lowest_coverage: lowest_coverage,
+        incomplete_channels: incomplete_channels, errors: errors, heartbeat: heartbeat, days: days, queues: queues)
     end
 
     WATERMARK_SQL = "SELECT max(observed_through) FROM analytics.fct_message_hour".freeze
@@ -117,32 +117,32 @@ module Engine
                   at: totals.last_walked_at),
         Stage.new(name: "threads fetched", done: totals.threads_fetched,
                   total: totals.threads_known, at: nil),
-        Stage.new(name: "replies held", done: totals.replies_held,
+        Stage.new(name: "replies archived", done: totals.replies_held,
                   total: totals.replies_declared, at: nil)
       ]
     end
 
-    def self.worst
+    def self.lowest_coverage
       return Analytics::MartArchiveChannelCoverage.none unless ranks_by_member?
 
       Analytics::MartArchiveChannelCoverage
         .reachable
-        .where("slack_member_messages >= ?", WORST_FLOOR)
+        .where("slack_member_messages >= ?", MIN_CHANNEL_MESSAGES)
         .where("member_share is not null")
         .order(member_share: :asc, slack_member_messages: :desc)
-        .limit(WORST_LIMIT)
+        .limit(LOWEST_COVERAGE_LIMIT)
     end
 
     def self.ranks_by_member?
       Analytics::MartArchiveChannelCoverage.column_names.include?("member_share")
     end
 
-    def self.waiting
+    def self.incomplete_channels
       Analytics::MartArchiveChannelCoverage
         .reachable
         .where("not history_complete")
         .order(Arel.sql("walked, threads_known - threads_fetched desc, messages_held desc"))
-        .limit(WAITING_LIMIT)
+        .limit(INCOMPLETE_CHANNEL_LIMIT)
     end
 
     def self.errors
@@ -154,7 +154,7 @@ module Engine
           Arel.sql("max(last_walked_at)"))
     end
 
-    def self.beat
+    def self.heartbeat
       Analytics::FctWorkerHeartbeat.find_by(worker: WORKER)
     end
 

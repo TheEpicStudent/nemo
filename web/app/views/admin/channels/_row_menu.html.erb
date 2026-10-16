@@ -1,6 +1,6 @@
 <% if may_community?("analytics.channel.share") %>
   <%= render layout: "shared/dropdown", locals: {
-        label: "Set who may read ##{channel.name}", trigger: menu_dots } do %>
+        label: "Audience for ##{channel.name}", trigger: menu_dots } do %>
       <% Channels::Audience::KINDS.each do |audience| %>
         <%= button_to admin_channel_path(channel.channel_id), method: :patch,
               params: { audience: audience, q: @q.presence }, class: "btn",
@@ -20,10 +20,8 @@
                         from: "channels", q: @q.presence },
               class: "btn" do %>
           <span class="menu-item-body">
-            <span class="menu-item-title"><%= in_set ? "Take out of" : "Give to" %>
-              the <%= role_label_text(role) %> set</span>
-            <span class="menu-item-note"><%= in_set ? "every #{role_label_text(role)} stops reading it" :
-                                                "every #{role_label_text(role)} may read it" %></span>
+            <span class="menu-item-title"><%= in_set ? "Remove from" : "Add to" %>
+              <%= role_label_text(role) %> set</span>
           </span>
         <% end %>
       <% end %>
@@ -33,9 +31,7 @@
         <%= button_to activity_admin_channel_path(channel.channel_id), method: :patch,
               params: { shown: activity_enabled ? "off" : "on", q: @q.presence }, class: "btn" do %>
           <span class="menu-item-body">
-            <span class="menu-item-title"><%= activity_enabled ? "Stop showing" : "Show" %> how posts did</span>
-            <span class="menu-item-note"><%= activity_enabled ? "authors lose the \"view message activity\" shortcut here" :
-                                                "authors may ask nemo how their own post did" %></span>
+            <span class="menu-item-title"><%= activity_enabled ? "Hide" : "Show" %> message activity</span>
           </span>
         <% end %>
       <% end %>
@@ -48,7 +44,7 @@
               <%= avatar(grant.user_id) %>
               <span class="two-line">
                 <b><%= person_name(grant.user_id) %></b>
-                <span>named by <%= person_name(grant.granted_by) %>,
+                <span>Granted by <%= person_name(grant.granted_by) %> &middot;
                   <%= on_day(grant.granted_at) %></span>
               </span>
             </span>

@@ -14,12 +14,12 @@ class ChannelsControllerTest < ActionDispatch::IntegrationTest
   end
 
   def analyst
-    staff = hold_role!("UTESTCHAN1", "analytics")
+    staff = grant_role!("UTESTCHAN1", "analytics")
     sign_in_as(staff)
     staff
   end
 
-  test "the default view is the overview" do
+  test "show without view renders the overview tab and Traffic card" do
     analyst
     channel = busiest_channel
 
@@ -30,13 +30,13 @@ class ChannelsControllerTest < ActionDispatch::IntegrationTest
     assert_select "h2.card-title", text: "Traffic"
   end
 
-  test "every tab renders its own cards and nothing from the others" do
+  test "show with each non-overview view renders its own card and no Traffic card" do
     analyst
     channel = busiest_channel
     card_titles = {
       "activity" => "Top posters",
       "newcomers" => "First posts",
-      "messages" => "Texture",
+      "messages" => "Message content",
       "neighbours" => "Neighbours"
     }
 
@@ -50,7 +50,7 @@ class ChannelsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "an unknown view falls back to the overview" do
+  test "show with unknown view renders the overview" do
     analyst
     channel = busiest_channel
 
@@ -60,7 +60,7 @@ class ChannelsControllerTest < ActionDispatch::IntegrationTest
     assert_select "h2.card-title", text: "Traffic"
   end
 
-  test "the range control only shows on the views a range applies to" do
+  test "show renders daterange on overview and not on activity view" do
     analyst
     channel = busiest_channel
 
@@ -71,7 +71,7 @@ class ChannelsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".daterange", count: 0
   end
 
-  test "the range preset is marked and carried across the tab links" do
+  test "show with days param marks the preset and adds days to tab links" do
     analyst
     channel = busiest_channel
 
@@ -83,7 +83,7 @@ class ChannelsControllerTest < ActionDispatch::IntegrationTest
     assert_select "nav.views a[href*='days=7']"
   end
 
-  test "a custom range reads custom and carries its two dates" do
+  test "show with start and end params renders custom preset and both dates" do
     analyst
     channel = busiest_channel
     edge = Channels::Pulse.edge
@@ -97,7 +97,7 @@ class ChannelsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".daterange-open", text: /#{(edge - 3).strftime("%b %-d")}/
   end
 
-  test "a range running past what the warehouse holds still renders" do
+  test "show with range past warehouse data renders Traffic card" do
     analyst
     channel = busiest_channel
     edge = Channels::Pulse.edge
@@ -108,7 +108,7 @@ class ChannelsControllerTest < ActionDispatch::IntegrationTest
     assert_select "h2.card-title", text: "Traffic"
   end
 
-  test "the activity view offers a month and honours the one asked for" do
+  test "show activity with month param renders the selected month" do
     analyst
     channel = Analytics::DimChannel.find_by(
       channel_id: Analytics::MartChannelPerson.limit(1).pick(:channel_id)
@@ -124,11 +124,11 @@ class ChannelsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".card-tools .btn", text: /#{months.second.strftime("%b %Y")}/
   end
 
-  test "a channel with no warehouse rows still renders every tab" do
+  test "show for channel without warehouse rows renders every view" do
     analyst
     bare = Analytics::DimChannel.where(archived: false)
       .where.not(channel_id: Analytics::MartChannelDay.select(:channel_id)).first
-    skip "every channel carries day rows in this seed" if bare.nil?
+    skip "every channel has day rows in this seed" if bare.nil?
 
     ChannelsController::VIEWS.each_key do |view|
       get channel_path(bare.channel_id, view: view)
@@ -137,7 +137,7 @@ class ChannelsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a channel nobody shared sends you back to the list" do
+  test "show for channel outside the audience redirects to channels list" do
     staff = Account.create!(user_id: "UTESTCHAN2")
     sign_in_as(staff)
     channel = busiest_channel
@@ -147,7 +147,7 @@ class ChannelsControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to channels_path(q: channel.channel_id)
   end
 
-  test "an unknown channel says so rather than raising" do
+  test "show with unknown channel id redirects to channels list" do
     analyst
 
     get channel_path("CNOPE00000")

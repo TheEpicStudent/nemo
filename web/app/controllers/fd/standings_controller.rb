@@ -15,7 +15,7 @@ module Fd
     private
 
     def referenced_user_ids(guards)
-      guards.flat_map(&:people_named) + guards.map(&:subject_id)
+      guards.flat_map(&:referenced_user_ids) + guards.map(&:subject_id)
     end
   end
 end

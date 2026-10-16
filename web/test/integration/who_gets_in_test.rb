@@ -6,7 +6,7 @@ class WhoGetsInTest < ActionDispatch::IntegrationTest
   TURBO = %w[/recede_historical_location /resume_historical_location
              /refresh_historical_location].freeze
 
-  INSIDE = %i[root_path fd_root_path fd_members_path admin_people_path].freeze
+  SIGN_IN_REQUIRED_PATHS = %i[root_path fd_root_path fd_members_path admin_people_path].freeze
 
   MEMBER = %w[settings/keys settings/tokens settings/apps settings/consents
               settings/permissions settings/appearances docs accounts workspace_logo
@@ -48,63 +48,63 @@ class WhoGetsInTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "the only routes open to the world are signing in and the health check" do
+  test "controllers without an auth filter equal OPEN" do
     assert_equal OPEN.sort, (self.class.controllers - guarded_controllers).sort,
-      "a route opened up or closed, so this test needs updating"
+      "the set of open controllers changed"
   end
 
-  test "every controller behind the login demands a role, bar the member area and the api" do
+  test "controllers not in OPEN or MEMBER or BEARER require an account and a role gate" do
     (self.class.controllers - OPEN - MEMBER - BEARER).each do |name|
-      assert guarded?(name), "#{name} lets anybody through"
-      assert role_guarded?(name), "#{name} settles for a session where a role is needed"
+      assert guarded?(name), "#{name} has no require_account"
+      assert role_guarded?(name), "#{name} has no role gate"
     end
   end
 
-  test "the member area demands a session and never a role, and is only what is listed" do
+  test "MEMBER controllers require an account with no role gate and are the only ones" do
     MEMBER.each do |name|
-      assert guarded?(name), "#{name} lets anybody through"
-      assert_not role_guarded?(name), "#{name} still demands a role, so it is not a member page"
+      assert guarded?(name), "#{name} has no require_account"
+      assert_not role_guarded?(name), "#{name} has a role gate but is listed in MEMBER"
     end
 
     assert_equal MEMBER.sort,
       (self.class.controllers - OPEN - BEARER).reject { |name| role_guarded?(name) }.sort,
-      "a controller dropped its role check, so this test needs updating"
+      "controllers without a role gate differ from MEMBER"
   end
 
-  test "the api demands a token, never a session or a role, and is only what is listed" do
+  test "BEARER controllers require a token without an account and are the only such controllers" do
     BEARER.each do |name|
-      assert token_guarded?(name), "#{name} lets anybody through"
-      assert_not guarded?(name), "#{name} demands a session, which an api caller has not got"
+      assert token_guarded?(name), "#{name} has no require_token"
+      assert_not guarded?(name), "#{name} requires a session"
     end
 
     assert_equal BEARER.sort,
       (self.class.controllers - OPEN).select { |name| token_guarded?(name) }.sort,
-      "a controller started taking bearer tokens, so this test needs updating"
+      "controllers with require_token differ from BEARER"
   end
 
-  test "the api carries no session at all, so a browser cannot ride in on cookies" do
+  test "Api::V1::BaseController includes neither Cookies nor ApplicationController" do
     assert_not Api::V1::BaseController.ancestors.include?(ActionController::Cookies),
-      "an api controller that reads cookies can be driven by a logged in browser"
+      "Api::V1::BaseController includes ActionController::Cookies"
     assert_not Api::V1::BaseController.ancestors.include?(ApplicationController)
   end
 
-  test "the turbo routes are open because they carry nothing but a go back" do
+  test "turbo history routes return success with no case or member or note text" do
     TURBO.each do |path|
       get path
       assert_response :success
-      assert_no_match(/case|member|note/i, response.body, "#{path} said something")
+      assert_no_match(/case|member|note/i, response.body, "#{path} body names a case, member or note")
     end
   end
 
-  test "the manifest is open because the browser fetches it before anybody signs in" do
+  test "pwa manifest signed out returns the app name with no case or member or note text" do
     get pwa_manifest_path(format: :json)
 
     assert_response :success
     assert_equal "Mnemosyne", JSON.parse(response.body)["name"]
-    assert_no_match(/case|member|note/i, response.body, "the manifest said something")
+    assert_no_match(/case|member|note/i, response.body, "manifest body names a case, member or note")
   end
 
-  test "holding no grant still gets a session, and only the front door" do
+  test "sign in without a grant sets the session and renders root" do
     sign_in_as(@me)
 
     assert_equal @me.user_id, session[:user_id]
@@ -113,10 +113,10 @@ class WhoGetsInTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
-  test "a live grant is enough on its own, with no staff row behind it" do
+  test "grant without an Account row allows fd_cases_path after sign in" do
     Authz::Grant.create!(user_id: "UNOROW", kind: "role", name: "firefighter",
       effect: "allow", granted_by: "UNOROLE", granted_at: Time.current)
-    assert_nil Account.find_by(user_id: "UNOROW"), "a grant can land without a staff row"
+    assert_nil Account.find_by(user_id: "UNOROW"), "grant exists without an Account row"
 
     sign_in_as(Account.new(user_id: "UNOROW"))
 
@@ -125,64 +125,64 @@ class WhoGetsInTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
-  test "somebody unknown to the staff table signs in and gets a row" do
+  test "sign in with an unknown user_id creates an Account without Fire Engine access" do
     sign_in_as(Account.new(user_id: "USTRANGER"))
 
     assert_equal "USTRANGER", session[:user_id]
     assert Account.exists?("USTRANGER"), "signing in through Hack Club makes the row"
 
     get fd_cases_path
-    assert_redirected_to root_path, "a stranger still holds nothing"
+    assert_redirected_to root_path, "account without a grant is redirected to root"
   end
 
-  test "the refusal says one thing, and offers the way back" do
+  test "auth failure page renders for no_slack_id" do
     get auth_failure_path(message: "no_slack_id")
 
     assert_response :success
   end
 
-  test "a visitor with no session is sent to sign in, not to the refusal" do
-    INSIDE.each do |path|
+  test "signed out requests to protected paths redirect to login" do
+    SIGN_IN_REQUIRED_PATHS.each do |path|
       get send(path)
-      assert_redirected_to login_path, "#{path} did not ask for a sign in"
+      assert_redirected_to login_path, "#{path} does not redirect to login"
     end
   end
 
-  test "giving somebody a grant is what puts them on the staff table" do
+  test "granting a role creates the Account row and an effective role" do
     assert_not Account.exists?("UFRESH")
 
-    hold_role!("UFRESH", "firefighter")
+    grant_role!("UFRESH", "firefighter")
 
     assert Account.exists?("UFRESH")
     assert_equal %w[firefighter], Authz.effective_roles("UFRESH")
   end
 
-  test "a grant taken back shuts the door on the next request" do
-    hold_role!("UNOROLE", "firefighter")
+  test "revoking the role redirects fd_root_path to root with an access alert" do
+    grant_role!("UNOROLE", "firefighter")
     sign_in_as(@me)
 
     get fd_root_path
     assert_response :success
 
-    drop_roles!("UNOROLE")
+    revoke_roles!("UNOROLE")
 
     get fd_root_path
     assert_redirected_to root_path,
-      "losing the grant shuts Fire Engine, it no longer shuts the whole app"
-    assert_match(/conduct team/, flash[:alert])
+      "revoked grant redirects Fire Engine to root"
+    assert_match(/Fire Engine access required/, flash[:alert])
   end
 
-  test "a stale session lands on the sign in page rather than bouncing forever" do
-    hold_role!("UNOROLE", "firefighter")
+  test "login page redirects a session to root after its roles are dropped" do
+    grant_role!("UNOROLE", "firefighter")
     sign_in_as(@me)
-    drop_roles!("UNOROLE")
+    revoke_roles!("UNOROLE")
 
     get login_path
 
-    assert_redirected_to root_path, "a live session is sent on, not asked to sign in again"
+    assert_redirected_to root_path, "signed in session redirects to root"
   end
 
-  test "the sign in switch for development is not routed anywhere else" do
+  test "dev_be_path is not routed and the dev path returns 404" do
     assert_not Rails.application.routes.url_helpers.respond_to?(:dev_be_path)
 
     get "/dev/be/UNOROLE"
@@ -191,19 +191,19 @@ class WhoGetsInTest < ActionDispatch::IntegrationTest
     assert_nil session[:user_id]
   end
 
-  test "a json endpoint says no rather than handing back a login page" do
+  test "json fd search signed out returns 401 with an empty body" do
     get fd_search_path(format: :json, q: "anything")
 
     assert_response :unauthorized
     assert_empty response.body
   end
 
-  test "the grantable roles are the only things that count as a role" do
+  test "effective_roles returns each grantable role and grant! raises for an unknown role" do
     Authz.grantable_roles.each do |role|
-      hold_role!("UNOROLE", role)
+      grant_role!("UNOROLE", role)
       Current.forget_roles
       assert_equal [role], Authz.effective_roles("UNOROLE"),
-        "the role a grant names is the role they hold"
+        "effective_roles returns the granted role"
     end
 
     assert_raises(Authz::Grant::NotAllowedError) do
@@ -211,15 +211,15 @@ class WhoGetsInTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "the manager sits above both ladders, held by the flag" do
-    manager = hold_role!("UABOVE", "community_manager")
+  test "community_manager role yields MANAGER_ROLE and the checked capabilities" do
+    manager = grant_role!("UABOVE", "community_manager")
 
     assert_equal [Fd::Access::MANAGER_ROLE], Authz.effective_roles(manager.user_id),
-      "the manager role is what a manager holds now"
+      "effective_roles returns MANAGER_ROLE"
     assert_predicate manager, :manager?
-    assert manager.may?("case.read"), "a manager runs the Fire Department"
-    assert Authz.holds?(manager, "channel.all"), "a manager reads every channel"
-    assert Authz.holds?(manager, "engine.manage"), "a manager runs the engine"
-    assert Authz.holds?(manager, "access.grant"), "a manager hands access out"
+    assert manager.may?("case.read"), "manager lacks case.read"
+    assert Authz.holds?(manager, "channel.all"), "manager lacks channel.all"
+    assert Authz.holds?(manager, "engine.manage"), "manager lacks engine.manage"
+    assert Authz.holds?(manager, "access.grant"), "manager lacks access.grant"
   end
 end

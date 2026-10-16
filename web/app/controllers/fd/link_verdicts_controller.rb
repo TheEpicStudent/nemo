@@ -3,7 +3,7 @@ module Fd
     permit "link.verdict"
 
     MEMBER_ID = /\A[UW][A-Z0-9]{2,}\z/
-    NOTICES = { recorded: "verdict recorded", changed: "verdict changed", unchanged: "verdict unchanged" }.freeze
+    NOTICES = { recorded: "Verdict recorded", changed: "Verdict changed", unchanged: "Verdict unchanged" }.freeze
 
     def create
       error = validation_error
@@ -24,8 +24,8 @@ module Fd
 
     def validation_error
       a, b = pair
-      return "pick two accounts" unless a.match?(MEMBER_ID) && b.match?(MEMBER_ID) && a != b
-      return "pick a verdict" unless LinkVerdict::VERDICTS.key?(verdict)
+      return "Select two accounts" unless a.match?(MEMBER_ID) && b.match?(MEMBER_ID) && a != b
+      return "Select a verdict" unless LinkVerdict::VERDICTS.key?(verdict)
 
       nil
     end

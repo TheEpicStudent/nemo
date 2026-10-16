@@ -7,14 +7,14 @@ from bot.nemo.views import lines
 
 log = logging.getLogger("bot.nemo")
 
-WHO = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
+USER_MENTION = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
 
 RESOLVE = "resolve"
 RESOLVE_COMMAND = re.compile(r"\A(?:~?\?|!)\s*resolve\Z", re.IGNORECASE)
 CASE, CLAIM, ASSIGN, UNASSIGN, NOTE = "!case", "!claim", "!assign", "!unassign", "!note"
 VERBS = (CASE, CLAIM, ASSIGN, UNASSIGN, NOTE)
 
-SAVED = "white_check_mark"
+SAVED_REACTION = "white_check_mark"
 
 NEEDS = {CASE: "case.read", CLAIM: "case.open", ASSIGN: "case.open", UNASSIGN: "case.open"}
 
@@ -29,17 +29,17 @@ def parse_command(text):
     return parts[0].lower(), parts[1].strip() if len(parts) > 1 else ""
 
 
-def done(say=(), react=None, retain=False):
+def accepted_outcome(say=(), react=None, retain=False):
     return {"say": list(say), "react": react, "retain": retain, "refused": None}
 
 
-def refused(text):
+def refused_outcome(text):
     return {"say": [], "react": None, "retain": False, "refused": text}
 
 
 def mentions(text):
     user_ids = []
-    for one in WHO.findall(text or ""):
+    for one in USER_MENTION.findall(text or ""):
         if one not in user_ids:
             user_ids.append(one)
     return user_ids
@@ -50,43 +50,43 @@ def current_assignees(conn, case_id):
 
 
 def case_link(conn, case_id, user_id, args):
-    return done(say=[lines.header(case_id, channel.case_url(case_id))])
+    return accepted_outcome(say=[lines.header(case_id, channel.case_url(case_id))])
 
 
 def claim(conn, case_id, user_id, args):
     if user_id in current_assignees(conn, case_id):
-        return refused(lines.already_claimed(case_id))
-    case_actions.claimed(conn, case_id, user_id)
-    return done(say=[lines.claimed(user_id, case_id)])
+        return refused_outcome(lines.already_claimed(case_id))
+    case_actions.record_claim(conn, case_id, user_id)
+    return accepted_outcome(say=[lines.claimed(user_id, case_id)])
 
 
 def assign(conn, case_id, user_id, args):
-    named = mentions(args)
-    if not named:
-        return refused(lines.ASSIGN_USAGE)
+    mentioned_ids = mentions(args)
+    if not mentioned_ids:
+        return refused_outcome(lines.ASSIGN_USAGE)
     assigned = current_assignees(conn, case_id)
-    new_ids = [one for one in named if one not in assigned]
+    new_ids = [one for one in mentioned_ids if one not in assigned]
     if not new_ids:
-        return refused(lines.already_assigned(case_id, named))
-    case_actions.assign_people(conn, case_id, new_ids, user_id)
-    return done(say=lines.assigned(user_id, case_id, new_ids))
+        return refused_outcome(lines.already_assigned(case_id, mentioned_ids))
+    case_actions.assign_users(conn, case_id, new_ids, user_id)
+    return accepted_outcome(say=lines.assigned(user_id, case_id, new_ids))
 
 
 def unassign(conn, case_id, user_id, args):
-    named = mentions(args)
-    if not named:
-        return refused(lines.UNASSIGN_USAGE)
+    mentioned_ids = mentions(args)
+    if not mentioned_ids:
+        return refused_outcome(lines.UNASSIGN_USAGE)
     assigned = current_assignees(conn, case_id)
-    to_remove = [one for one in named if one in assigned]
+    to_remove = [one for one in mentioned_ids if one in assigned]
     if not to_remove:
-        return refused(lines.not_assigned(case_id, named))
+        return refused_outcome(lines.not_assigned(case_id, mentioned_ids))
     for one in to_remove:
         case_actions.remove_assignee(conn, case_id, one, user_id)
-    return done(say=[lines.unassigned(user_id, case_id, to_remove)])
+    return accepted_outcome(say=[lines.unassigned(user_id, case_id, to_remove)])
 
 
 def note_target(args):
-    mention = WHO.match(args)
+    mention = USER_MENTION.match(args)
     if mention:
         return mention.group(1), args[mention.end():].strip()
     return richtext.leading_user_id(args)
@@ -95,15 +95,15 @@ def note_target(args):
 def note(conn, case_id, user_id, args):
     member_id, words = note_target(args)
     if not words:
-        return refused(lines.NOTE_USAGE)
+        return refused_outcome(lines.NOTE_USAGE)
     if member_id:
         case_actions.member_note(conn, member_id, words, user_id)
     else:
         case_actions.add_note(conn, case_id, words, user_id)
-    return done(react=SAVED, retain=True)
+    return accepted_outcome(react=SAVED_REACTION, retain=True)
 
 
-RUN = {CASE: case_link, CLAIM: claim, ASSIGN: assign, UNASSIGN: unassign, NOTE: note}
+HANDLERS = {CASE: case_link, CLAIM: claim, ASSIGN: assign, UNASSIGN: unassign, NOTE: note}
 
 
 def needed(verb, args):
@@ -116,8 +116,8 @@ def run(verb, args, case_id, user_id):
     with session() as conn:
         allowed, refusal = access.may(conn, user_id, needed(verb, args), case_id)
         if not allowed:
-            return refused(refusal)
-        return RUN[verb](conn, case_id, user_id, args)
+            return refused_outcome(refusal)
+        return HANDLERS[verb](conn, case_id, user_id, args)
 
 
 def delete_command(client, channel_id, ts, failed):
@@ -128,7 +128,7 @@ def delete_command(client, channel_id, ts, failed):
         log.warning("nemo: could not take down the command at %s: %s", ts, failure)
     if failed:
         try:
-            client.reactions_add(channel=channel_id, timestamp=ts, name=answer.STUCK)
+            client.reactions_add(channel=channel_id, timestamp=ts, name=answer.FAILED_REACTION)
         except Exception as failure:
             log.warning("nemo: could not mark the command at %s: %s", ts, failure)
     return False

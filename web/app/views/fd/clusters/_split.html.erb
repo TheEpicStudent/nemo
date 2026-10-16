@@ -2,10 +2,7 @@
       sub: person_label(cluster.cluster_id) } do %>
   <%= form_with url: fd_cluster_split_path(cluster.cluster_id), method: :post do %>
     <div class="modal-body">
-      <p class="modal-note">
-        These <%= pluralize(split.cuts.size, "link") %> get a Different people verdict, the fewest and weakest
-        that separate the accounts marked different people. The next cluster run splits them apart.
-      </p>
+      <p class="modal-note"><%= pluralize(split.cuts.size, "link") %> to mark Different people</p>
       <div class="split-cuts">
         <% split.cuts.each do |cut| %>
           <div class="split-cut">

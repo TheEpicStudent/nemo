@@ -1,6 +1,6 @@
 <div class="list thread-guard-list">
   <% guards.each do |guard| %>
-    <div class="lrow <%= "is-reversed" unless guard.still_on? %>">
+    <div class="lrow <%= "is-reversed" unless guard.active? %>">
       <span class="evdot <%= guard.failed? ? "crit" : "act" %>" aria-hidden="true">
         <%= case_action_button("act", nil) %>
       </span>
@@ -10,7 +10,7 @@
           <%= thread_guard_chip(guard) %>
         </span>
         <span class="sub"><%= guard.reason %></span>
-        <% if guard.locking? && guard.still_on? %>
+        <% if guard.locking? && guard.active? %>
           <span class="sub"><%= time_left_label(guard.expires_at) %></span>
         <% end %>
         <% if guard.note_text.present? %>
@@ -22,7 +22,7 @@
         </span>
       </span>
       <span class="lrow-right">
-        <% if guard.locking? && guard.still_on? %>
+        <% if guard.locking? && guard.active? %>
           <%= opens_modal "thread.guard", "Extend", opens: "lock-extend-#{guard.id}", css: "btn btn-sm" %>
           <%= gated_button("thread.guard", "Unlock", fd_case_thread_lock_path(kase, guard),
                 css: "btn btn-sm btn-danger", method: :delete) %>
@@ -33,7 +33,7 @@
   <% end %>
 </div>
 
-<% guards.select { |guard| guard.locking? && guard.still_on? }.each do |guard| %>
+<% guards.select { |guard| guard.locking? && guard.active? }.each do |guard| %>
   <%= render layout: "fd/modal", locals: { id: "lock-extend-#{guard.id}", title: "Extend lock" } do %>
     <%= form_with url: fd_case_thread_lock_path(kase, guard), method: :patch, html: { autocomplete: "off" } do %>
       <div class="modal-body" data-controller="duration">

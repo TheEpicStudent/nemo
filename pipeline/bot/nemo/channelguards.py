@@ -40,7 +40,7 @@ ON CONFLICT DO NOTHING
 RETURNING id
 """
 
-TUNE_SLOWMODE = """
+UPDATE_SLOWMODE = """
 UPDATE fd.channel_guards
 SET settings = settings || %s::jsonb, reason = %s, expires_at = %s, updated_at = now()
 WHERE id = %s AND state = 'live'
@@ -106,14 +106,14 @@ VALUES (%s, %s, %s, %s, %s)
 RETURNING id
 """
 
-NOTED_EVENT = """
+ADD_NOTICE_COUNTS = """
 UPDATE fd.channel_guard_notice_threads
 SET deleted_count = deleted_count + %s, kicked_count = kicked_count + %s, last_event_at = now()
 WHERE id = %s
 RETURNING deleted_count, kicked_count
 """
 
-HAPPENED = """
+INSERT_EVENT = """
 INSERT INTO fd.channel_guard_events
     (guard_id, channel_id, subject_id, bot_id, label, verb, message_text, message_ts, permalink, app_id,
      detail, notice_wanted, remove_pending)
@@ -140,7 +140,7 @@ LIMIT %s
 FOR UPDATE SKIP LOCKED
 """
 
-NOTICED = """
+MARK_NOTICED = """
 UPDATE fd.channel_guard_events SET noticed_at = now() WHERE id = ANY(%s)
 """
 
@@ -162,7 +162,7 @@ LIMIT %s
 FOR UPDATE SKIP LOCKED
 """
 
-REMOVED = """
+CLEAR_REMOVE_PENDING = """
 UPDATE fd.channel_guard_events SET remove_pending = false, detail = NULL WHERE id = %s
 """
 
@@ -194,7 +194,7 @@ class LiveGuard:
     def __iter__(self):
         return iter((self.guard_id, self.allowed))
 
-    def lets_past(self, *ids):
+    def allows(self, *ids):
         return any(one and one in self.allowed for one in ids)
 
     def seconds(self):
@@ -224,7 +224,7 @@ def in_force(guard):
     return guard if guard is not None and guard.in_force() else None
 
 
-def guarding(channel_id, kind=BOT_ALLOWLIST):
+def active_guard(channel_id, kind=BOT_ALLOWLIST):
     with _lock:
         if not _loaded:
             return None
@@ -247,12 +247,12 @@ def is_guarded(channel_id):
         return any(guarded_id == channel_id for _, guarded_id, _ in _guards)
 
 
-def lets_past(channel_id, *ids, kind=BOT_ALLOWLIST):
-    guard = guarding(channel_id, kind)
+def allows(channel_id, *ids, kind=BOT_ALLOWLIST):
+    guard = active_guard(channel_id, kind)
     if guard is None:
         return True
 
-    return guard.lets_past(*ids)
+    return guard.allows(*ids)
 
 
 def live_guard(conn, channel_id, kind=BOT_ALLOWLIST):
@@ -291,8 +291,8 @@ def open_slowmode(conn, channel_id, thread_ts, seconds, by, reason, expires_at, 
     return guard_id
 
 
-def tune_slowmode(conn, current, seconds, by, reason, expires_at):
-    row = conn.execute(TUNE_SLOWMODE, (
+def update_slowmode(conn, current, seconds, by, reason, expires_at):
+    row = conn.execute(UPDATE_SLOWMODE, (
         json.dumps({"seconds": seconds}), reason, expires_at, current["id"],
     )).fetchone()
     if row is None:
@@ -310,12 +310,12 @@ def tune_slowmode(conn, current, seconds, by, reason, expires_at):
 
 def set_allows(conn, guard_id, subject_ids, by):
     wanted = list(dict.fromkeys(one for one in subject_ids if one))
-    held = {row[0] for row in allowed(conn, guard_id)}
+    existing_ids = {row[0] for row in allowed(conn, guard_id)}
     for subject_id in (row[0] for row in conn.execute(DISALLOW_ALL_BUT, (guard_id, wanted)).fetchall()):
         audit.record(conn, "channel_allow", guard_id, "removed", by,
                      before={"subject_id": subject_id}, after=None)
     for subject_id in wanted:
-        if subject_id not in held:
+        if subject_id not in existing_ids:
             allow(conn, guard_id, subject_id, by)
     return wanted
 
@@ -385,8 +385,8 @@ def open_new_notice_thread(conn, guard_id, subject_id, parent_ts, deleted, kicke
     ).fetchone()[0]
 
 
-def note_event(conn, thread_id, deleted, kicked):
-    return conn.execute(NOTED_EVENT, (deleted, kicked, thread_id)).fetchone()
+def add_notice_counts(conn, thread_id, deleted, kicked):
+    return conn.execute(ADD_NOTICE_COUNTS, (deleted, kicked, thread_id)).fetchone()
 
 
 def notice_groups(conn, give_up_after, limit):
@@ -398,8 +398,8 @@ def claim_notices(conn, guard_id, subject_id, give_up_after, limit):
     return [dict(zip(NOTICE_FIELDS, row)) for row in rows]
 
 
-def noticed(conn, event_ids):
-    conn.execute(NOTICED, (list(event_ids),))
+def mark_noticed(conn, event_ids):
+    conn.execute(MARK_NOTICED, (list(event_ids),))
 
 
 def notice_failed(conn, event_ids):
@@ -410,8 +410,8 @@ def claim_removals(conn, limit):
     return conn.execute(CLAIM_REMOVALS, (limit,)).fetchall()
 
 
-def removed(conn, event_id):
-    conn.execute(REMOVED, (event_id,))
+def clear_remove_pending(conn, event_id):
+    conn.execute(CLEAR_REMOVE_PENDING, (event_id,))
 
 
 def removal_failed(conn, event_id, why, give_up_after):
@@ -425,7 +425,7 @@ def record_enforcement(conn, guard_id, channel_id, subject_id, verb, bot_id=None
              message_ts=None, permalink=None, app_id=None, detail=None, notice_wanted=False,
              remove_pending=False):
     return conn.execute(
-        HAPPENED,
+        INSERT_EVENT,
         (guard_id, channel_id, subject_id, bot_id, label, verb,
          (text or None) and text[:TEXT_LIMIT],
          message_ts, permalink, app_id, detail, notice_wanted, remove_pending),

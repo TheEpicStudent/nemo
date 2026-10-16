@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
     @channel = Analytics::DimChannel.where(archived: false).order(:channel_id).first
     skip "the corpus has no channel" if @channel.nil?
@@ -28,21 +28,21 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     patch fd_channel_guard_path(@id, kind), params: with_reason(kind, params)
   end
 
-  test "every tab opens" do
+  test "show renders every tab in Fd::ChannelsController::TABS" do
     Fd::ChannelsController::TABS.each do |tab|
       get fd_channel_path(@id, tab: tab)
-      assert_response :success, "#{tab} did not open"
+      assert_response :success, "#{tab} did not return success"
     end
   end
 
-  test "an unknown tab falls back to the first" do
+  test "show with unknown tab renders the first tab with Guards" do
     get fd_channel_path(@id, tab: "sideways")
 
     assert_response :success
     assert_match(/Guards/, response.body)
   end
 
-  test "read-only is turned on and off on its own" do
+  test "create readonly adds only that kind and destroy removes it" do
     post_guard("readonly")
 
     assert live("readonly")
@@ -52,19 +52,19 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_nil live("readonly")
   end
 
-  test "read-only keeps whether it also catches threads" do
+  test "create readonly with threads param sets threads?" do
     post_guard("readonly", threads: "1")
 
     assert live("readonly").threads?
   end
 
-  test "read-only without threads leaves them out" do
+  test "create readonly without threads param leaves threads? false" do
     post_guard("readonly")
 
     assert_not live("readonly").threads?
   end
 
-  test "read-only is retuned in place and audited" do
+  test "update readonly with threads param sets threads? and writes a tuned audit entry" do
     post_guard("readonly")
     patch_guard("readonly", threads: "1")
 
@@ -72,7 +72,7 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_equal 1, Fd::AuditEntry.where(entity_type: "channel_guard", verb: "tuned").count
   end
 
-  test "all four kinds stand at once on one channel" do
+  test "all four guard kinds can be live on one channel" do
     Fd::ChannelGuard::KINDS.each do |kind|
       guard!(kind, seconds: 30, min_age_days: 7)
     end
@@ -80,14 +80,14 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_equal 4, Fd::ChannelGuard.live.where(channel_id: @id).count
   end
 
-  test "a kind that is not a kind is refused" do
+  test "create with unknown kind adds no guard and alerts" do
     post_guard("sideways")
 
     assert_equal 0, Fd::ChannelGuard.live.where(channel_id: @id).count
     assert_match(/not a valid guard kind/, flash[:alert])
   end
 
-  test "slow mode keeps the seconds it was given" do
+  test "create slowmode stores seconds and threads params" do
     post_guard("slowmode", seconds: "45", threads: "1")
     guard = live("slowmode")
 
@@ -95,27 +95,27 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert guard.threads?
   end
 
-  test "slow mode without threads leaves them out" do
+  test "create slowmode without threads param leaves threads? false" do
     post_guard("slowmode", seconds: "45")
 
     assert_not live("slowmode").threads?
   end
 
-  test "the switch turns slow mode on with an interval to start from" do
+  test "create slowmode without seconds uses DEFAULT_SLOWMODE_SECONDS and no alert" do
     post_guard("slowmode")
 
-    assert_equal Fd::ChannelGuard::SECONDS_TO_START, live("slowmode").seconds
+    assert_equal Fd::ChannelGuard::DEFAULT_SLOWMODE_SECONDS, live("slowmode").seconds
     assert_nil flash[:alert]
   end
 
-  test "the switch turns the age gate on with days to start from" do
+  test "create account_age without min_age_days uses DEFAULT_ACCOUNT_AGE_DAYS and no alert" do
     post_guard("account_age")
 
-    assert_equal Fd::ChannelGuard::DAYS_TO_START, live("account_age").min_age_days
+    assert_equal Fd::ChannelGuard::DEFAULT_ACCOUNT_AGE_DAYS, live("account_age").min_age_days
     assert_nil flash[:alert]
   end
 
-  test "slow mode refuses a interval outside the range" do
+  test "create slowmode with seconds outside 1 to 3600 adds no guard and alerts" do
     post_guard("slowmode", seconds: "0")
     assert_nil live("slowmode")
 
@@ -124,14 +124,14 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_equal "Enter 1 to 3600 seconds", flash[:alert]
   end
 
-  test "slow mode without a reason is refused" do
+  test "create slowmode with blank reason adds no guard and alerts" do
     post_guard("slowmode", reason: " ")
 
     assert_nil live("slowmode")
     assert_equal "Enter a reason", flash[:alert]
   end
 
-  test "slow mode with a duration ends after it and asks nemo for the notice" do
+  test "create slowmode with duration sets expires_at reason and notice_wanted" do
     freeze_time do
       post_guard("slowmode", duration: "2h")
       guard = live("slowmode")
@@ -143,34 +143,34 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "slow mode without a duration runs until turned off" do
+  test "create slowmode without duration sets no expires_at and notices no end date" do
     post_guard("slowmode")
 
     assert_nil live("slowmode").expires_at
     assert_equal "Slow mode enabled · no end date", flash[:notice]
   end
 
-  test "slow mode with a custom end ends at that time in utc" do
+  test "create slowmode with custom duration sets expires_at in utc" do
     post_guard("slowmode", duration: "custom", expires_on: 2.days.from_now.to_date.to_s, expires_time: "14:30")
 
     assert_equal 2.days.from_now.utc.change(hour: 14, min: 30), live("slowmode").expires_at
   end
 
-  test "slow mode with a custom end in the past is refused" do
+  test "create slowmode with custom end in the past adds no guard and alerts" do
     post_guard("slowmode", duration: "custom", expires_on: 1.day.ago.to_date.to_s)
 
     assert_nil live("slowmode")
     assert_equal "End must be in the future", flash[:alert]
   end
 
-  test "slow mode with custom picked and no date is refused" do
+  test "create slowmode with custom duration and no date adds no guard and alerts" do
     post_guard("slowmode", duration: "custom")
 
     assert_nil live("slowmode")
     assert_equal "Enter the end date", flash[:alert]
   end
 
-  test "slow mode extend adds to the current end and is audited" do
+  test "update slowmode with extend_by adds to expires_at and writes an extended audit entry" do
     post_guard("slowmode", duration: "1h")
     first_end = live("slowmode").expires_at
     patch_guard("slowmode", extend_by: "30m")
@@ -180,7 +180,7 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_equal first_end.iso8601, extended.before["expires_at"]
   end
 
-  test "slow mode with no end is extended from now" do
+  test "update slowmode with extend_by and no expires_at extends from now" do
     post_guard("slowmode")
     freeze_time do
       patch_guard("slowmode", extend_by: "1h")
@@ -189,14 +189,14 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "slow mode extend without a choice is refused" do
+  test "update slowmode without extend_by alerts" do
     post_guard("slowmode", duration: "1h")
     patch_guard("slowmode")
 
     assert_equal "Select how long to extend", flash[:alert]
   end
 
-  test "slow mode enabled again starts with no exemptions" do
+  test "create slowmode after destroy leaves allows empty" do
     post_guard("slowmode")
     post fd_channel_allows_path(@id, "slowmode"), params: { subject_ids: ["USLOW"] }
     delete fd_channel_guard_path(@id, "slowmode")
@@ -224,39 +224,39 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_select "[data-modal-id-value=slowmode-enable] select[name=duration] option[value=\"\"]", "No end"
   end
 
-  test "read-only asks nemo for no notice" do
+  test "create readonly leaves notice_wanted false" do
     post_guard("readonly")
 
     assert_not live("readonly").notice_wanted
   end
 
-  test "an account age gate keeps its days" do
+  test "create account_age stores min_age_days" do
     post_guard("account_age", min_age_days: "7")
 
     assert_equal 7, live("account_age").min_age_days
   end
 
-  test "an account age outside the range is refused" do
+  test "create account_age with min_age_days outside 1 to 365 adds no guard and alerts" do
     post_guard("account_age", min_age_days: "0")
 
     assert_nil live("account_age")
-    assert_match(/from 1 to/, flash[:alert])
+    assert_match(/Enter 1 to 365 days/, flash[:alert])
   end
 
-  test "tuning a kind that is not on is refused" do
+  test "update on a kind with no live guard alerts" do
     patch_guard("slowmode", seconds: "30")
 
     assert_match(/not guarded that way/, flash[:alert])
   end
 
-  test "a member is let past read-only" do
+  test "create allow on readonly stores the subject_ids" do
     guard!("readonly")
     post fd_channel_allows_path(@id, "readonly"), params: { subject_ids: ["USOMEBODY"] }
 
     assert_equal ["USOMEBODY"], live("readonly").allows.pluck(:subject_id)
   end
 
-  test "an allow lands on the kind it was added under" do
+  test "create allow on readonly adds the allow to that kind only" do
     guard!("readonly")
     guard!("slowmode", seconds: 30)
     post fd_channel_allows_path(@id, "readonly"), params: { subject_ids: ["USOMEBODY"] }
@@ -265,7 +265,7 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_equal 0, live("slowmode").allows.count
   end
 
-  test "account age exemption is saved on the gate" do
+  test "create allow on account_age stores the subject and redirects to its tab" do
     guard!("account_age", min_age_days: 7)
     post fd_channel_allows_path(@id, "account_age"), params: { subject_ids: ["USOMEBODY"] }
 
@@ -291,7 +291,7 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_no_match "No exemptions", response.body
   end
 
-  test "account age turned back on restores its exemptions" do
+  test "create account_age after destroy restores allows" do
     post_guard("account_age")
     post fd_channel_allows_path(@id, "account_age"), params: { subject_ids: ["USOMEBODY"] }
     delete fd_channel_guard_path(@id, "account_age")
@@ -300,13 +300,13 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_equal ["USOMEBODY"], live("account_age").allows.pluck(:subject_id)
   end
 
-  test "an allow on a kind nobody guards is refused" do
+  test "create allow on a kind with no live guard alerts" do
     post fd_channel_allows_path(@id, "readonly"), params: { subject_ids: ["USOMEBODY"] }
 
     assert_match(/not guarded/, flash[:alert])
   end
 
-  test "turning a guard back on restores its allow list" do
+  test "create readonly after destroy restores allows with notice and audit entries" do
     post_guard("readonly")
     post fd_channel_allows_path(@id, "readonly"), params: { subject_ids: ["USOMEBODY", "UOTHER"] }
     delete fd_channel_guard_path(@id, "readonly")
@@ -314,12 +314,12 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
 
     guard = live("readonly")
     assert_equal ["UOTHER", "USOMEBODY"], guard.allows.pluck(:subject_id).sort
-    assert_equal "Read-only turned on, 2 kept on the list", flash[:notice]
+    assert_equal "Read-only turned on · 2 allowed restored", flash[:notice]
     restored = Fd::AuditEntry.where(entity_type: "channel_allow", entity_id: guard.id, verb: "added")
     assert_equal 2, restored.count
   end
 
-  test "restoring keeps who added each allow" do
+  test "create bot_allowlist after destroy restores added_by on allows" do
     post_guard("bot_allowlist")
     post fd_channel_allows_path(@id, "bot_allowlist"), params: { subject_ids: ["B0BOT"] }
     delete fd_channel_guard_path(@id, "bot_allowlist")
@@ -328,14 +328,14 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_equal ["UME"], live("bot_allowlist").allows.pluck(:added_by)
   end
 
-  test "a guard turned on for the first time starts with no allows" do
+  test "create readonly for the first time leaves allows empty" do
     post_guard("readonly")
 
     assert_empty live("readonly").allows
     assert_equal "Read-only turned on", flash[:notice]
   end
 
-  test "restoring takes allows only from the same kind" do
+  test "create restores allows only from the same kind" do
     post_guard("slowmode")
     post fd_channel_allows_path(@id, "slowmode"), params: { subject_ids: ["USLOW"] }
     delete fd_channel_guard_path(@id, "slowmode")
@@ -344,7 +344,7 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_empty live("readonly").allows
   end
 
-  test "the overview names every kind" do
+  test "overview tab lists every guard kind label" do
     get fd_channel_path(@id, tab: "overview")
 
     assert_match(/Bot allow list/, response.body)
@@ -353,7 +353,7 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_match(/New accounts/, response.body)
   end
 
-  test "activity sits under the kind it belongs to" do
+  test "kind tabs render only their own guard events" do
     bots = guard!("bot_allowlist")
     ro = guard!("readonly")
     Fd::ChannelGuardEvent.create!(guard_id: bots.id, channel_id: @id,
@@ -370,7 +370,7 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_no_match(/B0CACHET/, response.body)
   end
 
-  test "activity outlives the guard that recorded it" do
+  test "readonly tab renders events after the guard is destroyed" do
     guard = guard!("readonly")
     Fd::ChannelGuardEvent.create!(guard_id: guard.id, channel_id: @id,
       subject_id: "USOMEBODY", verb: "deleted")
@@ -380,7 +380,7 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_match(/USOMEBODY/, response.body)
   end
 
-  test "a tab with no activity shows no activity card" do
+  test "readonly tab without events renders no Activity card" do
     guard!("readonly")
     get fd_channel_path(@id, tab: "readonly")
 
@@ -456,9 +456,9 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_empty queued_kicks
   end
 
-  test "somebody without channel.guard cannot turn a kind on" do
-    drop_roles!("UME")
-    hold_role!("UME", "gardener")
+  test "create without channel.guard adds no guard" do
+    revoke_roles!("UME")
+    grant_role!("UME", "gardener")
     post_guard("readonly")
 
     assert_equal 0, Fd::ChannelGuard.live.where(channel_id: @id).count

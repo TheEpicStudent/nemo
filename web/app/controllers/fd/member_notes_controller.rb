@@ -19,9 +19,9 @@ module Fd
         audit(note, "noted")
       end
 
-      flash[:action] = { "label" => "See their record", "href" => fd_member_path(user_id) }
+      flash[:action] = { "label" => "View record", "href" => fd_member_path(user_id) }
       redirect_to fd_member_path(user_id),
-        notice: "Noted; it now follows them to every case"
+        notice: "Note added"
     end
 
     def update
@@ -53,11 +53,11 @@ module Fd
     private
 
     def validation_error(body)
-      return wrong!(:body, "Write the note before saving it.") if body.blank?
+      return field_error!(:body, "Enter the note") if body.blank?
 
       max_length = NotesController::MAX_LENGTH
       if body.length > max_length
-        return wrong!(:body, "Keep it under #{max_length} characters. That one is #{body.length}.", body)
+        return field_error!(:body, "Keep it under #{max_length} characters", body)
       end
 
       nil

@@ -12,8 +12,8 @@ class Fd::MembersControllerTest < ActionDispatch::IntegrationTest
     handle && Fd::Member.live.find_by(handle: handle)
   end
 
-  test "the pane endpoint answers a search with rows the pane filter can swap in" do
-    sign_in_as(hold_role!("UTESTCM1", "community_manager"))
+  test "pane with q renders matching member row fragment without layout" do
+    sign_in_as(grant_role!("UTESTCM1", "community_manager"))
     member = member_with_unique_handle
     skip "the corpus has no member with a handle of its own" if member.nil?
 
@@ -25,8 +25,8 @@ class Fd::MembersControllerTest < ActionDispatch::IntegrationTest
     assert_not_includes response.body, "<html"
   end
 
-  test "the pane endpoint with no term lists the default roster page" do
-    sign_in_as(hold_role!("UTESTCM1", "community_manager"))
+  test "pane without q renders default roster rows" do
+    sign_in_as(grant_role!("UTESTCM1", "community_manager"))
 
     get fd_member_pane_path, headers: { "Accept" => "text/html" }
 

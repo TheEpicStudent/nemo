@@ -2,10 +2,10 @@ require "test_helper"
 
 class AdminScreensTest < ActionDispatch::IntegrationTest
   setup do
-    @manager = hold_role!("UADBOSS", "community_manager")
+    @manager = grant_role!("UADBOSS", "community_manager")
   end
 
-  test "every signed in person reaches their own account" do
+  test "account show renders for any signed in account" do
     sign_in_as(Account.create!(user_id: "UADNONE"))
 
     get account_path
@@ -13,7 +13,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
-  test "the admin screens each render for a manager" do
+  test "admin index pages render for community_manager" do
     sign_in_as(@manager)
 
     [admin_people_path, admin_roles_path, admin_flags_path, admin_channels_path].each do |path|
@@ -22,7 +22,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "the roles matrix is one table over every capability and role" do
+  test "admin roles index renders for community_manager" do
     sign_in_as(@manager)
 
     get admin_roles_path
@@ -30,7 +30,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
-  test "somebody holding nothing cannot administer access" do
+  test "admin people without roles redirects to root" do
     sign_in_as(Account.create!(user_id: "UADOUT"))
 
     get admin_people_path
@@ -38,7 +38,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
     assert_redirected_to root_path
   end
 
-  test "a manager sets a channel audience" do
+  test "admin channel update with audience public redirects and stores audience" do
     channel = Analytics::DimChannel.where(archived: false).first
     sign_in_as(@manager)
 
@@ -48,24 +48,24 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
     assert_equal "public", Channels::Audience.of(channel.channel_id)
   end
 
-  test "the analytics role cannot reach the admin section at all" do
-    sign_in_as(hold_role!("UADANA", "analytics"))
+  test "admin channels with analytics role redirects to root" do
+    sign_in_as(grant_role!("UADANA", "analytics"))
 
     get admin_channels_path
 
     assert_redirected_to root_path
   end
 
-  test "only a role holding access.grant reaches the admin section" do
-    sign_in_as(hold_role!("UADCUR", "community_manager"))
+  test "admin channels with access.grant renders" do
+    sign_in_as(grant_role!("UADCUR", "community_manager"))
 
     get admin_channels_path
 
     assert_response :success
   end
 
-  test "the analytics role cannot set a channel audience" do
-    staff = hold_role!("UADANA2", "analytics")
+  test "admin channel update with analytics role keeps audience granted" do
+    staff = grant_role!("UADANA2", "analytics")
     channel = Analytics::DimChannel.where(archived: false).first
     sign_in_as(staff)
 
@@ -74,7 +74,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
     assert_equal "granted", Channels::Audience.of(channel.channel_id)
   end
 
-  test "an unknown audience is refused" do
+  test "admin channel update with unknown audience sets alert and keeps audience" do
     sign_in_as(@manager)
     channel = Analytics::DimChannel.where(archived: false).first
 
@@ -84,7 +84,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
     assert_equal "granted", Channels::Audience.of(channel.channel_id)
   end
 
-  test "a manager shows how posts did in a channel, then stops" do
+  test "admin channel activity toggles visibility and records audit entries" do
     channel = Analytics::DimChannel.where(archived: false).first
     sign_in_as(@manager)
 
@@ -97,7 +97,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
 
     get admin_channels_path
     assert_response :success
-    assert_includes response.body, "Stop showing how posts did"
+    assert_includes response.body, "Hide message activity"
 
     patch activity_admin_channel_path(channel.channel_id), params: { shown: "off" }
 
@@ -108,8 +108,8 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
     Channels::Activity::Setting.where(channel_id: channel.channel_id).delete_all
   end
 
-  test "the analytics role cannot show how posts did" do
-    staff = hold_role!("UADANA3", "analytics")
+  test "admin channel activity with analytics role keeps activity hidden" do
+    staff = grant_role!("UADANA3", "analytics")
     channel = Analytics::DimChannel.where(archived: false).first
     sign_in_as(staff)
 
@@ -118,7 +118,7 @@ class AdminScreensTest < ActionDispatch::IntegrationTest
     refute Channels::Activity.visible?(channel.channel_id)
   end
 
-  test "showing how posts did is on or off, nothing else" do
+  test "admin channel activity with invalid value sets alert and keeps activity hidden" do
     sign_in_as(@manager)
     channel = Analytics::DimChannel.where(archived: false).first
 

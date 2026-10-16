@@ -24,11 +24,11 @@ export default class extends Controller {
 
     this.element.innerHTML = ""
     this.element.removeAttribute("src")
-    this.forget()
+    this.clearEventParam()
     document.dispatchEvent(new CustomEvent("side-pane:closed"))
   }
 
-  forget() {
+  clearEventParam() {
     const url = new URL(window.location.href)
     if (!url.searchParams.has("event")) return
 

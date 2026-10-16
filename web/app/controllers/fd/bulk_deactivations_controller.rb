@@ -4,7 +4,7 @@ module Fd
 
     MEMBER_ID = /\A[UW][A-Z0-9]{2,}\z/
     MAX_ACCOUNTS = 100
-    NO_REASON = "deactivated in bulk from the new members page".freeze
+    NO_REASON = "Bulk deactivation from new members page".freeze
 
     def create
       error = validation_error
@@ -39,8 +39,8 @@ module Fd
     end
 
     def validation_error
-      return "pick who this is about" if requested_ids.empty?
-      return "that is more than #{MAX_ACCOUNTS} accounts at once" if requested_ids.size > MAX_ACCOUNTS
+      return "Select members" if requested_ids.empty?
+      return "Select at most #{MAX_ACCOUNTS} accounts" if requested_ids.size > MAX_ACCOUNTS
 
       nil
     end
@@ -55,10 +55,10 @@ module Fd
     end
 
     def notice_for(opened)
-      summary = "#{helpers.pluralize(opened, 'account')} sent to nemo to deactivate"
+      summary = "#{helpers.pluralize(opened, 'account')} queued for deactivation"
       return summary if opened == requested_ids.size
 
-      "#{summary}, #{requested_ids.size - opened} already had one standing"
+      "#{summary} · #{requested_ids.size - opened} already guarded"
     end
 
     def redirect_with_alert(message)

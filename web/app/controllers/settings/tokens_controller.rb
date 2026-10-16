@@ -4,8 +4,8 @@ module Settings
       return redirect_with_alert(turned_off) if api_off?
 
       app = owned_app(params[:app_id])
-      return redirect_with_alert("That app is not yours") if app.nil?
-      return redirect_with_alert("Say what the key is for") if params[:name].to_s.strip.empty?
+      return redirect_with_alert("Not your app") if app.nil?
+      return redirect_with_alert("Enter a name") if params[:name].to_s.strip.empty?
 
       token, @secret = Api::Token.mint!(app, params[:name], lifetime: params[:lifetime])
       Api::Event.record!("token_minted", actor: member_id, subject: token.display_prefix,
@@ -16,16 +16,16 @@ module Settings
       load_keys
       render "settings/keys/show"
     rescue Api::Token::NotApprovedError
-      redirect_with_alert("That app has no approved scope yet")
-    rescue Api::Token::TooManyError
-      redirect_with_alert("that app already holds #{Api::Setting.value('tokens_per_owner')} keys")
+      redirect_with_alert("App not approved")
+    rescue Api::Token::KeyLimitError
+      redirect_with_alert("Key limit reached (#{Api::Setting.value('tokens_per_owner')})")
     end
 
     def rotate
       return redirect_with_alert(turned_off) if api_off?
 
       token = own_token
-      return redirect_with_alert("That key is not yours") if token.nil?
+      return redirect_with_alert("Not your key") if token.nil?
 
       @secret = token.rotate!(by: member_id)
       @token = token
@@ -35,7 +35,7 @@ module Settings
 
     def destroy
       token = own_token
-      return redirect_with_alert("That key is not yours") if token.nil?
+      return redirect_with_alert("Not your key") if token.nil?
 
       token.revoke!(by: member_id)
       Api::Event.record!("token_revoked", actor: member_id, subject: token.display_prefix,

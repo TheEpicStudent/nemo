@@ -5,7 +5,7 @@ from lib import build
 from lib.db import connect, record_heartbeat
 
 BEAT_SECONDS = 60
-STALE_BUILD_STATE = "held, old build"
+STALE_BUILD_STATE = "paused, old build"
 STALE_BUILD_RECHECK_SECONDS = 60
 build_state = {"newest": None}
 
@@ -27,7 +27,7 @@ def pause_stale_lane(worker, name, state, stopping):
     if not on_stale_build():
         return False
     if state.get(name) != STALE_BUILD_STATE:
-        print(f"{worker}: the {name} lane is held, build {build.fingerprint()} is behind {build_state['newest']}")
+        print(f"{worker}: {name} lane paused, build {build.fingerprint()} behind {build_state['newest']}")
     state[name] = STALE_BUILD_STATE
     stopping.wait(STALE_BUILD_RECHECK_SECONDS)
     return True

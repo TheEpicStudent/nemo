@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdConfigurationTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "firefighter")
+    @me = grant_role!("UME", "firefighter")
     sign_in_as(@me)
   end
 
@@ -18,34 +18,34 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
 
   def live = Fd::AutomodWord.active
 
-  test "a firefighter reaches configuration" do
+  test "show configuration for firefighter renders Automod" do
     get fd_configuration_path
     assert_response :success
     assert_match(/Automod/, response.body)
   end
 
-  test "the sidebar carries configuration for whoever may tune it" do
+  test "show configuration renders sidebar link to /fd/configuration" do
     get fd_configuration_path
     assert_match(%r{href="/fd/configuration"}, response.body)
   end
 
-  test "a community manager reaches it too" do
-    drop_roles!("UME")
-    hold_role!("UME", "community_manager")
+  test "show configuration for community_manager responds success" do
+    revoke_roles!("UME")
+    grant_role!("UME", "community_manager")
     get fd_configuration_path
 
     assert_response :success
   end
 
-  test "somebody without the capability is turned away" do
-    drop_roles!("UME")
-    hold_role!("UME", "gardener")
+  test "show configuration for gardener redirects" do
+    revoke_roles!("UME")
+    grant_role!("UME", "gardener")
     get fd_configuration_path
 
     assert_response :redirect
   end
 
-  test "a word is put on the list and audited" do
+  test "create automod word stores normalized attributes and one added audit entry" do
     add(word: "  slur  ", category_key: "harassment_general")
     word = live.sole
 
@@ -57,14 +57,14 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
     assert_equal 1, Fd::AuditEntry.where(entity_type: "automod_word", verb: "added").count
   end
 
-  test "an empty word is refused" do
+  test "create automod word with blank word alerts and stores nothing" do
     add(word: "   ")
 
     assert_equal 0, live.count
-    assert_match(/no word given/, flash[:alert])
+    assert_match(/Enter a word/, flash[:alert])
   end
 
-  test "the same word is not watched for twice" do
+  test "create automod word twice stores one row and alerts" do
     add
     add
 
@@ -72,38 +72,38 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
     assert_match(/Already on the list/, flash[:alert])
   end
 
-  test "a regex that does not compile is refused" do
+  test "create automod word with invalid regex alerts and stores nothing" do
     add(word: "([a-z", match_mode: "regex")
 
     assert_equal 0, live.count
-    assert_match(/does not compile/, flash[:alert])
+    assert_match(/Invalid regex/, flash[:alert])
   end
 
-  test "a regex that compiles is kept" do
+  test "create automod word with valid regex stores match_mode regex" do
     add(word: "ba+dword", match_mode: "regex")
 
     assert_equal "regex", live.sole.match_mode
   end
 
-  test "an unshipped effect falls back to flag" do
+  test "create automod word with unsupported effect stores flag" do
     add(effect: "delete")
 
     assert_equal "flag", live.sole.effect
   end
 
-  test "an unknown match mode falls back to a whole word" do
+  test "create automod word with unknown match_mode stores word" do
     add(match_mode: "sideways")
 
     assert_equal "word", live.sole.match_mode
   end
 
-  test "a category outside the list is dropped" do
+  test "create automod word with unknown category_key stores nil" do
     add(category_key: "not_a_category")
 
     assert_nil live.sole.category_key
   end
 
-  test "taking a word off keeps it on the record" do
+  test "destroy automod word sets retired fields and writes one removed audit entry" do
     word = automod_word!
     delete fd_automod_word_path(word)
 
@@ -113,7 +113,7 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
     assert_equal 1, Fd::AuditEntry.where(entity_type: "automod_word", verb: "removed").count
   end
 
-  test "a word already off the list cannot be taken off again" do
+  test "destroy automod word twice alerts not on the list" do
     word = automod_word!
     delete fd_automod_word_path(word)
     delete fd_automod_word_path(word)
@@ -121,7 +121,7 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
     assert_match(/Not on the list/, flash[:alert])
   end
 
-  test "a retired word frees the name for a new one" do
+  test "create automod word after retiring the same word stores a second row" do
     word = automod_word!
     delete fd_automod_word_path(word)
     add(word: "badword")
@@ -130,14 +130,14 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
     assert_equal 2, Fd::AutomodWord.count
   end
 
-  test "the list is shown masked" do
+  test "show configuration renders words in a masked element" do
     automod_word!
     get fd_configuration_path
 
     assert_select %(.masked), /badword/
   end
 
-  test "matches are shown with the member and the channel" do
+  test "show configuration renders automod match body and user_id" do
     word = automod_word!
     Fd::AutomodMatch.create!(word_id: word.id, word: word.word, effect: "flag",
       user_id: "USUB", channel_id: "C0266FRGV", message_ts: "1700000000.000100",
@@ -148,7 +148,7 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
     assert_match(/USUB/, response.body)
   end
 
-  test "the channel on a match opens the message it matched" do
+  test "show configuration links match channel to the permalink" do
     word = automod_word!
     Fd::AutomodMatch.create!(word_id: word.id, word: word.word, effect: "flag",
       user_id: "USUB", channel_id: "C0266FRGV", message_ts: "1700000000.000100",
@@ -160,7 +160,7 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
       "https://hackclub.slack.com/archives/C0266FRGV/p1700000000000100"
   end
 
-  test "a match with no permalink still links to the channel" do
+  test "show configuration links match without permalink to a URL with channel_id" do
     word = automod_word!
     Fd::AutomodMatch.create!(word_id: word.id, word: word.word, effect: "flag",
       user_id: "USUB", channel_id: "C0266FRGV", message_ts: "1700000000.000100",
@@ -170,9 +170,9 @@ class FdConfigurationTest < ActionDispatch::IntegrationTest
     assert_select %(a.handle[href*=?]), "C0266FRGV"
   end
 
-  test "somebody without the capability cannot put a word on the list" do
-    drop_roles!("UME")
-    hold_role!("UME", "gardener")
+  test "create automod word for gardener stores nothing" do
+    revoke_roles!("UME")
+    grant_role!("UME", "gardener")
     add
 
     assert_equal 0, live.count

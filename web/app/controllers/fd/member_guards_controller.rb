@@ -17,21 +17,21 @@ module Fd
       guard = nil
       queued = nil
       writing do
-        guard = open_standing
+        guard = open_guard
         queued = queue_purge(guard) if guard && purging?
       end
 
       if guard.nil?
         return redirect_to fd_member_path(subject_id),
-          alert: "#{display_name(subject_id)} is already under a #{label(kind)}"
+          alert: "#{display_name(subject_id)} already has a #{label(kind)}"
       end
 
       redirect_to fd_member_path(subject_id),
-        notice: "#{label(kind)} held on #{display_name(subject_id)}, on no case#{purge_note(queued)}"
+        notice: "#{label(kind).upcase_first} applied to #{display_name(subject_id)}#{purge_note(queued)}"
     end
 
     def update
-      guard = MemberGuard.still_on.find(params[:id])
+      guard = MemberGuard.active.find(params[:id])
       return deny!("member.deactivate", guard) if deactivating?(guard.kind)
 
       if expiry.nil?
@@ -41,17 +41,17 @@ module Fd
 
       previous_expiry = guard.expires_at
       writing do
-        guard.run_until!(expiry)
+        guard.set_expiry!(expiry)
         audit(guard, "extended", before: { "expires_at" => previous_expiry },
           after: { "expires_at" => expiry })
       end
 
       redirect_to fd_member_path(guard.subject_id),
-        notice: "#{label(guard.kind)} now runs until #{ShortDate.ending(expiry)}"
+        notice: "#{label(guard.kind).upcase_first} extended · ends #{ShortDate.ending(expiry)}"
     end
 
     def destroy
-      guard = MemberGuard.still_on.find(params[:id])
+      guard = MemberGuard.active.find(params[:id])
       return deny!("member.deactivate", guard) if deactivating?(guard.kind)
 
       previous_state = guard.state
@@ -62,7 +62,7 @@ module Fd
       end
 
       redirect_to fd_member_path(guard.subject_id),
-        notice: "#{label(guard.kind)} lifted on #{display_name(guard.subject_id)}"
+        notice: "#{label(guard.kind).upcase_first} lifted on #{display_name(guard.subject_id)}"
     end
 
     private
@@ -89,9 +89,9 @@ module Fd
 
     def purge_note(queued)
       return "" if queued.nil?
-      return ". A purge of their messages is already running" unless queued
+      return " · Message purge already running" unless queued
 
-      ". All their messages are purged once it goes through"
+      " · Message purge queued"
     end
 
     def deactivating?(kind) = kind == MemberGuard::DEACTIVATION && !may_deactivate?
@@ -111,20 +111,20 @@ module Fd
     def expiry_error = end_time.last
 
     def guard_error
-      return "pick what to hold" unless MemberGuard::KINDS.include?(kind)
+      return "Select a guard kind" unless MemberGuard::KINDS.include?(kind)
       return "#{subject_id} is not a member id" unless subject_id.match?(MEMBER_ID)
       if kind == MemberGuard::CHANNEL_BAN && !channel_id.match?(SlackLink::CHANNEL)
-        return "a channel ban needs a channel"
+        return "Channel ban needs a channel"
       end
       return expiry_error if expiry_error
       if params[:reason].to_s.strip.blank?
-        return wrong!(:reason, "Enter why this is being held", params[:reason])
+        return field_error!(:reason, "Enter a reason", params[:reason])
       end
 
       nil
     end
 
-    def open_standing
+    def open_guard
       guard = MemberGuard.open!(
         kind: kind, subject_id: subject_id,
         channel_id: kind == MemberGuard::CHANNEL_BAN ? channel_id : nil,

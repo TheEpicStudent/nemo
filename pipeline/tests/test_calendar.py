@@ -25,7 +25,7 @@ class Slack:
         return {"available_date_range": {"start_date": "2024-01-01", "end_date": end}}
 
 
-def test_the_window_is_cached_within_the_ttl():
+def test_available_within_ttl_returns_cached_window():
     clock, slack = Clock(), Slack("2026-09-10", "2026-09-11")
     assert calendar.available(slack, "member", clock)[1] == date(2026, 9, 10)
     clock.advance(calendar.TTL_SECONDS - 1)
@@ -33,7 +33,7 @@ def test_the_window_is_cached_within_the_ttl():
     assert slack.calls == 1
 
 
-def test_the_window_moves_once_the_ttl_expires():
+def test_available_after_ttl_refetches_window():
     clock, slack = Clock(), Slack("2026-09-10", "2026-09-11")
     assert calendar.available(slack, "member", clock)[1] == date(2026, 9, 10)
     clock.advance(calendar.TTL_SECONDS + 1)
@@ -41,7 +41,7 @@ def test_the_window_moves_once_the_ttl_expires():
     assert slack.calls == 2
 
 
-def test_a_long_lived_worker_never_freezes_at_its_boot_answer():
+def test_available_across_daily_calls_returns_each_new_end_date():
     clock, slack = Clock(), Slack("2026-09-10", "2026-09-11", "2026-09-12")
     dates = []
     for _ in range(3):
@@ -50,14 +50,14 @@ def test_a_long_lived_worker_never_freezes_at_its_boot_answer():
     assert dates == [date(2026, 9, 10), date(2026, 9, 11), date(2026, 9, 12)]
 
 
-def test_each_kind_keeps_its_own_window():
+def test_available_with_different_kinds_fetches_each_window():
     clock, slack = Clock(), Slack("2026-09-10")
     calendar.available(slack, "member", clock)
     calendar.available(slack, "channel", clock)
     assert slack.calls == 2
 
 
-def test_clear_still_drops_the_cache():
+def test_clear_drops_cached_window():
     clock, slack = Clock(), Slack("2026-09-10", "2026-09-11")
     assert calendar.available(slack, "member", clock)[1] == date(2026, 9, 10)
     calendar.clear()

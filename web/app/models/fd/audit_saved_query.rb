@@ -2,11 +2,11 @@ module Fd
   class AuditSavedQuery < ApplicationRecord
     self.table_name = "fd.audit_saved_query"
 
-    LONGEST_NAME = 80
-    LONGEST_QUERY = 500
+    MAX_NAME_LENGTH = 80
+    MAX_QUERY_LENGTH = 500
 
-    validates :name, presence: true, length: { maximum: LONGEST_NAME }
-    validates :query, presence: true, length: { maximum: LONGEST_QUERY }
+    validates :name, presence: true, length: { maximum: MAX_NAME_LENGTH }
+    validates :query, presence: true, length: { maximum: MAX_QUERY_LENGTH }
 
     def self.for(account)
       where(owner_user_id: [nil, account&.user_id].uniq)

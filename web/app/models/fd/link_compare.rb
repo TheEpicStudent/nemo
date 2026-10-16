@@ -35,16 +35,16 @@ module Fd
       FROM fd.evidence_snapshot WHERE user_id IN (:ids)
       ORDER BY user_id, deactivated_at DESC
     SQL
-    MARKS_SQL = format(<<~SQL.squish, prefix: format(MemberTraits::PREFIX, ip: "recent.ip")).freeze
-      SELECT recent.user_id, recent.first_at, host(recent.ip) AS ip, n.class AS network
+    MARKS_SQL = format(<<~SQL.squish, prefix: format(MemberTraits::PREFIX, ip: "ranked_login.ip")).freeze
+      SELECT ranked_login.user_id, ranked_login.first_at, host(ranked_login.ip) AS ip, n.class AS network
       FROM (
         SELECT user_id, first_at, ip,
-               row_number() OVER (PARTITION BY user_id ORDER BY first_at DESC) AS place
+               row_number() OVER (PARTITION BY user_id ORDER BY first_at DESC) AS login_rank
         FROM fd.login_event WHERE user_id IN (:ids)
-      ) recent
+      ) ranked_login
       LEFT JOIN fd.ip_network n ON n.ip_prefix = %<prefix>s
-      WHERE recent.place <= :most
-      ORDER BY recent.first_at
+      WHERE ranked_login.login_rank <= :max_rows
+      ORDER BY ranked_login.first_at
     SQL
 
     def self.find(a, b, actor:, variant: nil)
@@ -104,11 +104,11 @@ module Fd
     def accounts
       @accounts ||= begin
         joined = MemberJoin.where(user_id: ids).pluck(:user_id, :joined_at).to_h
-        gone = Member.where(user_id: ids, is_deleted: true).pluck(:user_id)
+        deactivated_ids = Member.where(user_id: ids, is_deleted: true).pluck(:user_id)
         snapshots = select_all(SNAPSHOTS_SQL, ids: ids).index_by { |row| row["user_id"] }
         ids.map do |user_id|
           snapshot = snapshots[user_id] || {}
-          Account.new(user_id: user_id, deactivated: gone.include?(user_id), joined_at: joined[user_id],
+          Account.new(user_id: user_id, deactivated: deactivated_ids.include?(user_id), joined_at: joined[user_id],
             deactivated_at: time(snapshot["deactivated_at"]), deactivated_by: snapshot["actor_id"],
             deactivation_reason: snapshot["reason"], cases: Case.with_subject(user_id).count)
         end
@@ -128,12 +128,12 @@ module Fd
     end
 
     def returned_after_ban(user_id)
-      mine = account(user_id)
-      theirs = other(user_id)
-      return nil if mine.deactivated || theirs.deactivated_at.nil? || mine.joined_at.nil?
-      return nil unless mine.joined_at > theirs.deactivated_at
+      subject = account(user_id)
+      counterpart = other(user_id)
+      return nil if subject.deactivated || counterpart.deactivated_at.nil? || subject.joined_at.nil?
+      return nil unless subject.joined_at > counterpart.deactivated_at
 
-      mine.joined_at - theirs.deactivated_at
+      subject.joined_at - counterpart.deactivated_at
     end
 
     def attributes
@@ -160,13 +160,13 @@ module Fd
           Event.new(at: group.map(&:at).min, user_id: user_id, kind: "signed_in", ip: ip, network: group.first.network,
             count: group.size, shared: group.any? { |mark| shared_mark?(mark) })
         end
-        kept = sign_ins.sort_by(&:at).last(ACTIVITY_ROWS - milestones.size)
-        (milestones + kept).sort_by { |event| [event.at, event.kind == "signed_in" ? 1 : 0] }
+        recent_sign_ins = sign_ins.sort_by(&:at).last(ACTIVITY_ROWS - milestones.size)
+        (milestones + recent_sign_ins).sort_by { |event| [event.at, event.kind == "signed_in" ? 1 : 0] }
       end
     end
 
     def marks
-      @marks ||= select_all(MARKS_SQL, ids: ids, most: MARKS_PER_ACCOUNT).map do |row|
+      @marks ||= select_all(MARKS_SQL, ids: ids, max_rows: MARKS_PER_ACCOUNT).map do |row|
         Mark.new(user_id: row["user_id"], at: time(row["first_at"]), ip: row["ip"], network: row["network"])
       end
     end

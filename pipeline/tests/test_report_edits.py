@@ -13,7 +13,7 @@ def texts(notice):
     return [element["elements"][0]["text"] for element in notice["blocks"][1]["elements"]]
 
 
-def test_edit_notice_shows_from_and_to_with_a_link():
+def test_edit_notice_with_link_shows_from_and_to_text():
     notice = edits.edit_notice("https://hackclub.slack.com/archives/C1/p1", "old text", "new text")
 
     assert notice["text"] == "Reporter edited a message"
@@ -22,7 +22,7 @@ def test_edit_notice_shows_from_and_to_with_a_link():
     assert texts(notice) == ["From", "old text", "To", "new text"]
 
 
-def test_edit_notice_names_empty_text():
+def test_edit_notice_empty_old_text_shows_no_text_label():
     assert texts(edits.edit_notice(None, "", "added words"))[1] == edits.NO_TEXT
 
 
@@ -54,7 +54,7 @@ class Slack:
         return call
 
 
-def test_post_edit_notices_posts_under_the_card_and_records_what_it_showed(monkeypatch):
+def test_post_edit_notices_posts_in_card_thread_and_records_shown_body(monkeypatch):
     monkeypatch.setattr(channel, "channel_or_firehouse", lambda stored, channel_id, conn: stored)
     conn = EditConn([(7, "1700000401.000100", "old", "new", CARD_TS, "C_FIRE")])
     client = Slack()
@@ -66,7 +66,7 @@ def test_post_edit_notices_posts_under_the_card_and_records_what_it_showed(monke
     assert conn.shown == [("new", 7)]
 
 
-def test_edits_waiting_query_takes_mirrored_inbound_changes_only():
+def test_edits_waiting_sql_selects_mirrored_inbound_changes():
     sql = channel.EDITS_WAITING
     assert "m.direction = 'inbound' AND m.deleted_at IS NULL" in sql
     assert "m.mirrored_ts IS NOT NULL AND r.forwarded_ts IS NOT NULL" in sql
@@ -96,30 +96,30 @@ class OutboxConn:
         return (1,)
 
 
-def test_edit_reply_with_unchanged_text_does_nothing():
+def test_edit_reply_unchanged_text_returns_none():
     conn = OutboxConn((10, 7, "signed", "2026-10-16", "same words"))
 
     assert outbox.edit_reply(conn, "C1", "1.1", "same words", "UMOD") is None
     assert conn.queued == []
 
 
-def test_edit_reply_before_sending_replaces_the_queued_text():
+def test_edit_reply_unsent_reply_replaces_queued_text():
     conn = OutboxConn((10, 7, "signed", None, "draft"))
 
     assert outbox.edit_reply(conn, "C1", "1.1", "final", "UMOD") == 10
     assert conn.queued == []
 
 
-def test_edit_reply_after_sending_queues_an_edit_with_the_original_mode():
+def test_edit_reply_sent_reply_queues_edit_with_original_mode():
     conn = OutboxConn((10, 7, "body", "2026-10-16", "old words"))
 
     assert outbox.edit_reply(conn, "C1", "1.1", "new words", "UMOD") == 55
-    conversation_id, kind, body, mode, requested_by, _files, asked_in, asked_at, edits_outbox_id = conn.queued[0]
-    assert (conversation_id, kind, body, mode, requested_by, asked_in, asked_at, edits_outbox_id) == \
+    conversation_id, kind, body, mode, requested_by, _files, channel_id, message_ts, edits_outbox_id = conn.queued[0]
+    assert (conversation_id, kind, body, mode, requested_by, channel_id, message_ts, edits_outbox_id) == \
         (7, "edit", "new words", "body", "UMOD", "C1", "1.1", 10)
 
 
-def test_edit_reply_for_a_message_that_is_not_a_reply_does_nothing():
+def test_edit_reply_non_reply_message_returns_none():
     assert outbox.edit_reply(OutboxConn(None), "C1", "1.1", "words", "UMOD") is None
 
 
@@ -138,47 +138,47 @@ class DeliverConn:
 
 def edit_queued(body):
     return SimpleNamespace(id=56, kind="edit", body=body, edits_outbox_id=10, closed_at=None, channel_id="D1",
-                           thread_ts="1.0", mode="body", requested_by="UMOD", last_try=False)
+                           thread_ts="1.0", mode="body", requested_by="UMOD", final_attempt=False)
 
 
 def deliver(monkeypatch, original, body):
-    done = {"sent": [], "errors": [], "edited": [], "recorded": []}
-    monkeypatch.setattr(messages.outbox, "sent", lambda conn, outbox_id, message_id: done["sent"].append(message_id))
+    effects = {"sent": [], "errors": [], "edited": [], "recorded": []}
+    monkeypatch.setattr(messages.outbox, "sent", lambda conn, outbox_id, message_id: effects["sent"].append(message_id))
     monkeypatch.setattr(messages.outbox, "mark_error",
-                        lambda conn, outbox_id, error, give_up: done["errors"].append(str(error)))
-    monkeypatch.setattr(messages.intake, "edit", lambda conn, channel_id, message: done["edited"].append(message))
+                        lambda conn, outbox_id, error, give_up: effects["errors"].append(str(error)))
+    monkeypatch.setattr(messages.intake, "edit", lambda conn, channel_id, message: effects["edited"].append(message))
     monkeypatch.setattr(messages.intake, "record",
-                        lambda conn, event, direction, sent_by: done["recorded"].append(event) or (77, True))
+                        lambda conn, event, direction, sent_by: effects["recorded"].append(event) or (77, True))
     relay = messages.MessageRelay()
     relay.client = Slack()
     result = relay.deliver_message(DeliverConn(original), edit_queued(body))
-    return result, relay.client.calls, done
+    return result, relay.client.calls, effects
 
 
-def test_deliver_edit_updates_a_short_reply_in_place(monkeypatch):
-    result, calls, done = deliver(monkeypatch, (40, "D1", "1.5", "old words"), "new words")
+def test_deliver_message_edit_short_body_updates_in_place(monkeypatch):
+    result, calls, effects = deliver(monkeypatch, (40, "D1", "1.5", "old words"), "new words")
 
     assert result is True
     assert calls == [("chat_update", {"channel": "D1", "ts": "1.5", "text": "new words"})]
-    assert done["edited"] == [{"ts": "1.5", "text": "new words"}]
-    assert done["sent"] == [40]
+    assert effects["edited"] == [{"ts": "1.5", "text": "new words"}]
+    assert effects["sent"] == [40]
 
 
-def test_deliver_edit_of_a_long_reply_posts_the_new_text_as_edited(monkeypatch):
+def test_deliver_message_edit_long_body_posts_edited_messages(monkeypatch):
     long_body = "word " * (formatting.MEMBER_PART_LIMIT // 4)
-    result, calls, done = deliver(monkeypatch, (40, "D1", "1.5", "old words"), long_body)
+    result, calls, effects = deliver(monkeypatch, (40, "D1", "1.5", "old words"), long_body)
 
     assert result is True
     assert [name for name, _kwargs in calls] == ["chat_postMessage", "chat_postMessage"]
     assert calls[0][1]["text"].startswith(reply.EDITED_PREFIX)
-    assert done["sent"] == [77]
+    assert effects["sent"] == [77]
 
 
-def test_deliver_edit_without_the_sent_original_gives_up(monkeypatch):
-    result, calls, done = deliver(monkeypatch, None, "new words")
+def test_deliver_message_edit_without_original_records_error(monkeypatch):
+    result, calls, effects = deliver(monkeypatch, None, "new words")
 
     assert result is False
-    assert done["errors"] == ["the edited reply was never sent"] and calls == []
+    assert effects["errors"] == ["the edited reply was never sent"] and calls == []
 
 
 class StateConn:
@@ -190,7 +190,7 @@ class StateConn:
         return self
 
     def fetchone(self):
-        return (1,) if self.sql == dm.REPORTED_INBOUND and self.reported else None
+        return (1,) if self.sql == dm.SUBMITTED_INBOUND and self.reported else None
 
 
 class FakeApp:
@@ -223,11 +223,11 @@ def run_delete(monkeypatch, reported):
     return client.calls
 
 
-def test_reporter_delete_after_send_is_told_it_stays(monkeypatch):
+def test_message_deleted_after_report_posts_reporter_delete_ephemeral(monkeypatch):
     assert run_delete(monkeypatch, reported=True) == [
         ("chat_postEphemeral", {"channel": "D1", "user": "UREPORTER1", "thread_ts": "1.0", "text": reply.REPORTER_DELETE}),
     ]
 
 
-def test_reporter_delete_before_send_says_nothing(monkeypatch):
+def test_message_deleted_before_report_posts_nothing(monkeypatch):
     assert run_delete(monkeypatch, reported=False) == []

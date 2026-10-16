@@ -68,7 +68,7 @@ class _conn_context:
 
 
 @pytest.fixture(autouse=True)
-def clean():
+def reset_settings():
     responses._settings.clear()
     responses._loaded = False
     yield
@@ -100,117 +100,117 @@ def posted(text="UNSUBSCRIBE", **over):
             "text": text, **over}
 
 
-def test_nothing_is_answered_before_the_settings_load():
-    assert responses.answering(CHANNEL_ID, "fd-reason") is False
-    assert responses.shielding() is False
+def test_applies_to_and_unsub_shield_before_settings_load_are_disabled():
+    assert responses.applies_to(CHANNEL_ID, "fd-reason") is False
+    assert responses.unsub_shield_enabled() is False
 
 
-def test_the_reaction_is_answered(monkeypatch):
+def test_send_autoresponse_matching_reaction_posts_body_to_member(monkeypatch):
     load()
     conn = Conn()
     client = Slack()
     monkeypatch.setattr(autoresponse, "session", lambda: _conn_context(conn))
 
-    assert autoresponse.reacted(Ctx(reacted(), client)) == USER_ID
+    assert autoresponse.send_autoresponse(Ctx(reacted(), client)) == USER_ID
     assert client.posted[0]["channel"] == USER_ID
     assert client.posted[0]["text"] == BODY
 
 
-def test_the_reply_names_the_member_where_asked(monkeypatch):
+def test_send_autoresponse_replaces_member_placeholder(monkeypatch):
     load(**{responses.AUTORESPONSE_BODY: "Hi {member}, here is why. {member}"})
     client = Slack()
     monkeypatch.setattr(autoresponse, "session", lambda: _conn_context(Conn()))
 
-    autoresponse.reacted(Ctx(reacted(), client))
+    autoresponse.send_autoresponse(Ctx(reacted(), client))
 
     assert client.posted[0]["text"] == f"Hi <@{USER_ID}>, here is why. <@{USER_ID}>"
 
 
-def test_reply_for_leaves_other_braces_alone():
+def test_render_body_leaves_other_braces_unchanged():
     load(**{responses.AUTORESPONSE_BODY: "use {curly} as is, {member}"})
 
-    assert responses.reply_for("U9") == "use {curly} as is, <@U9>"
+    assert responses.render_body("U9") == "use {curly} as is, <@U9>"
 
 
-def test_reply_for_before_the_settings_load_is_empty(monkeypatch):
+def test_render_body_before_settings_load_returns_empty(monkeypatch):
     monkeypatch.setattr(responses, "_loaded", False)
 
-    assert responses.reply_for("U9") == ""
+    assert responses.render_body("U9") == ""
 
 
-def test_a_skin_tone_still_matches(monkeypatch):
+def test_send_autoresponse_skin_tone_emoji_matches(monkeypatch):
     load()
     client = Slack()
     monkeypatch.setattr(autoresponse, "session", lambda: _conn_context(Conn()))
-    autoresponse.reacted(Ctx(reacted("fd-reason::skin-tone-3"), client))
+    autoresponse.send_autoresponse(Ctx(reacted("fd-reason::skin-tone-3"), client))
 
     assert client.posted
 
 
-def test_another_emoji_is_left_alone(monkeypatch):
+def test_send_autoresponse_other_emoji_returns_none(monkeypatch):
     load()
     client = Slack()
     monkeypatch.setattr(autoresponse, "session", lambda: _conn_context(Conn()))
 
-    assert autoresponse.reacted(Ctx(reacted("tada"), client)) is None
+    assert autoresponse.send_autoresponse(Ctx(reacted("tada"), client)) is None
     assert client.posted == []
 
 
-def test_another_channel_is_left_alone(monkeypatch):
+def test_send_autoresponse_other_channel_returns_none(monkeypatch):
     load()
     client = Slack()
     monkeypatch.setattr(autoresponse, "session", lambda: _conn_context(Conn()))
     event = reacted()
     event["item"]["channel"] = "CELSE"
 
-    assert autoresponse.reacted(Ctx(event, client)) is None
+    assert autoresponse.send_autoresponse(Ctx(event, client)) is None
     assert client.posted == []
 
 
-def test_turned_off_answers_nobody(monkeypatch):
+def test_send_autoresponse_disabled_returns_none(monkeypatch):
     load(**{responses.AUTORESPONSE_ON: "off"})
     client = Slack()
     monkeypatch.setattr(autoresponse, "session", lambda: _conn_context(Conn()))
 
-    assert autoresponse.reacted(Ctx(reacted(), client)) is None
+    assert autoresponse.send_autoresponse(Ctx(reacted(), client)) is None
 
 
-def test_an_empty_reply_answers_nobody(monkeypatch):
+def test_send_autoresponse_empty_body_returns_none(monkeypatch):
     load(**{responses.AUTORESPONSE_BODY: ""})
     client = Slack()
     monkeypatch.setattr(autoresponse, "session", lambda: _conn_context(Conn()))
 
-    assert autoresponse.reacted(Ctx(reacted(), client)) is None
+    assert autoresponse.send_autoresponse(Ctx(reacted(), client)) is None
 
 
-def test_the_cooldown_stops_a_second_answer(monkeypatch):
+def test_send_autoresponse_inside_cooldown_returns_none(monkeypatch):
     load()
     client = Slack()
     monkeypatch.setattr(autoresponse, "session", lambda: _conn_context(Conn(allows=False)))
 
-    assert autoresponse.reacted(Ctx(reacted(), client)) is None
+    assert autoresponse.send_autoresponse(Ctx(reacted(), client)) is None
     assert client.posted == []
 
 
-def test_a_bot_is_not_answered(monkeypatch):
+def test_send_autoresponse_bot_user_returns_none(monkeypatch):
     load()
     client = Slack(bot=True)
     monkeypatch.setattr(autoresponse, "session", lambda: _conn_context(Conn()))
 
-    assert autoresponse.reacted(Ctx(reacted(), client)) is None
+    assert autoresponse.send_autoresponse(Ctx(reacted(), client)) is None
     assert client.posted == []
 
 
-def test_the_cooldown_is_checked_before_slack_is_asked(monkeypatch):
+def test_send_autoresponse_inserts_cooldown_row_before_posting(monkeypatch):
     load()
     conn = Conn(allows=False)
     monkeypatch.setattr(autoresponse, "session", lambda: _conn_context(conn))
-    autoresponse.reacted(Ctx(reacted()))
+    autoresponse.send_autoresponse(Ctx(reacted()))
 
     assert conn.args_for("INSERT INTO fd.autoresponse_cooldown")
 
 
-def test_the_cooldown_falls_back_when_it_is_odd():
+def test_cooldown_days_invalid_values_fall_back_to_seven():
     load(**{responses.AUTORESPONSE_COOLDOWN: "0"})
     assert responses.cooldown_days() == 7
     load(**{responses.AUTORESPONSE_COOLDOWN: "sideways"})
@@ -219,7 +219,7 @@ def test_the_cooldown_falls_back_when_it_is_odd():
     assert responses.cooldown_days() == 3
 
 
-def test_the_unsubscribe_is_taken_down(monkeypatch):
+def test_unsub_shield_on_message_removes_message_and_notifies_with_link(monkeypatch):
     load()
     client = Slack()
     removed = []
@@ -231,7 +231,7 @@ def test_the_unsubscribe_is_taken_down(monkeypatch):
     assert "unsub.hack.club" in client.ephemeral[0]["text"]
 
 
-def test_the_link_is_left_out_when_it_is_not_set(monkeypatch):
+def test_unsub_shield_on_message_without_link_omits_see_how(monkeypatch):
     load(**{responses.UNSUB_SHIELD_LINK: ""})
     client = Slack()
     monkeypatch.setattr(unsub_shield.guard_actions, "remove", lambda *a: True)
@@ -240,7 +240,7 @@ def test_the_link_is_left_out_when_it_is_not_set(monkeypatch):
     assert "See how" not in client.ephemeral[0]["text"]
 
 
-def test_lower_case_and_spaces_still_match(monkeypatch):
+def test_unsub_shield_on_message_matches_lowercase_with_spaces(monkeypatch):
     load()
     removed = []
     monkeypatch.setattr(unsub_shield.guard_actions, "remove",
@@ -250,7 +250,7 @@ def test_lower_case_and_spaces_still_match(monkeypatch):
     assert removed == [(CHANNEL_ID, TS)]
 
 
-def test_a_message_that_only_mentions_it_is_left_alone(monkeypatch):
+def test_unsub_shield_on_message_inline_mention_returns_none(monkeypatch):
     load()
     removed = []
     monkeypatch.setattr(unsub_shield.guard_actions, "remove",
@@ -260,7 +260,7 @@ def test_a_message_that_only_mentions_it_is_left_alone(monkeypatch):
     assert removed == []
 
 
-def test_one_outside_a_thread_is_left_alone(monkeypatch):
+def test_unsub_shield_on_message_outside_thread_returns_none(monkeypatch):
     load()
     removed = []
     monkeypatch.setattr(unsub_shield.guard_actions, "remove",
@@ -270,7 +270,7 @@ def test_one_outside_a_thread_is_left_alone(monkeypatch):
     assert removed == []
 
 
-def test_the_shield_turned_off_takes_nothing_down(monkeypatch):
+def test_unsub_shield_on_message_disabled_returns_none(monkeypatch):
     load(**{responses.UNSUB_SHIELD_ON: "off"})
     removed = []
     monkeypatch.setattr(unsub_shield.guard_actions, "remove",

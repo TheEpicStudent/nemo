@@ -1,22 +1,22 @@
 module Fd
   class MemberSessions
-    CROWDED = 20
+    IP_USER_THRESHOLD = 20
     DEVICE_LIMIT = 12
 
     Address = Struct.new(:ip, :prefix, :country, :region, :isp, :first_at, :last_at,
-      :seen, :people, :alongside, keyword_init: true) do
-      def crowded? = people.to_i >= CROWDED
+      :sign_in_count, :account_count, :other_user_ids, keyword_init: true) do
+      def shared_range? = account_count.to_i >= IP_USER_THRESHOLD
 
-      def shared? = people.to_i > 1 && !crowded?
+      def shared? = account_count.to_i > 1 && !shared_range?
 
-      def alone? = people.to_i <= 1
+      def alone? = account_count.to_i <= 1
 
       def where
         [country, region.presence].compact_blank.join(" · ").presence
       end
     end
 
-    Device = Struct.new(:app, :os, :addresses, :first_at, :last_at, :seen,
+    Device = Struct.new(:app, :os, :addresses, :first_at, :last_at, :sign_in_count,
       keyword_init: true) do
       def name
         [app, os].compact_blank.join(" · ").presence || "Not recognised"
@@ -71,8 +71,8 @@ module Fd
 
     def device_count = rows.map { |row| [row.ua_app, row.ua_os] }.uniq.size
 
-    def alongside
-      @alongside ||= addresses.flat_map(&:alongside).uniq
+    def other_user_ids
+      @other_user_ids ||= addresses.flat_map(&:other_user_ids).uniq
     end
 
     private
@@ -81,7 +81,7 @@ module Fd
       Device.new(
         app: app, os: os, addresses: addresses_in(device_rows),
         first_at: device_rows.map(&:first_at).compact.min, last_at: device_rows.map(&:last_at).compact.max,
-        seen: device_rows.sum { |row| row.seen.to_i }
+        sign_in_count: device_rows.sum { |row| row.seen.to_i }
       )
     end
 
@@ -94,15 +94,15 @@ module Fd
     end
 
     def address_for(prefix, rows)
-      people = cohorts[prefix].to_i
+      account_count = account_counts[prefix].to_i
       Address.new(
         ip: rows.map(&:ip).compact.first, prefix: prefix,
         country: rows.map(&:country).compact.first,
         region: rows.map(&:region).compact.first,
         isp: rows.map(&:isp).compact.first,
         first_at: rows.map(&:first_at).compact.min, last_at: rows.map(&:last_at).compact.max,
-        seen: rows.sum { |row| row.seen.to_i }, people: people,
-        alongside: people.between?(2, CROWDED - 1) ? neighbours[prefix].to_a : []
+        sign_in_count: rows.sum { |row| row.seen.to_i }, account_count: account_count,
+        other_user_ids: account_count.between?(2, IP_USER_THRESHOLD - 1) ? neighbours[prefix].to_a : []
       )
     end
 
@@ -110,20 +110,20 @@ module Fd
       @prefixes ||= rows.filter_map { |row| self.class.with_prefix(row.ip_prefix) }.uniq
     end
 
-    PEOPLE = <<~SQL.squish.freeze
-      SELECT value, count(*) AS people FROM fd.member_trait
+    ACCOUNT_COUNTS = <<~SQL.squish.freeze
+      SELECT value, count(*) AS account_count FROM fd.member_trait
       WHERE kind = 'ip_prefix' AND value IN (:hosts)
       GROUP BY value
     SQL
 
-    def cohorts
-      @cohorts ||= begin
+    def account_counts
+      @account_counts ||= begin
         counts = {}
         hosts = prefixes.index_by { |prefix| prefix.split("/").first }
         if hosts.any?
           ApplicationRecord.connection.select_all(
-            ApplicationRecord.sanitize_sql([PEOPLE, { hosts: hosts.keys }])
-          ).each { |row| counts[hosts.fetch(row["value"])] = row["people"].to_i }
+            ApplicationRecord.sanitize_sql([ACCOUNT_COUNTS, { hosts: hosts.keys }])
+          ).each { |row| counts[hosts.fetch(row["value"])] = row["account_count"].to_i }
         end
         counts
       end
@@ -138,7 +138,7 @@ module Fd
     def neighbours
       @neighbours ||= begin
         user_ids_by_prefix = Hash.new { |hash, key| hash[key] = [] }
-        shared_prefixes = prefixes.select { |prefix| cohorts[prefix].to_i.between?(2, CROWDED - 1) }
+        shared_prefixes = prefixes.select { |prefix| account_counts[prefix].to_i.between?(2, IP_USER_THRESHOLD - 1) }
         if shared_prefixes.any?
           ApplicationRecord.connection.select_all(
             ApplicationRecord.sanitize_sql([NEIGHBOURS, { prefixes: shared_prefixes, who: user_id }])

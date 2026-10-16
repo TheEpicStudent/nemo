@@ -15,7 +15,7 @@ QUOTE_LIMIT = 280
 ARCHIVES = "https://hackclub.slack.com/archives"
 
 
-def n(value):
+def format_count(value):
     return f"{int(value):,}"
 
 
@@ -35,21 +35,21 @@ def posted_line(author_id, channel_id, ts):
     return f"{who} · {stamp} · <#{channel_id}>"
 
 
-def crowd_line(viewers, crowd):
-    if not crowd:
+def channel_share_line(viewers, channel_members):
+    if not channel_members:
         return ""
-    share = round(100 * viewers / crowd)
+    share = round(100 * viewers / channel_members)
     return f" · {share}% of the channel"
 
 
 def replies_line(archived_message):
     if archived_message is None:
         return "not available yet"
-    count = archived_message.get("reply_count") or 0
-    people = archived_message.get("reply_users_count") or 0
-    if not count:
+    reply_count = archived_message.get("reply_count") or 0
+    reply_users = archived_message.get("reply_users_count") or 0
+    if not reply_count:
         return "none"
-    return f"{n(count)} from {n(people)} {'person' if people == 1 else 'people'}"
+    return f"{format_count(reply_count)} from {format_count(reply_users)} {'person' if reply_users == 1 else 'people'}"
 
 
 def clients_line(clients):
@@ -62,7 +62,7 @@ def first_line(curves):
     day = sum(count for _, count in curves.get("1d") or [])
     if not hour and not day:
         return None
-    return f"{n(hour)} viewers in the first hour, {n(day)} in the first day"
+    return f"{format_count(hour)} viewers in the first hour, {format_count(day)} in the first day"
 
 
 def reply_url(channel_id, root_ts, reply_ts):
@@ -86,13 +86,13 @@ def chart_block(file_id, span):
     }
 
 
-def build_view(channel_id, ts, author_id, text, stats, archived_message=None, crowd=None,
+def build_view(channel_id, ts, author_id, text, stats, archived_message=None, channel_members=None,
          chart=None, activity_url=None):
     fields = [
-        f"*Viewers*\n{n(stats['viewers'])}{crowd_line(stats['viewers'], crowd)}",
-        f"*Reactions*\n{n(stats['reacted'])}",
-        f"*Link clicks*\n{n(stats['clicked'])}",
-        f"*Shares*\n{n(stats['shared'])}",
+        f"*Viewers*\n{format_count(stats['viewers'])}{channel_share_line(stats['viewers'], channel_members)}",
+        f"*Reactions*\n{format_count(stats['reacted'])}",
+        f"*Link clicks*\n{format_count(stats['clicked'])}",
+        f"*Shares*\n{format_count(stats['shared'])}",
         f"*Replies*\n{replies_line(archived_message)}",
     ]
     blocks = [

@@ -19,13 +19,13 @@ UNDELETABLE = frozenset({"channel_join", "channel_leave"})
 
 QUEUED = "queued"
 DELETED = "deleted"
-GONE = "gone"
+ALREADY_DELETED = "gone"
 FAILED = "failed"
 
 Purge = namedtuple("Purge", "id channel_id member_id wanted asked_by")
 Item = namedtuple("Item", "channel_id ts thread_ts author_id text reply_count")
 
-WAITING = """
+QUEUED_PURGES = """
 SELECT p.id
 FROM fd.purges p
 LEFT JOIN fd.member_guards g ON g.id = p.guard_id
@@ -35,7 +35,7 @@ ORDER BY p.asked_at
 LIMIT 20
 """
 
-GATE = """
+GUARD_STATE = """
 SELECT g.state, g.enforcement_status
 FROM fd.purges p
 JOIN fd.member_guards g ON g.id = p.guard_id
@@ -43,12 +43,12 @@ WHERE p.id = %s
 """
 
 NO_GUARD = "none"
-GUARD_HELD = "held"
+GUARD_ENFORCED = "held"
 GUARD_PENDING = "pending"
 GUARD_LIFTED = "lifted"
-DEACTIVATION_LIFTED = "the deactivation was lifted"
+DEACTIVATION_LIFTED = "Deactivation lifted"
 
-STRANDED = """
+INTERRUPTED = """
 UPDATE fd.purges
 SET state = 'asked'
 WHERE state IN ('running', 'checking')
@@ -62,20 +62,20 @@ WHERE id = %s AND state = 'asked'
 RETURNING id, channel_id, member_id, wanted, asked_by
 """
 
-HELD = "SELECT count(*) FROM fd.purge_items WHERE purge_id = %s"
+ITEM_COUNT = "SELECT count(*) FROM fd.purge_items WHERE purge_id = %s"
 
-QUEUE = """
+ENQUEUE_ITEMS = """
 INSERT INTO fd.purge_items (purge_id, channel_id, ts, thread_ts, author_id, text, reply_count)
-SELECT %s, found.channel_id, found.ts, found.thread_ts, found.author_id, found.text,
-       found.reply_count
+SELECT %s, new_item.channel_id, new_item.ts, new_item.thread_ts, new_item.author_id, new_item.text,
+       new_item.reply_count
 FROM unnest(%s::text[], %s::text[], %s::text[], %s::text[], %s::text[], %s::integer[])
-    AS found(channel_id, ts, thread_ts, author_id, text, reply_count)
+    AS new_item(channel_id, ts, thread_ts, author_id, text, reply_count)
 ON CONFLICT (purge_id, channel_id, ts) DO NOTHING
 """
 
-FOUND = "UPDATE fd.purges SET found = %s WHERE id = %s"
+SET_FOUND = "UPDATE fd.purges SET found = %s WHERE id = %s"
 
-NEXT = f"""
+NEXT_ITEMS = f"""
 SELECT channel_id, ts, thread_ts, author_id, text, reply_count
 FROM fd.purge_items
 WHERE purge_id = %s AND state = 'queued'
@@ -83,7 +83,7 @@ ORDER BY coalesce(thread_ts, ts) DESC, thread_ts IS NULL, ts DESC
 LIMIT {BATCH}
 """
 
-MARK = """
+MARK_ITEM = """
 UPDATE fd.purge_items
 SET state = %s, error = %s, done_at = now()
 WHERE purge_id = %s AND channel_id = %s AND ts = %s
@@ -97,13 +97,13 @@ ON CONFLICT (purge_id, channel_id, ts) DO UPDATE
 SET state = EXCLUDED.state, error = EXCLUDED.error, done_at = now()
 """
 
-PROGRESS = """
+UPDATE_PROGRESS = """
 UPDATE fd.purges
 SET purged = (SELECT count(*) FROM fd.purge_items WHERE purge_id = %s AND state = 'deleted')
 WHERE id = %s
 """
 
-CHECKING = "UPDATE fd.purges SET state = 'checking' WHERE id = %s AND state = 'running'"
+SET_CHECKING = "UPDATE fd.purges SET state = 'checking' WHERE id = %s AND state = 'running'"
 
 DONE_ITEMS = "SELECT channel_id, ts, thread_ts FROM fd.purge_items WHERE purge_id = %s"
 
@@ -116,7 +116,7 @@ WHERE id = %s AND state IN ('running', 'checking')
 RETURNING purged
 """
 
-ARCHIVED = """
+ARCHIVED_MESSAGES = """
 SELECT channel_id, ts, CASE WHEN is_reply THEN thread_root_ts END
 FROM archive.message
 WHERE author_id = %(member_id)s
@@ -132,22 +132,22 @@ class PurgeLimitExceeded(RuntimeError):
     """Raised when a purge reaches the most messages one purge may delete."""
 
 
-def waiting(conn):
-    return conn.execute(WAITING).fetchall()
+def queued_purges(conn):
+    return conn.execute(QUEUED_PURGES).fetchall()
 
 
-def requeue_stranded(conn):
-    return [row[0] for row in conn.execute(STRANDED).fetchall()]
+def requeue_interrupted(conn):
+    return [row[0] for row in conn.execute(INTERRUPTED).fetchall()]
 
 
 def guard_condition(conn, purge_id):
-    row = conn.execute(GATE, (purge_id,)).fetchone()
+    row = conn.execute(GUARD_STATE, (purge_id,)).fetchone()
     if row is None:
         return NO_GUARD
     state, enforcement = row
     if state == "lifted":
         return GUARD_LIFTED
-    return GUARD_HELD if enforcement == "held" else GUARD_PENDING
+    return GUARD_ENFORCED if enforcement == "held" else GUARD_PENDING
 
 
 def claim(conn, purge_id):
@@ -173,7 +173,7 @@ def as_admin(client, channel_id, call):
     try:
         return call()
     except Exception as failure:
-        if not privileged.absent(failure) or not guard_actions.invite_the_admin(client, channel_id):
+        if not privileged.channel_missing(failure) or not guard_actions.invite_admin(client, channel_id):
             raise
     return call()
 
@@ -207,7 +207,7 @@ def channel_messages(client, purge):
 
 
 def archived_messages(conn, purge, limit):
-    rows = conn.execute(ARCHIVED, {
+    rows = conn.execute(ARCHIVED_MESSAGES, {
         "member_id": purge.member_id, "channel_id": purge.channel_id, "limit": limit,
     }).fetchall()
     return [
@@ -217,7 +217,7 @@ def archived_messages(conn, purge, limit):
     ]
 
 
-def searched(purge, match):
+def search_hit_item(purge, match):
     where = match.get("channel") or {}
     if where.get("is_im") or where.get("is_mpim") or match.get("user") != purge.member_id:
         return None
@@ -242,7 +242,7 @@ def searched_messages(purge, limit):
     for page_number in range(1, SEARCH_PAGES + 1):
         data = privileged.search(f"from:<@{purge.member_id}>", page=page_number, count=SEARCH_COUNT)
         results = data.get("messages") or {}
-        found.extend(hit for hit in (searched(purge, match) for match in results.get("matches") or [])
+        found.extend(hit for hit in (search_hit_item(purge, match) for match in results.get("matches") or [])
                      if hit)
         if page_number >= ((results.get("paging") or {}).get("pages") or 0) or len(found) >= limit:
             break
@@ -266,9 +266,9 @@ def collect(client, purge):
     return member_messages(purge) if purge.member_id else channel_messages(client, purge)
 
 
-def queue(conn, purge_id, messages):
+def enqueue_items(conn, purge_id, messages):
     if messages:
-        conn.execute(QUEUE, (
+        conn.execute(ENQUEUE_ITEMS, (
             purge_id,
             [one["channel_id"] for one in messages],
             [one["ts"] for one in messages],
@@ -286,20 +286,20 @@ def delete_one(client, channel_id, ts):
         return DELETED, None
     except Exception as failure:
         if privileged.already_deleted(failure):
-            return GONE, None
+            return ALREADY_DELETED, None
         return FAILED, str(failure)[:300]
 
 
-def keep(purge_id, channel_id, message, thread_ts, state, error):
+def record_item(purge_id, channel_id, message, thread_ts, state, error):
     with session() as conn:
         conn.execute(RECORD_ITEM, (purge_id, channel_id, message["ts"], thread_ts,
                              message.get("user") or message.get("bot_id"), message.get("text"),
                              state, error))
 
 
-def held(purge_id):
+def item_count(purge_id):
     with session() as conn:
-        return conn.execute(HELD, (purge_id,)).fetchone()[0]
+        return conn.execute(ITEM_COUNT, (purge_id,)).fetchone()[0]
 
 
 def replies_of(client, channel_id, thread_ts):
@@ -320,17 +320,17 @@ def sweep_thread(client, purge, parent):
         if not thread_replies:
             return
         for message in thread_replies:
-            if held(purge.id) >= CAP:
+            if item_count(purge.id) >= CAP:
                 raise PurgeLimitExceeded(f"more than {CAP:,} messages")
             state, error = delete_one(client, parent.channel_id, message["ts"])
-            keep(purge.id, parent.channel_id, message, parent.ts, state, error)
+            record_item(purge.id, parent.channel_id, message, parent.ts, state, error)
 
 
 def purge_queued(client, purge):
     in_a_row = 0
     while True:
         with session() as conn:
-            batch = [Item(*row) for row in conn.execute(NEXT, (purge.id,)).fetchall()]
+            batch = [Item(*row) for row in conn.execute(NEXT_ITEMS, (purge.id,)).fetchall()]
         if not batch:
             return
         for item in batch:
@@ -338,12 +338,12 @@ def purge_queued(client, purge):
                 sweep_thread(client, purge, item)
             state, error = delete_one(client, item.channel_id, item.ts)
             with session() as conn:
-                conn.execute(MARK, (state, error, purge.id, item.channel_id, item.ts))
+                conn.execute(MARK_ITEM, (state, error, purge.id, item.channel_id, item.ts))
             in_a_row = in_a_row + 1 if state == FAILED else 0
             if in_a_row >= FAILURES_IN_A_ROW:
                 raise RuntimeError(f"{in_a_row} deletes failed in a row, last error: {error}")
         with session() as conn:
-            conn.execute(PROGRESS, (purge.id, purge.id))
+            conn.execute(UPDATE_PROGRESS, (purge.id, purge.id))
 
 
 def channel_leftovers(client, purge, items):
@@ -371,29 +371,29 @@ def member_leftovers(purge, items):
 
 def check(client, purge):
     with session() as conn:
-        conn.execute(CHECKING, (purge.id,))
+        conn.execute(SET_CHECKING, (purge.id,))
         items = conn.execute(DONE_ITEMS, (purge.id,)).fetchall()
 
     left = 0
     if purge.member_id:
         for one in member_leftovers(purge, items):
             state, error = delete_one(client, one["channel_id"], one["ts"])
-            keep(purge.id, one["channel_id"], {"ts": one["ts"], "user": purge.member_id,
-                                               "text": one["text"]}, one["thread_ts"], state, error)
+            record_item(purge.id, one["channel_id"], {"ts": one["ts"], "user": purge.member_id,
+                                                      "text": one["text"]}, one["thread_ts"], state, error)
             left += state == FAILED
         return left
 
     for message in channel_leftovers(client, purge, items):
         state, error = delete_one(client, purge.channel_id, message["ts"])
-        keep(purge.id, purge.channel_id, message, None, state, error)
+        record_item(purge.id, purge.channel_id, message, None, state, error)
         left += state == FAILED
     return left
 
 
 def summary(purge, purged, left, failure, unchecked=None):
-    whose = f" from <@{purge.member_id}>" if purge.member_id else ""
+    from_member = f" from <@{purge.member_id}>" if purge.member_id else ""
     where = f"in <#{purge.channel_id}>" if purge.channel_id else "in every channel"
-    text = (f"{purged} message{'' if purged == 1 else 's'}{whose} deleted {where} "
+    text = (f"{purged} message{'' if purged == 1 else 's'}{from_member} deleted {where} "
             f"by <@{purge.asked_by}>")
     if failure:
         text += f", stopped: {failure}"
@@ -434,7 +434,7 @@ def run(client, purge_id):
         purge = claim(conn, purge_id)
         if purge is None:
             return 0
-        resumed = conn.execute(HELD, (purge.id,)).fetchone()[0] > 0
+        resumed = conn.execute(ITEM_COUNT, (purge.id,)).fetchone()[0] > 0
         failure = DEACTIVATION_LIFTED if condition == GUARD_LIFTED else still_allowed(conn, purge)
 
     unchecked, left = None, None
@@ -443,7 +443,7 @@ def run(client, purge_id):
             if not resumed:
                 messages = collect(client, purge)
                 with session() as conn:
-                    conn.execute(FOUND, (queue(conn, purge.id, messages), purge.id))
+                    conn.execute(SET_FOUND, (enqueue_items(conn, purge.id, messages), purge.id))
             purge_queued(client, purge)
         except Exception as error:
             failure = str(error)[:500]

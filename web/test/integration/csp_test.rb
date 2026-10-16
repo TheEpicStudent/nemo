@@ -6,11 +6,11 @@ class CspTest < ActionDispatch::IntegrationTest
     response.headers["Content-Security-Policy"].to_s[/img-src ([^;]*)/, 1].to_s.split
   end
 
-  test "the emoji cdn is allowed, not only the avatar one" do
+  test "img-src includes slack-edge.com wildcard" do
     assert_includes img_src, "https://*.slack-edge.com"
   end
 
-  test "cachet is still allowed for faces" do
+  test "img-src includes cachet.hackclub.com" do
     assert_includes img_src, "https://cachet.hackclub.com"
   end
 end

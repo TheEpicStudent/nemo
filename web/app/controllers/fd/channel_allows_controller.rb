@@ -9,9 +9,9 @@ module Fd
       return redirect_with_alert("This channel is not guarded") if guard.nil?
 
       subject_ids = requested_subject_ids
-      return redirect_with_alert("Select who to allow") if subject_ids.empty?
+      return redirect_with_alert("Select a member") if subject_ids.empty?
       unless subject_ids.all? { |id| id.match?(MEMBER_ID) }
-        return redirect_with_alert("That is not a valid member id")
+        return redirect_with_alert("Invalid member ID")
       end
 
       added = []
@@ -34,7 +34,7 @@ module Fd
       return redirect_with_alert("This channel is not guarded") if guard.nil?
 
       allow = guard.allows.find_by(subject_id: params[:id].to_s.strip.upcase)
-      return redirect_with_alert("That bot is not on the list") if allow.nil?
+      return redirect_with_alert("Not on the list") if allow.nil?
 
       writing do
         audit(allow, "removed", entity_id: guard.id,
@@ -70,11 +70,12 @@ module Fd
     end
 
     def allowed_notice(added, subject_ids)
-      return "everything you picked was already allowed here" if added.empty?
+      return "Already allowed" if added.empty?
 
       names = added.map { |id| label_for(id) || id }.to_sentence
-      note = "#{names} may post here"
-      added.size < subject_ids.size ? "#{note}, the rest were already on the list" : note
+      note = "#{names} allowed"
+      skipped = subject_ids.size - added.size
+      skipped.positive? ? "#{note} · #{skipped} already allowed" : note
     end
 
     def redirect_with_alert(message)

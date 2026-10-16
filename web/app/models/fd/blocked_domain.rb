@@ -19,31 +19,31 @@ module Fd
     scope :retired, -> { where(active: false) }
     scope :newest_first, -> { order(added_at: :desc, id: :desc) }
 
-    def self.watching = active.newest_first.to_a
+    def self.active_listed = active.newest_first.to_a
 
     def self.add!(domain:, by:, match_mode: EXACT, effect: FLAG, note: nil)
       create!(domain: domain.to_s.strip.downcase.delete_prefix("@"),
         match_mode: match_mode, effect: effect, note: note.presence, added_by: by)
     end
 
-    def self.holds(domain)
+    def self.matching_rules(domain)
       text = domain.to_s.strip.downcase
       return [] if text.blank?
 
-      active.select { |rule| rule.holds?(text) }
+      active.select { |rule| rule.matches?(text) }
     end
 
-    def self.worst_for(domain)
-      holds(domain).max_by { |rule| EFFECTS.index(rule.effect) }
+    def self.strictest_for(domain)
+      matching_rules(domain).max_by { |rule| EFFECTS.index(rule.effect) }
     end
 
     def self.valid_domain?(text)
       text.to_s.strip.downcase.delete_prefix("@").match?(SHAPE)
     end
 
-    def self.people_on(domain, match_mode: EXACT)
+    def self.account_count_on(domain, match_mode: EXACT)
       text = domain.to_s.strip.downcase
-      scope = MemberIdentity.kept.where.not(email: nil)
+      scope = MemberIdentity.unpurged.where.not(email: nil)
       return scope.where("lower(split_part(email, '@', 2)) = ?", text).count if
         match_mode == EXACT
 
@@ -52,13 +52,13 @@ module Fd
     end
 
     def self.too_many?(count)
-      known = MemberIdentity.kept.where.not(email: nil).count
+      known = MemberIdentity.unpurged.where.not(email: nil).count
       return false if known.zero?
 
       count.to_f / known > TOO_MANY
     end
 
-    def holds?(text)
+    def matches?(text)
       return text == domain if match_mode == EXACT
 
       text == domain || text.end_with?(".#{domain}")
@@ -73,9 +73,9 @@ module Fd
     def shipped? = SHIPPED_EFFECTS.include?(effect)
 
     def account_count
-      @account_count ||= self.class.people_on(domain, match_mode: match_mode)
+      @account_count ||= self.class.account_count_on(domain, match_mode: match_mode)
     end
 
-    def people_named = [added_by, retired_by].compact
+    def referenced_user_ids = [added_by, retired_by].compact
   end
 end

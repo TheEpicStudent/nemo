@@ -67,21 +67,21 @@ def pull(monkeypatch):
     return conn, recorded_days, settle_calls
 
 
-def test_a_member_who_did_nothing_that_day_gets_no_row(monkeypatch):
+def test_pull_member_day_idle_member_writes_no_activity_row(monkeypatch):
     conn, _, _ = pull(monkeypatch)
 
     user_ids = [row[0] for row in conn.written[analytics_pull.MEMBER_ACTIVITY_SQL]]
     assert user_ids == ["UREAD", "UPOST"]
 
 
-def test_everybody_slack_sent_still_feeds_the_member_dimension(monkeypatch):
+def test_pull_member_day_all_api_rows_merge_into_member_dim(monkeypatch):
     conn, _, _ = pull(monkeypatch)
 
     merged = sorted(row[0] for row in conn.written[analytics_pull.MEMBER_DIM_MERGE_SQL])
     assert merged == ["UIDLE", "UPOST", "UREAD"]
 
 
-def test_the_day_counts_what_slack_sent_not_what_was_stored(monkeypatch):
+def test_pull_member_day_records_and_settles_api_row_count(monkeypatch):
     _, recorded_days, settle_calls = pull(monkeypatch)
 
     assert recorded_days == [(analytics_pull.MEMBER_DAY, DAY, len(API_ROWS))], (

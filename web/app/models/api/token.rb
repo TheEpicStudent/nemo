@@ -10,7 +10,7 @@ module Api
     PREFIX_SECRET_CHARS = 4
     MAX_NAME = 60
 
-    class TooManyError < StandardError; end
+    class KeyLimitError < StandardError; end
     class NotApprovedError < StandardError; end
 
     belongs_to :app, class_name: "Api::App", foreign_key: :app_id, inverse_of: :tokens
@@ -43,7 +43,7 @@ module Api
       where(app_id: app_id).order(revoked_at: :asc, created_at: :desc)
     end
 
-    def self.room_for?(app_id)
+    def self.below_limit?(app_id)
       live.where(app_id: app_id).count < Setting.value("tokens_per_owner")
     end
 
@@ -66,7 +66,7 @@ module Api
 
     def self.mint!(app, name, lifetime: DEFAULT_LIFETIME)
       raise NotApprovedError unless Approval.active?(app.id)
-      raise TooManyError unless room_for?(app.id)
+      raise KeyLimitError unless below_limit?(app.id)
 
       key = secret
       row = create!(app_id: app.id, owner_user_id: app.owner_user_id,
@@ -76,7 +76,7 @@ module Api
       [row, key]
     end
 
-    TOUCH_EVERY = 1.minute
+    LAST_USED_RESOLUTION = 1.minute
 
     def revoked? = revoked_at.present?
 
@@ -85,7 +85,7 @@ module Api
     def inactive? = revoked? || expired?
 
     def used!
-      return if last_used_at && last_used_at > TOUCH_EVERY.ago
+      return if last_used_at && last_used_at > LAST_USED_RESOLUTION.ago
 
       update_column(:last_used_at, Time.current)
     end

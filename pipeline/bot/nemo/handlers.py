@@ -9,10 +9,10 @@ from bot.nemo.case_actions import (
     OPEN_REPORTS,
     STILL_OPEN,
     add_participants,
-    assign_people,
-    claimed,
-    counted,
-    mark_resolution_echo_pending,
+    assign_users,
+    record_claim,
+    scalar_for_case,
+    mark_resolution_log_pending,
     add_note,
     live_actions,
     log_action,
@@ -22,8 +22,8 @@ from bot.nemo.case_actions import (
     remove_assignee,
     remove_participant,
     reopen,
-    resolve_and_tell,
-    resolution_echo_actions,
+    resolve_and_notify,
+    resolution_log_actions,
     resolve,
     reverse_action,
     set_category,
@@ -33,11 +33,11 @@ from bot.nemo.channel import (
     ASSIGNEES,
     SUBJECTS,
     case_channels,
-    post_action_echo,
+    post_action_log,
     post_ephemeral,
     post_line,
     post_merge_note,
-    post_resolution_echo,
+    post_resolution_log,
     refresh_card,
 )
 
@@ -53,11 +53,11 @@ def register(app, on_reply=None):
             if not allowed:
                 return refusal
             if not conn.execute(STILL_OPEN, (case_id,)).fetchone()[0]:
-                return f"Case {case_id} is already resolved."
+                return views.lines.already_resolved(case_id)
             assignees = [row[0] for row in conn.execute(CASE_ASSIGNEES, (case_id,)).fetchall()]
             if user_id in assignees:
                 return views.lines.already_claimed(case_id)
-            claimed(conn, case_id, user_id)
+            record_claim(conn, case_id, user_id)
 
         log.info("nemo: case %s claimed by %s", case_id, user_id)
         return None
@@ -111,12 +111,12 @@ def register(app, on_reply=None):
                 return views.action.build_view(case_id, subjects, category_row[0] if category_row else None), None
             if verb == views.edit.RESOLVE:
                 live = live_actions(conn, case_id)
-                open_ones = counted(conn, OPEN_REPORTS, case_id)
-                return views.resolve.build_view(case_id, live, open_ones), None
+                open_report_count = scalar_for_case(conn, OPEN_REPORTS, case_id)
+                return views.resolve.build_view(case_id, live, open_report_count), None
             if verb == views.edit.REVERSE:
                 live = live_actions(conn, case_id)
                 if not live:
-                    return None, f"No active actions to reverse on *case {case_id}*."
+                    return None, f"No active actions on *case {case_id}*"
                 return views.reverse.build_view(case_id, live), None
             if verb == views.edit.MERGE:
                 return views.merge.build_view(mergeable(conn, [case_id]), target=case_id), None
@@ -204,8 +204,8 @@ def register(app, on_reply=None):
         ack()
         act(views.edit.RESOLVE, int(body["actions"][0]["value"]), body, client)
 
-    def settle(conn, case_id, values):
-        return memberguards.settle(
+    def guard_status_for(conn, case_id, values):
+        return memberguards.guard_status(
             conn,
             values.get("type_key"),
             values.get("target_user_id"),
@@ -213,7 +213,7 @@ def register(app, on_reply=None):
             values.get("channel_id"),
         )
 
-    def reshape(ack, body, client):
+    def reshape_action_modal(ack, body, client):
         ack()
         submitted_view = body.get("view") or {}
         if submitted_view.get("callback_id") != views.action.CALLBACK:
@@ -222,7 +222,7 @@ def register(app, on_reply=None):
         case_id = int(submitted_view["private_metadata"])
         values = views.action.submitted_values(submitted_view["state"])
         with session() as conn:
-            guard_status = settle(conn, case_id, values)
+            guard_status = guard_status_for(conn, case_id, values)
 
         try:
             client.views_update(
@@ -234,7 +234,7 @@ def register(app, on_reply=None):
             log.warning("nemo: could not reshape the action modal: %s", failure)
 
     for where in (views.action.KIND, views.action.TARGET, views.action.WHERE):
-        app.action(where)(reshape)
+        app.action(where)(reshape_action_modal)
 
     @app.view(views.action.CALLBACK)
     def on_action_logged(ack, body, view, client):
@@ -243,7 +243,7 @@ def register(app, on_reply=None):
         values = views.action.submitted_values(view["state"])
 
         with session() as conn:
-            guard_status = settle(conn, case_id, values)
+            guard_status = guard_status_for(conn, case_id, values)
 
         block_ids = {block.get("block_id") for block in view.get("blocks", [])}
         if views.action.requires_refresh(values, block_ids, guard_status):
@@ -263,14 +263,14 @@ def register(app, on_reply=None):
                     response_action="errors",
                     errors={views.action.KIND: refusal},
                 )
-            current_guard_status = settle(conn, case_id, values)
+            current_guard_status = guard_status_for(conn, case_id, values)
             action_id = log_action(conn, case_id, values, user_id)
-            guard_id = memberguards.settled(conn, action_id, values, current_guard_status, user_id)
+            guard_id = memberguards.apply_enforcement(conn, action_id, values, current_guard_status, user_id)
 
         ack()
         with session() as conn:
             refresh_card(client, conn, case_id)
-            post_action_echo(client, conn, case_id, values, user_id)
+            post_action_log(client, conn, case_id, values, user_id)
         log.info("nemo: action %s logged on case %s by %s, guard %s",
                  action_id, case_id, user_id, guard_id)
 
@@ -287,13 +287,13 @@ def register(app, on_reply=None):
         with session() as conn:
             allowed, refusal = access.may(conn, user_id, "case.reverse", case_id)
             if not allowed:
-                return ack(response_action="errors", errors={views.reverse.WHICH: refusal})
-            done = reverse_action(conn, case_id, values["action_id"], values["reason"], user_id)
+                return ack(response_action="errors", errors={views.reverse.ACTION: refusal})
+            was_reversed = reverse_action(conn, case_id, values["action_id"], values["reason"], user_id)
 
-        if not done:
+        if not was_reversed:
             return ack(
                 response_action="errors",
-                errors={views.reverse.WHICH: "That action is no longer active on this case."},
+                errors={views.reverse.ACTION: "Action no longer active"},
             )
 
         ack()
@@ -304,7 +304,7 @@ def register(app, on_reply=None):
     @app.action(views.people.REMOVE)
     def on_person_removed(ack, body, client):
         ack()
-        user_id, role, case_id = views.people.removed(body["actions"][0]["value"])
+        user_id, role, case_id = views.people.parse_remove_value(body["actions"][0]["value"])
         actor = body["user"]["id"]
         if case_id is None:
             return None
@@ -357,12 +357,12 @@ def register(app, on_reply=None):
                 if not conn.execute(STILL_OPEN, (case_id,)).fetchone()[0]:
                     return ack(
                         response_action="errors",
-                        errors={views.people.ASSIGN: f"Case {case_id} is already resolved."},
+                        errors={views.people.ASSIGN: views.lines.already_resolved(case_id)},
                     )
             added = add_participants(
                 conn, case_id, values["subjects"], views.people.SUBJECT, user_id
             ) if values["subjects"] else []
-            assigned = assign_people(
+            assigned = assign_users(
                 conn, case_id, values["assignees"], user_id
             ) if values["assignees"] else []
             updated_view, _ = people_view(conn, case_id, user_id)
@@ -383,13 +383,13 @@ def register(app, on_reply=None):
         with session() as conn:
             allowed, refusal = access.may(conn, user_id, "case.categorise", case_id)
             if not allowed:
-                return ack(response_action="errors", errors={views.edit.WHAT: refusal})
+                return ack(response_action="errors", errors={views.edit.CATEGORY_FIELD: refusal})
             updated = set_category(conn, case_id, key, user_id)
 
         if not updated:
             return ack(
                 response_action="errors",
-                errors={views.edit.WHAT: f"Case {case_id} already has a violation."},
+                errors={views.edit.CATEGORY_FIELD: f"Case {case_id} already has a violation"},
             )
 
         ack()
@@ -404,7 +404,7 @@ def register(app, on_reply=None):
         user_id = body["user"]["id"]
         values = views.edit.submitted_values(view["state"])
 
-        errors = views.edit.note_objection(values)
+        errors = views.edit.note_errors(values)
         if errors:
             return ack(response_action="errors", errors=errors)
 
@@ -430,7 +430,7 @@ def register(app, on_reply=None):
             reopened = reopen(conn, case_id, user_id)
 
         if not reopened:
-            return f"Case {case_id} is already open."
+            return f"Case {case_id} is already open"
 
         with session() as conn:
             refresh_card(client, conn, case_id)
@@ -473,7 +473,7 @@ def register(app, on_reply=None):
         if not closed:
             return ack(
                 response_action="errors",
-                errors={views.merge.DUPLICATES: "Those cases are already resolved."},
+                errors={views.merge.DUPLICATES: "Those cases are already resolved"},
             )
 
         ack(response_action="clear")
@@ -500,30 +500,30 @@ def register(app, on_reply=None):
         with session() as conn:
             allowed, refusal = access.may(conn, user_id, "case.resolve", case_id)
             if not allowed:
-                return ack(response_action="errors", errors={views.resolve.WHY: refusal})
+                return ack(response_action="errors", errors={views.resolve.RESOLUTION: refusal})
             notified = resolve(conn, case_id, values, user_id)
             if notified:
-                mark_resolution_echo_pending(conn, case_id, user_id)
+                mark_resolution_log_pending(conn, case_id, user_id)
 
         if notified is None:
             return ack(
                 response_action="errors",
-                errors={views.resolve.WHY: f"Case {case_id} was already resolved."},
+                errors={views.resolve.RESOLUTION: views.lines.already_resolved(case_id)},
             )
 
         ack()
         with session() as conn:
             refresh_card(client, conn, case_id)
             if not notified:
-                actions = resolution_echo_actions(conn, case_id)
-                post_resolution_echo(client, conn, case_id, values["resolution"],
+                actions = resolution_log_actions(conn, case_id)
+                post_resolution_log(client, conn, case_id, values["resolution"],
                     values["member_note"], user_id, actions)
         log.info("nemo: case %s resolved by %s, %s notified", case_id, user_id, notified)
 
     def post_refusal(event, thread_ts, client, refusal):
         try:
             client.reactions_add(
-                channel=event["channel"], timestamp=event["ts"], name=answer.STUCK
+                channel=event["channel"], timestamp=event["ts"], name=answer.FAILED_REACTION
             )
             client.chat_postEphemeral(
                 channel=event["channel"],
@@ -568,7 +568,7 @@ def register(app, on_reply=None):
             return thread_commands.handle(client, event, thread_ts, verb, args)
 
         parsed_answer = answer.read(event.get("text"))
-        if parsed_answer and for_the_member(thread_ts):
+        if parsed_answer and thread_reaches_reporter(thread_ts):
             return reply(event, thread_ts, parsed_answer, client)
 
         return record_chat(event, thread_ts, client)
@@ -586,19 +586,19 @@ def register(app, on_reply=None):
 
         if not allowed:
             thread_commands.reply(client, event, thread_ts,
-                                  thread_commands.refused(refusal))
+                                  thread_commands.refused_outcome(refusal))
             return None
 
         with session() as conn:
-            resolution, notified = resolve_and_tell(
+            resolution, notified = resolve_and_notify(
                 conn, case_id, views.resolve.default_message(), user_id
             )
             if resolution and notified:
-                mark_resolution_echo_pending(conn, case_id, user_id)
+                mark_resolution_log_pending(conn, case_id, user_id)
 
         if resolution is None and not notified:
             thread_commands.reply(client, event, thread_ts,
-                                  thread_commands.refused(views.lines.already_resolved(case_id)))
+                                  thread_commands.refused_outcome(views.lines.already_resolved(case_id)))
             return None
 
         try:
@@ -607,13 +607,13 @@ def register(app, on_reply=None):
         except Exception as failure:
             log.warning("nemo: could not mark %s as done: %s", event["ts"], failure)
         if resolution:
-            after_resolve(client, case_id, resolution, user_id, echo=not notified)
+            after_resolve(client, case_id, resolution, user_id, post_log=not notified)
         log.info("nemo: case %s resolved from the thread by %s, %s told", case_id, user_id, notified)
         return case_id
 
-    def for_the_member(thread_ts):
+    def thread_reaches_reporter(thread_ts):
         with session() as conn:
-            return chat.reaches_a_member(conn, thread_ts)
+            return chat.is_reporter_thread(conn, thread_ts)
 
     def reply(event, thread_ts, parsed_answer, client):
         if on_reply is None:

@@ -1,21 +1,21 @@
 PREFIX = "?"
 ANON = "~"
 
-SENT = "white_check_mark"
-STUCK = "x"
+SENT_REACTION = "white_check_mark"
+FAILED_REACTION = "x"
 
 
 def read(text):
     text = (text or "").lstrip()
-    anon = text.startswith(ANON) and text[1:2] == PREFIX
-    if anon:
+    is_anonymous = text.startswith(ANON) and text[1:2] == PREFIX
+    if is_anonymous:
         text = text[1:].lstrip()
     if not text.startswith(PREFIX):
         return None
 
-    return {"body": text[len(PREFIX):].lstrip(), "signed": not anon}
+    return {"body": text[len(PREFIX):].lstrip(), "signed": not is_anonymous}
 
 
-def meant_for_them(text):
-    aimed = read(text)
-    return None if aimed is None else aimed["body"]
+def reply_body(text):
+    parsed = read(text)
+    return None if parsed is None else parsed["body"]

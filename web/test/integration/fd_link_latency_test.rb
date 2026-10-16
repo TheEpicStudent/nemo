@@ -25,7 +25,7 @@ class FdLinkLatencyTest < ActionDispatch::IntegrationTest
     seeded!("fd.member_joins", "user_id", user_id)
   end
 
-  test "a new link records when it appeared and a rewrite keeps it" do
+  test "member_link upsert sets linked_at once and keeps it on rewrite" do
     link!(9.0)
     first = linked_at
     assert first.present?
@@ -35,7 +35,7 @@ class FdLinkLatencyTest < ActionDispatch::IntegrationTest
     assert_equal 11.0, as_pipeline("SELECT score FROM fd.member_link WHERE a_user_id = ?", ONE).first["score"].to_f
   end
 
-  test "the latency view measures from the later join and the last sign-in before the link" do
+  test "link_latency computes seconds from the later join and the last sign-in" do
     joined!(ONE, 3.days.ago)
     joined!(TWO, 90.seconds.ago)
     sign_in = 30.seconds.ago
@@ -53,7 +53,7 @@ class FdLinkLatencyTest < ActionDispatch::IntegrationTest
     assert_in_delta 30, row["from_sign_in_seconds"].to_f, 15
   end
 
-  test "links older than a week leave the latency view" do
+  test "link_latency excludes links with linked_at older than a week" do
     link!(9.0)
     as_pipeline("UPDATE fd.member_link SET linked_at = now() - interval '8 days' WHERE a_user_id = ?", ONE)
 

@@ -2,7 +2,7 @@
 
 <% content_for :head_actions do %>
   <% unless @team_stats %>
-    <span class="sub2">waiting on the nightly sync</span>
+    <span class="sub2">Awaiting nightly sync</span>
   <% end %>
   <%= render "shared/date_range", dates: false, label: "Last #{@span[:label]}",
         presets: HomeHelper::OVERVIEW_SPANS.map { |key, span| {
@@ -14,10 +14,10 @@
   <div class="lede">
     <%= image_tag "nemo.png", class: "empty-fish", alt: "", width: 800, height: 483 %>
     <span class="lede-note">
-      <b>No team statistics yet</b>
+      <b>No team statistics</b>
     </span>
     <span class="lede-do">
-      <%= link_to "Open the Engine", engine_path, class: "btn btn-primary" %>
+      <%= link_to "Open Engine", engine_path, class: "btn btn-primary" %>
     </span>
   </div>
 <% else %>
@@ -29,12 +29,12 @@
     <%= render "kpi", label: "Total members", value: @team_stats.total_members_count,
           prior: @team_stats_prior&.total_members_count, span: @span,
           spark: { labels: spark_days.drop(1), name: "created per day", data: joins },
-          spark_title: "accounts created per day, the daily change in the total" %>
+          spark_title: "Accounts created per day" %>
 
     <%= render "kpi", label: "Claimed accounts", value: @team_stats.total_claimed_count,
           prior: @team_stats_prior&.total_claimed_count, span: @span,
           spark: { labels: spark_days.drop(1), name: "claimed", data: claims },
-          spark_title: "accounts claimed, day by day" %>
+          spark_title: "Accounts claimed per day" %>
 
     <%= render "kpi", label: "Active, last 28 days", value: @team_stats.active_users_28d,
           prior: @team_stats_prior&.active_users_28d, span: @span,
@@ -45,7 +45,7 @@
           prior: @team_stats_prior&.writers_count_28d, span: @span,
           spark: { labels: spark_days, name: "posted",
                    data: @spark.map(&:writers_count_28d) },
-          spark_title: "#{number_to_percentage(share_pct(@team_stats.writers_count_28d, @team_stats.active_users_28d) || 0, precision: 1)} of active people posted" %>
+          spark_title: "#{number_to_percentage(share_pct(@team_stats.writers_count_28d, @team_stats.active_users_28d) || 0, precision: 1)} of active posted" %>
   </div>
 <% end %>
 

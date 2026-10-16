@@ -4,7 +4,7 @@ class FdAccessTest < ActionDispatch::IntegrationTest
   setup do
     Rails.application.eager_load!
     @me = Account.create!(user_id: "UFF1")
-    hold_role!("UFF1", "firefighter")
+    grant_role!("UFF1", "firefighter")
     sign_in_as(@me)
   end
 
@@ -28,11 +28,11 @@ class FdAccessTest < ActionDispatch::IntegrationTest
     Fd::AuditEntry.where(verb: "refused", actor_user_id: @me.user_id)
   end
 
-  DECORATIVE = %w[case.read].freeze
+  EXEMPT_KEYS = %w[case.read].freeze
 
   BOT = Rails.root.join("..", "pipeline", "bot")
 
-  def self.enforced_by_the_bot
+  def self.enforced_by_bot
     Dir["#{BOT}/**/*.py"].flat_map { |path|
       File.read(path).scan(/(?:needs=|may\(|declared\()[^)]*?"([\w.]+\.[\w.]+)"/).flatten
     }.uniq
@@ -54,15 +54,14 @@ class FdAccessTest < ActionDispatch::IntegrationTest
     (declared + checked_keys + panel_keys).uniq
   end
 
-  test "a permission that guards something has somewhere it is actually checked" do
-    unenforced = Authz.keys - self.class.enforced - self.class.enforced_by_the_bot - DECORATIVE
+  test "every Authz key is checked in dashboard code or bot code" do
+    unenforced = Authz.keys - self.class.enforced - self.class.enforced_by_bot - EXEMPT_KEYS
 
     assert_empty unenforced,
-      "#{unenforced.join(', ')} can be moved on the roles tab but neither the dashboard " \
-      "nor the bot reads it, so the switch would be inert"
+      "#{unenforced.join(', ')} not read by the dashboard or the bot"
   end
 
-  test "every route that writes names a permission that exists" do
+  test "fd write routes declare permission keys that exist in Authz.keys" do
     self.class.fd_writes.each do |name, action|
       keys = controller_for(name).declared
       assert keys.any?, "#{name}##{action} writes without declaring a permission"
@@ -74,24 +73,24 @@ class FdAccessTest < ActionDispatch::IntegrationTest
 
   RULE_CHANGE_KEYS = %w[access.grant app.flip].freeze
 
-  test "the rulebook routes are the ones this test covers, and no others" do
+  test "fd write routes declaring rule change keys are role_permissions and flags" do
     rule_change_routes = self.class.fd_writes.select do |name, _action|
       controller_for(name).declared.intersect?(RULE_CHANGE_KEYS)
     end.map(&:first).uniq
 
     assert_equal %w[fd/role_permissions fd/flags].sort,
       rule_change_routes.sort,
-      "a rulebook route appeared or vanished, so this test needs updating"
+      "rule change routes differ from the expected controllers"
   end
 
-  test "a firefighter cannot hand out access" do
+  test "admin grants create as firefighter grants no role and redirects to root" do
     post admin_grants_path, params: { user_id: "U0NEW", role: "firefighter", reason: "why not" }
 
     assert_empty Authz.effective_roles("U0NEW")
     assert_redirected_to root_path
   end
 
-  test "a firefighter undoes the work, on a case that is theirs to work" do
+  test "case reversals create as firefighter reverses action with no refusal" do
     kase = make_case(opened_at: 2.days.ago)
     action = Fd::Action.create!(case_id: kase.id, type_key: "warning", target_user_id: "USUB",
       decided_by: "UOTHER", performed_by: "UOTHER")
@@ -103,7 +102,7 @@ class FdAccessTest < ActionDispatch::IntegrationTest
     assert_equal 0, refusals.count
   end
 
-  test "a firefighter undoes the work on a case assigned to somebody else" do
+  test "case reversals create as firefighter on case assigned to another user reverses action" do
     kase = make_case(opened_at: 2.days.ago)
     kase.assign!("UOTHER")
     action = Fd::Action.create!(case_id: kase.id, type_key: "warning", target_user_id: "USUB",
@@ -116,7 +115,7 @@ class FdAccessTest < ActionDispatch::IntegrationTest
     assert_equal 0, refusals.count
   end
 
-  test "a firefighter still does the work the role is for" do
+  test "firefighter note then action then resolution creates rows with no refusal" do
     kase = make_case(opened_at: 2.days.ago)
 
     post fd_case_notes_path(kase), params: { body: "asked them to stop" }
@@ -132,7 +131,7 @@ class FdAccessTest < ActionDispatch::IntegrationTest
     assert_equal 0, refusals.count
   end
 
-  test "somebody holding no grant writes nothing at all" do
+  test "case notes create by account without grants creates no note" do
     delete logout_path
     account_without_grants = Account.create!(user_id: "USTRANGER")
     sign_in_as(account_without_grants)
@@ -144,14 +143,14 @@ class FdAccessTest < ActionDispatch::IntegrationTest
     assert_empty Authz.effective_roles(account_without_grants.user_id)
   end
 
-  test "a lead holds the undoing, and a manager holds the tool" do
-    lead = Account.create!(user_id: "ULEAD")
-    hold_role!("ULEAD", "firefighter")
+  test "firefighter has case.reverse without access.grant and manager has access.grant" do
+    firefighter_account = Account.create!(user_id: "ULEAD")
+    grant_role!("ULEAD", "firefighter")
 
-    assert lead.may?("case.reverse")
-    assert_not lead.may?("access.grant")
+    assert firefighter_account.may?("case.reverse")
+    assert_not firefighter_account.may?("access.grant")
 
-    manager = hold_role!("UBOSS", "community_manager")
+    manager = grant_role!("UBOSS", "community_manager")
     assert manager.may?("access.grant")
   end
 end

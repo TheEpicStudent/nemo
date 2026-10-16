@@ -5,9 +5,9 @@ module Fd
     BARE_ID = /\A[UW](?=[A-Z0-9]*\d)[A-Z0-9]{6,12}\z/i
     WORDS = 5
     TRIGRAM = 3
-    FUZZY_FROM = 4
-    CLOSE_ENOUGH = 0.35
-    NOTHING = "SELECT NULL::text AS user_id WHERE false".freeze
+    FUZZY_MIN_LENGTH = 4
+    MIN_SIMILARITY = 0.35
+    NO_USER_IDS = "SELECT NULL::text AS user_id WHERE false".freeze
     VISIBLE_EXACT = 0
     HIDDEN_EXACT = 1
     VISIBLE_PHRASE = 2
@@ -15,7 +15,7 @@ module Fd
     HIDDEN_START = 4
     VISIBLE_WITHIN = 5
     HIDDEN_WITHIN = 6
-    SPELLED_CLOSE = 7
+    SIMILARITY_RANK = 7
 
     Result = Struct.new(:ids, :total)
 
@@ -79,7 +79,7 @@ module Fd
 
     def by_id(limit, offset)
       ApplicationRecord.sanitize_sql_array([<<~SQL, { id: user_id, limit: limit, offset: offset }])
-        SELECT user_id, count(*) OVER () AS found FROM (#{id_match_sql(':id')}) asked
+        SELECT user_id, count(*) OVER () AS found FROM (#{id_match_sql(':id')}) id_match
         LIMIT :limit OFFSET :offset
       SQL
     end
@@ -94,20 +94,20 @@ module Fd
     def by_name(limit, offset)
       ApplicationRecord.sanitize_sql_array([<<~SQL, binds.merge(limit: limit, offset: offset)])
         WITH #{ranked(id_match_sql(':upper'), 'NOT m.is_bot')},
-        touched AS (
+        involved AS (
           SELECT user_id FROM fd.case_participants
           UNION SELECT target_user_id FROM fd.actions WHERE target_user_id IS NOT NULL
           UNION SELECT subject_user_id FROM fd.notes
           WHERE subject_user_id IS NOT NULL AND deleted_at IS NULL
         )
         SELECT k.user_id, count(*) OVER () AS found
-        FROM kept k
-        LEFT JOIN touched t ON t.user_id = k.user_id
+        FROM matched k
+        LEFT JOIN involved t ON t.user_id = k.user_id
         LEFT JOIN analytics.fct_member_window w
           ON w.source = :lifetime AND w.user_id = k.user_id
         WHERE NOT k.is_deleted OR t.user_id IS NOT NULL
-        ORDER BY k.place, (t.user_id IS NOT NULL) DESC,
-                 CASE WHEN k.place = #{SPELLED_CLOSE} THEN k.close END DESC NULLS LAST,
+        ORDER BY k.match_rank, (t.user_id IS NOT NULL) DESC,
+                 CASE WHEN k.match_rank = #{SIMILARITY_RANK} THEN k.close END DESC NULLS LAST,
                  w.messages_posted DESC NULLS LAST, k.close DESC, k.is_deleted, k.user_id
         LIMIT :limit OFFSET :offset
       SQL
@@ -117,7 +117,7 @@ module Fd
       ApplicationRecord.sanitize_sql_array([<<~SQL, binds.merge(limit: limit, case_id: case_id)])
         WITH #{ranked('SELECT user_id FROM fd.member WHERE user_id = :upper', member_filter)}
         SELECT k.user_id
-        FROM kept k
+        FROM matched k
         LEFT JOIN analytics.fct_member_window w
           ON w.source = :lifetime AND w.user_id = k.user_id
         ORDER BY #{suggest_order(case_id)}
@@ -126,9 +126,9 @@ module Fd
     end
 
     def suggest_order(case_id)
-      on_case = "EXISTS (SELECT 1 FROM fd.case_participants party " \
-                "WHERE party.user_id = k.user_id AND party.case_id = :case_id) DESC"
-      ["k.place", (on_case if case_id), "CASE WHEN k.place = #{SPELLED_CLOSE} THEN k.close END DESC NULLS LAST",
+      on_case = "EXISTS (SELECT 1 FROM fd.case_participants participant " \
+                "WHERE participant.user_id = k.user_id AND participant.case_id = :case_id) DESC"
+      ["k.match_rank", (on_case if case_id), "CASE WHEN k.match_rank = #{SIMILARITY_RANK} THEN k.close END DESC NULLS LAST",
        "k.is_deleted", "k.is_bot", "w.messages_posted DESC NULLS LAST", "k.close DESC", "k.user_id"]
         .compact.join(", ")
     end
@@ -136,11 +136,11 @@ module Fd
     def ranked(id_query, member_filter)
       <<~SQL.chomp
         exact AS (#{exact_email}),
-        asked AS (#{words.one? ? id_query : NOTHING}),
+        id_match AS (#{words.one? ? id_query : NO_USER_IDS}),
         candidates AS (#{candidates}),
         named AS (
           SELECT m.user_id, m.is_deleted, m.is_bot, #{names},
-                 translate(lower(concat_ws(' ', m.display_name, m.handle)), '._-@', '    ') AS seen_text,
+                 translate(lower(concat_ws(' ', m.display_name, m.handle)), '._-@', '    ') AS display_text,
                  translate(lower(concat_ws(' ', #{text_fields})), '._-@', '    ') AS text
           FROM candidates c
           JOIN fd.member m ON m.user_id = c.user_id
@@ -153,24 +153,24 @@ module Fd
                       #{"WHEN :whole IN (real_name, full_name, cachet) THEN #{HIDDEN_EXACT}" if @identity}
                       WHEN (' ' || translate(shown, '._-@', '    ')) LIKE :phrase
                         OR (' ' || translate(handle, '._-@', '    ')) LIKE :phrase THEN #{VISIBLE_PHRASE}
-                      WHEN #{every_word("(' ' || seen_text) LIKE :start")} THEN #{VISIBLE_START}
+                      WHEN #{every_word("(' ' || display_text) LIKE :start")} THEN #{VISIBLE_START}
                       WHEN #{every_word("(' ' || text) LIKE :start")} THEN #{HIDDEN_START}
-                      WHEN #{every_word('seen_text LIKE :within')} THEN #{VISIBLE_WITHIN}
+                      WHEN #{every_word('display_text LIKE :within')} THEN #{VISIBLE_WITHIN}
                       WHEN #{every_word('text LIKE :within')} THEN #{HIDDEN_WITHIN}
-                      ELSE #{SPELLED_CLOSE} END AS place,
+                      ELSE #{SIMILARITY_RANK} END AS match_rank,
                  greatest(#{closeness}) AS close
           FROM named
         ),
-        kept AS (
-          SELECT user_id, #{VISIBLE_EXACT} AS place, 1::real AS close, false AS is_deleted, false AS is_bot
+        matched AS (
+          SELECT user_id, #{VISIBLE_EXACT} AS match_rank, 1::real AS close, false AS is_deleted, false AS is_bot
           FROM exact
           UNION ALL
-          SELECT user_id, #{VISIBLE_EXACT}, 1::real, false, false FROM asked
+          SELECT user_id, #{VISIBLE_EXACT}, 1::real, false, false FROM id_match
           WHERE NOT EXISTS (SELECT 1 FROM exact)
           UNION ALL
-          SELECT user_id, place, close, is_deleted, is_bot FROM scored
+          SELECT user_id, match_rank, close, is_deleted, is_bot FROM scored
           WHERE NOT EXISTS (SELECT 1 FROM exact) AND (#{match_condition})
-            AND user_id NOT IN (SELECT user_id FROM asked)
+            AND user_id NOT IN (SELECT user_id FROM id_match)
         )
       SQL
     end
@@ -188,12 +188,12 @@ module Fd
     end
 
     def fuzzy?
-      !phrase? && words.join(" ").length >= FUZZY_FROM
+      !phrase? && words.join(" ").length >= FUZZY_MIN_LENGTH
     end
 
     def match_condition
-      conditions = [leading? ? "place < #{VISIBLE_WITHIN}" : "place < #{SPELLED_CLOSE}"]
-      conditions << "close >= :close_enough" if fuzzy?
+      conditions = [leading? ? "match_rank < #{VISIBLE_WITHIN}" : "match_rank < #{SIMILARITY_RANK}"]
+      conditions << "close >= :min_similarity" if fuzzy?
       conditions.join(" OR ")
     end
 
@@ -203,7 +203,7 @@ module Fd
       params = { whole: full_text, upper: words.first.to_s.upcase,
                  anchor: "%#{like(phrase? ? full_text : longest)}%", leading: "#{like(longest)}%",
                  word_leading: "% #{like(longest)}%", phrase: "% #{like(full_text)}%", email: email,
-                 close_enough: CLOSE_ENOUGH, lifetime: Analytics::MemberWindow::LIFETIME_SOURCE }
+                 min_similarity: MIN_SIMILARITY, lifetime: Analytics::MemberWindow::LIFETIME_SOURCE }
       words.each_with_index do |word, i|
         params[:"start#{i}"] = "% #{like(word)}%"
         params[:"within#{i}"] = "%#{like(word)}%"
@@ -221,7 +221,7 @@ module Fd
     end
 
     def exact_email
-      return NOTHING unless email
+      return NO_USER_IDS unless email
 
       "SELECT user_id FROM fd.member_identity WHERE lower(email) = :email AND purged_at IS NULL"
     end

@@ -22,7 +22,9 @@ def drain(token, limit=20):
             continue
         if blobs.exceeds_limit(size):
             with session() as conn:
-                blobs.mark_failed(conn, file_id, "too_large", f"{size} bytes, we do not ask for it")
+                blobs.mark_failed(
+                    conn, file_id, "too_large", f"{size} bytes is over the {blobs.cap()} byte limit"
+                )
             log.info("relay: %s is too large to keep", slack_id)
             continue
 

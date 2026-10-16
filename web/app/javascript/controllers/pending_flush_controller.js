@@ -1,5 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
-import { catchUp } from "turbo_actions"
+import { syncFrame } from "turbo_actions"
 
 export default class extends Controller {
   static values = { frame: String }
@@ -39,14 +39,14 @@ export default class extends Controller {
     if (!this.streamDisconnected) return
 
     this.streamDisconnected = false
-    this.catchUp()
+    this.syncFrame()
   }
 
   onVisible() {
-    if (document.visibilityState === "visible") this.catchUp()
+    if (document.visibilityState === "visible") this.syncFrame()
   }
 
-  catchUp() {
-    catchUp(document.getElementById(this.frameValue))
+  syncFrame() {
+    syncFrame(document.getElementById(this.frameValue))
   }
 }

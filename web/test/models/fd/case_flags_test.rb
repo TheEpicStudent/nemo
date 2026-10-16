@@ -1,31 +1,31 @@
 require "test_helper"
 
 class Fd::CaseFlagsTest < ActiveSupport::TestCase
-  test "an unclaimed case past the threshold is flagged" do
+  test "for_case flags an unclaimed case past the threshold as crit" do
     kase = make_case(opened_at: 6.days.ago)
     flags = Fd::CaseFlags.for_case(kase)
 
     assert_equal 1, flags.size
     assert_equal "crit", flags.first.tone
-    assert_match(/has sat unclaimed for 6 days/, flags.first.headline)
+    assert_match(/unclaimed for 6 days/, flags.first.headline)
   end
 
-  test "a claimed case is not flagged as unclaimed" do
+  test "for_case does not flag a claimed case as unclaimed" do
     kase = make_case(opened_at: 6.days.ago, assign: "UFF1")
     assert_empty Fd::CaseFlags.for_case(kase)
   end
 
-  test "a fresh unclaimed case is not flagged yet" do
+  test "for_case does not flag a fresh unclaimed case" do
     kase = make_case(opened_at: 1.day.ago)
     assert_empty Fd::CaseFlags.for_case(kase)
   end
 
-  test "a resolved case is never flagged as unclaimed" do
+  test "for_case does not flag a resolved case as unclaimed" do
     kase = make_case(opened_at: 10.days.ago, resolved_at: Time.current, resolution: "no_action")
     assert_empty Fd::CaseFlags.for_case(kase)
   end
 
-  test "a third report on the same subject within 30 days is flagged" do
+  test "for_case flags a third report on the same subject within 30 days" do
     make_case(subject: "UPRIOR", opened_at: 20.days.ago, assign: "UFF1")
     make_case(subject: "UPRIOR", opened_at: 10.days.ago, assign: "UFF1")
     kase = make_case(subject: "UPRIOR", opened_at: 1.day.ago)
@@ -38,14 +38,14 @@ class Fd::CaseFlagsTest < ActiveSupport::TestCase
     assert_match(/3rd report about @UPRIOR in 30 days/, priors.headline)
   end
 
-  test "only two reports in 30 days does not trigger the priors flag" do
+  test "for_case does not flag priors with two reports in 30 days" do
     make_case(subject: "UPRIOR", opened_at: 10.days.ago, assign: "UFF1")
     kase = make_case(subject: "UPRIOR", opened_at: 1.day.ago)
 
     assert_empty Fd::CaseFlags.for_case(kase)
   end
 
-  test "reports outside the 30 day window do not count" do
+  test "for_case ignores reports outside the 30 day window" do
     make_case(subject: "UPRIOR", opened_at: 40.days.ago, assign: "UFF1")
     make_case(subject: "UPRIOR", opened_at: 35.days.ago, assign: "UFF1")
     kase = make_case(subject: "UPRIOR", opened_at: 1.day.ago)
@@ -53,14 +53,14 @@ class Fd::CaseFlagsTest < ActiveSupport::TestCase
     assert_empty Fd::CaseFlags.for_case(kase)
   end
 
-  test "a case about several subjects is not flagged for priors" do
+  test "for_case does not flag priors on a case with several subjects" do
     kase = make_case(subject: "UAAA", opened_at: 1.day.ago)
     kase.add_subject!("UBBB")
 
     assert_empty Fd::CaseFlags.for_case(kase)
   end
 
-  test "two open cases sharing a Slack thread are flagged as worth merging" do
+  test "for_case flags open cases sharing a thread with a merge headline" do
     a = make_case(opened_at: 2.days.ago)
     b = make_case(opened_at: 1.day.ago)
     Fd::CaseThread.create!(case_id: a.id, channel_id: "C1", thread_ts: "1.1",
@@ -69,14 +69,14 @@ class Fd::CaseFlagsTest < ActiveSupport::TestCase
       kind: "evidence", is_primary: true, added_by: "UFF1", added_at: Time.current)
 
     flags = Fd::CaseFlags.for_case(b)
-    merge = flags.find { |f| f.detail == "Worth merging." }
+    merge = flags.find { |f| f.headline.include?("shares a thread") }
 
     assert_not_nil merge
     assert_equal "mid", merge.tone
-    assert_match(/Case #{a.id} is about the same thread/, merge.headline)
+    assert_match(/Case #{a.id} shares a thread/, merge.headline)
   end
 
-  test "a resolved sibling case does not trigger a merge hint" do
+  test "for_case does not flag a merge with a resolved case sharing a thread" do
     a = make_case(opened_at: 2.days.ago, resolved_at: Time.current, resolution: "no_action")
     b = make_case(opened_at: 1.day.ago)
     Fd::CaseThread.create!(case_id: a.id, channel_id: "C1", thread_ts: "1.1",
@@ -87,7 +87,7 @@ class Fd::CaseFlagsTest < ActiveSupport::TestCase
     assert_empty Fd::CaseFlags.for_case(b)
   end
 
-  test "the queue surfaces the oldest unclaimed case, not every unclaimed case" do
+  test "for_queue returns one unclaimed flag for several unclaimed cases" do
     make_case(opened_at: 6.days.ago)
     make_case(opened_at: 8.days.ago)
 

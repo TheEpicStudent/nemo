@@ -1,6 +1,6 @@
 import { Controller } from "@hotwired/stimulus"
 
-const LIMIT = 8
+const MAX_OPTIONS = 8
 const LOOKUP_DELAY_MS = 150
 const MEMBER_MIN_LENGTH = 3
 const MEMBER_KEYS = ["about", "actor", "by", "who", "to", "subject"]
@@ -69,7 +69,7 @@ export default class extends Controller {
         .filter(([key]) => key.startsWith(draft.toLowerCase()))
         .map(([key, description]) => ({ label: `${key}:`, description, fill: `${key}:` }))
       const text = draft.includes(" ") ? `"${draft}"` : draft
-      return [...keys, { label: `"${draft}"`, description: "Full text", term: text }].slice(0, LIMIT)
+      return [...keys, { label: `"${draft}"`, description: "Full text", term: text }].slice(0, MAX_OPTIONS)
     }
 
     const [, key, part] = pair
@@ -80,7 +80,7 @@ export default class extends Controller {
   optionsFor(key, values, query) {
     return values
       .filter(([value, label]) => value.toLowerCase().includes(query) || (label || "").toLowerCase().includes(query))
-      .slice(0, LIMIT)
+      .slice(0, MAX_OPTIONS)
       .map(([value, label]) => ({ label: `${key}:${value}`, description: label || "", term: `${key}:${value}` }))
   }
 
@@ -90,7 +90,7 @@ export default class extends Controller {
       ? [{ label: `${key}:me`, description: "You", term: `${key}:me` }]
       : []
     if (query.length < MEMBER_MIN_LENGTH) {
-      return [...selfOptions, ...this.optionsFor(key, this.peopleValue, query.toLowerCase())].slice(0, LIMIT)
+      return [...selfOptions, ...this.optionsFor(key, this.peopleValue, query.toLowerCase())].slice(0, MAX_OPTIONS)
     }
 
     const payload = await this.fetchJson(this.memberUrlValue, query)
@@ -98,12 +98,12 @@ export default class extends Controller {
       const value = member.handle ? `@${member.handle}` : member.id
       return { label: `${key}:${value}`, description: member.name || "", term: `${key}:${value}` }
     })
-    return [...selfOptions, ...members].slice(0, LIMIT)
+    return [...selfOptions, ...members].slice(0, MAX_OPTIONS)
   }
 
   async channels(key, part) {
     const payload = await this.fetchJson(this.channelUrlValue, part.replace(/^#/, ""))
-    return (payload?.channels || []).slice(0, LIMIT).map((channel) => (
+    return (payload?.channels || []).slice(0, MAX_OPTIONS).map((channel) => (
       { label: `${key}:#${channel.name}`, description: channel.id, term: `${key}:#${channel.name}` }
     ))
   }

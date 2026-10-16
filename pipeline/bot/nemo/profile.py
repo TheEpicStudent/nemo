@@ -2,16 +2,16 @@ import logging
 
 log = logging.getLogger("bot.nemo")
 
-KNOWN = {}
+PROFILE_CACHE = {}
 
 IMAGES = ("image_192", "image_72", "image_48", "image_512", "image_original")
 
 
 def profile(client, user_id):
     if not user_id:
-        return {"name": "somebody", "icon": None}
-    if user_id in KNOWN:
-        return KNOWN[user_id]
+        return {"name": "unknown", "icon": None}
+    if user_id in PROFILE_CACHE:
+        return PROFILE_CACHE[user_id]
 
     member_profile = {"name": user_id, "icon": None}
     try:
@@ -26,7 +26,7 @@ def profile(client, user_id):
     except Exception as failure:
         log.warning("nemo: could not look up %s: %s", user_id, failure)
 
-    KNOWN[user_id] = member_profile
+    PROFILE_CACHE[user_id] = member_profile
     return member_profile
 
 

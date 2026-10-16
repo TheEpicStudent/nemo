@@ -43,8 +43,8 @@ DEFAULT_THROWAWAY_SECONDS = 86400
 JOIN_TIMEOUT = 10
 BUSY_POLL_SECONDS = 2
 REFUSED_BACKOFF_SECONDS = 900
-WAKE_DEBOUNCE_SECONDS = 2
-LANE_WAKE_CHANNELS = {"clusters": "fd_member_link", "links_live": "fd_member_touch"}
+NOTIFY_DEBOUNCE_SECONDS = 2
+LANE_NOTIFY_CHANNELS = {"clusters": "fd_member_link", "links_live": "fd_member_touch"}
 
 REFUSALS = ("invalid_auth", "auditlogs:read", "not_allowed_token_type", "audit 403", "audit 401")
 
@@ -93,32 +93,32 @@ def note(state):
     return ", ".join(f"{name} {state[name]}" for name, *_ in LANES)
 
 
-def wait_for_next_pass(stopping, wake, seconds):
-    if wake is None:
+def wait_for_next_pass(stopping, notified, seconds):
+    if notified is None:
         return stopping.wait(seconds)
     deadline = time.monotonic() + seconds
     while not stopping.is_set():
-        if wake.wait(min(1.0, max(0.0, deadline - time.monotonic()))):
-            wake.clear()
-            return stopping.wait(WAKE_DEBOUNCE_SECONDS)
+        if notified.wait(min(1.0, max(0.0, deadline - time.monotonic()))):
+            notified.clear()
+            return stopping.wait(NOTIFY_DEBOUNCE_SECONDS)
         if time.monotonic() >= deadline:
             return False
     return True
 
 
-def lane_wake_events(lanes, stopping):
-    events = {name: threading.Event() for name, *_ in lanes if name in LANE_WAKE_CHANNELS}
+def lane_notify_events(lanes, stopping):
+    events = {name: threading.Event() for name, *_ in lanes if name in LANE_NOTIFY_CHANNELS}
     if events:
         def on_notify(channel, _payload):
             for name, event in events.items():
-                if LANE_WAKE_CHANNELS[name] == channel:
+                if LANE_NOTIFY_CHANNELS[name] == channel:
                     event.set()
 
-        loops.watching(f"{WORKER}-notify", tuple(sorted({LANE_WAKE_CHANNELS[name] for name in events})), on_notify, stopping)
+        loops.start_listener(f"{WORKER}-notify", tuple(sorted({LANE_NOTIFY_CHANNELS[name] for name in events})), on_notify, stopping)
     return events
 
 
-def lane(name, work, state, stopping, poll, drains=True, wake=None):
+def lane(name, work, state, stopping, poll, drains=True, notified=None):
     def loop():
         while not stopping.is_set():
             if pause_stale_lane(WORKER, name, state, stopping):
@@ -134,16 +134,16 @@ def lane(name, work, state, stopping, poll, drains=True, wake=None):
             except ProxyError as failure:
                 if refused(failure):
                     state[name] = "refused, the token cannot read the audit logs"
-                    print(f"{WORKER}: the {name} lane is refused, holding off: {failure}")
+                    print(f"{WORKER}: {name} lane refused, backing off: {failure}")
                     if stopping.wait(REFUSED_BACKOFF_SECONDS):
                         return
                     continue
                 state[name] = f"failed, {type(failure).__name__}"
-                print(f"{WORKER}: the {name} lane failed: {failure}")
+                print(f"{WORKER}: {name} lane failed: {failure}")
             except Exception as failure:  # noqa: BLE001
                 state[name] = f"failed, {type(failure).__name__}"
-                print(f"{WORKER}: the {name} lane failed, trying again after the poll: {failure}")
-            if wait_for_next_pass(stopping, wake, BUSY_POLL_SECONDS if processed and drains else poll):
+                print(f"{WORKER}: {name} lane failed: {failure}")
+            if wait_for_next_pass(stopping, notified, BUSY_POLL_SECONDS if processed and drains else poll):
                 return
         state[name] = "stopped"
 
@@ -170,11 +170,11 @@ def enabled_lanes():
         if lane_enabled(name):
             enabled.append(spec)
         else:
-            print(f"{WORKER}: {LANE_SWITCHES[name][0]} is off, the {name} lane will not run")
+            print(f"{WORKER}: {LANE_SWITCHES[name][0]} is off, {name} lane disabled")
     if lane_enabled("backfill"):
         unknown = unknown_backfill_sets()
         if unknown:
-            print(f"{WORKER}: AUDIT_BACKFILL_SETS has unknown set names, skipping: {', '.join(unknown)}")
+            print(f"{WORKER}: unknown AUDIT_BACKFILL_SETS names: {', '.join(unknown)}")
     return tuple(enabled)
 
 
@@ -185,8 +185,8 @@ def serve():
         except SeededDeployment as error:
             print(f"{WORKER}: {error}")
             raise SystemExit(1) from error
-        for orphan, source in clear_stale_sessions(conn):
-            print(f"{WORKER}: swept run {orphan} ({source}), left running by an earlier boot")
+        for run_id, source in clear_stale_sessions(conn):
+            print(f"{WORKER}: abandoned run {run_id} ({source}) from an earlier boot")
 
     lanes = enabled_lanes()
     enabled_names = {name for name, *_ in lanes}
@@ -199,10 +199,10 @@ def serve():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
-    print(f"{WORKER}: {len(lanes)} lane(s) running independently")
+    print(f"{WORKER}: {len(lanes)} lane(s) running")
     with heartbeat_loop(WORKER, lambda: note(state)):
-        wake_events = lane_wake_events(lanes, stopping)
-        running = [lane(name, work, state, stopping, seconds(var, fallback), drains, wake_events.get(name))
+        notify_events = lane_notify_events(lanes, stopping)
+        running = [lane(name, work, state, stopping, seconds(var, fallback), drains, notify_events.get(name))
                    for name, work, var, fallback, drains in lanes]
         stopping.wait()
         for thread in running:

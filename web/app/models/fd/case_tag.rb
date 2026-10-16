@@ -8,17 +8,17 @@ module Fd
     belongs_to :kase, class_name: "Fd::Case", foreign_key: :case_id, inverse_of: :case_tags
     belongs_to :tag, class_name: "Fd::Tag", foreign_key: :tag_id, inverse_of: :case_tags
 
-    validates :tag_id, uniqueness: { scope: :case_id, message: "That case already has this tag." }
-    validate :room_on_case, on: :create
+    validates :tag_id, uniqueness: { scope: :case_id, message: "Tag already on case" }
+    validate :within_tag_limit, on: :create
 
     scope :oldest_first, -> { order(:added_at, :tag_id) }
 
     private
 
-    def room_on_case
+    def within_tag_limit
       return if self.class.where(case_id: case_id).count < MAX_PER_CASE
 
-      errors.add(:base, "A case holds up to #{MAX_PER_CASE} tags.")
+      errors.add(:base, "Limit of #{MAX_PER_CASE} tags per case")
     end
   end
 end

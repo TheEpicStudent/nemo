@@ -41,11 +41,11 @@ def window(as_of, days=SNAPSHOT_DAYS):
     return [start + timedelta(days=offset) for offset in range(days)]
 
 
-def sample_change_days(rng, things, share, span):
+def sample_change_days(rng, entity_ids, share, span):
     selected = {}
-    for thing in things:
+    for entity_id in entity_ids:
         if rng.random() < share:
-            selected[thing] = span[rng.randrange(1, len(span))]
+            selected[entity_id] = span[rng.randrange(1, len(span))]
     return selected
 
 

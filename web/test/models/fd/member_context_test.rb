@@ -20,35 +20,35 @@ class Fd::MemberContextTest < ActiveSupport::TestCase
     Fd::MemberContext.new(SUBJECT_ID, nil, window, seen)
   end
 
-  test "the newest message wins when the analytics window is behind it" do
+  test "last_active_at uses the post time when the window is older" do
     window_at = 3.days.ago.change(usec: 0)
     post_at = 1.hour.ago.change(usec: 0)
 
-    person = build_context(window: member_window(window_at), seen: last_activity(post: post_at))
+    context = build_context(window: member_window(window_at), seen: last_activity(post: post_at))
 
-    assert_equal post_at, person.last_active_at
+    assert_equal post_at, context.last_active_at
   end
 
-  test "the analytics window wins when somebody was about without posting" do
+  test "last_active_at uses the window time when the post is older" do
     window_at = 1.hour.ago.change(usec: 0)
     post_at = 9.days.ago.change(usec: 0)
 
-    person = build_context(window: member_window(window_at), seen: last_activity(post: post_at))
+    context = build_context(window: member_window(window_at), seen: last_activity(post: post_at))
 
-    assert_equal window_at, person.last_active_at
+    assert_equal window_at, context.last_active_at
   end
 
-  test "a login after the last message counts as activity" do
+  test "last_active_at uses a later login and last_posted_at stays the post time" do
     post_at = 6.days.ago.change(usec: 0)
     login_at = 10.minutes.ago.change(usec: 0)
 
-    person = build_context(window: member_window(4.days.ago), seen: last_activity(post: post_at, login: login_at))
+    context = build_context(window: member_window(4.days.ago), seen: last_activity(post: post_at, login: login_at))
 
-    assert_equal login_at, person.last_active_at
-    assert_equal post_at, person.last_posted_at
+    assert_equal login_at, context.last_active_at
+    assert_equal post_at, context.last_posted_at
   end
 
-  test "either source alone is enough" do
+  test "last_active_at uses any single source and is nil with none" do
     at = 2.hours.ago.change(usec: 0)
 
     assert_equal at, build_context(window: member_window(at), seen: nil).last_active_at
@@ -57,40 +57,40 @@ class Fd::MemberContextTest < ActiveSupport::TestCase
     assert_nil build_context(window: nil, seen: nil).last_active_at
   end
 
-  test "a window that knows nothing does not hide a message we hold" do
+  test "last_active_at and last_posted_at use the post when the window time is nil" do
     at = 5.minutes.ago.change(usec: 0)
 
-    person = build_context(window: member_window(nil), seen: last_activity(post: at))
+    context = build_context(window: member_window(nil), seen: last_activity(post: at))
 
-    assert_equal at, person.last_active_at
-    assert_equal at, person.last_posted_at
+    assert_equal at, context.last_active_at
+    assert_equal at, context.last_posted_at
   end
 
-  test "a login is not a message" do
-    person = build_context(window: nil, seen: last_activity(login: 1.hour.ago))
+  test "last_posted_at is nil with only a login" do
+    context = build_context(window: nil, seen: last_activity(login: 1.hour.ago))
 
-    assert_nil person.last_posted_at
+    assert_nil context.last_posted_at
   end
 
-  test "looking somebody up reads every source" do
+  test "MemberContext.for with one user id does not raise" do
     assert_nothing_raised { context_for }
   end
 
-  test "a member the warehouse has not met yet takes their tenure from the day they joined" do
+  test "cohort_at and tenure_days use the join time without a warehouse member" do
     joined = 2.days.ago.change(usec: 0)
 
-    person = Fd::MemberContext.new(SUBJECT_ID, nil, nil, nil, joined)
+    context = Fd::MemberContext.new(SUBJECT_ID, nil, nil, nil, joined)
 
-    assert_equal joined, person.cohort_at
-    assert_equal 2, person.tenure_days
+    assert_equal joined, context.cohort_at
+    assert_equal 2, context.tenure_days
   end
 
-  test "the warehouse cohort wins over the join day when both are known" do
+  test "cohort_at prefers the warehouse cohort_at over the join time" do
     cohort = 400.days.ago.change(usec: 0)
     member = Analytics::DimMember.new(user_id: SUBJECT_ID, cohort_at: cohort)
 
-    person = Fd::MemberContext.new(SUBJECT_ID, member, nil, nil, 1.day.ago)
+    context = Fd::MemberContext.new(SUBJECT_ID, member, nil, nil, 1.day.ago)
 
-    assert_equal cohort, person.cohort_at
+    assert_equal cohort, context.cohort_at
   end
 end

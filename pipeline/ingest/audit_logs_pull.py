@@ -50,7 +50,7 @@ DEPARTED = "left"
 MEMBERSHIP_VERBS = {"user_channel_join": JOINED, "user_channel_leave": DEPARTED}
 
 DEFAULT_HORIZON_DAYS = 90
-LAP_SECONDS = 1
+OVERLAP_SECONDS = 1
 FIRST_TAIL_HOURS = 24
 
 MONTHS_AHEAD = 2
@@ -79,25 +79,25 @@ RETURNING id
 """
 
 LOGIN_SQL = """
-INSERT INTO fd.login_event AS held
+INSERT INTO fd.login_event AS existing
     (user_id, source, hour, ip, ua_id, first_at, last_at, hits, logins, failures, anomalies, seen)
 VALUES (%s, 'audit_logs', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (user_id, source, hour, ip, ua_id) DO UPDATE SET
-    first_at = least(held.first_at, EXCLUDED.first_at),
-    last_at = greatest(held.last_at, EXCLUDED.last_at),
-    hits = held.hits + EXCLUDED.hits,
-    logins = held.logins + EXCLUDED.logins,
-    failures = held.failures + EXCLUDED.failures,
-    anomalies = held.anomalies + EXCLUDED.anomalies,
-    seen = held.seen + EXCLUDED.seen,
+    first_at = least(existing.first_at, EXCLUDED.first_at),
+    last_at = greatest(existing.last_at, EXCLUDED.last_at),
+    hits = existing.hits + EXCLUDED.hits,
+    logins = existing.logins + EXCLUDED.logins,
+    failures = existing.failures + EXCLUDED.failures,
+    anomalies = existing.anomalies + EXCLUDED.anomalies,
+    seen = existing.seen + EXCLUDED.seen,
     updated_at = now()
 """
 
 SESSION_SQL = """
-INSERT INTO fd.login_session AS held (session_id, user_id, at)
+INSERT INTO fd.login_session AS existing (session_id, user_id, at)
 VALUES (%s, %s, %s)
 ON CONFLICT (session_id, user_id) DO UPDATE SET at = EXCLUDED.at
-WHERE EXCLUDED.at < held.at
+WHERE EXCLUDED.at < existing.at
 """
 
 IDENTITY_SQL = """
@@ -131,8 +131,8 @@ def horizon_days():
         return DEFAULT_HORIZON_DAYS
 
 
-MOST_ACTIONS = 30
-REFUSED = 400
+MAX_ACTIONS = 30
+PERMISSION_DENIED_STATUS = 400
 
 _refused = set()
 _refused_lock = threading.Lock()
@@ -149,10 +149,10 @@ def clear_refusals():
 
 
 def is_permission_denied(failure):
-    return getattr(failure, "http_status", None) == REFUSED
+    return getattr(failure, "http_status", None) == PERMISSION_DENIED_STATUS
 
 
-def usable(actions):
+def allowed_actions(actions):
     if not actions:
         return actions
 
@@ -188,7 +188,7 @@ def tail_actions():
         return None
     if raw.lower() in ACTION_SETS:
         return ACTION_SETS[raw.lower()]
-    return tuple(one.strip() for one in raw.split(",") if one.strip())[:MOST_ACTIONS]
+    return tuple(one.strip() for one in raw.split(",") if one.strip())[:MAX_ACTIONS]
 
 
 def nemo_ids():
@@ -212,7 +212,7 @@ def kind_and_id(entry, key):
     return kind, body.get("id")
 
 
-def landable(entry):
+def is_valid_entry(entry):
     return (event_uuid(entry.get("id")) is not None and stamp(entry.get("date_create")) is not None
             and bool(entry.get("action")))
 
@@ -271,7 +271,7 @@ def agent_of(entry):
     return str((entry.get("context") or {}).get("ua") or "").strip() or None
 
 
-def monthly_row(entry, source_key, ours, agents, catalogue):
+def monthly_row(entry, source_key, own_app_ids, agents, catalogue):
     event_id = event_uuid(entry.get("id"))
     at = stamp(entry.get("date_create"))
     if event_id is None or at is None or not entry.get("action"):
@@ -284,13 +284,13 @@ def monthly_row(entry, source_key, ours, agents, catalogue):
     return (
         event_id, at, entry["action"], audit_actions.entry(entry["action"], catalogue)["category"],
         actor_kind, actor_id, email_of(entry, "actor"), entity_kind, entity_id,
-        email_of(entry, "entity"), channel_of(entry), app_id, bool(app_id and app_id in ours),
+        email_of(entry, "entity"), channel_of(entry), app_id, bool(app_id and app_id in own_app_ids),
         address(context.get("ip_address")), user_agents.id_of(agents, agent),
         session_of(context), source_key, Jsonb(entry),
     )
 
 
-def view_row(entry, code, agents, ours):
+def view_row(entry, code, agents, own_app_ids):
     event_id = event_uuid(entry.get("id"))
     at = stamp(entry.get("date_create"))
     if event_id is None or at is None:
@@ -303,7 +303,7 @@ def view_row(entry, code, agents, ours):
     return (
         event_id, at, code, actor_id, entity_id, address(context.get("ip_address")),
         user_agents.id_of(agents, agent), session_of(context),
-        bool(app_id and app_id in ours),
+        bool(app_id and app_id in own_app_ids),
     )
 
 
@@ -314,7 +314,7 @@ def inserted_ids(cur, sql, rows):
     return {row[0] for _ in cur.results() for row in cur.fetchall()}
 
 
-def write_new_shape(conn, entries, source_key, ours):
+def write_new_shape(conn, entries, source_key, own_app_ids):
     times = [at for at in (stamp(entry.get("date_create")) for entry in entries) if at is not None]
     if not times:
         return set(), {}
@@ -326,11 +326,11 @@ def write_new_shape(conn, entries, source_key, ours):
     for entry in entries:
         code = codes.get(entry.get("action"))
         if code:
-            row = view_row(entry, code, agents, ours)
+            row = view_row(entry, code, agents, own_app_ids)
             if row:
                 view.append(row)
         else:
-            row = monthly_row(entry, source_key, ours, agents, catalogue)
+            row = monthly_row(entry, source_key, own_app_ids, agents, catalogue)
             if row:
                 monthly.append(row)
     with conn.cursor() as cur:
@@ -433,11 +433,11 @@ def hourly(logins, agents):
             in sorted(buckets.items(), key=lambda one: (one[0][0], one[0][1], str(one[0][2]), one[0][3] or 0))]
 
 
-def insert_rows(conn, entries, source_key, ours, counts):
+def insert_rows(conn, entries, source_key, own_app_ids, counts):
     logins, memberships, accepted = [], [], []
     identities = {}
     for entry in entries:
-        if not landable(entry):
+        if not is_valid_entry(entry):
             counts.rows_rejected += 1
             dead_letter(conn, source_key, {"keys": sorted(entry)}, "no uuid id, action or date")
             continue
@@ -454,7 +454,7 @@ def insert_rows(conn, entries, source_key, ours, counts):
 
     logins = own_sessions(conn, logins)
     if accepted:
-        new_ids, agents = write_new_shape(conn, accepted, source_key, ours)
+        new_ids, agents = write_new_shape(conn, accepted, source_key, own_app_ids)
         counted = hourly([row for row in logins if row[6] in new_ids], agents)
         sessions = session_rows(logins)
         with conn.cursor() as cur:
@@ -480,13 +480,13 @@ def walk(client, conn, source_key, counts, oldest=None, latest=None, actions=Non
         params["oldest"] = int(oldest.timestamp())
     if latest is not None:
         params["latest"] = int(latest.timestamp())
-    allowed = usable(actions)
+    allowed = allowed_actions(actions)
     if actions and not allowed:
         return 0, 0
     if allowed:
-        params["action"] = ",".join(allowed[:MOST_ACTIONS])
+        params["action"] = ",".join(allowed[:MAX_ACTIONS])
 
-    ours = nemo_ids()
+    own_app_ids = nemo_ids()
     pending = []
     event_count = login_count = 0
 
@@ -494,7 +494,7 @@ def walk(client, conn, source_key, counts, oldest=None, latest=None, actions=Non
         nonlocal event_count, login_count
         if not pending:
             return
-        events_added, logins_added = insert_rows(conn, pending, source_key, ours, counts)
+        events_added, logins_added = insert_rows(conn, pending, source_key, own_app_ids, counts)
         event_count += events_added
         login_count += logins_added
         pending.clear()
@@ -567,7 +567,7 @@ def tail(conn, client=None):
         oldest = window
     else:
         since = watermark(conn) or datetime.now(UTC) - timedelta(hours=FIRST_TAIL_HOURS)
-        oldest = since - timedelta(seconds=LAP_SECONDS)
+        oldest = since - timedelta(seconds=OVERLAP_SECONDS)
 
     try:
         with ingest_run(conn, TAIL) as counts:
@@ -649,10 +649,10 @@ def backfill(conn, client=None, actions=LOGIN_AND_CHANNEL_ACTIONS):
             event_count, login_count = walk(client, conn, source_key, counts,
                                   oldest=start, latest=stop, actions=actions)
     except Exception as failure:
-        coverage.settle_aside(source_key, slice_key, fence, "short", note=str(failure))
+        coverage.settle_on_new_connection(source_key, slice_key, fence, "short", note=str(failure))
         raise
 
-    coverage.settle(conn, source_key, slice_key, fence, "complete", landed=event_count)
+    coverage.settle(conn, source_key, slice_key, fence, "complete", loaded_count=event_count)
     conn.commit()
     print(f"{source_key} {slice_key}: {event_count} event(s), {login_count} login(s)")
     return event_count

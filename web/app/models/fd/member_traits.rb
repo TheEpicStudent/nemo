@@ -12,7 +12,7 @@ module Fd
     SQL
     IP_SQL = format(<<~SQL.squish, prefix: format(PREFIX, ip: "a.ip")).freeze
       SELECT host(a.ip) AS ip, n.network, n.class,
-             (SELECT count(*) FROM fd.member_trait t WHERE t.kind = 'ip' AND t.value = host(a.ip)) AS people
+             (SELECT count(*) FROM fd.member_trait t WHERE t.kind = 'ip' AND t.value = host(a.ip)) AS account_count
       FROM unnest(ARRAY[:ips]::inet[]) AS a(ip)
       LEFT JOIN fd.ip_network n ON n.ip_prefix = %<prefix>s
     SQL
@@ -55,9 +55,9 @@ module Fd
         .index_by { |row| row["ip"] }
       addresses.map do |address|
         network = networks[address] || {}
-        people = [network["people"].to_i, 1].max
+        account_count = [network["account_count"].to_i, 1].max
         kind = network["class"] && AuditSearch::NETWORKS.fetch(network["class"], network["class"])
-        note = [network["network"], kind, "#{people} #{'account'.pluralize(people)}"].compact_blank.join(" · ")
+        note = [network["network"], kind, "#{account_count} #{'account'.pluralize(account_count)}"].compact_blank.join(" · ")
         Value.new(key: address, text: (address if identity?), note: note)
       end
     end

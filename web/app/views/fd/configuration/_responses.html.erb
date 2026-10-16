@@ -18,14 +18,14 @@
           </label>
           <div class="field-label">
             <span>Channel</span>
-            <%= render "shared/combobox", kind: "channel", name: :channel_id, label: "search for a channel" %>
+            <%= render "shared/combobox", kind: "channel", name: :channel_id, label: "Search channels" %>
             <% if @autoresponse_channel.present? %>
-              <span class="sub2">now <%= channel_link(@autoresponse_channel) %></span>
-              <%= channel_seat_label(*@autoresponse_seat) %>
+              <span class="sub2">Current: <%= channel_link(@autoresponse_channel) %></span>
+              <%= channel_membership_label(*@autoresponse_membership) %>
             <% end %>
           </div>
           <label class="field-label">
-            Cooldown days
+            Cooldown (days)
             <%= number_field_tag :cooldown_days, @autoresponse_cooldown, class: "input",
                   id: nil, min: 1, max: Fd::ResponsesController::MAX_COOLDOWN_DAYS %>
           </label>

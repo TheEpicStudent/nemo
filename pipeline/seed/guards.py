@@ -46,8 +46,8 @@ def check_target_name(dbname=None, allow=None):
     if target_allowed(dbname, allow):
         return dbname
     raise SeedRefusedError(
-        f"{dbname or 'POSTGRES_DB'} is not a seed target. name it with a _dev, _test or "
-        f"_seed suffix, or set SEED_ALLOW_DB={dbname} if you are certain"
+        f"{dbname or 'POSTGRES_DB'} is not a seed target, use a _dev, _test or _seed suffix "
+        f"or set SEED_ALLOW_DB={dbname}"
     )
 
 
@@ -66,12 +66,9 @@ def check_no_real_data(conn, force=False):
         return foreign
     summary = ", ".join(f"{table} ({count} rows)" for table, count in foreign)
     if force:
-        print(f"seed: --force, overwriting a database that holds rows the seeder did not write: {summary}")
+        print(f"seed: --force, overwriting non-seed rows: {summary}")
         return foreign
-    raise SeedRefusedError(
-        f"this database holds rows the seeder did not write: {summary}. "
-        "seeding would mix synthetic data into it. pass --force only if you are certain"
-    )
+    raise SeedRefusedError(f"non-seed rows present: {summary}, pass --force to overwrite")
 
 
 def check(conn, force=False):

@@ -18,13 +18,13 @@ def permalink_for(client, channel_id, ts):
         return None
 
 
-def as_posted(event):
+def posted_message(event):
     if event.get("subtype") not in HANDLED_SUBTYPES:
         return None
     return event
 
 
-def as_edited(event):
+def edited_message(event):
     message = event.get("message") or {}
     if message.get("subtype") not in HANDLED_SUBTYPES:
         return None
@@ -38,8 +38,8 @@ def as_edited(event):
     }
 
 
-def message_in(event):
-    message = as_edited(event) if event.get("subtype") == EDITED else as_posted(event)
+def message_from_event(event):
+    message = edited_message(event) if event.get("subtype") == EDITED else posted_message(event)
     if not message:
         return None
     if not message.get("user") or not message.get("channel") or not message.get("ts"):
@@ -48,12 +48,12 @@ def message_in(event):
 
 
 @on_event("message", open_to_all=True)
-def watched(ctx):
-    message = message_in(ctx.payload or {})
+def match_automod_rules(ctx):
+    message = message_from_event(ctx.payload or {})
     if not message:
         return None
 
-    rules = automod.caught(message.get("text"))
+    rules = automod.matching_rules(message.get("text"))
     if not rules:
         return None
     if not userbots.posted_by_person(ctx.client, message):

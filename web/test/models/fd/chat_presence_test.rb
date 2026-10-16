@@ -11,7 +11,7 @@ class Fd::ChatPresenceTest < ActiveSupport::TestCase
 
   teardown { Rails.cache = @original_cache }
 
-  test "arriving and leaving keeps the list of who is here" do
+  test "join and leave update present_user_ids" do
     Fd::ChatPresence.join(@kase.id, "UME")
     Fd::ChatPresence.join(@kase.id, "UYOU")
     assert_equal %w[UME UYOU], Fd::ChatPresence.present_user_ids(@kase.id).sort
@@ -20,7 +20,7 @@ class Fd::ChatPresenceTest < ActiveSupport::TestCase
     assert_equal %w[UYOU], Fd::ChatPresence.present_user_ids(@kase.id)
   end
 
-  test "two tabs of one person count as here until both are gone" do
+  test "present_user_ids keeps a user joined twice until both leave" do
     2.times { Fd::ChatPresence.join(@kase.id, "UME") }
     Fd::ChatPresence.leave(@kase.id, "UME")
     assert_equal %w[UME], Fd::ChatPresence.present_user_ids(@kase.id)
@@ -29,12 +29,12 @@ class Fd::ChatPresenceTest < ActiveSupport::TestCase
     assert_empty Fd::ChatPresence.present_user_ids(@kase.id)
   end
 
-  test "leaving a case nobody was on does not go negative" do
+  test "leave without a prior join keeps present_user_ids empty" do
     Fd::ChatPresence.leave(@kase.id, "UME")
     assert_empty Fd::ChatPresence.present_user_ids(@kase.id)
   end
 
-  test "somebody whose tab died without saying goodbye drops off once they stop beating" do
+  test "present_user_ids drops a user that sent no heartbeat within the timeout" do
     Fd::ChatPresence.join(@kase.id, "UME")
     Fd::ChatPresence.join(@kase.id, "UYOU")
 
@@ -44,11 +44,11 @@ class Fd::ChatPresenceTest < ActiveSupport::TestCase
     end
 
     travel 100.seconds do
-      assert_equal %w[UYOU], Fd::ChatPresence.present_user_ids(@kase.id), "UME never beat again"
+      assert_equal %w[UYOU], Fd::ChatPresence.present_user_ids(@kase.id), "UME sent no heartbeat"
     end
   end
 
-  test "an entry written before heartbeats is treated as gone, not as an error" do
+  test "present_user_ids returns empty for a cache entry in the pre-heartbeat format" do
     Rails.cache.write("chat_presence/#{@kase.id}", { "UOLD" => 1 })
     assert_empty Fd::ChatPresence.present_user_ids(@kase.id)
 
@@ -56,12 +56,12 @@ class Fd::ChatPresenceTest < ActiveSupport::TestCase
     assert_equal %w[UME], Fd::ChatPresence.present_user_ids(@kase.id)
   end
 
-  test "a beat from somebody the cache forgot puts them back" do
+  test "heartbeat adds a user missing from the cache" do
     Fd::ChatPresence.heartbeat(@kase.id, "UME")
     assert_equal %w[UME], Fd::ChatPresence.present_user_ids(@kase.id)
   end
 
-  test "only a change in who is here is broadcast" do
+  test "join and leave broadcast once each and heartbeat does not broadcast" do
     assert_broadcasts("case_#{@kase.id}_chat", 1) { Fd::ChatPresence.join(@kase.id, "UME") }
     assert_broadcasts("case_#{@kase.id}_chat", 0) { Fd::ChatPresence.heartbeat(@kase.id, "UME") }
     assert_broadcasts("case_#{@kase.id}_chat", 1) { Fd::ChatPresence.leave(@kase.id, "UME") }

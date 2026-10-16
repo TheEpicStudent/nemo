@@ -25,22 +25,22 @@ class Conn:
         raise AssertionError(sql)
 
 
-def test_exempt_query_covers_workspace_and_org_roles_and_staff():
+def test_exempt_sql_covers_admin_owner_roles_and_staff_capability():
     for column in ("m.is_admin", "m.is_owner", "m.is_org_admin", "m.is_org_owner"):
         assert column in exemptions.EXEMPT
     assert "app.holds_capability(%s, %s)" in exemptions.EXEMPT
-    assert exemptions.STAFF == "case.read"
+    assert exemptions.STAFF_CAPABILITY == "case.read"
 
 
 @pytest.mark.parametrize("exempt", [True, False])
-def test_is_exempt_reads_roles_and_capability(exempt):
+def test_is_exempt_with_user_runs_exempt_query_and_returns_result(exempt):
     conn = Conn(exempt=exempt)
 
     assert exemptions.is_exempt(conn, USER_ID) is exempt
-    assert conn.executed == [(exemptions.EXEMPT, (USER_ID, exemptions.STAFF, USER_ID))]
+    assert conn.executed == [(exemptions.EXEMPT, (USER_ID, exemptions.STAFF_CAPABILITY, USER_ID))]
 
 
-def test_is_exempt_without_user_is_false_without_query():
+def test_is_exempt_without_user_returns_false_and_runs_no_query():
     conn = Conn(exempt=True)
 
     assert exemptions.is_exempt(conn, None) is False
@@ -54,5 +54,5 @@ def test_is_exempt_without_user_is_false_without_query():
     (USER_ID, False, True, True),
     (USER_ID, False, False, False),
 ])
-def test_thread_guard_exempt_covers_opener_bots_and_staff(user_id, bot, exempt, expected):
+def test_guards_exempt_matches_opener_bot_staff_or_missing_user(user_id, bot, exempt, expected):
     assert guards.exempt(Conn(bot=bot, exempt=exempt), user_id, OPENER_ID) is expected

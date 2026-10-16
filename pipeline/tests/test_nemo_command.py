@@ -10,13 +10,13 @@ USER_MENTION = f"<@{USER_ID}|somebody>"
 CHANNEL_MENTION = f"<#{CHANNEL_ID}|lounge>"
 
 
-def test_shush_is_asked_for_like_the_other_verbs():
+def test_parse_command_shush_returns_verb_target_and_body():
     verb, target, body = command.parse_command(f"shush {USER_MENTION} 3d flooding the channel")
 
     assert (verb, target, body) == (command.SHUSH, USER_ID, "3d flooding the channel")
 
 
-def test_shush_needs_the_member_guard_capability():
+def test_needed_shush_requires_member_guard():
     assert command.NEEDED[command.SHUSH] == "member.guard"
 
 
@@ -30,89 +30,89 @@ NOW = dt.datetime(2026, 10, 16, 9, 30, tzinfo=dt.UTC)
     ("2w", dt.timedelta(weeks=2)),
     ("1D", dt.timedelta(days=1)),
 ])
-def test_ends_at_length_adds_to_now(text, length):
-    assert command.ends_at(text, NOW) == NOW + length
+def test_parse_end_length_adds_to_now(text, length):
+    assert command.parse_end(text, NOW) == NOW + length
 
 
-def test_ends_at_date_ends_at_end_of_day():
-    assert command.ends_at("2026-11-20", NOW) == dt.datetime(2026, 11, 20, 23, 59, 59, tzinfo=dt.UTC)
+def test_parse_end_date_returns_end_of_day():
+    assert command.parse_end("2026-11-20", NOW) == dt.datetime(2026, 11, 20, 23, 59, 59, tzinfo=dt.UTC)
 
 
 @pytest.mark.parametrize("text", ["0m", "366d", "53w", "soon", "", "-3d", "2026-13-01",
                                   "2026-10-16", "2026-10-15", "2027-12-01"])
-def test_ends_at_out_of_range_reads_as_none(text):
-    assert command.ends_at(text, NOW) is None
+def test_parse_end_out_of_range_returns_none(text):
+    assert command.parse_end(text, NOW) is None
 
 
-def test_for_how_long_splits_length_off_reason():
-    assert command.for_how_long("2w  flooding   #lounge", NOW) == \
+def test_parse_end_and_reason_splits_length_from_reason():
+    assert command.parse_end_and_reason("2w  flooding   #lounge", NOW) == \
         (True, NOW + dt.timedelta(weeks=2), "flooding #lounge")
 
 
-def test_for_how_long_without_length_has_no_end():
-    assert command.for_how_long("flooding the channel", NOW) == (True, None, "flooding the channel")
+def test_parse_end_and_reason_without_length_returns_no_end():
+    assert command.parse_end_and_reason("flooding the channel", NOW) == (True, None, "flooding the channel")
 
 
-def test_for_how_long_reason_starting_with_number_has_no_end():
-    assert command.for_how_long("3 spam messages", NOW) == (True, None, "3 spam messages")
+def test_parse_end_and_reason_number_in_reason_returns_no_end():
+    assert command.parse_end_and_reason("3 spam messages", NOW) == (True, None, "3 spam messages")
 
 
-def test_for_how_long_bad_length_is_invalid():
-    assert command.for_how_long("400d spamming", NOW) == (False, None, "spamming")
+def test_parse_end_and_reason_bad_length_returns_invalid():
+    assert command.parse_end_and_reason("400d spamming", NOW) == (False, None, "spamming")
 
 
-def test_for_how_long_length_without_reason_has_no_reason():
-    assert command.for_how_long("3d", NOW) == (True, NOW + dt.timedelta(days=3), None)
+def test_parse_end_and_reason_length_only_returns_no_reason():
+    assert command.parse_end_and_reason("3d", NOW) == (True, NOW + dt.timedelta(days=3), None)
 
 
-def test_shushed_with_no_end_says_so():
-    assert command.shushed("U1", None, "spamming") == \
+def test_shush_confirmation_without_end_shows_no_end_date():
+    assert command.shush_confirmation("U1", None, "spamming") == \
         "<@U1> has been shushed with no end date. Reason: spamming"
 
 
-def test_banned_with_time_shows_utc_time():
-    assert command.banned("U1", "C1", dt.datetime(2026, 10, 16, 11, 30, tzinfo=dt.UTC), "spamming") == \
+def test_ban_confirmation_with_time_shows_utc_time():
+    assert command.ban_confirmation("U1", "C1", dt.datetime(2026, 10, 16, 11, 30, tzinfo=dt.UTC), "spamming") == \
         "<@U1> has been banned from <#C1> until 16 Oct, 11:30 UTC. Reason: spamming"
 
 
-def test_channelban_is_asked_for_like_the_other_verbs():
+def test_parse_command_channelban_returns_verb_target_and_body():
     verb, target, body = command.parse_command(f"channelban {USER_MENTION} {CHANNEL_MENTION} 3d flooding it")
 
     assert (verb, target, body) == (command.CHANNEL_BAN, USER_ID, f"{CHANNEL_MENTION} 3d flooding it")
 
 
-def test_channelban_needs_the_member_guard_capability():
+def test_needed_channel_ban_requires_member_guard():
     assert command.NEEDED[command.CHANNEL_BAN] == "member.guard"
 
 
-def test_the_channel_is_split_off_wherever_it_was_said():
-    assert command.in_a_channel(f"{CHANNEL_MENTION} 3d flooding it") == (CHANNEL_ID, "3d flooding it")
-    assert command.in_a_channel(f"3d flooding {CHANNEL_MENTION}") == (CHANNEL_ID, "3d flooding")
+def test_extract_channel_mention_at_start_or_end_returns_channel_and_rest():
+    assert command.extract_channel(f"{CHANNEL_MENTION} 3d flooding it") == (CHANNEL_ID, "3d flooding it")
+    assert command.extract_channel(f"3d flooding {CHANNEL_MENTION}") == (CHANNEL_ID, "3d flooding")
 
 
-def test_a_ban_with_no_channel_is_held_back():
-    assert command.in_a_channel("3d flooding it") == (None, None)
-    assert command.in_a_channel("3d flooding #lounge") == (None, None)
+def test_extract_channel_without_mention_returns_none():
+    assert command.extract_channel("3d flooding it") == (None, None)
+    assert command.extract_channel("3d flooding #lounge") == (None, None)
 
 
-def test_the_length_still_reads_after_the_channel_comes_out():
-    channel_id, remainder = command.in_a_channel(f"{CHANNEL_MENTION} 2w flooding it")
+def test_parse_end_and_reason_after_extract_channel_parses_remainder():
+    channel_id, remainder = command.extract_channel(f"{CHANNEL_MENTION} 2w flooding it")
 
     assert channel_id == CHANNEL_ID
-    assert command.for_how_long(remainder, NOW) == (True, NOW + dt.timedelta(weeks=2), "flooding it")
+    assert command.parse_end_and_reason(remainder, NOW) == (True, NOW + dt.timedelta(weeks=2), "flooding it")
 
 
-def test_the_help_card_lists_shush_only_for_who_holds_it():
-    help_text = command.helping.flat({"member.guard"})
+def test_fallback_text_lists_shush_only_with_member_guard():
+    help_text = command.helping.fallback_text({"member.guard"})
 
     assert "/nemo shush" in help_text
     assert "/nemo channelban" in help_text
-    assert "/nemo shush" not in command.helping.flat({"case.read"})
+    assert "/nemo shush" not in command.helping.fallback_text({"case.read"})
 
 
 REPORT_CASE = "JOIN fd.case_reports r ON r.case_id = c.id"
 QUEUE_CASE = "SELECT id, category_key"
-OPENING = "mirrored_as = 'card'"
+OPENING_SQL = "mirrored_as = 'card'"
 ACTION_COUNT = "FROM fd.actions"
 
 
@@ -144,50 +144,50 @@ def report_case_row(case_id, body):
             None)
 
 
-def test_case_answer_falls_back_to_the_queue_card():
-    conn = Conn({QUEUE_CASE: queue_case_row(12), OPENING: (7, "spam in the lounge")})
+def test_case_reply_queue_case_includes_opening_text():
+    conn = Conn({QUEUE_CASE: queue_case_row(12), OPENING_SQL: (7, "spam in the lounge")})
 
-    answer = command.case_answer(conn, 12)
+    reply = command.case_reply(conn, 12)
 
-    assert answer["text"] == "case 12"
-    assert "spam in the lounge" in str(answer["blocks"])
-
-
-def test_case_answer_without_an_opening_shows_the_header():
-    answer = command.case_answer(Conn({QUEUE_CASE: queue_case_row(12)}), 12)
-
-    assert "Case 12" in str(answer["blocks"])
+    assert reply["text"] == "Case 12"
+    assert "spam in the lounge" in str(reply["blocks"])
 
 
-def test_case_answer_keeps_the_report_quote():
+def test_case_reply_without_opening_shows_header():
+    reply = command.case_reply(Conn({QUEUE_CASE: queue_case_row(12)}), 12)
+
+    assert "Case 12" in str(reply["blocks"])
+
+
+def test_case_reply_report_case_includes_report_body():
     conn = Conn({REPORT_CASE: report_case_row(12, "they spammed"), ACTION_COUNT: (0,)})
 
-    answer = command.case_answer(conn, 12)
+    reply = command.case_reply(conn, 12)
 
-    assert "they spammed" in str(answer["blocks"])
-
-
-def test_case_answer_for_an_unknown_number():
-    assert command.case_answer(Conn({}), 99)["text"] == "There is no case 99."
+    assert "they spammed" in str(reply["blocks"])
 
 
-def test_slowmode_is_asked_for_like_the_other_verbs():
+def test_case_reply_unknown_case_returns_not_found():
+    assert command.case_reply(Conn({}), 99)["text"] == "Case 99 not found"
+
+
+def test_parse_command_slowmode_returns_no_target_and_full_body():
     verb, target, body = command.parse_command(f"slowmode {CHANNEL_MENTION} 30s 2h heated thread")
 
     assert (verb, target, body) == (command.SLOWMODE, None, f"{CHANNEL_MENTION} 30s 2h heated thread")
 
 
-def test_slowmode_needs_the_channel_guard_capability():
+def test_needed_slowmode_requires_channel_guard():
     assert command.NEEDED[command.SLOWMODE] == "channel.guard"
 
 
 @pytest.mark.parametrize(("text", "seconds"), [("30s", 30), ("30", 30), ("2m", 120), ("3600", 3600),
                                                ("0s", None), ("3601", None), ("61m", None), ("fast", None)])
-def test_cooldown_of_reads_seconds_and_minutes(text, seconds):
+def test_cooldown_of_parses_seconds_and_minutes(text, seconds):
     assert command.cooldown_of(text) == seconds
 
 
-def test_slowmode_request_with_channel_and_duration():
+def test_slowmode_request_channel_and_duration_returns_request():
     request, problem = command.slowmode_request(f"{CHANNEL_MENTION} 30s 2h heated thread", "CHERE", NOW)
 
     assert problem is None
@@ -201,17 +201,17 @@ def test_slowmode_request_without_duration_has_no_end():
     assert (request["seconds"], request["expires_at"], request["reason"]) == (45, None, "heated thread")
 
 
-def test_slowmode_request_without_channel_uses_this_one():
+def test_slowmode_request_without_channel_uses_current_channel():
     request, _problem = command.slowmode_request("1m heated", "CHERE", NOW)
 
     assert request["channel_id"] == "CHERE"
 
 
-def test_slowmode_request_in_a_dm_needs_a_channel():
+def test_slowmode_request_in_dm_returns_usage():
     assert command.slowmode_request("30s heated", "D123", NOW) == (None, command.TEXT_USAGE[command.SLOWMODE])
 
 
-def test_slowmode_request_off_disables():
+def test_slowmode_request_off_returns_off_request():
     assert command.slowmode_request(f"{CHANNEL_MENTION} off", "CHERE", NOW) == \
         ({"channel_id": CHANNEL_ID, "off": True}, None)
 
@@ -221,18 +221,18 @@ def test_slowmode_request_off_disables():
     (f"{CHANNEL_MENTION} 30s 400d heated", command.DURATION_USAGE[command.SLOWMODE]),
     (f"{CHANNEL_MENTION} 30s 2h", command.SLOWMODE_REASON_USAGE),
 ])
-def test_slowmode_request_refuses_bad_input(body, problem):
+def test_slowmode_request_bad_input_returns_usage(body, problem):
     assert command.slowmode_request(body, "CHERE", NOW) == (None, problem)
 
 
 @pytest.fixture
-def guards_calls(monkeypatch):
-    calls = {"row": None, "opened": [], "tuned": [], "lifted": []}
+def channel_guard_calls(monkeypatch):
+    calls = {"row": None, "opened": [], "updated": [], "lifted": []}
     monkeypatch.setattr(command.channelguards, "slowmode_row", lambda conn, channel_id: calls["row"])
     monkeypatch.setattr(command.channelguards, "open_slowmode",
                         lambda conn, *args, **kwargs: calls["opened"].append((args, kwargs)) or 5)
-    monkeypatch.setattr(command.channelguards, "tune_slowmode",
-                        lambda conn, row, *args: calls["tuned"].append(args) or row["id"])
+    monkeypatch.setattr(command.channelguards, "update_slowmode",
+                        lambda conn, row, *args: calls["updated"].append(args) or row["id"])
     monkeypatch.setattr(command.channelguards, "lift",
                         lambda conn, guard_id, by: calls["lifted"].append(guard_id) or CHANNEL_ID)
     return calls
@@ -244,98 +244,98 @@ def request_for(**over):
     return row
 
 
-def test_apply_slowmode_new_opens_guard_with_notice(guards_calls):
-    answer = command.apply_slowmode(object(), request_for(), "UMOD")
+def test_apply_slowmode_new_opens_guard_with_notice(channel_guard_calls):
+    reply = command.apply_slowmode(object(), request_for(), "UMOD")
 
-    assert guards_calls["opened"] == [((CHANNEL_ID, "", 30, "UMOD", "heated", None), {"notice_wanted": True})]
-    assert answer == f"Slow mode enabled in <#{CHANNEL_ID}> · 30s cooldown · no end date · Reason: heated"
-
-
-def test_apply_slowmode_existing_updates(guards_calls):
-    guards_calls["row"] = {"id": 9, "seconds": 60, "expires_at": None, "reason": "old"}
-
-    answer = command.apply_slowmode(object(), request_for(seconds=120), "UMOD")
-
-    assert guards_calls["tuned"] == [(120, "UMOD", "heated", None)]
-    assert answer.startswith(f"Slow mode updated in <#{CHANNEL_ID}> · 2m cooldown")
+    assert channel_guard_calls["opened"] == [((CHANNEL_ID, "", 30, "UMOD", "heated", None), {"notice_wanted": True})]
+    assert reply == f"Slow mode enabled in <#{CHANNEL_ID}> · 30s cooldown · no end date · Reason: heated"
 
 
-def test_apply_slowmode_off_lifts_or_says_there_is_none(guards_calls):
+def test_apply_slowmode_existing_row_updates_guard(channel_guard_calls):
+    channel_guard_calls["row"] = {"id": 9, "seconds": 60, "expires_at": None, "reason": "old"}
+
+    reply = command.apply_slowmode(object(), request_for(seconds=120), "UMOD")
+
+    assert channel_guard_calls["updated"] == [(120, "UMOD", "heated", None)]
+    assert reply.startswith(f"Slow mode updated in <#{CHANNEL_ID}> · 2m cooldown")
+
+
+def test_apply_slowmode_off_lifts_guard_or_reports_none(channel_guard_calls):
     assert command.apply_slowmode(object(), request_for(off=True), "UMOD") == f"No slow mode in <#{CHANNEL_ID}>"
 
-    guards_calls["row"] = {"id": 9}
+    channel_guard_calls["row"] = {"id": 9}
     assert command.apply_slowmode(object(), request_for(off=True), "UMOD") == \
         f"Slow mode disabled in <#{CHANNEL_ID}>"
-    assert guards_calls["lifted"] == [9]
+    assert channel_guard_calls["lifted"] == [9]
 
 
-def test_the_help_card_lists_slowmode_for_channel_guard():
-    assert "/nemo slowmode" in command.helping.flat({"channel.guard"})
-    assert "/nemo slowmode" not in command.helping.flat({"member.guard"})
+def test_fallback_text_lists_slowmode_only_with_channel_guard():
+    assert "/nemo slowmode" in command.helping.fallback_text({"channel.guard"})
+    assert "/nemo slowmode" not in command.helping.fallback_text({"member.guard"})
 
 
-def test_unshush_and_unban_name_a_member():
+def test_parse_command_unshush_and_unban_return_member_target():
     assert command.parse_command(f"unshush {USER_MENTION}") == (command.UNSHUSH, USER_ID, None)
     assert command.parse_command(f"unban {USER_MENTION} {CHANNEL_MENTION} appeal upheld") == \
         (command.UNBAN, USER_ID, f"{CHANNEL_MENTION} appeal upheld")
 
 
-def test_unshush_and_unban_need_the_member_guard_capability():
+def test_needed_unshush_and_unban_require_member_guard():
     assert command.NEEDED[command.UNSHUSH] == command.NEEDED[command.UNBAN] == "member.guard"
 
 
 @pytest.fixture
 def member_guards(monkeypatch):
-    state = {"guard": {"id": 7, "state": "live"}, "asked": [], "lifted": []}
+    state = {"guard": {"id": 7, "state": "live"}, "lookups": [], "lifted": []}
     monkeypatch.setattr(command.memberguards, "active_guard",
                         lambda conn, user_id, kind, channel_id=None:
-                        state["asked"].append((user_id, kind, channel_id)) or state["guard"])
+                        state["lookups"].append((user_id, kind, channel_id)) or state["guard"])
     monkeypatch.setattr(command.memberguards, "lift",
                         lambda conn, guard_id, by, why, kind=None:
                         state["lifted"].append((guard_id, by, why, kind)) or True)
     return state
 
 
-def test_unshushed_lifts_the_live_shush(member_guards):
-    assert command.unshushed(object(), USER_ID, None, "UMOD") == f"<@{USER_ID}> has been unshushed"
-    assert member_guards["asked"] == [(USER_ID, "shush", None)]
+def test_unshush_live_shush_lifts_guard(member_guards):
+    assert command.unshush(object(), USER_ID, None, "UMOD") == f"<@{USER_ID}> has been unshushed"
+    assert member_guards["lookups"] == [(USER_ID, "shush", None)]
     assert member_guards["lifted"] == [(7, "UMOD", None, "shush")]
 
 
-def test_unshushed_with_a_reason_says_it(member_guards):
-    assert command.unshushed(object(), USER_ID, "appeal upheld", "UMOD") == \
+def test_unshush_with_reason_includes_reason(member_guards):
+    assert command.unshush(object(), USER_ID, "appeal upheld", "UMOD") == \
         f"<@{USER_ID}> has been unshushed. Reason: appeal upheld"
 
 
-def test_unshushed_without_a_shush_says_so(member_guards):
+def test_unshush_without_shush_reports_not_shushed(member_guards):
     member_guards["guard"] = None
 
-    assert command.unshushed(object(), USER_ID, None, "UMOD") == f"<@{USER_ID}> is not shushed"
+    assert command.unshush(object(), USER_ID, None, "UMOD") == f"<@{USER_ID}> is not shushed"
     assert member_guards["lifted"] == []
 
 
-def test_unbanned_lifts_the_ban_in_that_channel(member_guards):
-    answer = command.unbanned(object(), USER_ID, f"{CHANNEL_MENTION} appeal upheld", "UMOD")
+def test_unban_with_channel_lifts_channel_ban(member_guards):
+    reply = command.unban(object(), USER_ID, f"{CHANNEL_MENTION} appeal upheld", "UMOD")
 
-    assert answer == f"<@{USER_ID}> has been unbanned from <#{CHANNEL_ID}>. Reason: appeal upheld"
-    assert member_guards["asked"] == [(USER_ID, "channel_ban", CHANNEL_ID)]
+    assert reply == f"<@{USER_ID}> has been unbanned from <#{CHANNEL_ID}>. Reason: appeal upheld"
+    assert member_guards["lookups"] == [(USER_ID, "channel_ban", CHANNEL_ID)]
     assert member_guards["lifted"] == [(7, "UMOD", "appeal upheld", "channel_ban")]
 
 
-def test_unbanned_without_a_channel_asks_for_it(member_guards):
-    assert command.unbanned(object(), USER_ID, None, "UMOD") == command.UNBAN_CHANNEL_USAGE
+def test_unban_without_channel_returns_usage(member_guards):
+    assert command.unban(object(), USER_ID, None, "UMOD") == command.UNBAN_CHANNEL_USAGE
     assert member_guards["lifted"] == []
 
 
-def test_unbanned_without_a_ban_says_so(member_guards):
+def test_unban_without_ban_reports_not_banned(member_guards):
     member_guards["guard"] = None
 
-    assert command.unbanned(object(), USER_ID, CHANNEL_MENTION, "UMOD") == \
+    assert command.unban(object(), USER_ID, CHANNEL_MENTION, "UMOD") == \
         f"<@{USER_ID}> is not banned from <#{CHANNEL_ID}>"
 
 
-def test_the_help_card_lists_unshush_and_unban():
-    help_text = command.helping.flat({"member.guard"})
+def test_fallback_text_lists_unshush_and_unban():
+    help_text = command.helping.fallback_text({"member.guard"})
 
     assert "/nemo unshush" in help_text
     assert "/nemo unban" in help_text
@@ -348,7 +348,7 @@ def test_the_help_card_lists_unshush_and_unban():
     ("open U0123ABCD alt account", (command.OPEN, "U0123ABCD", "alt account")),
     ("purge U0123ABCD", (command.PURGE, "U0123ABCD", None)),
 ])
-def test_parse_command_accepts_a_bare_user_id(text, parsed):
+def test_parse_command_bare_user_id_returns_target(text, parsed):
     assert command.parse_command(text) == parsed
 
 
@@ -359,10 +359,10 @@ def test_parse_command_accepts_a_bare_user_id(text, parsed):
     ("note spammed by U0123ABCD", (command.NOTE, None, "spammed by U0123ABCD")),
     ("slowmode U0123ABCD 30s", (command.SLOWMODE, None, "U0123ABCD 30s")),
 ])
-def test_parse_command_ignores_words_that_are_not_a_leading_user_id(text, parsed):
+def test_parse_command_non_leading_user_id_returns_no_target(text, parsed):
     assert command.parse_command(text) == parsed
 
 
-def test_parse_command_prefers_a_mention_over_a_bare_user_id():
+def test_parse_command_mention_overrides_bare_user_id():
     assert command.parse_command("note U0123ABCD about <@U9999ZZZZ>") == \
         (command.NOTE, "U9999ZZZZ", "U0123ABCD about")

@@ -13,7 +13,7 @@ module Settings
     end
 
     def turned_off
-      "#{Fd::Flag.label(:public_api).downcase} is turned off"
+      "#{Fd::Flag.label(:public_api)} turned off"
     end
   end
 end

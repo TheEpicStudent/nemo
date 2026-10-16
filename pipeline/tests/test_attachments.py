@@ -39,19 +39,19 @@ def stub_file_body(monkeypatch, kind):
     monkeypatch.setattr(attachments.blobs, "body_of", lambda conn, sha: (b"bytes", kind))
 
 
-def test_a_bodyless_report_says_nothing_in_its_place():
+def test_quote_text_and_member_parts_empty_body_return_empty():
     assert quote_text("") == ""
     assert member_parts(None) == []
 
 
-def test_a_bodyless_report_has_no_empty_quote_to_reject():
+def test_build_blocks_empty_body_omits_rich_text_quote():
     built = report.build_blocks({"case_id": 1, "body": "", "files": [], "shares": []})
     kinds = [block["type"] for block in built]
     assert "rich_text" not in kinds, "an empty quote is invalid blocks"
     assert kinds[0] == "section"
 
 
-def test_a_picture_goes_up_wearing_the_reporters_face(monkeypatch):
+def test_share_image_uploads_privately_and_posts_image_block(monkeypatch):
     stub_file_body(monkeypatch, "image/png")
     conn = Conn([(7, "shot.png", "image/png", "abc", 100)])
     slack = Slack()
@@ -65,12 +65,12 @@ def test_a_picture_goes_up_wearing_the_reporters_face(monkeypatch):
     assert message["blocks"] == [{
         "type": "image",
         "slack_file": {"id": "F1"},
-        "alt_text": "screenshot the reporter sent, shot.png",
+        "alt_text": "Screenshot from reporter: shot.png",
     }]
     assert conn.written == [("F1", 5, 7)]
 
 
-def test_a_picture_gets_a_moment_to_index_before_it_is_referenced(monkeypatch):
+def test_share_image_sleeps_file_index_delay(monkeypatch):
     stub_file_body(monkeypatch, "image/png")
     conn = Conn([(7, "shot.png", "image/png", "abc", 100)])
     slack = Slack()
@@ -82,7 +82,7 @@ def test_a_picture_gets_a_moment_to_index_before_it_is_referenced(monkeypatch):
     assert sleeps == [attachments.FILE_INDEX_DELAY]
 
 
-def test_words_with_no_picture_do_not_wait_on_slack_to_index_anything(monkeypatch):
+def test_share_body_without_files_does_not_sleep(monkeypatch):
     conn = Conn([])
     slack = Slack()
     sleeps = []
@@ -93,7 +93,7 @@ def test_words_with_no_picture_do_not_wait_on_slack_to_index_anything(monkeypatc
     assert sleeps == []
 
 
-def test_words_and_picture_ride_the_same_message(monkeypatch):
+def test_share_body_and_image_posts_one_message(monkeypatch):
     stub_file_body(monkeypatch, "image/png")
     conn = Conn([(7, "shot.png", "image/png", "abc", 100)])
     slack = Slack()
@@ -105,7 +105,7 @@ def test_words_and_picture_ride_the_same_message(monkeypatch):
     assert kinds == ["section", "image"]
 
 
-def test_a_file_slack_will_not_render_is_named_then_uploaded(monkeypatch):
+def test_share_pdf_lists_file_name_and_uploads_to_channel(monkeypatch):
     stub_file_body(monkeypatch, "application/pdf")
     conn = Conn([(7, "notes.pdf", "application/pdf", "abc", None)])
     slack = Slack()
@@ -118,7 +118,7 @@ def test_a_file_slack_will_not_render_is_named_then_uploaded(monkeypatch):
     assert slack.uploads[0]["channel"] == CHANNEL_ID, "a file slack cannot block goes up on its own"
 
 
-def test_nothing_to_carry_posts_nothing(monkeypatch):
+def test_share_without_files_or_body_returns_none_and_posts_nothing(monkeypatch):
     conn = Conn([])
     slack = Slack()
 
@@ -126,21 +126,21 @@ def test_nothing_to_carry_posts_nothing(monkeypatch):
     assert slack.posted == []
 
 
-def test_a_face_slack_cannot_reach_is_not_offered(monkeypatch):
+def test_anonymous_icon_url_returns_none_for_localhost_and_url_otherwise(monkeypatch):
     monkeypatch.delenv("ANONYMOUS_ICON_URL", raising=False)
     monkeypatch.setenv("APP_HOST", "localhost:3000")
-    assert channel.anonymous_face() is None, "slack cannot fetch localhost"
+    assert channel.anonymous_icon_url() is None, "slack cannot fetch localhost"
 
     monkeypatch.setenv("APP_HOST", "fire.hackclub.com")
-    assert channel.anonymous_face() == "https://fire.hackclub.com/anonymous.png"
+    assert channel.anonymous_icon_url() == "https://fire.hackclub.com/anonymous.png"
 
     monkeypatch.setenv("ANONYMOUS_ICON_URL", "https://elsewhere.example/a.png")
-    assert channel.anonymous_face() == "https://elsewhere.example/a.png"
+    assert channel.anonymous_icon_url() == "https://elsewhere.example/a.png"
 
 
-def test_an_anonymous_reporter_is_worn_like_any_other_face(monkeypatch):
+def test_reporter_author_fields_anonymous_returns_username_and_icon_url(monkeypatch):
     monkeypatch.setenv("ANONYMOUS_ICON_URL", "https://fire.example/anonymous.png")
-    identity = channel.as_reporter(None, True, None)
+    identity = channel.reporter_author_fields(None, True, None)
     assert identity["username"] == "Anonymous"
     assert identity["icon_url"] == "https://fire.example/anonymous.png"
 
@@ -156,32 +156,32 @@ def card(**over):
     return report.build_blocks(case)
 
 
-def test_the_card_is_the_report_and_nothing_else():
+def test_build_blocks_returns_single_plain_rich_text_section():
     built = card(url=CASE_URL)
     assert [block["type"] for block in built] == ["rich_text"]
     assert built[0]["elements"][0]["type"] == "rich_text_section", "plain text, not a quote"
     assert "Case 2" not in str(built), "the case number lives in the thread"
 
 
-def test_the_card_holds_only_the_report():
+def test_build_blocks_excludes_reporter_subject_and_category_text():
     text = str(card(is_anonymous=False))
     for excluded in ("UALICE", "UBOB", "Bullying", "reported", "overflow"):
         assert excluded not in text
 
 
-def test_the_thread_header_links_the_case():
+def test_header_blocks_with_url_links_case_number():
     case = {"case_id": 2, "url": CASE_URL}
     assert report.header_blocks(case)[0]["text"]["text"] == f"<{CASE_URL}|Case 2>"
     assert report.header_blocks({"case_id": 2})[0]["text"]["text"] == "Case 2"
 
 
-def test_a_card_with_nothing_said_names_the_case_instead():
+def test_build_blocks_empty_body_returns_header_blocks():
     built = card(body="", blocks=None, url=CASE_URL)
     assert built == report.header_blocks({"case_id": 2, "url": CASE_URL})
     assert not report.needs_header({"case_id": 2, "body": "", "shares": []})
 
 
-def test_the_quote_keeps_slacks_own_styling_when_it_is_simple():
+def test_build_blocks_simple_rich_text_keeps_bold_style():
     blocks = [{"type": "rich_text", "elements": [
         {"type": "rich_text_section", "elements": [
             {"type": "text", "text": "this is "},
@@ -194,7 +194,7 @@ def test_the_quote_keeps_slacks_own_styling_when_it_is_simple():
     assert {"type": "text", "text": "urgent", "style": {"bold": True}} in runs
 
 
-def test_a_list_in_the_report_falls_back_to_plain_text():
+def test_build_blocks_rich_text_list_falls_back_to_plain_body():
     blocks = [{"type": "rich_text", "elements": [
         {"type": "rich_text_list", "style": "bullet", "elements": [
             {"type": "rich_text_section", "elements": [{"type": "text", "text": "one"}]},
@@ -207,7 +207,7 @@ def test_a_list_in_the_report_falls_back_to_plain_text():
     ]
 
 
-def test_no_blocks_at_all_still_quotes_the_plain_body():
+def test_build_blocks_without_blocks_quotes_plain_body():
     built = card(blocks=None)
     quote = next(b for b in built if b["type"] == "rich_text")
     assert quote["elements"][0]["elements"] == [
@@ -215,7 +215,7 @@ def test_no_blocks_at_all_still_quotes_the_plain_body():
     ]
 
 
-def test_the_card_wears_the_reporters_face_but_keeps_its_metadata(monkeypatch):
+def test_author_display_fields_anonymous_omits_metadata(monkeypatch):
     monkeypatch.setenv("ANONYMOUS_ICON_URL", "https://fire.example/anonymous.png")
     identity = channel.author_display_fields(None, True, None)
     assert identity == {
@@ -228,7 +228,7 @@ def test_the_card_wears_the_reporters_face_but_keeps_its_metadata(monkeypatch):
 LINK = "https://hackclub.slack.com/archives/C0BNYU3JK3Q/p1786970526885769"
 
 
-def linked(**over):
+def link_share(**over):
     share = {"kind": "unfurl", "source_channel_id": "C0BNYU3JK3Q", "source_channel_name": None,
              "source_ts": "1786970526.885769", "is_reachable": True,
              "source_author_user_id": "U092KBRD5SB", "source_body": "mmm", "permalink": LINK}
@@ -244,25 +244,25 @@ def quotes(built):
     return [b for b in built if b["type"] == "rich_text"]
 
 
-def test_a_link_slack_never_resolved_is_still_quoted():
-    built = card_with_link([linked(is_reachable=False, source_body=None, permalink=None)])
+def test_build_blocks_unreachable_link_share_keeps_link_quote():
+    built = card_with_link([link_share(is_reachable=False, source_body=None, permalink=None)])
 
     quote_blocks = quotes(built)
     assert len(quote_blocks) == 1, "the link is all we have, so it stays"
     assert quote_blocks[0]["elements"][0]["elements"][0]["type"] == "link"
 
 
-class Broken(Slack):
+class FailingUploadSlack(Slack):
     def files_upload_v2(self, **kwargs):
         raise RuntimeError("slack said no")
 
 
-def test_an_upload_that_failed_is_not_mistaken_for_nothing_to_carry(monkeypatch):
+def test_share_upload_failure_raises_and_writes_no_rows(monkeypatch):
     stub_file_body(monkeypatch, "image/png")
     conn = Conn([(7, "shot.png", "image/png", "abc", 100)])
 
     try:
-        attachments.share(Broken(), conn, 5, CHANNEL_ID, THREAD, author_fields={"username": "Anonymous"})
+        attachments.share(FailingUploadSlack(), conn, 5, CHANNEL_ID, THREAD, author_fields={"username": "Anonymous"})
     except RuntimeError as failure:
         assert "not settled" in str(failure)
     else:
@@ -271,7 +271,7 @@ def test_an_upload_that_failed_is_not_mistaken_for_nothing_to_carry(monkeypatch)
     assert conn.written == [], "nothing is marked mirrored when nothing went up"
 
 
-def test_a_reply_that_is_only_words_lets_slack_unfurl_its_links(monkeypatch):
+def test_share_body_only_posts_text_with_unfurl_links(monkeypatch):
     conn = Conn([])
     slack = Slack()
 
@@ -285,7 +285,7 @@ def test_a_reply_that_is_only_words_lets_slack_unfurl_its_links(monkeypatch):
     assert message["username"] == "Anonymous"
 
 
-def test_a_reply_with_a_picture_still_uses_blocks(monkeypatch):
+def test_share_body_with_image_posts_section_and_image_blocks(monkeypatch):
     stub_file_body(monkeypatch, "image/png")
     conn = Conn([(7, "shot.png", "image/png", "abc", 100)])
     slack = Slack()
@@ -296,25 +296,25 @@ def test_a_reply_with_a_picture_still_uses_blocks(monkeypatch):
     assert [b["type"] for b in slack.posted[0]["blocks"]] == ["section", "image"]
 
 
-def test_the_card_quotes_no_linked_message_itself():
-    built = card(shares=[linked()])
+def test_build_blocks_with_shares_omits_linked_message_body():
+    built = card(shares=[link_share()])
     assert [b["type"] for b in built] == ["rich_text"]
     assert "mmm" not in str(built), "linked messages go in the thread, not on the card"
 
 
-def test_the_card_menu_never_outgrows_the_three_dot_menu():
+def test_menu_options_count_is_at_most_five():
     for case in ({"case_id": 19, "assignees": []}, {"case_id": 19, "assignees": ["UME"]},
                  {"case_id": 19, "resolved_at": "2026-10-10"}):
         assert len(edit.menu(case)["options"]) <= 5
 
 
-def test_more_holds_what_the_card_menu_has_no_room_for():
+def test_more_options_returns_labels_by_case_state():
     labels = [label for label, _ in edit.more_options(True, None, [{"id": 1}])]
-    assert labels == ["People", "Set violation", "Reverse an action", "Merge"]
+    assert labels == ["People", "Set violation", "Reverse action", "Merge"]
     assert [label for label, _ in edit.more_options(False, "spam", [])] == ["People"]
 
 
-def test_every_more_button_carries_the_case_it_acts_on():
+def test_more_view_buttons_have_unique_action_ids_and_case_id():
     built = edit.more_view(19, edit.more_options(True, None, []))
     buttons = built["blocks"][-1]["elements"]
     assert len({one["action_id"] for one in buttons}) == len(buttons), "slack wants them unique"
@@ -322,7 +322,7 @@ def test_every_more_button_carries_the_case_it_acts_on():
     assert [edit.parse_menu_value(one["value"])[1] for one in buttons] == [19] * len(buttons)
 
 
-def test_every_card_menu_option_carries_the_case_it_acts_on():
+def test_menu_option_values_include_case_id():
     case = {"case_id": 19, "category_key": None, "live_actions": 1,
             "assignees": ["UME"], "resolved_at": None}
 
@@ -345,6 +345,6 @@ class FakeConn:
         return (self.ts,)
 
 
-def test_the_card_row_is_claimed_before_slack_is_asked():
+def test_claim_card_sql_locks_row_and_reads_forwarded_ts():
     assert "FOR UPDATE" in channel.CLAIM_CARD, "two threads must not both post a card"
     assert "forwarded_ts" in channel.CLAIM_CARD

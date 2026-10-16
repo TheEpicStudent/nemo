@@ -1,25 +1,25 @@
 require "test_helper"
 
 class Fd::ChatListenerTest < ActiveSupport::TestCase
-  test "a payload that is a case number is read as one" do
+  test "case_id_from parses a numeric payload as an integer" do
     assert_equal 2633, Fd::ChatListener.case_id_from("2633")
   end
 
-  test "anything else is ignored rather than raising in the listener thread" do
+  test "case_id_from returns nil for non numeric empty and nil payloads" do
     assert_nil Fd::ChatListener.case_id_from("case 2633")
     assert_nil Fd::ChatListener.case_id_from("")
     assert_nil Fd::ChatListener.case_id_from(nil)
   end
 
-  test "the listener stays out of the test suite" do
+  test "enabled? is false in the test environment" do
     assert_not Fd::ChatListener.enabled?
   end
 
-  test "a console or a rake task is not a server, so it does not listen" do
+  test "serving? is false outside a server process" do
     assert_not Fd::ChatListener.serving?
   end
 
-  test "saying no in any of the usual spellings turns it off" do
+  test "enabled? is false for falsey NEMO_STREAM values" do
     %w[0 false no off FALSE Off].each do |value|
       with_env("NEMO_STREAM", value) do
         assert_not Fd::ChatListener.enabled?, "NEMO_STREAM=#{value} should not stream"
@@ -27,7 +27,7 @@ class Fd::ChatListenerTest < ActiveSupport::TestCase
     end
   end
 
-  test "anything else asked for turns it on, whatever the process is called" do
+  test "enabled? is true for truthy NEMO_STREAM values" do
     %w[1 true yes on].each do |value|
       with_env("NEMO_STREAM", value) do
         assert Fd::ChatListener.enabled?, "NEMO_STREAM=#{value} should stream"
@@ -35,7 +35,7 @@ class Fd::ChatListenerTest < ActiveSupport::TestCase
     end
   end
 
-  test "an empty setting is not an answer, so the process decides" do
+  test "enabled? with empty NEMO_STREAM equals serving?" do
     with_env("NEMO_STREAM", "") do
       assert_equal Fd::ChatListener.serving?, Fd::ChatListener.enabled?
     end
@@ -51,7 +51,7 @@ class Fd::ChatListenerTest < ActiveSupport::TestCase
     had_key ? ENV[name] = original_value : ENV.delete(name)
   end
 
-  test "it connects on its own terms, not out of the request pool" do
+  test "connection_options maps config to libpq keys and drops pool and adapter" do
     value = {
       host: "db.example", port: 5432, database: "mnemosyne",
       username: "rails_app", password: "secret", pool: 5, adapter: "postgresql"
@@ -62,7 +62,7 @@ class Fd::ChatListenerTest < ActiveSupport::TestCase
       Fd::ChatListener.connection_options(value))
   end
 
-  test "a socket with nothing configured for it is left out" do
+  test "connection_options omits host port user and password when unset" do
     assert_equal({ dbname: "mnemosyne" }, Fd::ChatListener.connection_options(database: "mnemosyne"))
   end
 
@@ -75,17 +75,17 @@ class Fd::ChatListenerTest < ActiveSupport::TestCase
     def wait_for_notify(_wait) = raise(PG::ConnectionBad, "the server went away")
   end
 
-  test "a connection that dies is closed, not left behind" do
+  test "listen closes the connection and raises when wait_for_notify fails" do
     connection = FailingConnection.new
 
     assert_raises(PG::ConnectionBad) { Fd::ChatListener.new.send(:listen, connection) }
 
-    assert connection.closed, "every retry would otherwise strand a backend and drain the pool"
+    assert connection.closed, "connection closed after failure"
     assert_equal ["LISTEN fd_chat_changed", "LISTEN fd_conversation_changed", "LISTEN fd_member_guard",
                   "LISTEN fd_member_link", "LISTEN fd_audit_event"], connection.listened
   end
 
-  test "the pool is untouched by listening" do
+  test "listen does not change the busy connection count of the pool" do
     pool = ActiveRecord::Base.connection_pool
 
     assert_no_difference -> { pool.stat[:busy] } do

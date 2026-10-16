@@ -5,7 +5,7 @@ module Fd
     def create
       kase = Case.find(params[:case_id])
       name = Tag.normalise(params[:name])
-      return redirect_to(fd_case_path(kase), alert: "Type a tag.") if name.blank?
+      return redirect_to(fd_case_path(kase), alert: "Enter a tag") if name.blank?
 
       tag = nil
       writing do
@@ -19,13 +19,13 @@ module Fd
     rescue ActiveRecord::RecordInvalid => invalid
       redirect_to fd_case_path(kase), alert: invalid.record.errors.map(&:message).to_sentence
     rescue ActiveRecord::RecordNotUnique
-      redirect_to fd_case_path(kase), alert: "That case already has this tag."
+      redirect_to fd_case_path(kase), alert: "Tag already on case"
     end
 
     def destroy
       kase = Case.find(params[:case_id])
       link = kase.case_tags.includes(:tag).find_by(tag_id: params[:id])
-      return redirect_to(fd_case_path(kase), alert: "That tag is not on this case") if link.nil?
+      return redirect_to(fd_case_path(kase), alert: "Tag not on case") if link.nil?
 
       writing do
         audit(link, "removed", entity_id: kase.id, before: { "tag" => link.tag.name }, after: nil)

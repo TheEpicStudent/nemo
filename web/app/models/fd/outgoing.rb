@@ -2,26 +2,25 @@ module Fd
   class Outgoing
     Sent = Struct.new(:queued, :problem, keyword_init: true)
 
-    REPORTER_CLOSED = "the reporter you picked is no longer open on this case, so nothing was sent. " \
-                      "Reload the case and pick again.".freeze
+    REPORTER_CLOSED = "Reporter conversation closed".freeze
 
-    def self.queue(conversation, body, mode:, by:, asked: false)
-      problem = objection(conversation, body, asked: asked)
+    def self.queue(conversation, body, mode:, by:, conversation_selected: false)
+      problem = validation_error(conversation, body, conversation_selected: conversation_selected)
       return Sent.new(problem: problem) if problem
 
       Sent.new(queued: IntakeOutbox.create!(conversation_id: conversation.id, kind: "reply",
         body: body, mode: mode, requested_by: by))
     end
 
-    def self.objection(conversation, body, asked: false)
-      return "write something before sending it" if body.blank?
+    def self.validation_error(conversation, body, conversation_selected: false)
+      return "Enter a message" if body.blank?
       if body.length > IntakeOutbox::MAX_LENGTH
-        return "that is too long to send, keep it under #{IntakeOutbox::MAX_LENGTH} characters"
+        return "Keep it under #{IntakeOutbox::MAX_LENGTH} characters"
       end
       if conversation.nil?
-        return asked ? REPORTER_CLOSED : "there is nobody to reply to on this case"
+        return conversation_selected ? REPORTER_CLOSED : "No reporter to reply to"
       end
-      return "that conversation is closed, so nothing can be sent" if conversation.closed?
+      return "Conversation closed" if conversation.closed?
 
       nil
     end

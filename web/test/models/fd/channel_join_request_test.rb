@@ -5,7 +5,7 @@ class Fd::ChannelJoinRequestTest < ActiveSupport::TestCase
     Fd::ChannelJoinRequest.queue!(channel_id: channel_id, requested_by: "UME")
   end
 
-  test "queue! reuses the request already waiting for that channel" do
+  test "queue! twice for one channel returns the same queued request" do
     first = queue_request
     second = queue_request
 
@@ -13,14 +13,14 @@ class Fd::ChannelJoinRequestTest < ActiveSupport::TestCase
     assert_equal 1, Fd::ChannelJoinRequest.queued.count
   end
 
-  test "queue! opens a new request once the last one has finished" do
+  test "queue! after a finished request creates a new request" do
     first = queue_request
     first.update!(state: Fd::ChannelJoinRequest::JOINED, finished_at: Time.current)
 
     assert_not_equal first.id, queue_request.id
   end
 
-  test "wait_for returns a finished request at once" do
+  test "wait_for returns a finished request in under one second" do
     join_request = queue_request
     join_request.update!(state: Fd::ChannelJoinRequest::REFUSED, error: "is_archived",
       finished_at: Time.current)
@@ -32,7 +32,7 @@ class Fd::ChannelJoinRequestTest < ActiveSupport::TestCase
     assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1
   end
 
-  test "wait_for gives up after the timeout and leaves the request queued" do
+  test "wait_for returns the queued request after the timeout" do
     answered = Fd::ChannelJoinRequest.wait_for(queue_request, timeout: 0.3)
 
     assert_predicate answered, :queued?

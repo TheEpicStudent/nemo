@@ -13,7 +13,7 @@
             <%= form_with url: admin_person_channel_grants_path(@user_id), method: :post,
                   class: "contents" do %>
               <%= render "shared/combobox", kind: "channel", name: :channel_id, submit: true,
-                    url: search_admin_channels_path, trigger: "Add a channel" %>
+                    url: search_admin_channels_path, trigger: "Add channel" %>
             <% end %>
           </div>
         </div>
@@ -30,11 +30,11 @@
                   <% end %>
                   <span class="mono sub2"><%= row.channel_id %></span>
                 </td>
-                <td><span class="sub">Named to them</span></td>
+                <td><span class="sub">Granted</span></td>
                 <td class="detail-cell"><%= person_name(row.granted_by) %></td>
                 <td class="col-btn">
                   <% if may_grant? %>
-                    <%= button_to "Take back",
+                    <%= button_to "Revoke",
                           admin_person_channel_grant_path(@user_id, row.channel_id),
                           method: :delete, class: "btn btn-sm", form: { class: "contents" } %>
                   <% end %>
@@ -64,9 +64,9 @@
                     <span class="mono sub2"><%= id %></span>
                   </td>
                   <td><span class="sub"><%= Authz.role_label(role) %> set</span></td>
-                  <td class="detail-cell sub">Shared with the role</td>
+                  <td class="detail-cell sub">Via role</td>
                   <td class="col-btn">
-                    <%= link_to "Edit the set", admin_role_channels_path(role: role), class: "btn btn-sm" %>
+                    <%= link_to "Edit set", admin_role_channels_path(role: role), class: "btn btn-sm" %>
                   </td>
                 </tr>
               <% end %>
@@ -76,7 +76,7 @@
       </div>
       <% else %>
         <div class="empty">
-          <p class="empty-title">No channel is theirs to read</p>
+          <p class="empty-title">No channels</p>
         </div>
       <% end %>
   </div>

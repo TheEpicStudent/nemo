@@ -14,10 +14,10 @@ GROUPS_PER_DRAIN = 50
 EVENTS_PER_CLAIM = 100
 MARKETPLACE = "https://hackclub.slack.com/marketplace"
 QUOTE_LIMIT = 1200
-CUT = "\n[truncated]"
+TRUNCATION_MARK = "\n[truncated]"
 
 
-def naming(subject_id, label):
+def subject_label(subject_id, label):
     if subject_id.startswith("U"):
         return f"<@{subject_id}>"
     return f"*{label or subject_id}*"
@@ -28,7 +28,7 @@ def quoted(words):
     if not text:
         return ""
     if len(text) > QUOTE_LIMIT:
-        text = text[:QUOTE_LIMIT].rstrip() + CUT
+        text = text[:QUOTE_LIMIT].rstrip() + TRUNCATION_MARK
     return "\n" + "\n".join(f"> {line}" for line in escape(text).splitlines())
 
 
@@ -65,8 +65,8 @@ def kick_detail(detail):
     return (detail or "").removeprefix("failed: ")
 
 
-def detail_of(event):
-    name = naming(event["subject_id"], event["label"])
+def event_line(event):
+    name = subject_label(event["subject_id"], event["label"])
     channel_id = event["channel_id"]
     if event["verb"] == "deleted":
         return (f"Deleted a message from {name} in <#{channel_id}>, not on the allow list."
@@ -82,65 +82,65 @@ def detail_of(event):
             f"({kick_detail(event['detail'])})." + footer(channel_id, app_id=event["app_id"]))
 
 
-def counts(events):
+def event_counts(events):
     return (sum(1 for one in events if one["verb"] == "deleted"),
             sum(1 for one in events if one["verb"] == "kicked"))
 
 
-def failed(conn, events):
+def record_failures(conn, events):
     for event_id, attempts in channelguards.notice_failed(conn, [one["id"] for one in events]):
         if attempts >= GIVE_UP_AFTER:
             log.warning("nemo: gave up on the notice for guard event %s after %s attempts",
                         event_id, attempts)
 
 
-def post(client, conn, guard_id, subject_id, events):
+def post_events(client, conn, guard_id, subject_id, events):
     first = events[0]
-    name = naming(subject_id, first["label"])
+    name = subject_label(subject_id, first["label"])
     channel_id = first["channel_id"]
     log_channel_id = channel.log_channel(conn)
     thread = channelguards.open_notice_thread(conn, guard_id, subject_id, IDLE_TIMEOUT, MAX_AGE)
-    planned = counts(events)
+    expected_counts = event_counts(events)
 
     is_new_thread = thread is None
     if is_new_thread:
         try:
-            sent = client.chat_postMessage(channel=log_channel_id, text=summary(name, channel_id, *planned),
+            sent = client.chat_postMessage(channel=log_channel_id, text=summary(name, channel_id, *expected_counts),
                                            unfurl_links=False)
         except Exception as failure:
             log.warning("nemo: could not open a notice thread for guard %s: %s", guard_id, failure)
-            failed(conn, events)
+            record_failures(conn, events)
             return False
         parent_ts = sent.get("ts")
         thread_id = channelguards.open_new_notice_thread(conn, guard_id, subject_id, parent_ts, 0, 0)
     else:
         thread_id, parent_ts = thread
 
-    done = []
+    posted_events = []
     for event in events:
         try:
-            client.chat_postMessage(channel=log_channel_id, text=detail_of(event),
+            client.chat_postMessage(channel=log_channel_id, text=event_line(event),
                                     thread_ts=parent_ts, unfurl_links=False)
         except Exception as failure:
             log.warning("nemo: could not reply in notice thread %s: %s", parent_ts, failure)
             break
-        done.append(event)
+        posted_events.append(event)
 
-    totals = channelguards.note_event(conn, thread_id, *counts(done))
-    if done:
-        channelguards.noticed(conn, [one["id"] for one in done])
-    unposted = events[len(done):]
-    if unposted:
-        failed(conn, unposted)
+    totals = channelguards.add_notice_counts(conn, thread_id, *event_counts(posted_events))
+    if posted_events:
+        channelguards.mark_noticed(conn, [one["id"] for one in posted_events])
+    remaining_events = events[len(posted_events):]
+    if remaining_events:
+        record_failures(conn, remaining_events)
 
-    if not (is_new_thread and totals == planned):
+    if not (is_new_thread and totals == expected_counts):
         try:
             client.chat_update(channel=log_channel_id, ts=parent_ts,
                                text=summary(name, channel_id, *totals))
         except Exception as failure:
             log.warning("nemo: could not update notice thread %s: %s", parent_ts, failure)
 
-    return not unposted
+    return not remaining_events
 
 
 def drain_group(client, guard_id, subject_id):
@@ -150,7 +150,7 @@ def drain_group(client, guard_id, subject_id):
                                                  GIVE_UP_AFTER, EVENTS_PER_CLAIM)
             if not events:
                 return
-            if not post(client, conn, guard_id, subject_id, events):
+            if not post_events(client, conn, guard_id, subject_id, events):
                 return
         if len(events) < EVENTS_PER_CLAIM:
             return

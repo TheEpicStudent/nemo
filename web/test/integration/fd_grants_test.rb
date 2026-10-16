@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdGrantsTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
   end
 
@@ -16,7 +16,7 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
     Authz::Grant.live.roles.find_by(user_id: user_id)
   end
 
-  test "giving access records the role and who gave it" do
+  test "grants create records the role and granted_by with a granted audit entry" do
     post_grant
 
     grant = role_grant
@@ -27,9 +27,9 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
       verb: "granted")
   end
 
-  test "a grant needs somebody" do
+  test "grants create with blank or malformed user_id alerts and creates no grant" do
     post_grant(user_id: "")
-    assert_match(/Search for a member/, flash[:alert])
+    assert_match(/Select a member/, flash[:alert])
 
     post_grant(user_id: "not-an-id")
     assert_match(/is not a Slack user id/, flash[:alert])
@@ -37,7 +37,7 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
     assert_equal 0, Authz::Grant.for_person("U0AFF1").count
   end
 
-  test "changing a role ends the old grant and starts a new one" do
+  test "grants create with a new role revokes the old grant and adds one" do
     post_grant
     post_grant(role: "gardener")
 
@@ -46,7 +46,7 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
     assert_equal 1, Authz::Grant.for_person("U0AFF1").roles.where.not(revoked_at: nil).count
   end
 
-  test "taking everything back leaves the person holding nothing, and says so in the trail" do
+  test "grants destroy revokes the role grant and sets revoked_by" do
     post_grant
     grant = role_grant
 
@@ -56,7 +56,7 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
     assert_equal "UME", grant.reload.revoked_by
   end
 
-  test "unpicking the fire department grant_source takes that grant back" do
+  test "grants create without role revokes the role grant and writes a revoked audit entry" do
     post_grant
     grant = role_grant
 
@@ -67,14 +67,14 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
       verb: "revoked")
   end
 
-  test "the last manager cannot lock everybody out by taking their own back" do
+  test "grants destroy of the last manager alerts and keeps manager?" do
     delete admin_grant_path("UME")
 
-    assert_match(/Another administrator must revoke your own access/, flash[:alert])
+    assert_match(/Cannot revoke own access/, flash[:alert])
     assert_predicate Account.find("UME"), :manager?
   end
 
-  test "a lead cannot reach the grant endpoints at all" do
+  test "grants create as firefighter creates no grant and redirects to root" do
     delete logout_path
     firefighter = Account.create!(user_id: "ULEAD")
     Authz::Grant.grant!("ULEAD", kind: "role", name: "firefighter", by: "UME")
@@ -87,7 +87,7 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
     assert_redirected_to root_path
   end
 
-  test "making somebody a manager is written to the trail, and ends their old role" do
+  test "grants create community_manager revokes the old role and writes a granted audit entry" do
     post_grant
     post admin_grants_path, params: { user_id: "U0AFF1", role: "community_manager" }
     Current.forget_roles
@@ -99,7 +99,7 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
       .any? { |row| row.after&.dig("role") == "community_manager" }
   end
 
-  test "the controls are only drawn for somebody who may use them" do
+  test "admin people as firefighter redirects to root" do
     Authz::Grant.grant!("U0AFF1", kind: "role", name: "firefighter", by: "UME")
 
     get admin_people_path
@@ -115,20 +115,20 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
     assert_redirected_to root_path, "the admin section is managers only"
   end
 
-  test "the give access picker is not inside a label" do
+  test "admin people renders the give access combo outside a label" do
     get admin_people_path
 
     assert_select %(#give-access-form .combo[data-combobox-name-value="user_id"])
     assert_select "#give-access-form label .combo", count: 0
   end
 
-  test "a reason is kept on the grant when one is given" do
+  test "grants create stores reason" do
     post_grant(reason: "covering the weekend")
 
     assert_equal "covering the weekend", role_grant.reason
   end
 
-  test "a grant without a reason is still allowed, since the field is optional" do
+  test "grants create without reason stores nil reason" do
     post_grant
 
     grant = role_grant
@@ -136,13 +136,13 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
     assert_equal "firefighter", grant.name
   end
 
-  test "a blank reason is stored as nothing rather than an empty string" do
+  test "grants create with blank reason stores nil reason" do
     post_grant(reason: "   ")
 
     assert_nil role_grant.reason
   end
 
-  test "naming a channel on somebody with no role hands out no role" do
+  test "grants create with channels and blank role adds a channel grant and no role" do
     channel = Analytics::DimChannel.where(archived: false).first
 
     post admin_grants_path, params: { user_id: "U0AFF1", role: "",
@@ -151,12 +151,12 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
 
     assert_empty Authz.effective_roles("U0AFF1")
     assert Authz.holds?(Account.find("U0AFF1"), "channel.read"),
-      "channel.read is everyone's, so the channel row is enough on its own"
+      "account lacks channel.read after a channel grant"
     assert Channels::Audience::Grant.live
       .exists?(user_id: "U0AFF1", channel_id: channel.channel_id)
   end
 
-  test "granting a role, a scope and a channel is one act" do
+  test "grants create with role and scope and channel adds all three grants" do
     channel = Analytics::DimChannel.where(archived: false).first
 
     post admin_grants_path, params: { user_id: "U0AFF1", role: "gardener",
@@ -167,7 +167,7 @@ class FdGrantsTest < ActionDispatch::IntegrationTest
     capabilities = Authz.effective_capabilities("U0AFF1")
     assert_equal "added", capabilities["channel.backfill"]
     assert_equal "baseline", capabilities["channel.read"],
-      "gardener already carries channel.read, so it is not granted twice"
+      "channel.read source is not baseline for gardener"
     assert Channels::Audience::Grant.live
       .exists?(user_id: "U0AFF1", channel_id: channel.channel_id)
   end

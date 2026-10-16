@@ -8,13 +8,13 @@ from lib.paths import ENV_FILE
 
 SOURCE = "prune"
 
-AGED_BY = {
+RETENTION_COLUMN = {
     "raw.member_activity_snapshot": "window_start",
     "raw.channel_activity_snapshot": "window_start",
     "raw.member_channel_membership": "seen_at",
 }
 
-SHARED = frozenset({"raw.member_activity_snapshot", "raw.channel_activity_snapshot"})
+SHARED_SOURCE_TABLES = frozenset({"raw.member_activity_snapshot", "raw.channel_activity_snapshot"})
 
 COUNT_SQL = "SELECT count(*) FROM {table} WHERE {column} < now() - make_interval(days => %s){scope}"
 DELETE_SQL = "DELETE FROM {table} WHERE {column} < now() - make_interval(days => %s){scope}"
@@ -22,7 +22,7 @@ SCOPE = " AND source = %s"
 
 FINISHED_DAYS = 90
 
-NEWEST_RUNS = """
+LATEST_RUN_IDS = """
     (SELECT DISTINCT ON (source) id FROM raw.ingest_run ORDER BY source, started_at DESC)
     UNION
     (SELECT DISTINCT ON (source) id FROM raw.ingest_run WHERE status = 'ok'
@@ -35,7 +35,7 @@ NEWEST_RUNS = """
      ORDER BY source_key, finished_at DESC NULLS LAST)
 """
 
-FINISHED = (
+FINISHED_ROW_RULES = (
     ("ingest.work_item", """
         state = 'complete'
         AND coalesce(settled_at, updated_at) < now() - make_interval(days => %(days)s)
@@ -43,8 +43,8 @@ FINISHED = (
     ("raw.ingest_run", f"""
         status <> 'running'
         AND started_at < now() - make_interval(days => %(days)s)
-        AND id NOT IN ({NEWEST_RUNS})
-        AND (parent_run_id IS NULL OR parent_run_id NOT IN ({NEWEST_RUNS}))
+        AND id NOT IN ({LATEST_RUN_IDS})
+        AND (parent_run_id IS NULL OR parent_run_id NOT IN ({LATEST_RUN_IDS}))
     """),
     ("raw.ingest_step_output", """
         created_at < now() - make_interval(days => %(days)s)
@@ -67,9 +67,9 @@ def windows(conn):
         if days is None:
             continue
         for table in sources.field_of(key, "writes"):
-            column = AGED_BY.get(table)
+            column = RETENTION_COLUMN.get(table)
             if column:
-                stamp = stamp_of(key) if table in SHARED else None
+                stamp = stamp_of(key) if table in SHARED_SOURCE_TABLES else None
                 retention_windows.append((key, table, column, days, stamp))
     return retention_windows
 
@@ -109,12 +109,12 @@ def run(conn, dry_run=False):
             print(f"{SOURCE}: {table} keeps {days} days by {column}{scope}, {action} {row_count} rows ({key})")
         if not retention_windows:
             print(f"{SOURCE}: no retention window is set, so no ingested rows are deleted")
-        for table, where in FINISHED:
+        for table, where in FINISHED_ROW_RULES:
             row_count = sweep_finished(conn, table, where, dry_run=dry_run)
             dropped += row_count
             print(f"{SOURCE}: {table} keeps {FINISHED_DAYS} days of finished rows, {action} {row_count} rows")
         counts.rows_in = dropped
-    print(f"{SOURCE}: {dropped} rows past their window across {len(retention_windows) + len(FINISHED)} table(s)")
+    print(f"{SOURCE}: {dropped} rows past their window across {len(retention_windows) + len(FINISHED_ROW_RULES)} table(s)")
     return dropped
 
 

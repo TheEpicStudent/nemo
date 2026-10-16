@@ -13,7 +13,7 @@ FLAG = "flag"
 
 SEARCH_TIMEOUT = 0.05
 
-LIVE = """
+ACTIVE_WORDS = """
 SELECT id, word, match_mode, effect, category_key
 FROM fd.automod_words
 WHERE active
@@ -28,9 +28,9 @@ ON CONFLICT (channel_id, message_ts, word) DO NOTHING
 RETURNING id
 """
 
-LINK = "UPDATE fd.automod_matches SET permalink = %s WHERE id = ANY(%s)"
+SET_PERMALINK = "UPDATE fd.automod_matches SET permalink = %s WHERE id = ANY(%s)"
 
-_watching = []
+_rules = []
 _loaded = False
 _lock = threading.Lock()
 
@@ -42,9 +42,9 @@ class WordRule:
         self.match_mode = match_mode
         self.effect = effect
         self.category_key = category_key
-        self.pattern = compile_one(word, match_mode)
+        self.pattern = compile_pattern(word, match_mode)
 
-    def hits(self, text):
+    def matches(self, text):
         if self.pattern is None:
             return False
         try:
@@ -54,7 +54,7 @@ class WordRule:
             return False
 
 
-def compile_one(word, match_mode):
+def compile_pattern(word, match_mode):
     text = (word or "").strip()
     if not text:
         return None
@@ -72,31 +72,31 @@ def compile_one(word, match_mode):
 def refresh(conn):
     global _loaded
     rules = []
-    for row in conn.execute(LIVE).fetchall():
-        watch = WordRule(*row)
-        if watch.pattern is not None:
-            rules.append(watch)
+    for row in conn.execute(ACTIVE_WORDS).fetchall():
+        rule = WordRule(*row)
+        if rule.pattern is not None:
+            rules.append(rule)
     with _lock:
-        _watching[:] = rules
+        _rules[:] = rules
         _loaded = True
     return len(rules)
 
 
-def watching():
+def active_rules():
     with _lock:
-        return list(_watching) if _loaded else None
+        return list(_rules) if _loaded else None
 
 
-def caught(text):
-    rules = watching()
+def matching_rules(text):
+    rules = active_rules()
     if not rules or not text:
         return []
-    return [one for one in rules if one.hits(text)]
+    return [one for one in rules if one.matches(text)]
 
 
-def record(conn, watch, message):
+def record(conn, rule, message):
     return conn.execute(RECORD, (
-        watch.word_id, watch.word, watch.effect, message.get("user"), message.get("channel"),
+        rule.word_id, rule.word, rule.effect, message.get("user"), message.get("channel"),
         message.get("ts"), message.get("thread_ts"), message.get("text"),
     )).fetchone()
 
@@ -104,5 +104,5 @@ def record(conn, watch, message):
 def link(conn, ids, permalink):
     if not ids or not permalink:
         return 0
-    conn.execute(LINK, (permalink, list(ids)))
+    conn.execute(SET_PERMALINK, (permalink, list(ids)))
     return len(ids)

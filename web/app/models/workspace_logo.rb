@@ -6,7 +6,7 @@ class WorkspaceLogo
   SUFFIXES = HOSTS.map { |host| ".#{host}" }.freeze
   CACHE_KEY = "workspace_logo/image".freeze
   IMAGE_TTL = 10.minutes
-  MISSING_FOR = 2.minutes
+  MISSING_TTL = 2.minutes
   OPEN_TIMEOUT = 2
   READ_TIMEOUT = 5
   MAX_REDIRECTS = 3
@@ -19,7 +19,7 @@ class WorkspaceLogo
     return cached.presence && cached if cached
 
     result = read
-    Rails.cache.write(CACHE_KEY, result || "", expires_in: result ? IMAGE_TTL : MISSING_FOR)
+    Rails.cache.write(CACHE_KEY, result || "", expires_in: result ? IMAGE_TTL : MISSING_TTL)
     result
   end
 

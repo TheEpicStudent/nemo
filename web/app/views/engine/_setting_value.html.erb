@@ -2,7 +2,7 @@
 <% default_value = Engine::Setting.default(source, name) %>
 <% overridden = current_value.to_s != default_value.to_s %>
 <% if defined?(show_default) && show_default && overridden %>
-  <span class="was">was <%= default_value %></span>
+  <span class="was">default <%= default_value %></span>
 <% end %>
 <% if may_edit_setting %>
   <%= form_with url: engine_tune_path, method: :patch, class: "contents" do |f| %>
@@ -27,9 +27,9 @@
     <% end %>
   <% end %>
   <% if Engine::Setting.changed?(source, name) %>
-    <%= button_to "reset", engine_untune_path(source: source, name: name), method: :delete,
+    <%= button_to "Reset", engine_untune_path(source: source, name: name), method: :delete,
           class: "btn btn-ghost", form: { class: "contents" },
-          aria: { label: "reset #{source} #{name} to the file" } %>
+          aria: { label: "Reset #{source} #{name} to default" } %>
   <% end %>
 <% else %>
   <span class="dial <%= "tuned" if overridden %>"><%= current_value %></span>

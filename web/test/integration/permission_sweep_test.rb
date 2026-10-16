@@ -26,24 +26,24 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   ENGINE_PATHS = %w[/engine].freeze
 
   setup do
-    @manager = hold_role!("USWEEPBOSS", "community_manager")
+    @manager = grant_role!("USWEEPBOSS", "community_manager")
     @channels = Analytics::DimChannel.where(archived: false).limit(4).pluck(:channel_id)
     @granted_channel, @other_channel = @channels
   end
 
   def sign_in_persona(name)
-    one = PERSONAS.fetch(name)
+    persona = PERSONAS.fetch(name)
     id = "USWEEP#{name.upcase[0, 4]}"
     Account.find_or_create_by!(user_id: id)
-    hold_role!(id, one[:role]) if one[:role]
-    Array(one[:scopes]).each do |key|
+    grant_role!(id, persona[:role]) if persona[:role]
+    Array(persona[:scopes]).each do |key|
       Authz::Grant.grant!(id, kind: "capability", name: key, by: "sweep")
     end
-    if one[:channels]
+    if persona[:channels]
       Channels::Audience::Grant.create!(user_id: id, channel_id: @granted_channel,
         granted_by: @manager.user_id, granted_at: Time.current)
     end
-    if one[:appointed]
+    if persona[:appointed]
       Prometheus::Appointment.insert_all!([
         { user_id: id, channel_id: @granted_channel, role: "manager", seen_at: Time.current }
       ])
@@ -59,7 +59,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   end
 
   # 1. nothing at all without a session
-  test "a stranger reaches no page that is not the door" do
+  test "signed out requests redirect or return 404 on every page" do
     open_to_all = ["/login", "/auth/failure"]
     reachable_paths = (FD_PATHS + ADMIN_PATHS + ENGINE_PATHS + ["/", "/account", "/channels",
                                                     "/journey/joining",
@@ -71,12 +71,12 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
     assert_empty reachable_paths, "a signed out visitor reached: #{reachable_paths.join(', ')}"
     open_to_all.each do |path|
       get path
-      refute_equal 500, response.status, "#{path} broke for a stranger"
+      refute_equal 500, response.status, "#{path} returned 500 signed out"
     end
   end
 
   # 2. the fire engine is case.read only
-  test "only case.read reaches any fire engine page" do
+  test "fire engine pages respond 200 only with case.read" do
     violations = []
     PERSONAS.each_key do |name|
       id = sign_in_persona(name)
@@ -90,7 +90,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
     assert_empty violations, violations.join("\n")
   end
 
-  test "the audit is behind case.read, like the rest of the fire engine" do
+  test "audit page responds 200 only with case.read" do
     violations = []
     PERSONAS.each_key do |name|
       id = sign_in_persona(name)
@@ -102,7 +102,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
     assert_empty violations, violations.join("\n")
   end
 
-  test "the engine's own record inside the audit is access.read, on its own" do
+  test "audit engine record and event panel require access.read" do
     entry = Fd::AuditEntry.create!(occurred_at: 1.hour.ago, actor_user_id: "USWEEPBOSS",
       actor_kind: "human", entity_type: "case", entity_id: 9_001, verb: "resolved",
       after: { "resolution" => "warned" }, source_app: "fire_engine")
@@ -124,7 +124,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   end
 
   # 3. the admin section is access.grant only
-  test "only access.grant reaches any admin page" do
+  test "admin pages respond 200 only with access.grant" do
     violations = []
     PERSONAS.each_key do |name|
       id = sign_in_persona(name)
@@ -132,14 +132,14 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
       ADMIN_PATHS.each do |path|
         next if responds_ok?(path) == allowed
 
-        violations << "#{name} reached #{path} holding access.grant=#{allowed}"
+        violations << "#{name} reached #{path} with access.grant=#{allowed}"
       end
     end
     assert_empty violations, violations.join("\n")
   end
 
   # 4. the engine is engine.manage only
-  test "only engine.manage reaches the engine" do
+  test "engine pages respond 200 only with engine.manage" do
     violations = []
     PERSONAS.each_key do |name|
       id = sign_in_persona(name)
@@ -154,7 +154,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   end
 
   # 5. a channel nobody named you on stays shut
-  test "a channel page opens only to somebody who may see that channel" do
+  test "channel page responds 200 only when may_see? is true" do
     violations = []
     PERSONAS.each_key do |name|
       id = sign_in_persona(name)
@@ -170,15 +170,15 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   end
 
   # 6. the promethean sees their own channel and not the next one along
-  test "one promethean cannot read another promethean's channel" do
+  test "promethean reaches the appointed channel and not another channel" do
     sign_in_persona("promethean")
 
-    assert responds_ok?("/channels/#{@granted_channel}"), "their own channel was shut"
-    refute responds_ok?("/channels/#{@other_channel}"), "reached a channel nobody named them on"
+    assert responds_ok?("/channels/#{@granted_channel}"), "own channel not reachable"
+    refute responds_ok?("/channels/#{@other_channel}"), "reached a channel without an appointment"
   end
 
   # 7. names are behind member.read
-  test "a member name never appears to somebody without member.read" do
+  test "member display name is absent from pages without member.read" do
     named_member = Fd::Member.first
     skip "no member fixture" if named_member.nil?
 
@@ -199,7 +199,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   end
 
   # 8. the json endpoints are the quiet way in
-  test "the search endpoints refuse the same people the pages do" do
+  test "search endpoints require the same capability as their pages" do
     violations = []
     PERSONAS.each_key do |name|
       id = sign_in_persona(name)
@@ -218,7 +218,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   end
 
   # 9. a refused write must not write
-  test "no write lands for somebody the gate turned away" do
+  test "writes from non-manager personas return non-200 and change no rows" do
     writes = [
       [:post, "/admin/grants", { user_id: "UVICTIM01", role: "community_manager" }],
       [:delete, "/admin/grants/USWEEPBOSS", {}],
@@ -253,9 +253,9 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   end
 
   # 10. taking your own access away is somebody else's job
-  test "a manager cannot strip their own access" do
+  test "admin grants destroy on own account keeps the role" do
     id = sign_in_persona("manager")
-    assert_includes Authz.effective_roles(id), "community_manager", "the persona was not set up"
+    assert_includes Authz.effective_roles(id), "community_manager", "persona has no community_manager role"
 
     delete "/admin/grants/#{id}"
 
@@ -283,7 +283,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   ].freeze
 
   # 11a. a sweep row nobody can reach proves nothing, whoever asks
-  test "every mutating route the sweep checks is one the app actually serves" do
+  test "WRITES entries are routable and use known stages" do
     unrouted = WRITES.reject do |verb, path, _key, _params|
       Rails.application.routes.recognize_path(path, method: verb)
     rescue ActionController::RoutingError
@@ -292,12 +292,12 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
     assert_empty unrouted.map { |verb, path, _, _| "#{verb.upcase} #{path}" }
 
     named = WRITES.filter_map { |_verb, path, _key, _params| path[%r{/engine/stages/(.+)}, 1] }
-    refute_empty named, "no stage row left to check"
+    refute_empty named, "no stage route in WRITES"
     assert_empty named - SyncRequest::STAGES,
-      "the sweep posts to stages the app does not know, so those rows refuse everyone"
+      "WRITES contains stages missing from SyncRequest::STAGES"
   end
 
-  test "every mutating route turns away everyone who does not hold its capability" do
+  test "mutating routes never return 200 without the required capability" do
     violations = []
     PERSONAS.each_key do |name|
       id = sign_in_persona(name)
@@ -315,7 +315,7 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   end
 
   # 12. the channel index must list only what you may see
-  test "the channel list never names a channel you may not see" do
+  test "channels index omits channels failing may_see?" do
     violations = []
     PERSONAS.each_key do |name|
       id = sign_in_persona(name)
@@ -334,28 +334,28 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   end
 
   # 13. opting a channel into replies is not a way to reach it
-  test "opting into replies refuses a channel you may not see" do
+  test "channel replies post for an unseen channel is not 200 and creates no backfill" do
     sign_in_persona("promethean")
 
     post "/channels/#{@other_channel}/replies"
     refute_equal 200, response.status
 
     assert_equal 0, ChannelBackfill.where(channel_id: @other_channel).count,
-      "queued a backfill on a channel they cannot see"
+      "backfill queued for an unseen channel"
   end
 
   # 14. a signed out visitor cannot write anything at all
-  test "a stranger writes nothing" do
+  test "signed out writes return non-200 and change no rows" do
     before = row_counts
     WRITES.each do |verb, path, _key, params|
       send(verb, path, params: params)
-      refute_equal 200, response.status, "a stranger got 200 from #{verb.upcase} #{path}"
+      refute_equal 200, response.status, "signed out request got 200 from #{verb.upcase} #{path}"
     end
-    assert_equal before, row_counts, "a stranger changed something"
+    assert_equal before, row_counts, "signed out writes changed row counts"
   end
 
   # 15. the dev door must never exist outside development
-  test "the impersonation door is development only" do
+  test "dev/be route is absent outside development and test" do
     assert Rails.application.routes.routes.none? { |r|
       r.path.spec.to_s.include?("dev/be")
     } || Rails.env.development? || Rails.env.test?,
@@ -363,47 +363,47 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   end
 
   # 16. a locked capability cannot be delegated, not even by a manager
-  test "nobody can hand out a locked capability" do
+  test "locked access.grant capability is refused for a manager and raises NotAllowedError" do
     sign_in_persona("manager")
 
     post "/admin/grants", params: { user_id: "UVICTIM01", scopes: ["access.grant"],
                                     scopes_settled: "1" }
 
     refute_includes Authz.effective_capabilities("UVICTIM01").keys, "access.grant",
-      "a manager handed out the locked grant capability"
+      "locked access.grant capability was granted"
     assert_raises(Authz::Grant::NotAllowedError) do
       Authz::Grant.grant!("UVICTIM01", kind: "capability", name: "access.grant", by: "sweep")
     end
   end
 
   # 17. taking a capability away really takes it away
-  test "a denied capability is refused even though the role carries it" do
+  test "slack.link deny overrides the role capability and blocks delete slack_account" do
     id = sign_in_persona("firefighter")
-    assert Authz.holds?(Account.find(id), "slack.link"), "the role should carry it"
+    assert Authz.holds?(Account.find(id), "slack.link"), "role must include the capability"
 
     Authz::Grant.grant!(id, kind: "capability", name: "slack.link", effect: "deny", by: "sweep")
     Current.forget_roles
 
-    refute Authz.holds?(Account.find(id), "slack.link"), "the denial did not bite"
+    refute Authz.holds?(Account.find(id), "slack.link"), "deny grant did not remove the capability"
     delete "/fd/slack_account"
 
-    refute_equal 200, response.status, "acted with the capability denied"
+    refute_equal 200, response.status, "delete returned 200 with the capability denied"
   end
 
   # 18. identity.read is FD only, it cannot be moved off a firefighter one person at a time
-  test "identity.read cannot be individually denied, only the role file can lock it" do
+  test "identity.read deny raises NotAllowedError and keeps the capability" do
     id = sign_in_persona("firefighter")
-    assert Authz.holds?(Account.find(id), "identity.read"), "the role should carry it"
+    assert Authz.holds?(Account.find(id), "identity.read"), "role must include the capability"
 
     assert_raises(Authz::Grant::NotAllowedError) do
       Authz::Grant.grant!(id, kind: "capability", name: "identity.read", effect: "deny",
         by: "sweep")
     end
-    assert Authz.holds?(Account.find(id), "identity.read"), "the refused deny must not bite"
+    assert Authz.holds?(Account.find(id), "identity.read"), "refused deny must keep the capability"
   end
 
   # 19. asking for json is not a way round the gate
-  test "the json format is gated exactly like the html" do
+  test "json format requires the same capability as html" do
     violations = []
     PERSONAS.each_key do |name|
       id = sign_in_persona(name)
@@ -422,13 +422,13 @@ class PermissionSweepTest < ActionDispatch::IntegrationTest
   end
 
   # 20. logging out really ends it
-  test "a session does not outlive logout" do
+  test "admin page redirects after logout" do
     sign_in_persona("manager")
     assert responds_ok?("/admin/people")
 
     delete "/logout"
     get "/admin/people"
 
-    assert response.redirect?, "the admin page still opened after logout"
+    assert response.redirect?, "admin page did not redirect after logout"
   end
 end

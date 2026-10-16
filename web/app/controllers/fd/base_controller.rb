@@ -40,11 +40,11 @@ module Fd
       return if Authz.holds?(current_account, "case.read")
       return head :forbidden if request.format.json?
 
-      redirect_to root_path, alert: "Fire Engine is restricted to the conduct team"
+      redirect_to root_path, alert: "Fire Engine access required"
     end
 
     def require_engine
-      needs(:fire_engine)
+      require_flag(:fire_engine)
     end
 
     def record_audit_reads(query)
@@ -72,11 +72,11 @@ module Fd
       raise "#{self.class}##{action_name} writes without declaring a permission"
     end
 
-    MISSING = :the_record_this_gate_needs_is_gone
+    MISSING_RECORD = :missing_record
 
     def gate(key, on)
       record = subject_for(on)
-      return deny!(key, nil) if record == MISSING
+      return deny!(key, nil) if record == MISSING_RECORD
       return if current_account&.may?(key, record)
 
       deny!(key, record)
@@ -87,12 +87,12 @@ module Fd
 
       on.respond_to?(:call) ? instance_exec(&on) : send(on)
     rescue ActiveRecord::RecordNotFound
-      MISSING
+      MISSING_RECORD
     end
 
     MAX_FIELD_VALUE_LENGTH = 900
 
-    def wrong!(field, message, submitted_value = nil)
+    def field_error!(field, message, submitted_value = nil)
       stored_value = submitted_value.to_s.length <= MAX_FIELD_VALUE_LENGTH ? submitted_value : nil
       flash[:field_error] = { "field" => field.to_s, "message" => message, "was" => stored_value }
       message
@@ -101,7 +101,7 @@ module Fd
     def deny!(key, record = nil)
       log_refusal(key, record)
       flash[:tone] = "bad"
-      flash[:detail] = "Nothing was changed. #{Authz.refusal(key).upcase_first}."
+      flash[:detail] = Authz.refusal(key).upcase_first
       redirect_back fallback_location: fd_cases_path, alert: refusal_for(key, record)
     end
 

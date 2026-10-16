@@ -6,8 +6,8 @@ from bot.nemo import memberguards, userbots
 
 log = logging.getLogger("bot.nemo")
 
-SPAM = 10
-WINDOW = "1 hour"
+RESET_MESSAGE_THRESHOLD = 10
+RESET_WINDOW = "1 hour"
 
 UNTIL = "until {when}"
 ENDLESS = "with no end date"
@@ -42,18 +42,18 @@ def post_ephemeral(client, channel_id, subject_id, message, thread_ts=None, bloc
                  subject_id, channel_id, failure)
 
 
-def reset_threshold_met(conn, guard, verb):
-    if memberguards.lately(conn, guard["id"], verb, WINDOW) < SPAM:
+def should_reset_sessions(conn, guard, verb):
+    if memberguards.count_recent_events(conn, guard["id"], verb, RESET_WINDOW) < RESET_MESSAGE_THRESHOLD:
         return False
-    return memberguards.lately(conn, guard["id"], "reset", WINDOW) == 0
+    return memberguards.count_recent_events(conn, guard["id"], "reset", RESET_WINDOW) == 0
 
 
 def reset(conn, guard, why):
-    how = privileged.reset_sessions(guard["subject_id"], conn)
-    memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], None, "reset", detail=how)
+    outcome = privileged.reset_sessions(guard["subject_id"], conn)
+    memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], None, "reset", detail=outcome)
     log.warning("nemo: %s kept %s through guard %s, sessions %s",
-                guard["subject_id"], why, guard["id"], how)
-    return how
+                guard["subject_id"], why, guard["id"], outcome)
+    return outcome
 
 
 def message_target(event, client):

@@ -149,13 +149,13 @@ def channel_ref(share, channel_id=None):
     source_channel = share.get("source_channel_id") or channel_id
     if source_channel:
         return f"<#{source_channel}>"
-    named = share.get("source_channel_name")
-    return f"#{named}" if named else None
+    channel_name = share.get("source_channel_name")
+    return f"#{channel_name}" if channel_name else None
 
 
-def by_whom(share, channel_id=None):
+def source_attribution(share, channel_id=None):
     who = share.get("source_author_user_id")
-    text = f"<@{who}>" if who else "somebody"
+    text = f"<@{who}>" if who else "unknown"
     where = channel_ref(share, channel_id)
     return f"{text} in {where}" if where else text
 
@@ -179,8 +179,8 @@ def file_blocks(share, files_by_id):
         {"type": "image", "slack_file": {"id": one["id"]}, "alt_text": one["name"]}
         for one in files if one["image"]
     ]
-    named = [one["name"] for one in files if not one["image"]]
-    return pictures + ([context("Files: " + ", ".join(named))] if named else [])
+    file_names = [one["name"] for one in files if not one["image"]]
+    return pictures + ([context("Files: " + ", ".join(file_names))] if file_names else [])
 
 
 def item_blocks(item, files_by_id=None):
@@ -200,18 +200,18 @@ def item_blocks(item, files_by_id=None):
     return [
         {"type": "rich_text", "elements": parts},
         *file_blocks(share, files_by_id),
-        context(by_whom(share, item["channel_id"]) if readable(share) else "Message not accessible"),
+        context(source_attribution(share, item["channel_id"]) if readable(share) else "Message not accessible"),
     ]
 
 
 def reply_blocks(link_items, files_by_id=None):
     blocks = []
     for at, item in enumerate(link_items):
-        made = item_blocks(item, files_by_id)
-        if len(blocks) + len(made) > BLOCK_LIMIT - 1:
+        item_block_list = item_blocks(item, files_by_id)
+        if len(blocks) + len(item_block_list) > BLOCK_LIMIT - 1:
             blocks.append(context(f"{len(link_items) - at} more in Fire Engine"))
             return blocks
-        blocks += made
+        blocks += item_block_list
     return blocks
 
 

@@ -152,8 +152,8 @@ export default class extends Controller {
     const half = pts.find((p) => p[0] === 50)
     const top = pts.find((p) => p[0] === 90)
     const bits = [`concentration curve, ${pts.length} points`]
-    if (half) bits.push(`bottom half of posters hold ${pct(half[1])} of messages`)
-    if (top) bits.push(`top tenth hold ${pct(100 - top[1])}`)
+    if (half) bits.push(`bottom 50% of posters: ${pct(half[1])} of messages`)
+    if (top) bits.push(`top 10% of posters: ${pct(100 - top[1])} of messages`)
     if (this.hasGiniValue) bits.push(`Gini ${Number(this.giniValue).toFixed(3)}`)
     return bits.join(", ")
   }
@@ -245,7 +245,7 @@ export default class extends Controller {
     dot.setAttribute("opacity", "1")
 
     chart.querySelector(".chart-caption").textContent =
-      `bottom ${px} percent of posters hold ${pct(py, 2)} of messages`
+      `bottom ${px}% of posters: ${pct(py, 2)} of messages`
   }
 
   clear() {
@@ -304,7 +304,7 @@ export default class extends Controller {
       values: [
         row("of messages", pct(py, 2), { colorClass: "ser-1", shape: "line" }),
         row("if equal", share(px), { colorClass: "ser-0", shape: "dashed" }),
-        px < 100 && row(`top ${share(100 - px)} hold`, pct(100 - py, 2))
+        px < 100 && row(`top ${share(100 - px)} share`, pct(100 - py, 2))
       ].filter(Boolean)
     }
   }
@@ -312,13 +312,13 @@ export default class extends Controller {
   rangeStats() {
     const top = (posters) => {
       const cumulativeShare = this.cumulativeShareAt(100 - posters)
-      return cumulativeShare == null ? null : { label: `top ${posters}% hold`, value: pct(100 - cumulativeShare) }
+      return cumulativeShare == null ? null : { label: `top ${posters}% share`, value: pct(100 - cumulativeShare) }
     }
     const half = this.cumulativeShareAt(50)
     return {
       summary: [
         this.hasGiniValue && { label: "Gini", value: Number(this.giniValue).toFixed(3) },
-        half != null && { label: "bottom half hold", value: pct(half) },
+        half != null && { label: "bottom half share", value: pct(half) },
         top(10),
         top(1)
       ].filter(Boolean)

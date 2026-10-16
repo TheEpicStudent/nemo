@@ -31,9 +31,7 @@ module Fd
     def no_subject_flag(kase)
       return nil if kase.resolved? || kase.subject_user_ids.any?
 
-      Flag.new(tone: "mid", headline: "Nobody has said who this is about.",
-        detail: "Until somebody does it will not show on anyone's record, " \
-                "and priors cannot be checked.")
+      Flag.new(tone: "mid", headline: "No subject", detail: nil)
     end
 
     def oldest_unclaimed
@@ -46,8 +44,8 @@ module Fd
 
       days = ((Time.current - kase.opened_at) / 1.day).floor
       Flag.new(tone: "crit",
-        headline: "Case #{kase.id} has sat unclaimed for #{days} #{days == 1 ? 'day' : 'days'}.",
-        detail: "Nothing logged on it.")
+        headline: "Case #{kase.id} unclaimed for #{days} #{days == 1 ? 'day' : 'days'}",
+        detail: nil)
     end
 
     def priors_flag(kase)
@@ -59,7 +57,7 @@ module Fd
       return nil if count < REPORT_THRESHOLD
 
       Flag.new(tone: "crit",
-        headline: "#{count.ordinalize} report about #{@names[subject]} in 30 days.",
+        headline: "#{count.ordinalize} report about #{@names[subject]} in 30 days",
         detail: nil)
     end
 
@@ -67,16 +65,14 @@ module Fd
       other_id = same_thread_case_id(kase)
       return nil if other_id.nil?
 
-      Flag.new(tone: "mid", headline: "Case #{other_id} is about the same thread.",
-        detail: "Worth merging.")
+      Flag.new(tone: "mid", headline: "Case #{other_id} shares a thread", detail: nil)
     end
 
     def merge_flag_any
       pair = same_thread_pair
       return nil if pair.nil?
 
-      Flag.new(tone: "mid", headline: "#{pair[0]} and #{pair[1]} are about the same thread.",
-        detail: "Worth merging.")
+      Flag.new(tone: "mid", headline: "Cases #{pair[0]} and #{pair[1]} share a thread", detail: nil)
     end
 
     def same_thread_case_id(kase)

@@ -1,15 +1,15 @@
 require "test_helper"
 
 class Fd::ThreadMessageTest < ActiveSupport::TestCase
-  test "the app can read messages but never write one" do
+  test "fd.thread_messages is read only" do
     assert_read_only! "fd.thread_messages"
   end
 
-  test "asking for the messages of nothing asks the database nothing" do
+  test "for_threads with no threads returns no rows" do
     assert_empty Fd::ThreadMessage.for_threads([]).to_a
   end
 
-  test "several threads are read in one pass, oldest first" do
+  test "for_threads builds one query covering all threads with one ORDER BY" do
     kase = make_case
     primary_thread = Fd::CaseThread.create!(case_id: kase.id, channel_id: "C0LOUNGE",
       thread_ts: "1754487721.123456", added_by: "UFF1", is_primary: true)
@@ -24,7 +24,7 @@ class Fd::ThreadMessageTest < ActiveSupport::TestCase
     assert_empty Fd::ThreadMessage.for_threads([primary_thread, second_thread]).to_a
   end
 
-  test "a thread attached twice is only asked for once" do
+  test "for_threads includes a duplicate thread once in the sql" do
     kase = make_case
     duplicate_threads = Array.new(2) do
       Fd::CaseThread.new(channel_id: "C0LOUNGE", thread_ts: "1754487721.123456",

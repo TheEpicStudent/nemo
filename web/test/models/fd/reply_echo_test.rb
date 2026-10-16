@@ -44,7 +44,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     Fd::StaffSlack.store!(user_id, token: "xoxp-real", team_id: "T0FIRE", scopes: "chat:write")
   end
 
-  test "a sent reply from a linked author is echoed with their own token" do
+  test "flush_pending echoes a sent reply with the linked author token" do
     link
     queued = queue
     sent = nil
@@ -63,7 +63,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     assert_equal "user", queued.echoed_as
   end
 
-  test "an anonymous reply carries both marks so the thread can see which it was" do
+  test "flush_pending posts a body mode reply with the ~? prefix" do
     link
     queue(mode: "body")
     sent = nil
@@ -76,7 +76,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     assert_equal "~?we are looking at it", sent[:text]
   end
 
-  test "an author who never linked is left for the bot" do
+  test "flush_pending skips a reply from an unlinked author and returns 0" do
     queued = queue
 
     echoed_count = stub_post_message(->(**) { flunk "the bot echoes this one" }) {
@@ -87,7 +87,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     assert_nil queued.reload.echoed_at
   end
 
-  test "a reply that has not gone yet is not echoed" do
+  test "flush_pending skips a reply without sent_at" do
     link
     queued = queue(sent: false)
 
@@ -98,7 +98,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     assert_nil queued.reload.echoed_at
   end
 
-  test "the claim means two notifications only echo once" do
+  test "flush_pending called twice posts once" do
     link
     queued = queue
     tries = 0
@@ -115,7 +115,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     assert_equal "1700.0102", queued.reload.echoed_ts
   end
 
-  test "slack refusing it lets the claim go and says why" do
+  test "flush_pending on a slack error leaves echoed_at nil and records last_error" do
     grant = link
     queued = queue
 
@@ -141,7 +141,7 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
     end
   end
 
-  test "a write that fails after the post lets the claim go and raises to be retried" do
+  test "flush_pending raises StatementInvalid and releases the claim when the update fails" do
     grant = link
     queued = queue
 
@@ -153,10 +153,10 @@ class Fd::ReplyEchoTest < ActiveSupport::TestCase
 
     assert_nil queued.reload.echoed_at, "the claim is released so the job can retry"
     assert_nil queued.echoed_ts
-    assert_nil grant.reload.last_error, "a database failure is not the grant's fault"
+    assert_nil grant.reload.last_error, "database error does not set last_error"
   end
 
-  test "a case with no card in the firehouse echoes nothing" do
+  test "flush_pending without forwarded_ts posts nothing" do
     link
     @report.update!(forwarded_ts: nil)
     queued = queue

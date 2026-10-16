@@ -11,7 +11,7 @@ class Channels::WelcomeTest < ActiveSupport::TestCase
     Channels::Welcome.new(row, "C1")
   end
 
-  test "a channel nobody landed in has nothing to show" do
+  test "without a row any? is false and funnel is empty and returned is nil" do
     welcome = Channels::Welcome.new(nil, "C1")
 
     assert_not welcome.any?
@@ -19,47 +19,47 @@ class Channels::WelcomeTest < ActiveSupport::TestCase
     assert_nil welcome.returned
   end
 
-  test "a channel with no first post has no funnel" do
+  test "with zero newcomers any? is false and funnel is empty" do
     welcome = build(newcomers: 0)
 
     assert_not welcome.any?
     assert_empty welcome.funnel
   end
 
-  test "every step counts against the same base, the first posts that landed" do
+  test "funnel returns first_post answered and fast steps with shares of newcomers" do
     steps = build.funnel
 
-    assert_equal %w[landed answered fast], steps.map(&:key)
+    assert_equal %w[first_post answered fast], steps.map(&:key)
     assert_equal [100, 80, 60], steps.map(&:count)
     assert_equal [100.0, 80.0, 60.0], steps.map(&:share)
   end
 
-  test "the funnel only ever narrows" do
+  test "funnel shares are non-increasing" do
     shares = build.funnel.map(&:share)
 
     assert_equal shares.sort.reverse, shares
   end
 
-  test "coming back is measured against the newcomers old enough to judge" do
+  test "returned count and share use measured_day_30 as the base" do
     returned = build(measured_day_30: 90, returned_day_30: 45).returned
 
     assert_equal 45, returned.count
     assert_equal 50.0, returned.share
   end
 
-  test "coming back says nothing until somebody is old enough to judge" do
+  test "returned is nil when measured_day_30 is zero" do
     assert_nil build(measured_day_30: 0).returned
   end
 
-  test "each step records who it lost" do
+  test "funnel dropoff is nil for first_post and the lost count for later steps" do
     steps = build.funnel
 
-    assert_nil steps[0].lost
-    assert_equal 20, steps[1].lost
-    assert_equal 20, steps[2].lost
+    assert_nil steps[0].dropoff
+    assert_equal 20, steps[1].dropoff
+    assert_equal 20, steps[2].dropoff
   end
 
-  test "the fast threshold is read from the warehouse, not hardcoded" do
+  test "fast_label derives from fast_reply_seconds" do
     assert_equal "an hour", build.fast_label
     assert_equal "15 min", build(fast_reply_seconds: 900).fast_label
     assert_equal "6h", build(fast_reply_seconds: 21_600).fast_label

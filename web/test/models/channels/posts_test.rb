@@ -4,7 +4,7 @@ class Channels::PostsTest < ActiveSupport::TestCase
   setup do
     @row = Analytics::FctMessage.where(is_reply: false, subtype: nil)
       .where.not(author_id: nil).where("author_id ~ '^[UW]'").order(:posted_at).first
-    skip "the tiny seed holds no top-level post" if @row.nil?
+    skip "seed has no top-level post" if @row.nil?
     @channel_id = @row.channel_id
     @subject_id = @row.author_id
   end
@@ -13,40 +13,40 @@ class Channels::PostsTest < ActiveSupport::TestCase
     Channels::Posts.rows(channel_id: @channel_id, subject_id: @subject_id, limit: limit)
   end
 
-  test "three posts is what a page holds" do
+  test "POST_LIMIT is 3 and rows returns at most 3" do
     assert_equal 3, Channels::Posts::POST_LIMIT
     assert_operator subject_posts.size, :<=, 3
   end
 
-  test "every post belongs to the member asked about" do
+  test "rows returns only posts by subject_id" do
     assert subject_posts.all? { |row| row.author_id == @subject_id }
   end
 
-  test "replies are left out, since activity is not counted on them" do
+  test "rows excludes replies" do
     assert subject_posts.none?(&:is_reply)
   end
 
-  test "newest first" do
+  test "rows orders by posted_at desc" do
     stamps = subject_posts.map(&:posted_at)
     assert_equal stamps.sort.reverse, stamps
   end
 
-  test "another member's posts in the same channel are not theirs to see" do
+  test "rows for another author excludes subject posts" do
     other = Analytics::FctMessage.where(channel_id: @channel_id, is_reply: false)
       .where.not(author_id: [@subject_id, nil]).first
-    skip "the seed has nobody else in this channel" if other.nil?
+    skip "seed has no other author in channel" if other.nil?
 
     assert Channels::Posts.rows(channel_id: @channel_id, subject_id: other.author_id)
       .none? { |row| row.author_id == @subject_id }
   end
 
-  test "a post in another channel stays there" do
+  test "rows returns only posts from channel_id" do
     assert subject_posts.all? { |row| row.channel_id == @channel_id }
   end
 
   Viewer = Struct.new(:user_id)
 
-  test "only your own, until somebody is given expand" do
+  test "may_read? allows viewer own user_id only" do
     assert Channels::Posts.may_read?(Viewer.new("U1"), "U1")
     assert_not Channels::Posts.may_read?(Viewer.new("U1"), "U2")
     assert_not Channels::Posts.may_read?(nil, "U1")
@@ -66,15 +66,15 @@ class Channels::PostsTest < ActiveSupport::TestCase
     Slack::Message.define_singleton_method(:at, original_at)
   end
 
-  def a_row(ts = "1790701062.123456")
+  def build_row(ts = "1790701062.123456")
     Row.new("C1", ts, "U1", Time.current, 2, 5)
   end
 
-  test "what a post said is read back from slack, one post at a time" do
+  test "for looks up each row message through Slack::Message.at" do
     lookups = []
     result = Slack::Message::Result.new(message: { "text" => "big news" })
 
-    stub_posts([a_row], ->(channel_id, ts) { lookups << [channel_id, ts]; result }) do
+    stub_posts([build_row], ->(channel_id, ts) { lookups << [channel_id, ts]; result }) do
       posts = Channels::Posts.for(channel_id: "C1", subject_id: "U1")
 
       assert_equal [["C1", "1790701062.123456"]], lookups
@@ -85,14 +85,14 @@ class Channels::PostsTest < ActiveSupport::TestCase
     end
   end
 
-  test "a post slack no longer has is dropped without a word" do
-    stub_posts([a_row], ->(*) { Slack::Message::Result.new(error: :not_found) }) do
+  test "for drops row when message lookup returns not_found" do
+    stub_posts([build_row], ->(*) { Slack::Message::Result.new(error: :not_found) }) do
       assert_empty Channels::Posts.for(channel_id: "C1", subject_id: "U1")
     end
   end
 
-  test "a post slack could not answer for is kept, so the page can say so" do
-    stub_posts([a_row], ->(*) { Slack::Message::Result.new(error: :unavailable) }) do
+  test "for keeps row with unavailable error and nil message" do
+    stub_posts([build_row], ->(*) { Slack::Message::Result.new(error: :unavailable) }) do
       posts = Channels::Posts.for(channel_id: "C1", subject_id: "U1")
 
       assert_equal :unavailable, posts.sole.error

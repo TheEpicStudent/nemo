@@ -3,18 +3,18 @@ import inspect
 from jobs import invariants, nightly_sync, reconcile
 
 
-def test_i11_grades_only_the_day_sources_the_walk_writes():
+def test_i11_day_sources_recent_filters_source_by_day_ledgers():
     body = inspect.getsource(invariants.i11_day_sources_recent)
     assert "DAY_LEDGERS" in body
     assert "source = ANY(%s)" in body
 
 
-def test_i11_ignores_a_finished_import():
+def test_day_ledgers_excludes_member_day_import():
     day_sources = [day_source for day_source, _ in invariants.DAY_LEDGERS]
     assert "member_day_import" not in day_sources
 
 
-def test_r6_counts_only_units_revive_should_have_taken_and_did_not():
+def test_dead_sql_uses_stuck_after_hours_twice_revive_hours_and_null_next_attempt():
     from lib import work
 
     assert reconcile.STUCK_AFTER_HOURS == 2 * work.REVIVE_HOURS
@@ -22,12 +22,12 @@ def test_r6_counts_only_units_revive_should_have_taken_and_did_not():
     assert f"make_interval(hours => {reconcile.STUCK_AFTER_HOURS})" in reconcile.DEAD_SQL
 
 
-def test_r6_ignores_the_units_revive_is_meant_to_leave_dead():
+def test_dead_sql_excludes_entity_prefix_and_refusals():
     assert "<> 'entity:'" in reconcile.DEAD_SQL
     assert "<> ALL(%s::text[])" in reconcile.DEAD_SQL
 
 
-def test_r6_uses_the_same_refusals_revive_does():
+def test_r6_dead_units_uses_work_refusals():
     from lib import work
 
     body = inspect.getsource(reconcile.r6_dead_units)
@@ -35,12 +35,12 @@ def test_r6_uses_the_same_refusals_revive_does():
     assert "channel_not_found" in work.REFUSALS
 
 
-def test_prometheans_opens_a_run_like_every_other_stage():
+def test_reconcile_prometheans_opens_ingest_run_and_counts_rows_in():
     body = inspect.getsource(nightly_sync.reconcile_prometheans)
     assert "ingest_run(conn, PROMETHEANS)" in body
     assert "counts.rows_in" in body
 
 
-def test_the_prometheans_stage_hands_the_connection_over():
+def test_stages_includes_prometheans_stage():
     entries = {name: stage for name, stage in nightly_sync.stages()}
     assert nightly_sync.PROMETHEANS in entries

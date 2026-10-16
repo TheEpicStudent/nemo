@@ -1,14 +1,14 @@
 require "test_helper"
 
 class PrometheusMirrorTest < ActiveSupport::TestCase
-  WHO = "UPROM0001".freeze
+  USER_ID = "UPROM0001".freeze
   UNREACHABLE_URL = "http://127.0.0.1:9".freeze
 
   setup do
     ENV["PROMETHEUS_BASE_URL"] = "http://prometheus.test"
-    Account.find_or_create_by!(user_id: WHO)
+    Account.find_or_create_by!(user_id: USER_ID)
     Prometheus::Appointment.delete_all
-    Rails.cache.delete("prometheus/checked/#{WHO}")
+    Rails.cache.delete("prometheus/checked/#{USER_ID}")
     Current.forget_roles
   end
 
@@ -26,71 +26,71 @@ class PrometheusMirrorTest < ActiveSupport::TestCase
     Prometheus::Roster.define_singleton_method(name, original)
   end
 
-  def appointments(user_id = WHO)
+  def appointments(user_id = USER_ID)
     Prometheus::Appointment.for_person(user_id).order(:channel_id).pluck(:channel_id, :role)
   end
 
-  def settle_appointments(*channels)
-    Prometheus::Mirror.replace_appointments(WHO, channels)
+  def replace_appointments(*channels)
+    Prometheus::Mirror.replace_appointments(USER_ID, channels)
   end
 
-  test "settling writes what Prometheus holds" do
-    settle_appointments({ "channel_id" => "C1", "role" => "manager" },
+  test "replace_appointments stores every given appointment" do
+    replace_appointments({ "channel_id" => "C1", "role" => "manager" },
       { "channel_id" => "C2", "role" => "moderator" })
 
     assert_equal [["C1", "manager"], ["C2", "moderator"]], appointments
   end
 
-  test "only a manager appointment carries the role" do
-    settle_appointments({ "channel_id" => "C1", "role" => "moderator" })
-    assert_empty Authz.effective_roles(WHO)
+  test "effective_roles includes promethean only for a manager appointment" do
+    replace_appointments({ "channel_id" => "C1", "role" => "moderator" })
+    assert_empty Authz.effective_roles(USER_ID)
 
-    settle_appointments({ "channel_id" => "C1", "role" => "manager" })
-    assert_equal ["promethean"], Authz.effective_roles(WHO)
+    replace_appointments({ "channel_id" => "C1", "role" => "manager" })
+    assert_equal ["promethean"], Authz.effective_roles(USER_ID)
   end
 
-  test "a shrunk answer takes channels away" do
-    settle_appointments({ "channel_id" => "C1", "role" => "manager" },
+  test "replace_appointments removes channels missing from the new list" do
+    replace_appointments({ "channel_id" => "C1", "role" => "manager" },
       { "channel_id" => "C2", "role" => "manager" })
-    settle_appointments({ "channel_id" => "C1", "role" => "manager" })
+    replace_appointments({ "channel_id" => "C1", "role" => "manager" })
 
     assert_equal [["C1", "manager"]], appointments
   end
 
-  test "an unknown role or a blank channel is dropped rather than written" do
-    settle_appointments({ "channel_id" => "C1", "role" => "owner" },
+  test "replace_appointments skips an unknown role and a blank channel_id" do
+    replace_appointments({ "channel_id" => "C1", "role" => "owner" },
       { "channel_id" => "", "role" => "manager" },
       { "channel_id" => "C2", "role" => "manager" })
 
     assert_equal [["C2", "manager"]], appointments
   end
 
-  test "the same channel twice does not break the write" do
-    settle_appointments({ "channel_id" => "C1", "role" => "manager" },
+  test "replace_appointments with a duplicate channel stores one row" do
+    replace_appointments({ "channel_id" => "C1", "role" => "manager" },
       { "channel_id" => "C1", "role" => "manager" })
 
     assert_equal [["C1", "manager"]], appointments
   end
 
-  test "an outage leaves what we already hold alone" do
-    settle_appointments({ "channel_id" => "C1", "role" => "manager" })
+  test "refresh keeps stored appointments when Prometheus is unreachable" do
+    replace_appointments({ "channel_id" => "C1", "role" => "manager" })
     ENV["PROMETHEUS_BASE_URL"] = UNREACHABLE_URL
 
-    assert_not Prometheus::Mirror.refresh(WHO)
+    assert_not Prometheus::Mirror.refresh(USER_ID)
     assert_equal [["C1", "manager"]], appointments
   end
 
-  test "nothing happens when no base url is configured" do
-    settle_appointments({ "channel_id" => "C1", "role" => "manager" })
+  test "refresh and refresh_if_due without a base url keep appointments" do
+    replace_appointments({ "channel_id" => "C1", "role" => "manager" })
     ENV.delete("PROMETHEUS_BASE_URL")
 
-    assert_not Prometheus::Mirror.refresh(WHO)
-    assert_not Prometheus::Mirror.refresh_if_due(WHO)
+    assert_not Prometheus::Mirror.refresh(USER_ID)
+    assert_not Prometheus::Mirror.refresh_if_due(USER_ID)
     assert_equal [["C1", "manager"]], appointments
   end
 
-  test "a reconcile refuses to empty the mirror" do
-    settle_appointments({ "channel_id" => "C1", "role" => "manager" })
+  test "reconcile_all with an empty roster returns false and keeps rows" do
+    replace_appointments({ "channel_id" => "C1", "role" => "manager" })
 
     stub_roster(:every_appointment, [].each) do
       assert_not Prometheus::Mirror.reconcile_all
@@ -99,8 +99,8 @@ class PrometheusMirrorTest < ActiveSupport::TestCase
     assert_equal [["C1", "manager"]], appointments
   end
 
-  test "a reconcile replaces every row" do
-    settle_appointments({ "channel_id" => "COLD", "role" => "manager" })
+  test "reconcile_all replaces rows with the roster" do
+    replace_appointments({ "channel_id" => "COLD", "role" => "manager" })
     rows = [{ "user_id" => "UOTHER01", "channel_id" => "CNEW", "role" => "manager" }]
 
     stub_roster(:every_appointment, rows.each) do
@@ -111,26 +111,26 @@ class PrometheusMirrorTest < ActiveSupport::TestCase
     assert_equal [["CNEW", "manager"]], appointments("UOTHER01")
   end
 
-  test "a reconcile that cannot reach Prometheus changes nothing" do
-    settle_appointments({ "channel_id" => "C1", "role" => "manager" })
+  test "reconcile_all keeps rows when Prometheus is unreachable" do
+    replace_appointments({ "channel_id" => "C1", "role" => "manager" })
     ENV["PROMETHEUS_BASE_URL"] = UNREACHABLE_URL
 
     assert_not Prometheus::Mirror.reconcile_all
     assert_equal [["C1", "manager"]], appointments
   end
 
-  test "a second look inside the fresh window does not ask again" do
+  test "check_due? is true once then false inside the fresh window" do
     original_cache = Rails.cache
     Rails.cache = ActiveSupport::Cache::MemoryStore.new
-    settle_appointments({ "channel_id" => "C1", "role" => "manager" })
+    replace_appointments({ "channel_id" => "C1", "role" => "manager" })
 
-    assert Prometheus::Mirror.check_due?(WHO)
-    assert_not Prometheus::Mirror.check_due?(WHO)
+    assert Prometheus::Mirror.check_due?(USER_ID)
+    assert_not Prometheus::Mirror.check_due?(USER_ID)
   ensure
     Rails.cache = original_cache
   end
 
-  test "somebody holding no appointment is never looked up" do
+  test "refresh_if_due returns false for an unknown user" do
     assert_not Prometheus::Mirror.refresh_if_due("UNOBODY9")
   end
 end

@@ -225,47 +225,47 @@ def channel_page(client, count=500):
 
 
 def check_members_against_slack(conn, client):
-    ours = one(conn, "select total_members_count from analytics.mart_team_stats_daily "
+    local_value = one(conn, "select total_members_count from analytics.mart_team_stats_daily "
                      "order by ds desc limit 1")
     stats = team_stats_today(client)
-    theirs = stats.get("total_members_count") or stats.get("total_members")
-    return "mart_team_stats_daily.total_members_count", "slack", "team.stats.timeSeries", ours, theirs
+    reference_value = stats.get("total_members_count") or stats.get("total_members")
+    return "mart_team_stats_daily.total_members_count", "slack", "team.stats.timeSeries", local_value, reference_value
 
 
 def check_members_against_the_dimension(conn, client):
-    ours = one(conn, "select total_members_count from analytics.mart_team_stats_daily "
+    local_value = one(conn, "select total_members_count from analytics.mart_team_stats_daily "
                      "order by ds desc limit 1")
-    theirs = one(conn, "select count(*) from analytics.dim_member where is_live")
-    return "mart_team_stats_daily.total_members_count", "cross", "dim_member.is_live", ours, theirs
+    reference_value = one(conn, "select count(*) from analytics.dim_member where is_live")
+    return "mart_team_stats_daily.total_members_count", "cross", "dim_member.is_live", local_value, reference_value
 
 
 def check_account_type_totals(conn, client):
-    ours = one(conn, "select sum(invited) from analytics.mart_account_type")
-    theirs = one(conn, "select count(*) from analytics.dim_member "
+    local_value = one(conn, "select sum(invited) from analytics.mart_account_type")
+    reference_value = one(conn, "select count(*) from analytics.dim_member "
                        "where not is_bot and not is_deleted")
-    return "mart_account_type.invited, summed", "cross", "dim_member, live and not a bot", ours, theirs
+    return "mart_account_type.invited, summed", "cross", "dim_member, live and not a bot", local_value, reference_value
 
 
 def check_growth_cohorts(conn, client):
-    ours = one(conn, "select sum(invited_members) from analytics.mart_growth")
-    theirs = one(conn, """
+    local_value = one(conn, "select sum(invited_members) from analytics.mart_growth")
+    reference_value = one(conn, """
         select count(*) from analytics.dim_member
         where cohort_at >= (select min(month) from analytics.mart_growth)
           and cohort_at <  (select max(month) + interval '1 month' from analytics.mart_growth)
           and not is_bot""")
-    return "mart_growth.invited_members, summed", "cross", "dim_member.cohort_at", ours, theirs
+    return "mart_growth.invited_members, summed", "cross", "dim_member.cohort_at", local_value, reference_value
 
 
 def check_monthly_rollup(conn, client):
-    ours = one(conn, """
+    local_value = one(conn, """
         select channel_messages from analytics.mart_team_stats_monthly
         where is_complete order by month desc limit 1""")
-    theirs = one(conn, """
+    reference_value = one(conn, """
         select sum(d.channel_messages_1d) from analytics.mart_team_stats_daily d
         where date_trunc('month', d.ds) = (
             select month from analytics.mart_team_stats_monthly
             where is_complete order by month desc limit 1)""")
-    return "mart_team_stats_monthly.channel_messages", "cross", "the daily mart, summed", ours, theirs
+    return "mart_team_stats_monthly.channel_messages", "cross", "the daily mart, summed", local_value, reference_value
 
 
 def check_channel_source_parity(conn, client):
@@ -282,10 +282,10 @@ def check_channel_members_against_slack(conn, client):
     if not rows:
         return "mart_channel_range.total_members", "slack", "getChannelAnalytics", None, None
     top = rows[0]
-    ours = one(conn, "select total_members from analytics.mart_channel_range where channel_id = %s",
+    local_value = one(conn, "select total_members from analytics.mart_channel_range where channel_id = %s",
                (top["channel_id"],))
     return (f"mart_channel_range.total_members #{top.get('name')}", "slack",
-            "getChannelAnalytics", ours, top.get("total_members_count"))
+            "getChannelAnalytics", local_value, top.get("total_members_count"))
 
 
 def check_dimension_join_coverage(conn, client):
@@ -298,21 +298,21 @@ def check_dimension_join_coverage(conn, client):
 def check_archived_flags_against_slack(conn, client):
     bot = bot_client()
     team = os.environ.get("SLACK_TEAM_ID")
-    theirs, cursor = {}, ""
+    slack_archived, cursor = {}, ""
     while True:
         page = bot.conversations_list(types="public_channel", limit=1000,
                                       cursor=cursor, exclude_archived=False, team_id=team)
         for channel in page["channels"]:
-            theirs[channel["id"]] = bool(channel.get("is_archived"))
+            slack_archived[channel["id"]] = bool(channel.get("is_archived"))
         cursor = (page.get("response_metadata") or {}).get("next_cursor") or ""
         if not cursor:
             break
         time.sleep(1.2)
     with conn.cursor() as cur:
         cur.execute("select channel_id from analytics.dim_channel where not archived")
-        ours = [r[0] for r in cur.fetchall()]
-    drifted = sum(1 for cid in ours if theirs.get(cid) is True)
-    unlisted = sum(1 for cid in ours if cid not in theirs)
+        local_live = [r[0] for r in cur.fetchall()]
+    drifted = sum(1 for cid in local_live if slack_archived.get(cid) is True)
+    unlisted = sum(1 for cid in local_live if cid not in slack_archived)
     return [
         ("channels marked live locally but archived in Slack", "slack",
          "0, the archived flag should follow Slack", drifted, 0),
@@ -323,8 +323,8 @@ def check_archived_flags_against_slack(conn, client):
 
 def check_channel_count_against_slack(conn, client):
     _, slack_count = channel_page(client, count=1)
-    ours = one(conn, "select count(*) from analytics.mart_channel_range")
-    return "mart_channel_range, row count", "slack", "getChannelAnalytics num_found", ours, slack_count
+    local_value = one(conn, "select count(*) from analytics.mart_channel_range")
+    return "mart_channel_range, row count", "slack", "getChannelAnalytics num_found", local_value, slack_count
 
 
 def check_top_poster_against_slack(conn, client):
@@ -336,21 +336,21 @@ def check_top_poster_against_slack(conn, client):
         row = cur.fetchone()
     if row is None:
         return "mart_top_posters.messages_posted", "slack", "getMemberAnalytics", None, None
-    start, end, ours = row
+    start, end, local_value = row
     resp = client.call("admin.analytics.getMemberAnalytics", {
         "start_date": start.isoformat(), "end_date": end.isoformat(),
         "sort_column": "messages_posted", "sort_direction": "desc", "count": 1})
     recs = resp.get("member_activity") or []
-    theirs = recs[0].get("messages_posted") if recs else None
+    reference_value = recs[0].get("messages_posted") if recs else None
     return (f"mart_top_posters, rank 1 for {start:%b %Y}", "slack",
-            "getMemberAnalytics over the same month", ours, theirs)
+            "getMemberAnalytics over the same month", local_value, reference_value)
 
 
 def check_distribution_population(conn, client):
-    ours = one(conn, "select max(workspace_members) from analytics.mart_activity_distribution")
-    theirs = one(conn, "select count(*) from analytics.dim_member "
+    local_value = one(conn, "select max(workspace_members) from analytics.mart_activity_distribution")
+    reference_value = one(conn, "select count(*) from analytics.dim_member "
                        "where not is_bot and not invite_pending")
-    return "mart_activity_distribution.workspace_members", "cross", "dim_member, walkable", ours, theirs
+    return "mart_activity_distribution.workspace_members", "cross", "dim_member, walkable", local_value, reference_value
 
 
 RETENTION_COVERAGE_SQL = """
@@ -393,10 +393,10 @@ def check_retention_coverage(conn, client):
 
 
 def check_response_rate_totals(conn, client):
-    ours = one(conn, """
+    local_value = one(conn, """
         select coalesce(sum(answered_by_member), 0)
         from analytics.mart_response_rate""")
-    theirs = one(conn, """
+    reference_value = one(conn, """
         select count(*)
         from analytics.fct_first_response r
         join analytics.dim_member d on d.user_id = r.newcomer_id
@@ -407,25 +407,25 @@ def check_response_rate_totals(conn, client):
           and not coalesce(d.invite_pending, false)
           and r.post_at <= d.cohort_at + interval '30 days'""")
     return ("mart_response_rate, first posts a member answered", "cross",
-            "fct_first_response rows inside the newcomer window", ours, theirs)
+            "fct_first_response rows inside the newcomer window", local_value, reference_value)
 
 
 def check_claimed_against_slack(conn, client):
-    ours = one(conn, "select total_claimed_count from analytics.mart_team_stats_daily "
+    local_value = one(conn, "select total_claimed_count from analytics.mart_team_stats_daily "
                      "order by ds desc limit 1")
     stats = team_stats_today(client)
-    theirs = stats.get("total_claimed_count")
-    return "mart_team_stats_daily.total_claimed_count", "slack", "team.stats.timeSeries", ours, theirs
+    reference_value = stats.get("total_claimed_count")
+    return "mart_team_stats_daily.total_claimed_count", "slack", "team.stats.timeSeries", local_value, reference_value
 
 
 def check_claimed_flag(conn, client):
-    ours = one(conn, """
+    local_value = one(conn, """
         select round(100.0 * count(*) filter (where is_claimed) / nullif(count(*), 0))
         from analytics.dim_member where is_live""")
-    theirs = one(conn, """
+    reference_value = one(conn, """
         select round(100.0 * total_claimed_count / nullif(total_members_count, 0))
         from analytics.mart_team_stats_daily order by ds desc limit 1""")
-    return "claim rate, percent", "cross", "team.stats claim rate", ours, theirs
+    return "claim rate, percent", "cross", "team.stats claim rate", local_value, reference_value
 
 
 SLACK_CHECKS = {
@@ -463,7 +463,7 @@ CHECKS = [
 ]
 
 
-KNOWN = {
+KNOWN_DIFFERENCES = {
     "claim rate, percent": (
         0.30, "our denominator is the live members we have walked, which excludes a large "
               "pool of never-claimed deactivated accounts that Slack still counts"
@@ -492,25 +492,25 @@ BOUNDS = {
 }
 
 
-def bound_verdict(name, ours, theirs):
-    if ours is None or theirs is None:
+def bound_verdict(name, local_value, reference_value):
+    if local_value is None or reference_value is None:
         return "no data", None
-    ours, theirs = float(ours), float(theirs)
-    within_bound = ours >= theirs if BOUNDS[name] == AT_LEAST else ours <= theirs
-    delta = None if theirs == 0 else (ours - theirs) / theirs
+    local_value, reference_value = float(local_value), float(reference_value)
+    within_bound = local_value >= reference_value if BOUNDS[name] == AT_LEAST else local_value <= reference_value
+    delta = None if reference_value == 0 else (local_value - reference_value) / reference_value
     return ("ok" if within_bound else "differs"), delta
 
 
-def verdict(name, ours, theirs, tolerance):
-    if ours is None or theirs is None:
+def verdict(name, local_value, reference_value, tolerance):
+    if local_value is None or reference_value is None:
         return "no data", None
-    ours, theirs = float(ours), float(theirs)
-    if theirs == 0:
-        return ("ok" if ours == 0 else "differs"), None
-    delta = (ours - theirs) / theirs
+    local_value, reference_value = float(local_value), float(reference_value)
+    if reference_value == 0:
+        return ("ok" if local_value == 0 else "differs"), None
+    delta = (local_value - reference_value) / reference_value
     if abs(delta) <= tolerance:
         return "ok", delta
-    bound = KNOWN.get(name)
+    bound = KNOWN_DIFFERENCES.get(name)
     if bound and abs(delta) <= bound[0]:
         return "known", delta
     return "differs", delta
@@ -546,24 +546,24 @@ def collect(only=None, tolerance=TOLERANCE, cross_only=False):
                 results.append((check.__name__, "error", str(exc).splitlines()[0][:70],
                                 None, None, "error", None))
                 continue
-            for name, kind, source, ours, theirs in (outcome if isinstance(outcome, list) else [outcome]):
+            for name, kind, source, local_value, reference_value in (outcome if isinstance(outcome, list) else [outcome]):
                 if name in BOUNDS:
-                    state, delta = bound_verdict(name, ours, theirs)
+                    state, delta = bound_verdict(name, local_value, reference_value)
                 else:
-                    state, delta = verdict(name, ours, theirs, tolerance)
-                results.append((name, kind, source, ours, theirs, state, delta))
+                    state, delta = verdict(name, local_value, reference_value, tolerance)
+                results.append((name, kind, source, local_value, reference_value, state, delta))
 
     graded = []
     for row in results:
         if len(row) == 5:
-            name, kind, source, ours, theirs = row
+            name, kind, source, local_value, reference_value = row
             if name in BOUNDS:
-                state, delta = bound_verdict(name, ours, theirs)
+                state, delta = bound_verdict(name, local_value, reference_value)
             elif kind in ("plan", "cover"):
-                state, delta = verdict(name, ours, theirs, 0.0)
+                state, delta = verdict(name, local_value, reference_value, 0.0)
             else:
-                state, delta = stale_verdict(ours, theirs)
-            graded.append((name, kind, source, ours, theirs, state, delta))
+                state, delta = stale_verdict(local_value, reference_value)
+            graded.append((name, kind, source, local_value, reference_value, state, delta))
         else:
             graded.append(row)
     return graded, skipped
@@ -586,12 +586,12 @@ def format_value(value):
 
 def record_verdicts(conn, run_id, results):
     with conn.cursor() as cur:
-        for name, kind, source, ours, theirs, state, delta in results:
+        for name, kind, source, local_value, reference_value, state, delta in results:
             status = STATUS_OF.get(state, "warn")
             severity = "info" if status == "pass" else ("error" if status == "fail" else "warn")
-            observed = format_value(ours) if delta is None else f"{format_value(ours)} ({delta * 100:+.2f}%)"
+            observed = format_value(local_value) if delta is None else f"{format_value(local_value)} ({delta * 100:+.2f}%)"
             cur.execute(RECORD_SQL, (run_id, f"{kind}:{name}", severity, status, observed,
-                                     f"{format_value(theirs)} from {source}"))
+                                     f"{format_value(reference_value)} from {source}"))
     conn.commit()
     return len(results)
 
@@ -603,24 +603,32 @@ def run(only=None, tolerance=TOLERANCE, cross_only=False, record=False, run_id=N
             record_verdicts(conn, run_id, results)
 
     width = max(len(r[0]) for r in results)
-    print(f"{'headline':<{width}}  {'kind':<6}{'ours':>14}{'second source':>16}{'delta':>9}  state")
+    print(f"{'headline':<{width}}  {'kind':<6}{'value':>14}{'reference':>16}{'delta':>9}  state")
     print("-" * (width + 52))
     failed_count = 0
-    for name, kind, source, ours, theirs, state, delta in results:
+    for name, kind, source, local_value, reference_value, state, delta in results:
         if state not in ("ok", "known"):
             failed_count += 1
-        d = "" if delta is None else f"{delta * 100:+.2f}%"
-        o = "n/a" if ours is None else (f"{ours:,.1f}" if isinstance(ours, float) else f"{int(ours):,}")
-        t = "n/a" if theirs is None else (f"{theirs:,.0f}" if isinstance(theirs, float) else f"{int(theirs):,}")
-        print(f"{name:<{width}}  {kind:<6}{o:>14}{t:>16}{d:>9}  {state}")
+        delta_text = "" if delta is None else f"{delta * 100:+.2f}%"
+        value_text = (
+            "n/a" if local_value is None
+            else f"{local_value:,.1f}" if isinstance(local_value, float)
+            else f"{int(local_value):,}"
+        )
+        reference_text = (
+            "n/a" if reference_value is None
+            else f"{reference_value:,.0f}" if isinstance(reference_value, float)
+            else f"{int(reference_value):,}"
+        )
+        print(f"{name:<{width}}  {kind:<6}{value_text:>14}{reference_text:>16}{delta_text:>9}  {state}")
         if state != "ok":
-            note = KNOWN.get(name)
+            note = KNOWN_DIFFERENCES.get(name)
             print(f"{'':<{width}}  against {source}")
             if state == "known" and note:
                 print(f"{'':<{width}}  known: {note[1]}")
     print()
-    print(f"{len(results) - failed_count} of {len(results)} agree within {tolerance * 100:g}%"
-          f" (known differences counted as agreeing)")
+    print(f"{len(results) - failed_count} of {len(results)} within {tolerance * 100:g}% "
+          "(known differences included)")
     if skipped:
         print(f"{skipped} check(s) that need Slack were skipped")
     return failed_count

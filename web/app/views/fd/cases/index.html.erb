@@ -3,7 +3,7 @@
 <% content_for :pane do %>
   <%= render "pane", cases: @pane_cases, views: @pane_views, query: @pane_query,
         priors_by_user: @pane_priors, violations: @pane_violations, open_id: nil,
-        reachable: @pane_reachable %>
+        reachable: @pane_reachable_report_ids %>
 <% end %>
 
 <% content_for :head_actions do %>

@@ -20,7 +20,7 @@ module ClusterHelper
 
   MINI_WIDTH = 320
   MINI_HEIGHT = 150
-  MINI_CROWDED = 12
+  MINI_COMPACT_ABOVE = 12
   MINI_BEND = 0.08
 
   def cluster_mini_points(user_ids)
@@ -29,9 +29,9 @@ module ClusterHelper
     cy = MINI_HEIGHT / 2.0
     return { user_ids.first => [cx, cy] } if count == 1
 
-    crowded = count > MINI_CROWDED
-    rx = crowded ? [cx - 20, cy - 14].min : cx - 60
-    ry = crowded ? rx : cy - 32
+    compact = count > MINI_COMPACT_ABOVE
+    rx = compact ? [cx - 20, cy - 14].min : cx - 60
+    ry = compact ? rx : cy - 32
     return { user_ids[0] => [cx - (rx * 0.55), cy], user_ids[1] => [cx + (rx * 0.55), cy] } if count == 2
 
     user_ids.each_with_index.to_h do |user_id, index|
@@ -42,14 +42,14 @@ module ClusterHelper
 
   def cluster_mini_map(card)
     points = cluster_mini_points(card.members.map(&:user_id))
-    crowded = card.members.size > MINI_CROWDED
-    radius = crowded ? 4.5 : 8
+    compact = card.members.size > MINI_COMPACT_ABOVE
+    radius = compact ? 4.5 : 8
     edges = card.edges.filter_map do |edge|
       a = points[edge.a_user_id]
       b = points[edge.b_user_id]
       next if a.nil? || b.nil?
 
-      bend = crowded ? 0 : MINI_BEND
+      bend = compact ? 0 : MINI_BEND
       qx = ((a[0] + b[0]) / 2) + (((MINI_WIDTH / 2.0) - ((a[0] + b[0]) / 2)) * bend)
       qy = ((a[1] + b[1]) / 2) + (((MINI_HEIGHT / 2.0) - ((a[1] + b[1]) / 2)) * bend)
       tag.path(class: cluster_edge_class(edge),
@@ -62,7 +62,7 @@ module ClusterHelper
         class: ["mini-node", ("is-gone" if member.deactivated), ("is-oldest" if member.user_id == card.cluster_id)].compact.join(" "))
     end
     tag.svg(safe_join(edges + nodes), viewBox: "0 0 #{MINI_WIDTH} #{MINI_HEIGHT}",
-      class: ["ccard-map", ("is-crowded" if crowded)].compact.join(" "), role: "img",
+      class: ["ccard-map", ("is-crowded" if compact)].compact.join(" "), role: "img",
       aria: { label: "Link graph, #{card.accounts} accounts" })
   end
 
@@ -109,7 +109,7 @@ module ClusterHelper
       tag.text(text, x: x, y: height - 6, "text-anchor": anchor, class: "timeline-tick")
     end
     tag.svg(safe_join(dots + [axis] + ticks), viewBox: "0 0 #{TIMELINE_WIDTH} #{height}", role: "img",
-      aria: { label: "When each account joined, one dot per account" })
+      aria: { label: "Join date per account" })
   end
 
   def timeline_span(seconds)
@@ -130,12 +130,12 @@ module ClusterHelper
     end
   end
 
-  def cluster_flags(ring:, conflict:, returns:, all_gone:)
+  def cluster_flags(ring:, conflict:, returns:, all_deactivated:)
     flags = []
     flags << tag.span(safe_join([tag.i, "Ring"]), class: "flagx warn") if ring
     flags << tag.span(safe_join([tag.i, "Verdict conflict"]), class: "flagx crit") if conflict
     flags << tag.span(safe_join([tag.i, pluralize(returns, "post-ban join")]), class: "flagx crit") if returns.to_i.positive?
-    flags << tag.span(safe_join([tag.i, "All deactivated"]), class: "flagx") if all_gone
+    flags << tag.span(safe_join([tag.i, "All deactivated"]), class: "flagx") if all_deactivated
     safe_join(flags)
   end
 
@@ -192,6 +192,6 @@ module ClusterHelper
     end
     tip = { title: "#{person_label(user_id)}, #{day.strftime('%-d %b')}", rows: rows }.to_json
     tag.i(class: shared ? "shared" : "own", style: ("background: #{shared_tone(cluster, shared)}" if shared),
-      tabindex: 0, role: "img", data: { tip: tip }, aria: { label: "#{day.strftime('%-d %b')}, seen" })
+      tabindex: 0, role: "img", data: { tip: tip }, aria: { label: "#{day.strftime('%-d %b')}, signed in" })
   end
 end

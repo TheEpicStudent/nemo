@@ -46,7 +46,7 @@ module HomeHelper
         posted: rows.map(&:writers_count_28d),
         posted_label: "posted",
         silent: rows.map { |row| row.active_users_28d.to_i - row.writers_count_28d.to_i },
-        silent_label: "active, did not post",
+        silent_label: "active, not posted",
         posted_share: rows.map { |row| share_pct(row.writers_count_28d, row.active_users_28d) },
         messages: rows.map(&:channel_messages),
         public: rows.map(&:public_channel_messages),
@@ -65,7 +65,7 @@ module HomeHelper
         posted: rows.map(&:writers_count_1d),
         posted_label: "posted",
         silent: rows.map { |row| row.active_users_1d.to_i - row.writers_count_1d.to_i },
-        silent_label: "active, did not post",
+        silent_label: "active, not posted",
         posted_share: rows.map { |row| share_pct(row.writers_count_1d, row.active_users_1d) },
         messages: rows.map(&:channel_messages_1d),
         public: rows.map(&:chats_channels_count_1d),
@@ -109,13 +109,6 @@ module HomeHelper
     end
   end
 
-  def share_chip(numerator, denominator)
-    return nil if denominator.nil? || denominator.to_i.zero?
-
-    tag.span(number_to_percentage(numerator.to_f / denominator * 100, precision: 1),
-      class: "delta-share")
-  end
-
   REPLY_CLASS_LABEL = {
     "fast" => "under 1 h",
     "slow" => "over 1 h",
@@ -126,22 +119,10 @@ module HomeHelper
     REPLY_CLASS_LABEL.fetch(reply_class, reply_class)
   end
 
-  def rate_chip(pct, label = nil)
-    text = number_to_percentage(pct, precision: 1)
-    tag.span(label ? "#{text} #{label}" : text, class: "stack-fine")
-  end
-
   def retention_cell(rate)
     return tag.span("n/a", class: "sub2") if rate.nil?
 
     number_to_percentage((rate.to_f * 100).round(1), precision: 1)
-  end
-
-  def incomplete_chip(*reasons)
-    reasons = reasons.compact
-    return nil if reasons.empty?
-
-    tag.span("Not complete", class: "chip chip-off")
   end
 
   def reply_wait(seconds)
@@ -173,16 +154,6 @@ module HomeHelper
     return nil if denominator.nil? || denominator.to_i.zero? || numerator.nil?
 
     ((numerator.to_f / denominator) * 100).round(1)
-  end
-
-  def rate_cell(numerator, denominator, precision: 1)
-    pct = share_pct(numerator, denominator)
-    return tag.span("n/a", class: "sub2") if pct.nil?
-
-    tag.span(class: "two-line") do
-      concat tag.b(number_to_percentage(pct, precision: precision))
-      concat tag.span("#{number_with_delimiter(numerator)}/#{number_with_delimiter(denominator)}")
-    end
   end
 
   HEAT_STEPS = 6
@@ -227,10 +198,6 @@ module HomeHelper
     when :funnel_30 then Date.current < row.closes_on(:funnel_30)
     when :funnel_90 then Date.current < row.closes_on(:funnel_90)
     end
-  end
-
-  def lifecycle_closes(row, stage)
-    row.closes_on(stage[:key])
   end
 
   def band_split(value, bands, label)

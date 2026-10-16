@@ -2,18 +2,18 @@ require "test_helper"
 
 class JourneyRoutesTest < ActionDispatch::IntegrationTest
   setup do
-    @manager = hold_role!("UJRBOSS", "community_manager")
+    @manager = grant_role!("UJRBOSS", "community_manager")
     sign_in_as(@manager)
   end
 
-  test "every stage answers under /journey" do
+  test "journey stage paths return success" do
     ApplicationHelper::JOURNEY.each do |_label, stage|
       get public_send(:"#{stage}_journey_path")
       assert_response :success, "#{stage} did not render"
     end
   end
 
-  test "the old top level paths still land, permanently" do
+  test "legacy journey paths redirect with 301 to /journey" do
     ApplicationHelper::LEGACY_JOURNEY_PATHS.each do |old_path, new_path|
       get "/#{old_path}"
       assert_redirected_to "/journey/#{new_path}"
@@ -21,9 +21,9 @@ class JourneyRoutesTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "the stage a route names is the action it reaches" do
+  test "ACTIONS maps replies to replies and excludes answered" do
     assert_equal "replies", ApplicationHelper::ACTIONS.fetch("replies"),
-      "route, action and label all say replies now"
+      "replies maps to replies"
     assert_not_includes ApplicationHelper::ACTIONS.values, "answered"
   end
 end

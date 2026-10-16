@@ -2,17 +2,17 @@ from bot.core import session
 from bot.nemo.surface import on_event
 from lib import archive
 
-ARCHIVED_TYPES = frozenset({"channel", "group"})
+CHANNEL_TYPES = frozenset({"channel", "group"})
 
 
-def archived_here(event):
-    return bool(event.get("channel")) and event.get("channel_type") in ARCHIVED_TYPES
+def is_channel_event(event):
+    return bool(event.get("channel")) and event.get("channel_type") in CHANNEL_TYPES
 
 
 @on_event("message", open_to_all=True)
-def archived(ctx):
+def archive_channel_message(ctx):
     event = ctx.payload or {}
-    if not archived_here(event):
+    if not is_channel_event(event):
         return None
 
     channel_id = event["channel"]

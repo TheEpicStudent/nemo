@@ -15,23 +15,23 @@
 
 <% if !@activity_visible %>
   <div class="lede">
-    <%= lede_icon %>
+    <%= notice_icon %>
     <span class="lede-note">
-      <b>Activity is not shown for this channel</b>
+      <b>Activity unavailable</b>
     </span>
   </div>
 <% elsif @post.nil? %>
   <div class="lede">
-    <%= lede_icon %>
+    <%= notice_icon %>
     <span class="lede-note">
-      <b>This post is not here yet</b>
+      <b>Post not found</b>
     </span>
   </div>
 <% elsif @post.is_reply %>
   <div class="lede">
-    <%= lede_icon %>
+    <%= notice_icon %>
     <span class="lede-note">
-      <b>Replies have no activity</b>
+      <b>No activity for replies</b>
     </span>
   </div>
 <% else %>
@@ -50,7 +50,7 @@
         <% if @slack_message&.message %>
           <%= Slack::RichText.for(@slack_message.message, names: @names, channels: @mentioned_channels, emoji: @emoji) %>
         <% else %>
-          <p class="msg-gone">Slack did not return the message.</p>
+          <p class="msg-gone">Message unavailable</p>
         <% end %>
       </div>
 
@@ -71,18 +71,18 @@
 
     <% if stats.nil? %>
       <div class="lede">
-        <%= lede_icon %>
+        <%= notice_icon %>
         <span class="lede-note">
-          <b>No activity returned</b>
+          <b>No activity</b>
           <span>
             <% if @activity&.error == :not_configured %>
-              The analytics proxy is not configured on this deployment.
+              Analytics proxy not configured
             <% elsif @activity&.error == :reauth %>
-              The analytics session needs refreshing.
+              Analytics re-authentication required
             <% elsif @activity&.error == :not_found %>
-              Slack holds no activity for this post.
+              No activity for this post
             <% else %>
-              Slack did not answer. Reload in a minute.
+              Request failed
             <% end %>
           </span>
         </span>
@@ -122,7 +122,7 @@
                 <%= window_label(stats.window_seconds(@span)) %> after posting
                 <span class="triad-sep">&middot;</span>
                 <%= number_with_delimiter(stats.viewers_within(@span)) %> of
-                <%= number_with_delimiter(stats.viewers) %> viewers<%= " so far" if stats.partial?(@span) %>
+                <%= number_with_delimiter(stats.viewers) %> viewers<%= " (partial)" if stats.partial?(@span) %>
               </p>
             </div>
             <nav class="segmented" aria-label="Window">
@@ -159,7 +159,7 @@
 
       <section class="card">
         <div class="card-head">
-          <div><h2 class="card-title">Where it was read</h2></div>
+          <div><h2 class="card-title">Clients</h2></div>
         </div>
         <div class="message-activity-clients">
           <div class="message-activity-bar" role="img"

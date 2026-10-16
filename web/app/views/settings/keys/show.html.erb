@@ -3,7 +3,7 @@
 <% content_for :head_actions do %>
   <% unless api_off || @apps.empty? %>
     <button type="button" class="btn btn-primary" data-modal-open="new-app"
-            aria-haspopup="dialog">Register an app</button>
+            aria-haspopup="dialog">Register app</button>
   <% end %>
 <% end %>
 
@@ -11,7 +11,7 @@
   <div class="stack">
     <% @apps.each do |app| %>
       <% live_app = approved?(app) %>
-      <% pending_request = waiting_for(app) %>
+      <% pending_request = pending_request_for(app) %>
       <% tokens = tokens_for(app) %>
       <% active_tokens = tokens.reject(&:inactive?) %>
       <div class="card card-flush">
@@ -26,19 +26,19 @@
               <span class="chip chip-warn">Pending</span>
             <% elsif !live_app && !api_off %>
               <button type="button" class="btn btn-sm" data-modal-open="ask-<%= app.id %>"
-                      aria-haspopup="dialog">Ask for access</button>
+                      aria-haspopup="dialog">Request access</button>
             <% end %>
 
             <%= render layout: "shared/dropdown",
-                  locals: { label: "More for #{app.name}", trigger: menu_dots,
+                  locals: { label: "Actions for #{app.name}", trigger: menu_dots,
                             trigger_css: "btn btn-ghost btn-only" } do %>
               <% if pending_request %>
-                <%= button_to "Withdraw the request", withdraw_settings_request_path(pending_request),
+                <%= button_to "Withdraw request", withdraw_settings_request_path(pending_request),
                       method: :delete, class: "btn", form: { class: "contents" } %>
                 <div class="menu-sep"></div>
               <% end %>
               <button type="button" class="btn" data-modal-open="retire-<%= app.id %>"
-                      aria-haspopup="dialog">Delete the app</button>
+                      aria-haspopup="dialog">Delete app</button>
             <% end %>
           </div>
         </div>
@@ -67,11 +67,11 @@
 
         <% if live_app && active_tokens.empty? %>
           <div class="rowbar keyline">
-            <span class="sub">No key yet</span>
+            <span class="sub">No key</span>
             <span class="grow"></span>
             <% unless api_off %>
               <button type="button" class="btn btn-sm" data-modal-open="mint-<%= app.id %>"
-                      aria-haspopup="dialog">Generate a key</button>
+                      aria-haspopup="dialog">Generate key</button>
             <% end %>
           </div>
         <% end %>
@@ -84,13 +84,13 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
            stroke-linecap="round" stroke-linejoin="round"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></svg>
     </span>
-    <p class="empty-title">No apps yet</p>
+    <p class="empty-title">No apps</p>
     <div class="empty-do">
       <% unless api_off %>
         <button type="button" class="btn btn-primary" data-modal-open="new-app"
-                aria-haspopup="dialog">Register an app</button>
+                aria-haspopup="dialog">Register app</button>
       <% end %>
-      <%= link_to "Read the docs", doc_path("channel-managers"), class: "btn" %>
+      <%= link_to "Docs", doc_path("channel-managers"), class: "btn" %>
     </div>
   </div>
 <% end %>
@@ -100,7 +100,7 @@
   <% @apps.each do |app| %>
     <%= render "settings/keys/create", app: app %>
     <%= render "settings/keys/retire", app: app %>
-    <% if !approved?(app) && waiting_for(app).nil? %>
+    <% if !approved?(app) && pending_request_for(app).nil? %>
       <%= render "settings/keys/ask", app: app %>
     <% end %>
     <% tokens_for(app).reject(&:inactive?).each do |token| %>

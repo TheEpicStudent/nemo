@@ -75,12 +75,12 @@ def share_of_slack_day_archived(conn):
             FROM raw.channel_activity_snapshot s CROSS JOIN day d
             WHERE s.source = 'admin_analytics_api' AND s.window_start = d.ds AND s.window_end = d.ds
         ),
-        held AS (
+        archived AS (
             SELECT coalesce(sum(h.messages), 0)::bigint AS stored
             FROM analytics.fct_message_hour h CROSS JOIN day d
             WHERE h.ds = d.ds
         )
-        SELECT d.ds, slack.reported, held.stored FROM day d CROSS JOIN slack CROSS JOIN held
+        SELECT d.ds, slack.reported, archived.stored FROM day d CROSS JOIN slack CROSS JOIN archived
     """).fetchone()
     ds, reported, stored = row
     if not reported:

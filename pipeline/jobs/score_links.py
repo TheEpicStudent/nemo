@@ -16,18 +16,17 @@ from lib.paths import ENV_FILE
 
 LINKS = "fd.member_link"
 TABLE = re.compile(r"^([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)$")
-BAND_NAMES = ("certain", "strong", "worth a look")
+BAND_NAMES = ("certain", "strong", "weak")
 RECALLED_BANDS = ("certain", "strong")
 UNLINKED = "not linked"
-RIGHT = ("same_person",)
-WRONG = ("different_people",)
+POSITIVE_VERDICTS = ("same_person",)
+NEGATIVE_VERDICTS = ("different_people",)
 REBAN_WINDOW_DAYS = 30
 HOME_IP_MAX_USERS = 8
 VPN_IP_MAX_USERS = 10
 LIVE_VARIANT = "live"
 SHADOW_LINKS = "fd.member_link_shadow"
 VARIANT_NAME = re.compile(r"^[a-z0-9_]{1,40}$")
-BAND_DISPLAY = {"certain": "certain", "strong": "strong", "weak": "worth a look"}
 BAND_ORDER = {"weak": 1, "strong": 2, "certain": 3}
 SAMPLE_BANDS = ("certain", "strong", "weak")
 SAMPLE_TARGET_KEYS = {"certain": "certain", "strong": "strong", "weak": "floor"}
@@ -197,7 +196,7 @@ def band_of(score, thresholds):
         return "certain"
     if score >= thresholds["strong"]:
         return "strong"
-    return "worth a look"
+    return "weak"
 
 
 def alias_pairs(rows, staff):
@@ -209,13 +208,13 @@ def alias_pairs(rows, staff):
     return {pair for users in boxes.values() for pair in combinations(sorted(users), 2)}
 
 
-def hub(person, pairs):
-    counts = Counter(one for pair in pairs for one in pair if one in person)
-    return min(person, key=lambda one: (-counts[one], one))
+def primary_account(accounts, pairs):
+    counts = Counter(one for pair in pairs for one in pair if one in accounts)
+    return min(accounts, key=lambda one: (-counts[one], one))
 
 
-def together(person, links):
-    internal_links = [(a, b) for a, b in links if a in person and b in person]
+def linked_count(accounts, links):
+    internal_links = [(a, b) for a, b in links if a in accounts and b in accounts]
     groups = components(internal_links)
     return len(groups[0]) if groups else 0
 
@@ -226,8 +225,9 @@ def band_summary(pairs, scores, thresholds):
 
 
 def labelled(rows):
-    return [(None if score is None else float(score), verdict in RIGHT)
-            for _a, _b, verdict, score, *_rest in rows if verdict in RIGHT + WRONG]
+    return [(None if score is None else float(score), verdict in POSITIVE_VERDICTS)
+            for _a, _b, verdict, score, *_extra in rows
+            if verdict in POSITIVE_VERDICTS + NEGATIVE_VERDICTS]
 
 
 def recall(items, thresholds):
@@ -298,9 +298,9 @@ def band_shift(rows):
     shift = {"added": Counter(), "dropped": Counter(), "up": 0, "down": 0, "same": 0}
     for variant_band, live_band, count in rows:
         if live_band is None:
-            shift["added"][BAND_DISPLAY[variant_band]] += count
+            shift["added"][variant_band] += count
         elif variant_band is None:
-            shift["dropped"][BAND_DISPLAY[live_band]] += count
+            shift["dropped"][live_band] += count
         elif BAND_ORDER[variant_band] > BAND_ORDER[live_band]:
             shift["up"] += count
         elif BAND_ORDER[variant_band] < BAND_ORDER[live_band]:
@@ -337,9 +337,9 @@ def measure(conn, links_name=LINKS, variant=None, against=None):
     account_links = query(AMONG_SQL, {"ids": accounts}) if accounts else []
     all_pairs = [(a, b) for a, b, _score in account_links]
     strong_pairs = [(a, b) for a, b, score in account_links if float(score) >= thresholds["strong"]]
-    confirmed_people = [
-        {"hub": hub(group, confirmed), "accounts": len(group),
-         "together": together(group, all_pairs), "strong_together": together(group, strong_pairs)}
+    confirmed_groups = [
+        {"primary_account": primary_account(group, confirmed), "accounts": len(group),
+         "linked": linked_count(group, all_pairs), "strong_linked": linked_count(group, strong_pairs)}
         for group in groups
     ]
 
@@ -356,7 +356,7 @@ def measure(conn, links_name=LINKS, variant=None, against=None):
     samples = None
     sample_variant = variant or (LIVE_VARIANT if links_name == LINKS else None)
     if sample_variant:
-        sample_rows = conn.execute(SAMPLE_PRECISION_SQL, {"right": list(RIGHT), "wrong": list(WRONG),
+        sample_rows = conn.execute(SAMPLE_PRECISION_SQL, {"right": list(POSITIVE_VERDICTS), "wrong": list(NEGATIVE_VERDICTS),
                                                           "variant": sample_variant}).fetchall()
         samples = sample_precision(sample_rows, targets)
     shift = None
@@ -376,7 +376,7 @@ def measure(conn, links_name=LINKS, variant=None, against=None):
         },
         "samples": samples,
         "verdicts": verdicts,
-        "people": confirmed_people,
+        "groups": confirmed_groups,
         "aliases": band_summary(aliases, alias_scores, thresholds),
         "marks": thresholds,
         "cutoffs": suggest_cutoffs(labelled(rows), targets) if targets else None,
@@ -398,8 +398,8 @@ def format_ratios(counts):
 
 def recall_lines(recalls, baseline=None, baseline_name="live"):
     lines = [f"recall at strong or above (post-ban: banned again within {REBAN_WINDOW_DAYS} days, "
-             f"sharing an inbox, a home address held by {HOME_IP_MAX_USERS} or fewer, "
-             f"or a VPN exit held by {VPN_IP_MAX_USERS} or fewer on one build)"]
+             f"sharing a mailbox, a home IP used by at most {HOME_IP_MAX_USERS} accounts, "
+             f"or a VPN exit IP used by at most {VPN_IP_MAX_USERS} accounts on one build)"]
     for name, one in recalls.items():
         live = (baseline or {}).get(name)
         live_text = f"  ({baseline_name} {live['found']:,} of {live['pairs']:,})" if live else ""
@@ -407,7 +407,7 @@ def recall_lines(recalls, baseline=None, baseline_name="live"):
                      f"{share(one['found'], one['pairs']):>4}  {band_line(one['bands'])}, "
                      f"{UNLINKED} {one['bands'].get(UNLINKED, 0):,}{live_text}")
         if one["evidence"]:
-            lines.append(f"    by what they share  {format_ratios(one['evidence'])}")
+            lines.append(f"    by evidence         {format_ratios(one['evidence'])}")
         if one["signals"]:
             lines.append(f"    by top signal       {format_ratios(one['signals'])}")
     lines.append("")
@@ -447,21 +447,21 @@ def render(result):
     if result.get("samples") is not None:
         lines.extend(sample_lines(result["samples"], result.get("variant")))
 
-    lines.append("verdict pairs the finder links")
+    lines.append("verdict pairs linked")
     for verdict, one in result["verdicts"].items():
         lines.append(f"  {verdict:<17} {one['linked']:>6,} of {one['pairs']:<6,} "
                      f"{share(one['linked'], one['pairs']):>4}  {band_line(one['bands'])}")
     lines.append("")
 
-    confirmed = result["people"]
+    confirmed = result["groups"]
     total = sum(one["accounts"] for one in confirmed)
-    linked = sum(one["together"] for one in confirmed)
-    strong = sum(one["strong_together"] for one in confirmed)
-    lines.append(f"people confirmed by same_person verdicts: {len(confirmed):,}, {total:,} accounts")
+    linked = sum(one["linked"] for one in confirmed)
+    strong = sum(one["strong_linked"] for one in confirmed)
+    lines.append(f"groups confirmed by same_person verdicts: {len(confirmed):,}, {total:,} accounts")
     for one in confirmed:
-        lines.append(f"  {one['hub']:<13} {one['accounts']:>4} accounts  "
-                     f"{one['together']:>4} linked together  "
-                     f"{one['strong_together']:>4} at strong or above")
+        lines.append(f"  {one['primary_account']:<13} {one['accounts']:>4} accounts  "
+                     f"{one['linked']:>4} linked together  "
+                     f"{one['strong_linked']:>4} at strong or above")
     if confirmed:
         lines.append(f"  {'all':<13} {total:>4} accounts  {linked:>4} linked together "
                      f"({share(linked, total)})  {strong:>4} at strong or above "
@@ -480,13 +480,13 @@ def render(result):
     lines.append(f"bands from verdicts: {cutoffs['right']:,} same person, "
                  f"{cutoffs['wrong']:,} different people")
     if not cutoffs["enough"]:
-        lines.append("  not enough verdicts to suggest cutoffs yet")
+        lines.append("  not enough verdicts to suggest cutoffs")
         return lines
     for name in ("floor", "strong", "certain"):
         current = result["marks"][name]
         one = cutoffs["cuts"].get(name)
         if one is None:
-            lines.append(f"  {name:<8} now {current:g}, no score reaches the precision asked for")
+            lines.append(f"  {name:<8} now {current:g}, no score reaches the target precision")
             continue
         lines.append(f"  {name:<8} now {current:g}, suggested {one['cut']:g} "
                      f"(precision {share(one['precision'], 1)}, recall {share(one['recall'], 1)})")
@@ -517,13 +517,13 @@ def main(argv=None):
         print(f"check-links: {error}", file=sys.stderr)
         return 2
     if args.variant and args.links != LINKS:
-        print("check-links: --variant reads fd.member_link_shadow, so it takes no --links", file=sys.stderr)
+        print("check-links: --variant reads fd.member_link_shadow, --links not allowed", file=sys.stderr)
         return 2
     if args.against and not args.variant:
-        print("check-links: --against compares a --variant, so it needs one", file=sys.stderr)
+        print("check-links: --against requires --variant", file=sys.stderr)
         return 2
     if args.draw is not None and (args.draw < 1 or args.links != LINKS):
-        print(f"check-links: --draw takes a positive count and samples {LINKS} or a --variant", file=sys.stderr)
+        print(f"check-links: --draw requires a positive count and {LINKS} or a --variant", file=sys.stderr)
         return 2
     try:
         with connect(args.dsn) as conn:

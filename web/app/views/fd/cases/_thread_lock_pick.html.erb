@@ -1,5 +1,5 @@
 <div class="field-label" data-action-standing-target="locks" hidden>
-  <span>Which thread lock</span>
+  <span>Thread lock</span>
   <% if locks.any? %>
     <% family = kase.family_ids %>
     <div class="optlist">
@@ -19,8 +19,6 @@
       <% end %>
     </div>
   <% else %>
-    <p class="card-note">
-      Nothing is locked right now. Lock a thread from Slack, then log it here.
-    </p>
+    <p class="card-note">No locked threads</p>
   <% end %>
 </div>

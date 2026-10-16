@@ -7,7 +7,7 @@ module Fd
       return head :not_found if cluster.nil?
 
       split = ClusterSplit.new(cluster)
-      return redirect_to(fd_cluster_path(cluster.cluster_id), alert: "nothing to split") unless split.possible?
+      return redirect_to(fd_cluster_path(cluster.cluster_id), alert: "Nothing to split") unless split.possible?
 
       note = "Split cluster #{cluster.cluster_id}"
       writing { split.cuts.each { |cut| record(cut, note) } }

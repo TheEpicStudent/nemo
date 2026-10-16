@@ -1,9 +1,9 @@
-<% content_for :page_title, "Getting replies" %>
+<% content_for :page_title, "Replies" %>
 
 <% bands = [
      { label: "answered by a member", color: "var(--series-2)",
        count: ->(r) { r.answered_by_member.to_i } },
-     { label: "bot answered only", color: "var(--series-3)",
+     { label: "bot only", color: "var(--series-3)",
        count: ->(r) { r.answered_by_bot.to_i } },
      { label: "no reply", color: "var(--series-rest)",
        count: ->(r) { r.unanswered.to_i } }
@@ -22,16 +22,16 @@
             latest.first_posts_checked) || 0, precision: 1),
           spark: { name: "answered", days: false, labels: months,
                    data: complete_rows.map { |r| share_pct(r.answered_by_member.to_i + r.answered_by_bot.to_i, r.first_posts_checked) } },
-          caption: "#{latest.post_month.strftime("%b %Y")}, last settled month" %>
+          caption: "#{latest.post_month.strftime("%b %Y")}, last complete month" %>
     <%= render "shared/stat", k: "Answered by a member",
           v: number_to_percentage(share_pct(latest.answered_by_member, latest.first_posts_checked) || 0, precision: 1),
           spark: { name: "answered by a member", days: false, labels: months,
                    data: complete_rows.map { |r| share_pct(r.answered_by_member, r.first_posts_checked) } },
-          caption: "Rather than a bot or nobody" %>
+          caption: "Share of first posts" %>
     <%= render "shared/stat", k: "Median wait", v: reply_wait(latest.median_member_latency_seconds),
           spark: { name: "median wait, minutes", days: false, labels: months,
                    data: complete_rows.map { |r| r.median_member_latency_seconds && (r.median_member_latency_seconds / 60.0).round(1) } },
-          caption: "For a member's first reply" %>
+          caption: "First member reply" %>
   </div>
 <% end %>
 
@@ -51,7 +51,7 @@
           data-chart-pct-value="true"
           data-chart-height-value="250"
           <% if partial_indexes.any? %>data-chart-partial-value="<%= partial_indexes.to_json %>"
-          data-chart-partial-note-value="still filling in, the rate can still move"<% end %>
+          data-chart-partial-note-value="Incomplete month"<% end %>
           data-chart-notes-value="<%= @response_rate.map { |r|
             r.median_member_latency_seconds ? "median member wait #{reply_wait(r.median_member_latency_seconds)}" : nil
           }.to_json %>"
@@ -77,10 +77,7 @@
 <section class="section">
   <div class="section-head">
     <h2 class="section-title">First reply speed and day-30 retention</h2>
-    <p class="section-note">
-      <%= (window && window_note(window.window_start, window.window_end)) ||
-            "how fast a member first replied, against whether the newcomer was still posting 30 days later" %>
-    </p>
+    <% if window %><p class="section-note"><%= window_note(window.window_start, window.window_end) %></p><% end %>
   </div>
 
   <div class="card card-flush">

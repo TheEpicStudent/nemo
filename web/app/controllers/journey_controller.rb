@@ -1,5 +1,5 @@
 class JourneyController < ApplicationController
-  before_action { needs(:analytics) }
+  before_action { require_flag(:analytics) }
   before_action :require_reading
 
   RESPONSE_MONTHS = 13

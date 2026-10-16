@@ -49,7 +49,7 @@ def closed_report_rows():
     return {REOPEN_REPORTS: [(REPORT_ID, CLOSED_AT, MODERATOR_ID)]}
 
 
-def test_reporter_reopen_clears_closed_reports():
+def test_core_case_reopen_closed_case_reopens_closed_reports():
     conn = Conn({CASE_RESOLUTION: (CLOSED_AT, "action_taken", None)}, closed_report_rows())
 
     assert core_case.reopen(conn, CASE_ID, REPORTER_ID) == "action_taken"
@@ -57,7 +57,7 @@ def test_reporter_reopen_clears_closed_reports():
     assert [(args[3], args[4]) for args in conn.report_audits()] == [(REPORT_ID, "reopened")]
 
 
-def test_slack_reopen_clears_closed_reports():
+def test_case_actions_reopen_closed_case_reopens_closed_reports():
     conn = Conn({SLACK_REOPEN: ("action_taken",)}, closed_report_rows())
 
     assert case_actions.reopen(conn, CASE_ID, MODERATOR_ID) is True
@@ -65,7 +65,7 @@ def test_slack_reopen_clears_closed_reports():
     assert [(args[3], args[4]) for args in conn.report_audits()] == [(REPORT_ID, "reopened")]
 
 
-def test_reopen_reports_audits_previous_closure():
+def test_reopen_reports_writes_audit_with_previous_closure():
     conn = Conn(fetchall_rows=closed_report_rows())
 
     assert core_case.reopen_reports(conn, CASE_ID, MODERATOR_ID) == [REPORT_ID]
@@ -76,21 +76,21 @@ def test_reopen_reports_audits_previous_closure():
     assert audit_args[6].obj == {"closed_at": None, "closed_by": None, "case_id": CASE_ID}
 
 
-def test_reopen_without_closed_reports_writes_no_report_audit():
+def test_case_actions_reopen_without_closed_reports_writes_no_report_audit():
     conn = Conn({SLACK_REOPEN: ("no_action",)}, {REOPEN_REPORTS: []})
 
     assert case_actions.reopen(conn, CASE_ID, MODERATOR_ID) is True
     assert conn.report_audits() == []
 
 
-def test_reopen_of_open_case_leaves_reports_alone():
+def test_core_case_reopen_open_case_returns_none_without_reopening_reports():
     conn = Conn({CASE_RESOLUTION: (None, None, None)}, closed_report_rows())
 
     assert core_case.reopen(conn, CASE_ID, REPORTER_ID) is None
     assert conn.args_for(REOPEN_REPORTS) == []
 
 
-def test_slack_reopen_retains_assignees():
+def test_case_actions_reopen_does_not_touch_assignees():
     conn = Conn({SLACK_REOPEN: ("action_taken",)}, closed_report_rows())
 
     case_actions.reopen(conn, CASE_ID, MODERATOR_ID)
@@ -101,13 +101,13 @@ def test_slack_reopen_retains_assignees():
 MERGE = "SET resolved_at = now(), resolution = 'duplicate'"
 
 
-def test_merge_copies_assignees_to_target():
+def test_merge_with_closed_duplicates_copies_assignees_to_target():
     conn = Conn({MERGE: (CLOSED_AT,)}, {"INSERT INTO fd.case_assignees": [("UHELPER",)]})
 
     assert case_actions.merge(conn, CASE_ID, [42, 43], MODERATOR_ID) == [42, 43]
     assert conn.args_for("INSERT INTO fd.case_assignees") == [(CASE_ID, MODERATOR_ID, [42, 43])]
-    attached = [args for args in conn.args_for(AUDIT_INSERT) if args[2] == "assignee"]
-    assert [(args[3], args[4], args[6].obj) for args in attached] == \
+    assignee_audits = [args for args in conn.args_for(AUDIT_INSERT) if args[2] == "assignee"]
+    assert [(args[3], args[4], args[6].obj) for args in assignee_audits] == \
         [(CASE_ID, "attached", {"user_id": "UHELPER", "source_case_ids": [42, 43]})]
 
 

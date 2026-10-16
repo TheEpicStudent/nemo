@@ -2,7 +2,7 @@
   <div class="setname">
     <span><%= title %></span>
     <% if channel_id %>
-      <%= channel_seat_label(*seat) if seat %>
+      <%= channel_membership_label(*membership) if membership %>
     <% else %>
       <p class="sev-crit">No channel selected</p>
     <% end %>

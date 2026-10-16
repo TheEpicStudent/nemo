@@ -4,7 +4,7 @@
   <div class="card-head">
     <div>
       <h2 class="card-title">Requests</h2>
-      <p class="card-sub"><%= @waiting %> waiting</p>
+      <p class="card-sub"><%= @pending_count %> waiting</p>
     </div>
   </div>
 
@@ -17,7 +17,7 @@
             <th>Owner</th>
             <th>State</th>
             <th>By</th>
-            <th class="col-date">When</th>
+            <th class="col-date">Date</th>
             <th class="col-btn"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>

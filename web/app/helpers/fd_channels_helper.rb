@@ -1,10 +1,4 @@
 module FdChannelsHelper
-  def channel_guard_line(guard)
-    return "not guarded" if guard.nil?
-
-    guard.live? ? "guarding" : "lifted"
-  end
-
   GUARD_LABELS = {
     Fd::ChannelGuard::BOT_ALLOWLIST => "Bot allow list",
     Fd::ChannelGuard::READONLY => "Read-only",
@@ -50,7 +44,7 @@ module FdChannelsHelper
 
     button_to on ? "yes" : "no", fd_channel_guard_path(channel_id, kind),
       method: on ? :delete : :post, class: "switch #{on ? 'yes' : 'no'}",
-      aria: { label: on ? "turn it off" : "turn it on" },
+      aria: { label: on ? "Turn off" : "Turn on" },
       form: { class: "contents" }
   end
 
@@ -63,10 +57,10 @@ module FdChannelsHelper
     "failed" => ["failed", "state-crit"]
   }.freeze
 
-  PURGE_SOURCES = { "slack" => "from Slack", "deactivation" => "with a deactivation" }.freeze
+  PURGE_SOURCES = { "slack" => "from Slack", "deactivation" => "with deactivation" }.freeze
 
   def purge_scope(purge)
-    purge.wanted ? "Last #{number_with_delimiter(purge.wanted)}" : "Every message"
+    purge.wanted ? "Last #{number_with_delimiter(purge.wanted)}" : "All messages"
   end
 
   def purge_path(purge)
@@ -149,7 +143,7 @@ module FdChannelsHelper
   def channel_guard_why(guard)
     return nil if guard.nil?
 
-    safe_join([member_face(guard.opened_by, small: true), " turned it on ", on_day(guard.created_at)])
+    safe_join([member_face(guard.opened_by, small: true), " · ", on_day(guard.created_at)])
   end
 
   NEEDS_INVITE = "needs an invite".freeze
@@ -159,21 +153,21 @@ module FdChannelsHelper
     standing&.refused? && standing.why == NEEDS_INVITE
   end
 
-  def channel_seat_label(inside, standing)
+  def channel_membership_label(inside, standing)
     return nil if inside
-    return seat_note(outside_label(standing), "sev-crit") if inside == false
+    return membership_note(outside_label(standing), "sev-crit") if inside == false
     return nil if standing.nil? || standing.inside?
-    return seat_note("Nemo was removed from this channel", "sev-crit") if standing.verb == "left"
-    return seat_note(INVITE_NOTE, "sev-warn") if needs_invite?(standing)
+    return membership_note("Nemo was removed from this channel", "sev-crit") if standing.verb == "left"
+    return membership_note(INVITE_NOTE, "sev-warn") if needs_invite?(standing)
 
-    seat_note(refused_note(standing.why.presence || "refused"), "sev-crit")
+    membership_note(refused_note(standing.why.presence || "refused"), "sev-crit")
   end
 
   def refused_note(reason)
     "Join failed: #{reason}"
   end
 
-  def seat_note(text, severity)
+  def membership_note(text, severity)
     tag.p(text.upcase_first, class: severity)
   end
 
@@ -213,13 +207,6 @@ module FdChannelsHelper
     tag.span([event.subject_id, event.bot_id].compact_blank.uniq.join(" - "), class: "mono")
   end
 
-  def marketplace_link(app_id, label = "manage this bot")
-    return nil if app_id.blank?
-
-    link_to label, "#{MARKETPLACE}/#{app_id}", class: "lnk lnk-soft",
-      target: "_blank", rel: "noopener"
-  end
-
   def bot_name_link(label, app_id)
     return label if app_id.blank?
 
@@ -236,7 +223,7 @@ module FdChannelsHelper
     time.in_time_zone(Time.zone).strftime("%-d %b %Y, %H:%M")
   end
 
-  def vouched_line(allow)
-    safe_join(["allowed by ", member_face(allow.added_by, small: true), " ", ago_label(allow.added_at)])
+  def allow_added_line(allow)
+    safe_join(["added by ", member_face(allow.added_by, small: true), " ", ago_label(allow.added_at)])
   end
 end

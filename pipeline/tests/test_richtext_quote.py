@@ -7,7 +7,7 @@ def section(*elements):
     ]}
 
 
-def test_a_single_section_becomes_a_quote_with_the_same_runs():
+def test_quote_blocks_single_section_returns_quote_with_same_elements():
     quote = richtext.quote_blocks([section(
         {"type": "text", "text": "hi "},
         {"type": "user", "user_id": "U1"},
@@ -22,7 +22,7 @@ def test_a_single_section_becomes_a_quote_with_the_same_runs():
     }
 
 
-def test_several_sections_are_joined_into_one_quote():
+def test_quote_blocks_multiple_sections_merge_into_one_quote():
     quote = richtext.quote_blocks([section({"type": "text", "text": "a"}),
                                    section({"type": "text", "text": "b"})])
 
@@ -31,7 +31,7 @@ def test_several_sections_are_joined_into_one_quote():
     ]
 
 
-def test_a_non_section_element_refuses_the_whole_thing():
+def test_quote_blocks_non_section_element_returns_none():
     quote = richtext.quote_blocks([{"type": "rich_text", "elements": [
         {"type": "rich_text_preformatted", "elements": [{"type": "text", "text": "code"}]},
     ]}])
@@ -39,13 +39,13 @@ def test_a_non_section_element_refuses_the_whole_thing():
     assert quote is None
 
 
-def test_a_block_that_is_not_rich_text_refuses_the_whole_thing():
+def test_quote_blocks_non_rich_text_block_returns_none():
     quote = richtext.quote_blocks([{"type": "divider"}])
 
     assert quote is None
 
 
-def test_nothing_in_makes_nothing_out():
+def test_quote_blocks_empty_input_returns_none():
     assert richtext.quote_blocks(None) is None
     assert richtext.quote_blocks([]) is None
     assert richtext.quote_blocks([section()]) is None

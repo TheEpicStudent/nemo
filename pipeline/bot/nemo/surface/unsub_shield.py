@@ -8,7 +8,7 @@ log = logging.getLogger("bot.nemo")
 
 KEYWORD = "UNSUBSCRIBE"
 
-EXPLANATION = (
+NOTICE = (
     "To stop notifications from a thread, use *Turn off notifications for replies* on it."
 )
 
@@ -22,7 +22,7 @@ def is_unsubscribe_request(event):
 @on_event("message", open_to_all=True)
 def on_message(ctx):
     event = ctx.payload or {}
-    if not responses.shielding():
+    if not responses.unsub_shield_enabled():
         return None
 
     channel_id, subject_id, ts = notify.message_target(event, ctx.client)
@@ -37,6 +37,6 @@ def on_message(ctx):
 
     link = responses.setting(responses.UNSUB_SHIELD_LINK)
     notify.post_ephemeral(ctx.client, channel_id, subject_id,
-                     WITH_LINK.format(text=EXPLANATION, link=link) if link else EXPLANATION)
+                     WITH_LINK.format(text=NOTICE, link=link) if link else NOTICE)
     log.info("nemo: took down an unsubscribe from %s in %s", subject_id, channel_id)
     return True

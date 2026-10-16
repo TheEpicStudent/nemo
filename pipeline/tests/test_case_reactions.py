@@ -47,14 +47,14 @@ class Ctx:
         self.client = client or Slack()
 
 
-def test_a_card_shows_where_its_case_stands():
+def test_card_mark_reflects_case_state():
     assert channel.card_mark({}) == "hourglass_flowing_sand"
     assert channel.card_mark({"resolved_at": "x", "resolution": "duplicate"}) == "repeat"
     assert channel.card_mark({"resolved_at": "x", "resolution": "no_action"}) == "white_check_mark"
     assert channel.card_mark({"resolved_at": "x", "resolution": "not_conduct"}) == "white_check_mark"
 
 
-def test_a_fresh_card_only_gains_its_mark():
+def test_mark_card_new_card_adds_reaction_only():
     slack = Slack()
 
     channel.mark_card(slack, CHANNEL_ID, CARD, {}, is_new=True)
@@ -63,7 +63,7 @@ def test_a_fresh_card_only_gains_its_mark():
                                               "name": "hourglass_flowing_sand"})]
 
 
-def test_a_redrawn_card_drops_the_marks_it_no_longer_wants():
+def test_mark_card_resolved_case_removes_stale_reactions():
     slack = Slack()
 
     channel.mark_card(slack, CHANNEL_ID, CARD, {"resolved_at": "x", "resolution": "duplicate"})
@@ -78,7 +78,7 @@ class XReactionSlack(Slack):
         return {"message": {"reactions": [{"name": "x", "users": ["UME"], "count": 1}]}}
 
 
-def test_a_case_closed_by_an_x_keeps_only_the_x_it_was_given():
+def test_mark_card_not_conduct_with_existing_x_reaction_does_not_add_check():
     slack = XReactionSlack()
 
     channel.mark_card(slack, CHANNEL_ID, CARD, {"resolved_at": "x", "resolution": "not_conduct"})
@@ -87,7 +87,7 @@ def test_a_case_closed_by_an_x_keeps_only_the_x_it_was_given():
     assert "hourglass_flowing_sand" in [kwargs["name"] for kwargs in slack.calls_to("reactions_remove")]
 
 
-def test_a_case_closed_as_not_conduct_from_the_menu_still_gets_its_check():
+def test_mark_card_not_conduct_without_existing_reaction_adds_check():
     slack = Slack()
 
     channel.mark_card(slack, CHANNEL_ID, CARD, {"resolved_at": "x", "resolution": "not_conduct"})
@@ -95,48 +95,48 @@ def test_a_case_closed_as_not_conduct_from_the_menu_still_gets_its_check():
     assert [kwargs["name"] for kwargs in slack.calls_to("reactions_add")] == ["white_check_mark"]
 
 
-def test_a_change_of_standing_alone_redraws_the_card():
+def test_digest_of_differs_for_different_marks():
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "Case 2"}}]
     assert channel.digest_of(blocks, "hourglass_flowing_sand") != channel.digest_of(
         blocks, "white_check_mark")
 
 
-def test_a_check_closes_as_action_taken_only_while_an_action_stands(monkeypatch):
-    closed = []
+def test_close_without_notice_resolution_follows_live_actions_without_reporter_notice(monkeypatch):
+    resolved_values = []
     monkeypatch.setattr(case_actions, "resolve",
-                        lambda conn, case_id, values, by: closed.append(values) or 0)
+                        lambda conn, case_id, values, by: resolved_values.append(values) or 0)
 
     monkeypatch.setattr(case_actions, "live_actions", lambda conn, case_id: [{"id": 1}])
-    assert case_actions.close_quietly(Conn(), 2, None, "UME") == "action_taken"
+    assert case_actions.close_without_notice(Conn(), 2, None, "UME") == "action_taken"
     monkeypatch.setattr(case_actions, "live_actions", lambda conn, case_id: [])
-    assert case_actions.close_quietly(Conn(), 2, None, "UME") == "no_action"
-    assert case_actions.close_quietly(Conn(), 2, "not_conduct", "UME") == "not_conduct"
+    assert case_actions.close_without_notice(Conn(), 2, None, "UME") == "no_action"
+    assert case_actions.close_without_notice(Conn(), 2, "not_conduct", "UME") == "not_conduct"
 
-    assert all(not one["notify_reporter"] and one["member_note"] is None for one in closed)
+    assert all(not one["notify_reporter"] and one["member_note"] is None for one in resolved_values)
 
 
-def test_closing_a_case_already_closed_says_so(monkeypatch):
+def test_close_without_notice_already_closed_case_returns_none(monkeypatch):
     monkeypatch.setattr(case_actions, "resolve", lambda conn, case_id, values, by: None)
     monkeypatch.setattr(case_actions, "live_actions", lambda conn, case_id: [])
-    assert case_actions.close_quietly(Conn(), 2, None, "UME") is None
+    assert case_actions.close_without_notice(Conn(), 2, None, "UME") is None
 
 
-def test_resolving_from_the_thread_tells_the_reporter(monkeypatch):
+def test_resolve_and_notify_sets_notify_reporter_and_message(monkeypatch):
     resolve_values = []
     monkeypatch.setattr(case_actions, "live_actions", lambda conn, case_id: [])
     monkeypatch.setattr(case_actions, "resolve",
                         lambda conn, case_id, values, by: resolve_values.append(values) or 1)
 
-    assert case_actions.resolve_and_tell(Conn(), 2, "thanks", "UME") == ("no_action", 1)
+    assert case_actions.resolve_and_notify(Conn(), 2, "thanks", "UME") == ("no_action", 1)
     assert resolve_values[0]["notify_reporter"] and resolve_values[0]["message"] == "thanks"
 
 
-def test_a_case_already_closed_still_lets_the_reporter_hear(monkeypatch):
+def test_resolve_and_notify_already_closed_case_still_closes_reports(monkeypatch):
     monkeypatch.setattr(case_actions, "live_actions", lambda conn, case_id: [])
     monkeypatch.setattr(case_actions, "resolve", lambda conn, case_id, values, by: None)
     monkeypatch.setattr(case_actions, "close_reports", lambda conn, case_id, message, by: 1)
 
-    assert case_actions.resolve_and_tell(Conn(), 2, "thanks", "UME") == (None, 1)
+    assert case_actions.resolve_and_notify(Conn(), 2, "thanks", "UME") == (None, 1)
 
 
 @pytest.fixture
@@ -152,7 +152,7 @@ def reaction_calls(monkeypatch):
     monkeypatch.setattr(reaction_watch.access, "may",
                         lambda conn, user_id, capability, case=None: (True, None))
     monkeypatch.setattr(
-        reaction_watch.case_actions, "close_quietly",
+        reaction_watch.case_actions, "close_without_notice",
         lambda conn, case_id, resolution, user_id: recorded["closed"].append((case_id, resolution))
         or (resolution or "no_action"),
     )
@@ -166,36 +166,36 @@ def on_card(mark, user_id="UME"):
                 "item": {"type": "message", "channel": CHANNEL_ID, "ts": CARD}})
 
 
-def test_card_resolve_reaction_closes_case_without_resolution(reaction_calls):
+def test_close_case_on_card_reaction_check_mark_closes_case_without_resolution(reaction_calls):
     assert reaction_watch.close_case_on_card_reaction(on_card("white_check_mark")) == 23
     assert reaction_calls["closed"] == [(23, None)]
     assert reaction_calls["after"] == ["no_action"]
 
 
 @pytest.mark.parametrize("mark", ["white_tick", "check", "check-green"])
-def test_card_extra_resolve_reactions_close_case(reaction_calls, mark):
+def test_close_case_on_card_reaction_alternate_check_marks_close_case(reaction_calls, mark):
     assert reaction_watch.close_case_on_card_reaction(on_card(mark)) == 23
     assert reaction_calls["closed"] == [(23, None)]
 
 
-def test_card_x_reaction_closes_case_as_not_conduct(reaction_calls):
+def test_close_case_on_card_reaction_x_closes_as_not_conduct(reaction_calls):
     reaction_watch.close_case_on_card_reaction(on_card("x"))
     assert reaction_calls["closed"] == [(23, "not_conduct")]
 
 
-def test_card_reaction_by_nemo_is_ignored(reaction_calls):
+def test_close_case_on_card_reaction_by_bot_user_returns_none(reaction_calls):
     assert reaction_watch.close_case_on_card_reaction(on_card("white_check_mark", user_id=BOT)) is None
     assert reaction_calls["closed"] == []
 
 
-def test_card_reaction_without_case_resolve_is_ignored(reaction_calls, monkeypatch):
+def test_close_case_on_card_reaction_without_case_resolve_returns_none(reaction_calls, monkeypatch):
     monkeypatch.setattr(reaction_watch.access, "may",
                         lambda conn, user_id, capability, case=None: (False, "no"))
     assert reaction_watch.close_case_on_card_reaction(on_card("x")) is None
     assert reaction_calls["closed"] == []
 
 
-def test_card_unrelated_reaction_is_ignored(reaction_calls):
+def test_close_case_on_card_reaction_unrelated_mark_returns_none(reaction_calls):
     assert reaction_watch.close_case_on_card_reaction(on_card("eyes")) is None
     assert reaction_calls["closed"] == []
 
@@ -213,7 +213,7 @@ def message_handler():
 
 
 @pytest.fixture
-def thread(monkeypatch):
+def thread_calls(monkeypatch):
     recorded = {"after": []}
     handlers.register(App())
 
@@ -229,10 +229,10 @@ def thread(monkeypatch):
                         lambda channel_id, ts, max_retries=2: recorded.setdefault("deleted", []).append(ts))
     monkeypatch.setattr(
         handlers, "after_resolve",
-        lambda client, case_id, resolution, user_id, echo=True: recorded["after"].append((resolution, echo)),
+        lambda client, case_id, resolution, user_id, post_log=True: recorded["after"].append((resolution, post_log)),
     )
-    monkeypatch.setattr(handlers, "mark_resolution_echo_pending",
-                        lambda conn, case_id, by: recorded.setdefault("held", []).append((case_id, by)))
+    monkeypatch.setattr(handlers, "mark_resolution_log_pending",
+                        lambda conn, case_id, by: recorded.setdefault("pending_logs", []).append((case_id, by)))
     return recorded
 
 
@@ -240,8 +240,8 @@ def thread_message(text):
     return Ctx({"channel": CHANNEL_ID, "ts": "2.0", "thread_ts": CARD, "user": "UME", "text": text})
 
 
-def test_resolve_in_the_thread_closes_the_case_and_tells_the_reporter(thread, monkeypatch):
-    monkeypatch.setattr(handlers, "resolve_and_tell",
+def test_on_message_resolve_command_adds_check_and_marks_resolution_log_pending(thread_calls, monkeypatch):
+    monkeypatch.setattr(handlers, "resolve_and_notify",
                         lambda conn, case_id, message, by: ("no_action", 1))
     ctx = thread_message("!resolve")
 
@@ -249,39 +249,39 @@ def test_resolve_in_the_thread_closes_the_case_and_tells_the_reporter(thread, mo
 
     assert ctx.client.calls_to("reactions_add") == [{"channel": CHANNEL_ID, "timestamp": "2.0",
                                                      "name": "check-check"}]
-    assert thread["after"] == [("no_action", False)], "the resolved line waits for the reporter's"
-    assert thread["held"] == [(23, "UME")]
+    assert thread_calls["after"] == [("no_action", False)], "the resolved line waits for the reporter's"
+    assert thread_calls["pending_logs"] == [(23, "UME")]
 
 
-def test_resolve_on_a_closed_case_only_tells_the_reporter(thread, monkeypatch):
-    monkeypatch.setattr(handlers, "resolve_and_tell",
+def test_on_message_resolve_command_on_closed_case_adds_check_without_after_resolve(thread_calls, monkeypatch):
+    monkeypatch.setattr(handlers, "resolve_and_notify",
                         lambda conn, case_id, message, by: (None, 1))
     ctx = thread_message("!Resolve ")
 
     message_handler().fn(ctx)
 
     assert ctx.client.calls_to("reactions_add")[0]["name"] == "check-check"
-    assert thread["after"] == []
+    assert thread_calls["after"] == []
 
 
-def test_resolve_with_nothing_left_to_do_says_so_privately(thread, monkeypatch):
-    monkeypatch.setattr(handlers, "resolve_and_tell",
+def test_on_message_resolve_command_with_nothing_to_close_posts_ephemeral_and_deletes_command(thread_calls, monkeypatch):
+    monkeypatch.setattr(handlers, "resolve_and_notify",
                         lambda conn, case_id, message, by: (None, 0))
     ctx = thread_message("!resolve")
 
     message_handler().fn(ctx)
 
     assert ctx.client.calls_to("chat_postEphemeral")[0]["text"] == (
-        "Case 23 is already resolved.")
-    assert thread["deleted"] == ["2.0"], "a command that did nothing is taken down"
+        "Case 23 is already resolved")
+    assert thread_calls["deleted"] == ["2.0"], "a command that did nothing is taken down"
     assert ctx.client.calls_to("reactions_add") == []
 
 
-def test_resolve_needs_both_answering_and_resolving(thread, monkeypatch):
+def test_on_message_resolve_command_without_case_resolve_posts_denial_and_deletes_command(thread_calls, monkeypatch):
     monkeypatch.setattr(handlers.access, "may",
                         lambda conn, user_id, capability, case=None: (capability != "case.resolve", "no"))
     command_calls = []
-    monkeypatch.setattr(handlers, "resolve_and_tell",
+    monkeypatch.setattr(handlers, "resolve_and_notify",
                         lambda conn, case_id, message, by: command_calls.append(case_id) or (None, 1))
     ctx = thread_message("!resolve")
 
@@ -289,4 +289,4 @@ def test_resolve_needs_both_answering_and_resolving(thread, monkeypatch):
 
     assert command_calls == []
     assert ctx.client.calls_to("chat_postEphemeral")[0]["text"] == "no"
-    assert thread["deleted"] == ["2.0"]
+    assert thread_calls["deleted"] == ["2.0"]

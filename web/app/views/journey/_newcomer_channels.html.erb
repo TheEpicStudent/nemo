@@ -3,9 +3,9 @@
     <% bands = ->(c) { [
          { cls: "funnel-a", label: "posted here", value: c.newcomers_posting.to_i,
            tone: "var(--series-0)" },
-         { cls: "funnel-b", label: "first post landed here", value: c.newcomer_first_posts.to_i,
+         { cls: "funnel-b", label: "first post here", value: c.newcomer_first_posts.to_i,
            tone: "var(--series-1)" },
-         { cls: "funnel-c", label: "came back on a later day", value: c.newcomers_returning.to_i,
+         { cls: "funnel-c", label: "returned on a later day", value: c.newcomers_returning.to_i,
            tone: "var(--series-2)" }
        ] } %>
     <% peak = newcomer_channels.flat_map { |c| bands.call(c).map { |b| b[:value] } }.max.to_i %>
@@ -38,8 +38,8 @@
     </ul>
     <div class="key">
       <span><i class="funnel-a"></i>posted here</span>
-      <span><i class="funnel-b"></i>first post landed here</span>
-      <span><i class="funnel-c"></i>came back on a later day</span>
+      <span><i class="funnel-b"></i>first post here</span>
+      <span><i class="funnel-c"></i>returned on a later day</span>
     </div>
   <% else %>
     <div class="empty"><p class="empty-title">Not enough newcomers yet</p></div>

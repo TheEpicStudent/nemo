@@ -11,7 +11,7 @@ HOST = "https://cachet.hackclub.com/users"
 TIMEOUT = 5
 UNKNOWN = "Unknown"
 
-KNOWN = {}
+DISPLAY_NAMES = {}
 LOCK = threading.Lock()
 
 
@@ -38,10 +38,10 @@ def name(user_id):
     if not user_id:
         return None
     with LOCK:
-        if user_id in KNOWN:
-            return KNOWN[user_id]
+        if user_id in DISPLAY_NAMES:
+            return DISPLAY_NAMES[user_id]
 
     display_name = fetch(user_id)
     with LOCK:
-        KNOWN[user_id] = display_name
+        DISPLAY_NAMES[user_id] = display_name
     return display_name

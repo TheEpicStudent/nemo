@@ -12,7 +12,7 @@
   </div>
   <% if profile.channels.empty? %>
     <div class="empty">
-      <p class="empty-title">No channels yet</p>
+      <p class="empty-title">No channels</p>
     </div>
   <% else %>
     <% top = profile.channels.first.first.messages.to_f %>
@@ -48,7 +48,7 @@
               </td>
               <td class="col-num"><%= number_with_delimiter(row.messages) %></td>
               <td class="col-num">
-                <%= channel_spoke_share(row.messages, profile.channel_messages_all_time) %>
+                <%= channel_poster_share(row.messages, profile.channel_messages_all_time) %>
               </td>
               <td class="col-num"><%= last_posted(row.last_at) %></td>
             </tr>

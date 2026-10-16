@@ -203,33 +203,33 @@ DEFAULTS = {
 }
 
 HEADINGS = {
-    "serve": "the dashboard. the only role with a public URL",
-    "sync": "the nightly sync worker. long running",
-    "history": "member_history's search backfill, drained continuously off the nightly budget. long running",
-    "transform": "dbt build. one shot",
-    "seed": "synthetic data, then transform, then verify. one shot",
-    "provision": "schemas, roles, grants and both migration sets. one shot",
-    "bot": "relay takes the reports, nemo works them. long running",
-    "bot.relay": "relay alone, taking reports and carrying the outbox. long running",
-    "bot.nemo": "nemo alone, working the cases in the firehouse. long running",
-    "archive": "channel history and thread replies. long running",
-    "audit": "the slack audit log, tailed and backfilled a day at a time. long running",
+    "serve": "web dashboard, public URL",
+    "sync": "nightly sync worker, long running",
+    "history": "member_history search backfill, long running",
+    "transform": "dbt build, one shot",
+    "seed": "synthetic data, transform, verify, one shot",
+    "provision": "schemas, roles, grants and migrations, one shot",
+    "bot": "relay and nemo, long running",
+    "bot.relay": "relay only, long running",
+    "bot.nemo": "nemo only, long running",
+    "archive": "channel history and thread replies, long running",
+    "audit": "Slack audit log tail and backfill, long running",
 }
 
-BOT_NEVER = [
+BOT_FORBIDDEN = [
     "SLACK_TOKEN",
     "SLACK_ADMIN_TOKEN",
     "INTERNAL_PROXY_TOKEN",
 ]
 
-NEVER = {
+FORBIDDEN = {
     "serve": [
         "NEMO_BOT_TOKEN", "NEMO_APP_TOKEN", "SLACK_TOKEN", "SLACK_ADMIN_TOKEN",
         "INTERNAL_PROXY_TOKEN",
     ],
-    "bot": BOT_NEVER,
-    "bot.relay": BOT_NEVER,
-    "bot.nemo": BOT_NEVER,
+    "bot": BOT_FORBIDDEN,
+    "bot.relay": BOT_FORBIDDEN,
+    "bot.nemo": BOT_FORBIDDEN,
     "sync": ["SLACK_ADMIN_TOKEN"],
     "history": ["SLACK_ADMIN_TOKEN"],
     "archive": ["SLACK_ADMIN_TOKEN"],
@@ -255,7 +255,7 @@ def unexpected(role, env=None):
 
 def forbidden(role, env=None):
     env = env if env is not None else os.environ
-    return [name for name in NEVER.get(role, []) if env.get(name)]
+    return [name for name in FORBIDDEN.get(role, []) if env.get(name)]
 
 
 POOLS = {"archive": shards.PREFIX}
@@ -271,19 +271,19 @@ def report(role, env=None):
         state = "MISSING" if name in missing_names else "set"
         print(f"  required  {name:28} {state}")
     if extra:
-        print("  unexpected for this role, the repo does not read these here:")
+        print("  unexpected:")
         for name in extra:
             print(f"    {name}")
     if role in POOLS:
         print(f"  pool      {shards.describe(env)}")
     if forbidden_names:
-        print("  MUST NOT be set for this role:")
+        print("  forbidden:")
         for name in forbidden_names:
             print(f"    {name}")
     if missing_names:
         print(f"{role}: {len(missing_names)} required variable(s) missing: {', '.join(missing_names)}")
     if forbidden_names:
-        print(f"{role}: {len(forbidden_names)} variable(s) present that this role must never hold")
+        print(f"{role}: {len(forbidden_names)} forbidden variable(s) set")
     return 1 if missing_names or forbidden_names else 0
 
 

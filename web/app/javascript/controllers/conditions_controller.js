@@ -1,6 +1,6 @@
 import { Controller } from "@hotwired/stimulus"
 
-const MAX = 12
+const MAX_ROWS = 12
 
 export default class extends Controller {
   static targets = ["rows", "row", "blank"]
@@ -11,7 +11,7 @@ export default class extends Controller {
   }
 
   add() {
-    if (this.rowTargets.length >= MAX) return
+    if (this.rowTargets.length >= MAX_ROWS) return
 
     const rowIndex = this.rowTargets.length + Date.now() % 1000
     this.rowsTarget.insertAdjacentHTML("beforeend",

@@ -11,7 +11,7 @@ module Fd
       @siblings = @case.sibling_cases.includes(:subjects).oldest_first.to_a
       @groups, @more = @term.present? ? [search_groups, false] : candidate_page
       @candidates = @groups.flat_map(&:last)
-      read_reports(@candidates)
+      preload_reports(@candidates)
       @names = Names.for((@candidates + [@case])
         .flat_map(&:subject_user_ids) + [@case.opened_by] +
         @candidates.flat_map(&:assignee_user_ids) +
@@ -22,13 +22,13 @@ module Fd
     end
 
     def confirm
-      ids = ticked_ids
+      ids = selected_case_ids
       return redirect_with_alert("Select at least two cases to merge") if ids.size < 2
 
       @query_params = query_params
       cases = Case.where(id: ids).includes(:subjects, :assignees, :reports, :participants)
         .oldest_first.to_a
-      return redirect_with_alert("Those cases no longer exist") if cases.size < 2
+      return redirect_with_alert("Cases not found") if cases.size < 2
 
       @plan = MergePlan.over(cases, primary: params[:keep])
       @names = Names.for(cases.flat_map(&:subject_user_ids) +
@@ -36,49 +36,48 @@ module Fd
     end
 
     def create
-      ids = ticked_ids
-      return redirect_with_alert("Select the cases to mark as duplicates") if ids.empty?
+      ids = selected_case_ids
+      return redirect_with_alert("Select cases") if ids.empty?
 
       if params[:duplicate_of].present? && selected_target.nil?
-        return redirect_with_alert("That case no longer exists")
+        return redirect_with_alert("Case not found")
       end
       if selected_target.nil? && ids.size < 2
-        return redirect_with_alert("Select at least two cases: the oldest stays open, " \
-          "the rest close as duplicates of it")
+        return redirect_with_alert("Select at least two cases")
       end
 
       target = selected_target || oldest_of(ids)
-      return redirect_with_alert("Those cases no longer exist") if target.nil?
+      return redirect_with_alert("Cases not found") if target.nil?
 
       root = Case.root_for(target.id)
-      marked = mark(ids - [root], root)
+      marked = mark_duplicates(ids - [root], root)
 
       if marked.zero?
-        redirect_with_alert("Nothing to mark: those cases are already resolved")
+        redirect_with_alert("Cases already resolved")
       else
-        redirect_to fd_cases_path(query_params), notice: outcome(marked, ids, root)
+        redirect_to fd_cases_path(query_params), notice: merge_notice(marked, ids, root)
       end
     end
 
     private
 
-    def ticked_ids
+    def selected_case_ids
       Array(params[:case_ids]).map(&:to_i).reject(&:zero?).uniq
     end
 
     def candidate_page
       shared, subject, excluded_ids = Case.candidate_parts(@case, @siblings)
-      around, more = Case.candidates_around(excluded_ids, page: @page, per: PER_PAGE)
-      return [[[Case::AROUND, around]].reject { |_, cases| cases.empty? }, more] if @page > 1
+      nearby, more = Case.nearby_candidates(excluded_ids, page: @page, per: PER_PAGE)
+      return [[[Case::NEARBY_GROUP, nearby]].reject { |_, cases| cases.empty? }, more] if @page > 1
 
-      groups = [["same thread", shared],
-                ["also about #{@case.subject_user_ids.any? ? 'the same person' : 'somebody on this case'}",
+      groups = [["Same thread", shared],
+                [@case.subject_user_ids.any? ? "Same subject" : "Same participant",
                  subject],
-                [Case::AROUND, around]].reject { |_label, cases| cases.empty? }
+                [Case::NEARBY_GROUP, nearby]].reject { |_label, cases| cases.empty? }
       [groups, more]
     end
 
-    def read_reports(cases)
+    def preload_reports(cases)
       ActiveRecord::Associations::Preloader.new(records: cases,
         associations: [:reports, :assignees, { case_tags: :tag }]).call
       ids = cases.map(&:id)
@@ -87,7 +86,7 @@ module Fd
       @channels = ChannelNames.for(@cited_words.values.map(&:channel))
       @violations = Case.violations_for(ids)
       @priors = Case.prior_counts_for(cases.flat_map(&:subject_user_ids))
-      @reachable = IntakeConversation.open
+      @reachable_report_ids = IntakeConversation.open
         .where(report_id: cases.flat_map { |kase| kase.reports.map(&:id) })
         .pluck(:report_id).to_set
     end
@@ -96,7 +95,7 @@ module Fd
       matches = Search.new(@term, scope: "case", limit: 8).groups
         .flat_map(&:rows).map(&:record)
         .reject { |kase| @case.family_ids.include?(kase.id) }
-      matches.empty? ? [] : [["matching \"#{@term}\"", matches]]
+      matches.empty? ? [] : [["Matching \"#{@term}\"", matches]]
     end
 
     def query_params
@@ -113,7 +112,7 @@ module Fd
       Case.where(id: ids).order(:opened_at, :id).first
     end
 
-    def mark(ids, root)
+    def mark_duplicates(ids, root)
       now = Time.current
       marked = 0
       marked_ids = []
@@ -163,11 +162,10 @@ module Fd
         after: { "tags" => copied_tags.map(&:name), "source_case_ids" => source_case_ids })
     end
 
-    def outcome(marked, ids, root)
-      note = "#{marked} #{'case'.pluralize(marked)} closed as " \
-        "#{'duplicate'.pluralize(marked)} of case #{root}, which stays open"
+    def merge_notice(marked, ids, root)
+      note = "#{marked} #{'case'.pluralize(marked)} marked duplicate of case #{root}"
       skipped = ids.reject { |id| id == root }.size - marked
-      skipped.positive? ? "#{note}, #{skipped} left alone" : note
+      skipped.positive? ? "#{note} · #{skipped} skipped" : note
     end
 
     def redirect_with_alert(message)

@@ -4,9 +4,9 @@
          data-pane-filter-label-value="Channels">
   <div class="pane-head">
     <%= form_with url: fd_channels_path, method: :get, class: "queue-tools" do %>
-      <label class="visually-hidden" for="pane-channel-filter">Find a channel</label>
+      <label class="visually-hidden" for="pane-channel-filter">Search channels</label>
       <%= search_field_tag :q, query.term, id: "pane-channel-filter",
-            class: "input input-sm grow", autocomplete: "off", placeholder: "Find a channel",
+            class: "input input-sm grow", autocomplete: "off", placeholder: "Search channels",
             data: { pane_filter_target: "query", action: "input->pane-filter#filter" } %>
     <% end %>
   </div>
@@ -23,12 +23,12 @@
       <% end %>
 
       <div class="empty pane-filter-empty" data-pane-filter-target="empty" hidden>
-        <p class="empty-title">No channel matches that</p>
+        <p class="empty-title">No matches</p>
       </div>
     <% else %>
       <div class="empty">
         <p class="empty-title">
-          <%= query.searching? ? "No channel matches that" : "No channels have been read yet" %>
+          <%= query.searching? ? "No matches" : "No channels" %>
         </p>
         <% unless query.searching? %>
         <% end %>

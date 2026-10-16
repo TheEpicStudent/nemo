@@ -28,7 +28,7 @@ module Settings
     def notice_for(app, key, granted)
       scope_label = Api::Scope.label(key).downcase
       app_label = app ? app.name : "Every app"
-      granted ? "#{app_label} may ask about #{scope_label}" : "#{app_label} may no longer ask"
+      granted ? "#{app_label} allowed for #{scope_label}" : "#{app_label} revoked for #{scope_label}"
     end
 
     def redirect_with_alert(message)

@@ -11,7 +11,7 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "allowlisted slack id signs in" do
-    hold_role!("UTESTALLOWED", "community_manager")
+    grant_role!("UTESTALLOWED", "community_manager")
     mock_hca_auth("UTESTALLOWED")
 
     get "/auth/hackclub/callback"
@@ -20,7 +20,7 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "UTESTALLOWED", session[:user_id]
   end
 
-  test "a staff row with no grant still signs in, holding nothing" do
+  test "callback with account without grants signs in" do
     Account.create!(user_id: "UTESTNOGRANT")
     mock_hca_auth("UTESTNOGRANT")
 
@@ -28,10 +28,10 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
 
     assert_redirected_to root_path
     assert_equal "UTESTNOGRANT", session[:user_id]
-    assert_equal "Signed in", flash[:notice], "it must not claim a role they do not hold"
+    assert_equal "Signed in", flash[:notice], "flash notice names no role"
   end
 
-  test "a slack id nobody has seen becomes a staff row on first sign in" do
+  test "callback with unknown slack id creates account and signs in" do
     mock_hca_auth("UNOTALLOWED")
 
     get "/auth/hackclub/callback"
@@ -41,7 +41,7 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     assert Account.exists?("UNOTALLOWED")
   end
 
-  test "missing slack_id claim is rejected" do
+  test "callback without slack_id claim redirects to auth failure" do
     OmniAuth.config.mock_auth[:hackclub] = OmniAuth::AuthHash.new(
       provider: "hackclub",
       uid: "ident!nofoo",
@@ -54,8 +54,8 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to auth_failure_path(message: "no_slack_id")
   end
 
-  test "logout clears the session" do
-    hold_role!("UTESTLOGOUT", "community_manager")
+  test "logout clears session and redirects to login" do
+    grant_role!("UTESTLOGOUT", "community_manager")
     mock_hca_auth("UTESTLOGOUT")
     get "/auth/hackclub/callback"
     assert_equal "UTESTLOGOUT", session[:user_id]

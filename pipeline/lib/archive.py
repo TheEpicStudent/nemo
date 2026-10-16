@@ -25,8 +25,10 @@ COALESCED_FIELDS = (
     "reactor_count", "edited_at", "edited_by", "client_msg_id", "team_id",
 )
 
-ALWAYS = ("revision", "posted_at", "author_kind", "is_reply", "is_broadcast",
-          "thread_root_ts", "reply_count", "reply_users_count", "latest_reply_ts")
+OVERWRITTEN_FIELDS = (
+    "revision", "posted_at", "author_kind", "is_reply", "is_broadcast", "thread_root_ts",
+    "reply_count", "reply_users_count", "latest_reply_ts",
+)
 
 AUTHOR, KIND, SUBTYPE, POSTED = (
     FIELDS.index(name) for name in ("author_id", "author_kind", "subtype", "posted_at")
@@ -42,7 +44,7 @@ COLUMNS = (*FIELDS, "settled")
 
 
 def _merged(new, old):
-    merged = {name: new(name) for name in ALWAYS}
+    merged = {name: new(name) for name in OVERWRITTEN_FIELDS}
     merged.update({name: f"coalesce({new(name)}, {old}.{name})" for name in COALESCED_FIELDS})
     merged["settled"] = f"{old}.settled OR {new('settled')}"
     return merged
@@ -64,9 +66,9 @@ def _upsert():
     return (
         f"INSERT INTO archive.message ({', '.join(COLUMNS)}) "
         f"SELECT {', '.join(placeholder(name) for name in COLUMNS)} "
-        f"WHERE NOT EXISTS (SELECT 1 FROM archive.message held "
-        f"WHERE held.channel_id = %(channel_id)s AND held.ts = %(ts)s "
-        f"AND ({_changes(placeholder, 'held')}) IS NOT TRUE) "
+        f"WHERE NOT EXISTS (SELECT 1 FROM archive.message existing "
+        f"WHERE existing.channel_id = %(channel_id)s AND existing.ts = %(ts)s "
+        f"AND ({_changes(placeholder, 'existing')}) IS NOT TRUE) "
         f"ON CONFLICT (channel_id, ts) DO UPDATE SET {sets} "
         f"WHERE {_changes(excluded, 'archive.message')}"
     )
@@ -78,13 +80,13 @@ EDIT_MEASURES = (
     "text_length", "has_text", "block_count", "attachment_count", "mention_count",
     "mentioned_ids", "is_question", "is_substantive", "has_link", "emoji_only",
 )
-EDIT_KEPT_UNLESS_SENT = ("file_count", "edited_at", "edited_by")
+EDIT_COALESCED_FIELDS = ("file_count", "edited_at", "edited_by")
 
 
 def _edit():
     sent = [f"%({name})s" for name in EDIT_MEASURES]
-    sent += [f"coalesce(%({name})s, {name})" for name in EDIT_KEPT_UNLESS_SENT]
-    columns = (*EDIT_MEASURES, *EDIT_KEPT_UNLESS_SENT)
+    sent += [f"coalesce(%({name})s, {name})" for name in EDIT_COALESCED_FIELDS]
+    columns = (*EDIT_MEASURES, *EDIT_COALESCED_FIELDS)
     sets = ", ".join(f"{name} = {value}" for name, value in zip(columns, sent))
     return (
         f"UPDATE archive.message SET {sets}, updated_at = now() "
@@ -95,7 +97,7 @@ def _edit():
 
 EDIT_SQL = _edit()
 
-HELD_SQL = "SELECT 1 FROM archive.message WHERE channel_id = %s AND ts = %s"
+ROW_EXISTS_SQL = "SELECT 1 FROM archive.message WHERE channel_id = %s AND ts = %s"
 
 DELETE_SQL = """
 UPDATE archive.message SET deleted_at = %s, updated_at = now()
@@ -249,8 +251,8 @@ def edited(conn, channel_id, message):
         cur.execute(EDIT_SQL, edit_values(channel_id, message))
         if cur.rowcount:
             return True
-        held = cur.execute(HELD_SQL, (channel_id, ts)).fetchone()
-    return False if held else from_event(conn, channel_id, message)
+        exists = cur.execute(ROW_EXISTS_SQL, (channel_id, ts)).fetchone()
+    return False if exists else from_event(conn, channel_id, message)
 
 
 def deleted(conn, channel_id, ts, at=None):

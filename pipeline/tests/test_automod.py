@@ -60,7 +60,7 @@ def message(text, **over):
     return {"user": USER_ID, "channel": CHANNEL_ID, "ts": TS, "text": text, **over}
 
 
-def edited(text, **over):
+def edit_event(text, **over):
     return {
         "subtype": "message_changed",
         "channel": CHANNEL_ID,
@@ -70,100 +70,100 @@ def edited(text, **over):
 
 
 @pytest.fixture(autouse=True)
-def clean(monkeypatch):
-    monkeypatch.setattr(userbots, "_people", {})
-    automod._watching[:] = []
+def reset_automod_state(monkeypatch):
+    monkeypatch.setattr(userbots, "_users", {})
+    automod._rules[:] = []
     automod._loaded = False
     yield
-    automod._watching[:] = []
+    automod._rules[:] = []
     automod._loaded = False
 
 
-def load(*rows):
+def load_rules(*rows):
     conn = Conn(rows)
     automod.refresh(conn)
     return conn
 
 
-def test_nothing_is_read_before_the_list_is_loaded():
-    assert automod.watching() is None
-    assert automod.caught("anything at all") == []
+def test_active_rules_before_refresh_returns_none():
+    assert automod.active_rules() is None
+    assert automod.matching_rules("anything at all") == []
 
 
-def test_a_whole_word_does_not_match_inside_another_word():
-    load((1, "ass", "word", "flag", None))
+def test_matching_rules_word_rule_ignores_match_inside_other_word():
+    load_rules((1, "ass", "word", "flag", None))
 
-    assert automod.caught("that was an ass move")
-    assert automod.caught("she is classy") == []
-    assert automod.caught("passing through") == []
-
-
-def test_a_whole_word_matches_against_punctuation():
-    load((1, "badword", "word", "flag", None))
-
-    assert automod.caught("badword!")
-    assert automod.caught("(badword)")
-    assert automod.caught("...badword...")
+    assert automod.matching_rules("that was an ass move")
+    assert automod.matching_rules("she is classy") == []
+    assert automod.matching_rules("passing through") == []
 
 
-def test_a_substring_matches_inside_a_word():
-    load((1, "spam", "substring", "flag", None))
+def test_matching_rules_word_rule_matches_next_to_punctuation():
+    load_rules((1, "badword", "word", "flag", None))
 
-    assert automod.caught("antispamming")
-
-
-def test_a_regex_matches_what_it_says():
-    load((1, "ba+dword", "regex", "flag", None))
-
-    assert automod.caught("baaadword")
-    assert automod.caught("bdword") == []
+    assert automod.matching_rules("badword!")
+    assert automod.matching_rules("(badword)")
+    assert automod.matching_rules("...badword...")
 
 
-def test_a_regex_that_backtracks_for_too_long_is_skipped_not_waited_on():
-    load((1, "(a+)+$", "regex", "flag", None), (2, "fine", "word", "flag", None))
+def test_matching_rules_substring_rule_matches_inside_word():
+    load_rules((1, "spam", "substring", "flag", None))
 
-    assert automod.caught("a" * 40 + "!") == []
-    assert automod.caught("all fine here")
-
-
-def test_matching_ignores_case():
-    load((1, "badword", "word", "flag", None))
-
-    assert automod.caught("BadWord")
+    assert automod.matching_rules("antispamming")
 
 
-def test_a_regex_that_does_not_compile_is_left_out():
-    load((1, "([a-z", "regex", "flag", None), (2, "fine", "word", "flag", None))
+def test_matching_rules_regex_rule_matches_pattern():
+    load_rules((1, "ba+dword", "regex", "flag", None))
 
-    assert len(automod.watching()) == 1
-    assert automod.caught("fine")
-
-
-def test_a_blank_word_is_left_out():
-    load((1, "   ", "word", "flag", None))
-
-    assert automod.watching() == []
+    assert automod.matching_rules("baaadword")
+    assert automod.matching_rules("bdword") == []
 
 
-def test_every_matching_word_is_caught():
-    load((1, "one", "word", "flag", None), (2, "two", "word", "flag", None))
+def test_matching_rules_regex_over_time_limit_is_skipped():
+    load_rules((1, "(a+)+$", "regex", "flag", None), (2, "fine", "word", "flag", None))
 
-    assert len(automod.caught("one and two")) == 2
-
-
-def test_refresh_replaces_what_was_held():
-    load((1, "gone", "word", "flag", None))
-    load((2, "fresh", "word", "flag", None))
-
-    assert automod.caught("gone") == []
-    assert automod.caught("fresh")
+    assert automod.matching_rules("a" * 40 + "!") == []
+    assert automod.matching_rules("all fine here")
 
 
-def test_a_match_is_recorded_with_the_message_kept():
-    load((1, "badword", "word", "flag", "spam"))
+def test_matching_rules_ignores_case():
+    load_rules((1, "badword", "word", "flag", None))
+
+    assert automod.matching_rules("BadWord")
+
+
+def test_refresh_invalid_regex_is_dropped():
+    load_rules((1, "([a-z", "regex", "flag", None), (2, "fine", "word", "flag", None))
+
+    assert len(automod.active_rules()) == 1
+    assert automod.matching_rules("fine")
+
+
+def test_refresh_blank_word_is_dropped():
+    load_rules((1, "   ", "word", "flag", None))
+
+    assert automod.active_rules() == []
+
+
+def test_matching_rules_returns_every_matching_rule():
+    load_rules((1, "one", "word", "flag", None), (2, "two", "word", "flag", None))
+
+    assert len(automod.matching_rules("one and two")) == 2
+
+
+def test_refresh_replaces_previous_rules():
+    load_rules((1, "gone", "word", "flag", None))
+    load_rules((2, "fresh", "word", "flag", None))
+
+    assert automod.matching_rules("gone") == []
+    assert automod.matching_rules("fresh")
+
+
+def test_record_inserts_match_row_with_message_text():
+    load_rules((1, "badword", "word", "flag", "spam"))
     conn = Conn()
-    watch = automod.caught("a badword here")[0]
-    automod.record(conn, watch, message("a badword here"))
+    rule = automod.matching_rules("a badword here")[0]
+    automod.record(conn, rule, message("a badword here"))
 
     match_row = conn.args_for("INSERT INTO fd.automod_matches")[0]
     assert match_row[1] == "badword"
@@ -172,150 +172,150 @@ def test_a_match_is_recorded_with_the_message_kept():
     assert match_row[7] == "a badword here"
 
 
-def test_the_watcher_records_what_it_catches(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_with_match_inserts_row(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
 
-    assert automod_watch.watched(Ctx(message("a badword here"))) == 1
+    assert automod_watch.match_automod_rules(Ctx(message("a badword here"))) == 1
     assert conn.args_for("INSERT INTO fd.automod_matches")
 
 
-def test_the_watcher_leaves_a_clean_message_alone(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_clean_message_returns_none(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
 
-    assert automod_watch.watched(Ctx(message("nothing to see"))) is None
+    assert automod_watch.match_automod_rules(Ctx(message("nothing to see"))) is None
     assert not conn.args_for("INSERT INTO fd.automod_matches")
 
 
-def test_the_watcher_ignores_a_bot(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_bot_author_returns_none(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
 
     client = Slack(users={USER_ID: {"is_bot": True}})
 
-    assert automod_watch.watched(Ctx(message("badword", bot_id="B1"), client)) is None
+    assert automod_watch.match_automod_rules(Ctx(message("badword", bot_id="B1"), client)) is None
     assert not conn.args_for("INSERT INTO fd.automod_matches")
 
 
-def test_watched_user_token_post_is_recorded(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_user_token_post_with_bot_id_inserts_row(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
     client = Slack(users={USER_ID: {"is_bot": False}})
 
-    assert automod_watch.watched(Ctx(message("a badword here", bot_id="B1"), client)) == 1
+    assert automod_watch.match_automod_rules(Ctx(message("a badword here", bot_id="B1"), client)) == 1
     assert conn.args_for("INSERT INTO fd.automod_matches")[0][3] == USER_ID
 
 
-def test_an_edit_that_adds_a_word_is_caught(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_edit_adding_word_inserts_row(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
 
-    assert automod_watch.watched(Ctx(edited("now with a badword"))) == 1
+    assert automod_watch.match_automod_rules(Ctx(edit_event("now with a badword"))) == 1
     match_row = conn.args_for("INSERT INTO fd.automod_matches")[0]
     assert match_row[5] == TS
     assert match_row[7] == "now with a badword"
 
 
-def test_an_edit_records_against_the_message_not_the_edit():
-    load((1, "badword", "word", "flag", None))
-    normalized = automod_watch.message_in(edited("a badword"))
+def test_message_from_event_edit_uses_original_message_fields():
+    load_rules((1, "badword", "word", "flag", None))
+    normalized = automod_watch.message_from_event(edit_event("a badword"))
 
     assert normalized["ts"] == TS
     assert normalized["user"] == USER_ID
     assert normalized["channel"] == CHANNEL_ID
 
 
-def test_a_clean_edit_records_nothing(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_clean_edit_returns_none(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
 
-    assert automod_watch.watched(Ctx(edited("all tidied up now"))) is None
+    assert automod_watch.match_automod_rules(Ctx(edit_event("all tidied up now"))) is None
     assert not conn.args_for("INSERT INTO fd.automod_matches")
 
 
-def test_an_edit_by_a_bot_is_left_alone(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_bot_edit_returns_none(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
 
     client = Slack(users={USER_ID: {"is_bot": True}})
 
-    assert automod_watch.watched(Ctx(edited("badword", bot_id="B1"), client)) is None
+    assert automod_watch.match_automod_rules(Ctx(edit_event("badword", bot_id="B1"), client)) is None
 
 
-def test_an_unfurl_that_matches_nothing_new_costs_no_permalink(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_duplicate_edit_match_skips_permalink(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn(returns_id=False)
     client = Slack()
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
-    automod_watch.watched(Ctx(edited("a badword here"), client))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
+    automod_watch.match_automod_rules(Ctx(edit_event("a badword here"), client))
 
     assert client.calls == []
 
 
-def test_the_watcher_says_nothing_to_the_author(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_does_not_post_or_delete(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn()
     client = Slack()
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
-    automod_watch.watched(Ctx(message("a badword here"), client))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
+    automod_watch.match_automod_rules(Ctx(message("a badword here"), client))
 
     assert not hasattr(client, "posted")
     assert not conn.args_for("DELETE")
 
 
-def test_a_message_already_recorded_is_not_counted_twice(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_already_recorded_message_returns_none(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn(returns_id=False)
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
 
-    assert automod_watch.watched(Ctx(message("a badword here"))) is None
+    assert automod_watch.match_automod_rules(Ctx(message("a badword here"))) is None
 
 
-def test_a_missing_permalink_does_not_stop_the_record(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_permalink_error_still_inserts_row(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn()
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
-    automod_watch.watched(Ctx(message("a badword here"), Slack(link=None)))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
+    automod_watch.match_automod_rules(Ctx(message("a badword here"), Slack(link=None)))
 
     assert conn.args_for("INSERT INTO fd.automod_matches")
     assert not conn.args_for("SET permalink")
 
 
-def test_a_permalink_is_only_fetched_for_a_fresh_match(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_duplicate_message_skips_permalink(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn(returns_id=False)
     client = Slack()
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
-    automod_watch.watched(Ctx(message("a badword here"), client))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
+    automod_watch.match_automod_rules(Ctx(message("a badword here"), client))
 
     assert client.calls == []
 
 
-def test_a_fresh_match_is_linked(monkeypatch):
-    load((1, "badword", "word", "flag", None))
+def test_match_automod_rules_new_match_sets_permalink(monkeypatch):
+    load_rules((1, "badword", "word", "flag", None))
     conn = Conn()
     client = Slack()
-    monkeypatch.setattr(automod_watch, "session", lambda: _conn_context(conn))
-    automod_watch.watched(Ctx(message("a badword here"), client))
+    monkeypatch.setattr(automod_watch, "session", lambda: ConnContext(conn))
+    automod_watch.match_automod_rules(Ctx(message("a badword here"), client))
 
     assert client.calls == [{"channel": CHANNEL_ID, "message_ts": TS}]
     assert conn.args_for("SET permalink")[0][0] == client.link
 
 
-class _conn_context:
+class ConnContext:
     def __init__(self, conn):
         self.conn = conn
 
     def __enter__(self):
         return self.conn
 
-    def __exit__(self, *failure):
+    def __exit__(self, *exc_info):
         return False

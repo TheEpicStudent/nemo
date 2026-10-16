@@ -47,7 +47,7 @@ module Fd
 
     def notes = both { |kase| kase.notes.visible.size }
 
-    def people
+    def participant_count
       all.flat_map { |kase| kase.participants.map(&:user_id) }.uniq.size
     end
 

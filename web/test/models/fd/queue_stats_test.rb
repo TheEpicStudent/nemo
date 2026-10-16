@@ -3,7 +3,7 @@ require "test_helper"
 class Fd::QueueStatsTest < ActiveSupport::TestCase
   def stats = Fd::QueueStats.load
 
-  test "opening a case moves open, unassigned and the total together" do
+  test "load increments total open_count and unassigned for a new case" do
     before = stats
     make_case(opened_at: 1.hour.ago)
     after = stats
@@ -13,7 +13,7 @@ class Fd::QueueStatsTest < ActiveSupport::TestCase
     assert_equal before.unassigned + 1, after.unassigned
   end
 
-  test "assigning a case takes it out of unassigned but leaves it open" do
+  test "load excludes an assigned case from unassigned and keeps open_count" do
     kase = make_case(opened_at: 1.hour.ago)
     before = stats
     kase.assign!("UME")
@@ -23,7 +23,7 @@ class Fd::QueueStatsTest < ActiveSupport::TestCase
     assert_equal before.open_count, after.open_count
   end
 
-  test "logging an action takes a case out of the no-action count" do
+  test "load excludes a case with an action from open_no_action" do
     kase = make_case(opened_at: 1.hour.ago)
     before = stats
     Fd::Action.create!(case_id: kase.id, type_key: "warning", target_user_id: "USUB",
@@ -32,12 +32,12 @@ class Fd::QueueStatsTest < ActiveSupport::TestCase
     assert_equal before.open_no_action - 1, stats.open_no_action
   end
 
-  test "the oldest unassigned case is the one the chip is about" do
+  test "load sets oldest_unassigned to the opened_at of the oldest unassigned case" do
     make_case(opened_at: 40.days.ago)
     assert_operator stats.oldest_unassigned, :<=, 40.days.ago + 1.minute
   end
 
-  test "a case with somebody on it never counts as the oldest unassigned" do
+  test "load excludes an assigned case from oldest_unassigned" do
     unassigned_case = make_case(opened_at: 90.days.ago)
     assert_equal unassigned_case.opened_at.to_i, stats.oldest_unassigned.to_i
 
@@ -45,7 +45,7 @@ class Fd::QueueStatsTest < ActiveSupport::TestCase
     assert_not_equal unassigned_case.opened_at.to_i, stats.oldest_unassigned&.to_i
   end
 
-  test "opened this month counts how many of those are already closed" do
+  test "load counts a resolved case opened this month in opened_month and opened_month_resolved" do
     before = stats
     make_case(opened_at: 2.hours.ago, resolved_at: 1.hour.ago, resolution: "no_action")
     after = stats
@@ -54,7 +54,7 @@ class Fd::QueueStatsTest < ActiveSupport::TestCase
     assert_equal before.opened_month_resolved + 1, after.opened_month_resolved
   end
 
-  test "a case opened last month is not counted as opened this month" do
+  test "load excludes a case opened last month from opened_month and counts it in total" do
     before = stats
     make_case(opened_at: 1.month.ago.beginning_of_month + 1.day)
 
@@ -62,7 +62,7 @@ class Fd::QueueStatsTest < ActiveSupport::TestCase
     assert_equal before.total + 1, stats.total
   end
 
-  test "the median matches the middle of what was resolved this quarter" do
+  test "load median_now equals the interpolated median of resolution spans this quarter" do
     at = Time.current.beginning_of_quarter + 1.hour
     make_case(opened_at: at, resolved_at: at + 2.hours, resolution: "no_action")
     make_case(opened_at: at, resolved_at: at + 6.hours, resolution: "no_action")
@@ -75,7 +75,7 @@ class Fd::QueueStatsTest < ActiveSupport::TestCase
     assert_in_delta interpolate(spans), stats.median_now, 1.0
   end
 
-  test "an empty quarter reports no median rather than zero" do
+  test "median_now and median_before are nil for empty stats" do
     row = Fd::QueueStats.new({})
     assert_nil row.median_now
     assert_nil row.median_before

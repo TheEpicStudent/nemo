@@ -8,7 +8,7 @@ module Api
 
       before_action :require_token
       before_action :approved_for_scope
-      before_action :within_budget
+      before_action :within_rate_limit
 
       private
 
@@ -20,17 +20,17 @@ module Api
 
       attr_reader :current_token
 
-      def within_budget
+      def within_rate_limit
         limit = current_token.rate
-        used = Rails.cache.increment(bucket, 1, expires_in: BUCKET_TTL).to_i
-        budget!(limit, used)
+        used = Rails.cache.increment(rate_limit_key, 1, expires_in: BUCKET_TTL).to_i
+        set_rate_limit_headers(limit, used)
         return if used <= limit
 
         response.headers["Retry-After"] = seconds_until_reset.to_s
         render_error(:too_many_requests, "rate_limited", retry_after: seconds_until_reset)
       end
 
-      def bucket
+      def rate_limit_key
         "api/rate/#{current_token.id}/#{Time.current.to_i / WINDOW}"
       end
 
@@ -38,7 +38,7 @@ module Api
         WINDOW - (Time.current.to_i % WINDOW)
       end
 
-      def budget!(limit, used)
+      def set_rate_limit_headers(limit, used)
         response.headers["RateLimit-Limit"] = limit.to_s
         response.headers["RateLimit-Remaining"] = [limit - used, 0].max.to_s
         response.headers["RateLimit-Reset"] = seconds_until_reset.to_s

@@ -36,7 +36,7 @@ module Fd
         .find_by(user_id: params[:id], role: params[:role])
 
       if person.nil?
-        return redirect_to(fd_case_path(kase, tab: "people"), alert: "They are not on this case")
+        return redirect_to(fd_case_path(kase, tab: "people"), alert: "Not a participant")
       end
 
       writing do
@@ -58,18 +58,18 @@ module Fd
     end
 
     def validation_error(user_ids)
-      return "say who to add" if user_ids.empty?
+      return "Select a member" if user_ids.empty?
       return nil if user_ids.all? { |id| id.match?(MEMBER_ID) }
 
-      "that does not look like a Slack member id"
+      "Not a Slack member ID"
     end
 
     def added_notice(added, already_added)
-      return "everybody you picked was already on this case, nothing changed" if added.empty?
+      return "Already added" if added.empty?
 
       mentions = added.map { |id| "@#{id}" }.to_sentence
-      note = "the case is now also about #{mentions}"
-      already_added.any? ? "#{note}, #{already_added.size} already there" : note
+      note = "#{mentions} added to case"
+      already_added.any? ? "#{note} · #{already_added.size} already added" : note
     end
   end
 end

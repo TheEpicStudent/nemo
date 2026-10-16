@@ -6,7 +6,7 @@ class FdMemberLinkFactsTest < ActionDispatch::IntegrationTest
   WHO = "UFACTS1".freeze
 
   setup do
-    sign_in_as(hold_role!("UME", "community_manager"))
+    sign_in_as(grant_role!("UME", "community_manager"))
     member!(WHO)
   end
 
@@ -21,7 +21,7 @@ class FdMemberLinkFactsTest < ActionDispatch::IntegrationTest
     css_select(".member-facts .fact").find { |one| one.at("dt").text.strip == label }
   end
 
-  test "the member page counts the links and names the strongest band" do
+  test "member page Links fact shows the link count and certain count with a links tab link" do
     link!("UFACTS2", 9.0)
     link!("UFACTS3", 6.0)
     link!("UFACTS4", 3.5)
@@ -34,7 +34,7 @@ class FdMemberLinkFactsTest < ActionDispatch::IntegrationTest
     assert links.at("a.fact-go[href='#{fd_member_path(WHO, tab: "links")}']")
   end
 
-  test "the cluster fact leads to the cluster page and carries its flags" do
+  test "member page Cluster fact links to the cluster page and shows account count and Ring" do
     as_pipeline("INSERT INTO fd.member_cluster (user_id, cluster_id, accounts, ring, active, conflict) " \
                 "VALUES (?, 'UFACTSROOT', 5, true, true, false)", WHO)
     seeded!("fd.member_cluster", "user_id", WHO)
@@ -47,16 +47,16 @@ class FdMemberLinkFactsTest < ActionDispatch::IntegrationTest
     assert_match "Ring", cluster.text
   end
 
-  test "a member with no links and no cluster reads none for both" do
+  test "member page shows None for Links and Cluster facts without rows" do
     get fd_member_path(WHO)
 
     assert_equal "None", fact("Links").at("dd").text.strip
     assert_equal "None", fact("Cluster").at("dd").text.strip
   end
 
-  test "somebody without member.links sees neither fact" do
-    move_capability!("firefighter", "member.links", false, by: "UME")
-    sign_in_as(hold_role!("UFF", "firefighter"))
+  test "member page without member.links renders neither Links nor Cluster fact" do
+    override_capability!("firefighter", "member.links", false, by: "UME")
+    sign_in_as(grant_role!("UFF", "firefighter"))
 
     get fd_member_path(WHO)
     assert_response :success

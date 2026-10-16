@@ -4,7 +4,7 @@
 
 <% if may || running %>
   <%= render layout: "shared/dropdown", locals: {
-        label: "More for this channel", pop_css: "menu-compact", trigger: menu_dots } do %>
+        label: "Channel actions", pop_css: "menu-compact", trigger: menu_dots } do %>
       <p class="menu-group">Thread replies</p>
       <% case backfill&.state %>
       <% when "queued" %>

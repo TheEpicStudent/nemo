@@ -56,8 +56,8 @@ def baseline(conn, files):
         stamp(conn, path)
     conn.commit()
     print(
-        f"migrate: {BASELINE_TABLE} already exists, so this database predates version "
-        f"tracking. stamped {len(files)} migration(s) as applied without running them"
+        f"migrate: {BASELINE_TABLE} exists, stamped {len(files)} migration(s) as applied "
+        "without running"
     )
 
 
@@ -69,10 +69,9 @@ def apply(conn, path, attempts=LOCK_ATTEMPTS, wait=LOCK_WAIT_SECONDS):
             conn.rollback()
             if attempt == attempts:
                 raise SystemExit(
-                    f"migrate: {path.name} could not take its lock after {attempts} attempts, "
-                    "something is holding a table it alters open"
+                    f"migrate: {path.name} lock not acquired after {attempts} attempts"
                 ) from None
-            print(f"migrate: {path.name} is waiting on a lock, attempt {attempt + 1} of {attempts}")
+            print(f"migrate: {path.name} waiting for lock, attempt {attempt + 1} of {attempts}")
             time.sleep(wait)
             continue
         stamp(conn, path)
@@ -98,10 +97,7 @@ def main(stage="pre") -> None:
         for path in files:
             if path.name in applied_checksums:
                 if applied_checksums[path.name] != checksum(path):
-                    raise SystemExit(
-                        f"migrate: {path.name} changed after it was applied. migrations are "
-                        f"immutable once applied, add a new file instead"
-                    )
+                    raise SystemExit(f"migrate: {path.name} changed after it was applied")
                 continue
             apply(conn, path)
 

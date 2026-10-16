@@ -7,14 +7,14 @@ import pytest
 from lib import work
 
 
-def test_a_unit_dies_only_at_the_attempt_cap():
+def test_outcome_after_failure_at_max_attempts_returns_dead():
     assert work.outcome_after_failure(1) == "pending"
     assert work.outcome_after_failure(work.MAX_ATTEMPTS - 1) == "pending"
     assert work.outcome_after_failure(work.MAX_ATTEMPTS) == "dead"
     assert work.outcome_after_failure(2, max_attempts=2) == "dead"
 
 
-def test_a_killed_worker_costs_a_lapse_not_an_attempt():
+def test_outcome_after_lapse_at_max_lapses_returns_dead():
     assert work.outcome_after_lapse(0) == "pending"
     assert work.outcome_after_lapse(work.MAX_LAPSES - 2) == "pending"
     assert work.outcome_after_lapse(work.MAX_LAPSES - 1) == "dead"
@@ -22,7 +22,7 @@ def test_a_killed_worker_costs_a_lapse_not_an_attempt():
     assert work.MAX_LAPSES > work.MAX_ATTEMPTS
 
 
-def test_a_thread_that_never_reaches_its_declared_count_stops_being_revived():
+def test_revivable_at_max_revivals_returns_false():
     assert work.revivable(0)
     assert work.revivable(work.MAX_REVIVALS - 1)
     assert not work.revivable(work.MAX_REVIVALS)
@@ -31,36 +31,36 @@ def test_a_thread_that_never_reaches_its_declared_count_stops_being_revived():
     assert work.MAX_REVIVALS > work.MAX_ATTEMPTS
 
 
-def test_reclaim_gives_the_attempt_back_and_counts_a_lapse():
+def test_reclaim_sql_decrements_attempts_and_increments_lapses():
     assert "attempts = greatest(attempts - 1, 0)" in work.RECLAIM_SQL
     assert "lapses = lapses + 1" in work.RECLAIM_SQL
     assert "lapses + 1 >= %(max_lapses)s" in work.RECLAIM_SQL
     assert "max_attempts" not in work.RECLAIM_SQL
 
 
-def test_positional_params_become_named_for_the_enqueue_select():
+def test_positional_builds_numbered_param_dict_for_enqueue_sql():
     assert work._positional(("a", 2)) == {"p0": "a", "p1": 2}
     sql = work.ENQUEUE_SQL.format(select="SELECT 1", conflict=work.CONFLICT_IGNORE)
     assert "'{}'::jsonb" in sql
     assert sql.rstrip().endswith("DO NOTHING")
 
 
-def test_the_grown_conflict_never_touches_a_claimed_unit():
+def test_conflict_grown_excludes_claimed_state():
     assert "state <> 'claimed'" in work.CONFLICT_GROWN
     assert "EXCLUDED.expected > coalesce(ingest.work_item.fetched, 0)" in work.CONFLICT_GROWN
 
 
-def test_the_grown_conflict_cannot_resurrect_a_dead_unit():
+def test_conflict_grown_excludes_dead_state():
     assert "state <> 'dead'" in work.CONFLICT_GROWN
 
 
-def test_revive_is_the_only_way_out_of_dead():
+def test_revive_sql_selects_dead_items_excluding_entity_errors_and_refusals():
     assert "WHERE  state = 'dead'" in work.REVIVE_SQL
     assert "left(coalesce(last_error, ''), 7) <> 'entity:'" in work.REVIVE_SQL
     assert "<> ALL(%(refusals)s::text[])" in work.REVIVE_SQL
 
 
-def test_the_singleton_lock_is_session_scoped_and_namespaced():
+def test_instance_lock_uses_session_advisory_lock_in_singleton_namespace():
     from lib import db
 
     assert db.SINGLETON_NAMESPACE == 8571
@@ -71,7 +71,7 @@ def test_the_singleton_lock_is_session_scoped_and_namespaced():
     assert "lock_conn.close()" in source
 
 
-def test_a_second_instance_is_refused_rather_than_left_to_double_the_budget():
+def test_instance_lock_when_lock_taken_raises_already_running_error():
     from lib import db
 
     class LockTakenConn:
@@ -89,18 +89,18 @@ def test_a_second_instance_is_refused_rather_than_left_to_double_the_budget():
 
     conn = LockTakenConn()
     with mock.patch.object(db, "connect", lambda *a, **k: conn):
-        with pytest.raises(db.AlreadyRunningError, match="double every in-process rate budget"):
+        with pytest.raises(db.AlreadyRunningError, match="holds the singleton lock"):
             with db.instance_lock("archive_worker"):
                 raise AssertionError("the body must not run")
     assert getattr(conn, "closed", False)
 
 
-def test_the_sole_holder_runs_the_body_and_unlocks_after():
+def test_instance_lock_when_free_runs_body_then_unlocks_and_closes():
     from lib import db
 
     calls = []
 
-    class Free:
+    class FreeLockConn:
         def execute(self, sql, *_args):
             calls.append("lock" if "try_advisory" in sql else "unlock")
             return self
@@ -114,13 +114,13 @@ def test_the_sole_holder_runs_the_body_and_unlocks_after():
         def close(self):
             calls.append("close")
 
-    with mock.patch.object(db, "connect", lambda *a, **k: Free()):
+    with mock.patch.object(db, "connect", lambda *a, **k: FreeLockConn()):
         with db.instance_lock("archive_worker"):
             calls.append("body")
     assert calls == ["lock", "body", "unlock", "close"]
 
 
-def test_sweep_stale_runs_passes_one_parameter_per_placeholder():
+def test_sweep_stale_runs_sql_has_two_placeholders_and_no_format():
     from lib import db
 
     src = inspect.getsource(db.sweep_stale_runs)
@@ -129,37 +129,37 @@ def test_sweep_stale_runs_passes_one_parameter_per_placeholder():
     assert "format(" not in sql
 
 
-def test_a_clean_settle_clears_the_attempt_count():
+def test_settle_sql_resets_attempts_when_state_complete():
     from lib import work
 
     sql = work.SETTLE_SQL
     assert "attempts = CASE WHEN %(state)s = 'complete' THEN 0 ELSE attempts END" in sql
 
 
-def test_a_short_settle_keeps_its_attempt_count():
+def test_settle_sql_resets_attempts_with_case_not_unconditionally():
     from lib import work
 
     assert "THEN 0 ELSE attempts END" in work.SETTLE_SQL
     assert "attempts = 0," not in work.SETTLE_SQL
 
 
-def test_both_settle_paths_share_the_reset():
+def test_settle_and_settle_many_use_settle_sql():
     from lib import work
 
     assert "SETTLE_SQL" in inspect.getsource(work.settle)
     assert "SETTLE_SQL" in inspect.getsource(work.settle_many)
 
 
-def test_a_lifetime_claim_count_can_no_longer_exhaust_the_retry_budget():
+def test_claim_fail_and_settle_sql_increment_cap_and_reset_attempts():
     from lib import work
 
-    claim_bumps = "attempts = w.attempts + 1" in work.CLAIM_SQL
-    fail_caps = "attempts >= %(max_attempts)s" in work.FAIL_SQL
-    settle_resets = "THEN 0 ELSE attempts END" in work.SETTLE_SQL
-    assert claim_bumps and fail_caps and settle_resets
+    claim_increments_attempts = "attempts = w.attempts + 1" in work.CLAIM_SQL
+    fail_checks_max_attempts = "attempts >= %(max_attempts)s" in work.FAIL_SQL
+    settle_resets_attempts = "THEN 0 ELSE attempts END" in work.SETTLE_SQL
+    assert claim_increments_attempts and fail_checks_max_attempts and settle_resets_attempts
 
 
-def test_the_failure_backoff_is_no_longer_identical_for_a_whole_batch():
+def test_backoff_with_retry_spread_returns_varied_waits_within_bounds():
     from lib import lease, work
 
     waits = {lease.backoff(3, base=30.0, cap=6 * 3600, spread=work.RETRY_SPREAD)
@@ -168,7 +168,7 @@ def test_the_failure_backoff_is_no_longer_identical_for_a_whole_batch():
     assert all(240.0 <= w <= 240.0 * (1 + work.RETRY_SPREAD) for w in waits)
 
 
-def test_spread_is_proportional_so_it_still_matters_at_the_cap():
+def test_backoff_spread_is_proportional_at_base_and_cap():
     from lib import lease
 
     short = [lease.backoff(0, base=30.0, cap=6 * 3600, spread=0.25) for _ in range(200)]
@@ -177,14 +177,14 @@ def test_spread_is_proportional_so_it_still_matters_at_the_cap():
     assert (max(long) - min(long)) / 21600.0 > 0.1
 
 
-def test_absolute_jitter_keeps_its_old_meaning():
+def test_backoff_without_spread_doubles_per_attempt_with_absolute_jitter():
     from lib import lease
 
     assert [lease.backoff(n) for n in range(4)] == [1.0, 2.0, 4.0, 8.0]
     assert 1.0 <= lease.backoff(0, jitter=0.5) <= 1.5
 
 
-def test_a_reclaimed_lease_waits_instead_of_being_grabbed_again():
+def test_reclaim_sql_sets_randomized_exponential_next_attempt_at():
     from lib import work
 
     assert "next_attempt_at = now()," not in work.RECLAIM_SQL
@@ -193,20 +193,20 @@ def test_a_reclaimed_lease_waits_instead_of_being_grabbed_again():
     assert "random()" in work.RECLAIM_SQL
 
 
-def test_reclaim_passes_a_parameter_for_every_placeholder():
+def test_reclaim_sql_placeholders_match_expected_param_names():
     from lib import work
 
     names = set(re.findall(r"%\((\w+)\)s", work.RECLAIM_SQL))
     assert names == {"kind", "max_lapses", "lapse_base", "lapse_cap"}
 
 
-def test_revive_clears_the_lapse_count_so_it_is_not_born_condemned():
+def test_revive_sql_resets_attempts_and_lapses():
     from lib import work
 
     assert "attempts = 0, lapses = 0" in work.REVIVE_SQL
 
 
-def test_the_abandon_sweep_outlasts_the_nightly_budget():
+def test_stale_after_hours_exceeds_nightly_budget_else_returns_default():
     from unittest import mock
 
     from lib import db
@@ -217,7 +217,7 @@ def test_the_abandon_sweep_outlasts_the_nightly_budget():
         assert db.stale_after_hours(object()) == db.STALE_AFTER_HOURS
 
 
-def test_the_sweep_message_quotes_the_threshold_it_actually_used():
+def test_sweep_stale_runs_source_uses_stale_after_hours_when_max_age_is_none():
     import inspect
 
     from lib import db
@@ -227,7 +227,7 @@ def test_the_sweep_message_quotes_the_threshold_it_actually_used():
     assert "stale_after_hours(conn)" in src
 
 
-def test_the_build_wait_can_be_dialled_without_a_deploy():
+def test_build_wait_seconds_reads_env_override_else_returns_default():
     import os
     from unittest import mock
 

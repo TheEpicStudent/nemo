@@ -2,7 +2,7 @@ import threading
 
 from bot.core import session
 
-ALL = """
+ALL_CATEGORIES = """
 SELECT key, label, retired_at IS NULL
 FROM fd.infraction_categories
 ORDER BY position, key
@@ -16,7 +16,7 @@ _lock = threading.Lock()
 
 def refresh(conn):
     global _loaded
-    rows = conn.execute(ALL).fetchall()
+    rows = conn.execute(ALL_CATEGORIES).fetchall()
     with _lock:
         _labels.clear()
         _labels.update({key: label for key, label, _active_now in rows})

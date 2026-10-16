@@ -3,15 +3,15 @@ require "test_helper"
 class FdGatingTest < ActionDispatch::IntegrationTest
   setup do
     @me = Account.create!(user_id: "UFF1")
-    hold_role!("UFF1", "firefighter")
+    grant_role!("UFF1", "firefighter")
     sign_in_as(@me)
   end
 
   def grant_role(role)
-    hold_role!("UFF1", role)
+    grant_role!("UFF1", role)
   end
 
-  test "a case somebody else is holding still offers everything to act on" do
+  test "case show assigned to another user returns success" do
     kase = make_case(assign: "UOTHER")
 
     get fd_case_path(kase)
@@ -21,7 +21,7 @@ class FdGatingTest < ActionDispatch::IntegrationTest
     get fd_case_path(kase, tab: "people")
   end
 
-  test "resolving is open to anyone, whoever is holding the case" do
+  test "resolution create on a case assigned to another user resolves it" do
     kase = make_case(assign: "UOTHER")
 
     get fd_case_path(kase)
@@ -30,7 +30,7 @@ class FdGatingTest < ActionDispatch::IntegrationTest
     assert kase.reload.resolved?
   end
 
-  test "a resolved case anybody can reopen, whoever it was assigned to" do
+  test "resolution destroy on a case assigned to another user reopens it" do
     kase = make_case(assign: "UOTHER", resolved_at: 1.day.ago, resolution: "no_action")
 
     get fd_case_path(kase)
@@ -39,9 +39,9 @@ class FdGatingTest < ActionDispatch::IntegrationTest
     assert_not kase.reload.resolved?
   end
 
-  test "filing a report on the way out needs the permission to log an action" do
+  test "resolution with report outcome and no case.act creates no action" do
     kase = make_case(assign: "UFF1")
-    move_capability!("firefighter", "case.act", false, by: "UME")
+    override_capability!("firefighter", "case.act", false, by: "UME")
 
     post fd_case_resolution_path(kase), params: { outcome: "report", type_key: "temp_ban",
       target_user_id: "USUB" }
@@ -50,12 +50,12 @@ class FdGatingTest < ActionDispatch::IntegrationTest
     assert_not kase.reload.resolved?
 
     post fd_case_resolution_path(kase), params: { outcome: "close", close_reason: "no_action" }
-    assert kase.reload.resolved?, "resolving without an action is still theirs to do"
+    assert kase.reload.resolved?, "close outcome resolves without case.act"
   end
 
-  test "the palette says why a command is closed rather than hiding it" do
+  test "palette row Log an action has why without case.act and other rows have none" do
     kase = make_case(assign: "UOTHER")
-    move_capability!("firefighter", "case.act", false, by: "UME")
+    override_capability!("firefighter", "case.act", false, by: "UME")
 
     get fd_search_path(format: :json, q: ">", on_case: kase.id)
 
@@ -63,6 +63,6 @@ class FdGatingTest < ActionDispatch::IntegrationTest
     act = rows.find { |row| row["title"] == "Log an action" }
     assert_equal "log an action against a member is Firefighter only", act["why"]
     assert_nil rows.find { |row| row["title"] == "Resolve this case" }["why"]
-    assert_nil rows.find { |row| row["title"] == "Go to the cases" }["why"]
+    assert_nil rows.find { |row| row["title"] == "Go to cases" }["why"]
   end
 end

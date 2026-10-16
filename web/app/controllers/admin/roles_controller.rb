@@ -12,9 +12,9 @@ module Admin
 
     def holders
       rows = ApplicationRecord.connection.select_all(
-        "SELECT role, count(*) AS held FROM app.effective_role GROUP BY role"
+        "SELECT role, count(*) AS holder_count FROM app.effective_role GROUP BY role"
       )
-      rows.to_h { |row| [row["role"], row["held"].to_i] }
+      rows.to_h { |row| [row["role"], row["holder_count"].to_i] }
     end
   end
 end

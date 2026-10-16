@@ -13,7 +13,7 @@ def rate_limited(failure):
     return getattr(failure, "http_status", None) == 429
 
 
-def drain(client, settled=None):
+def drain(client, on_finished=None):
     finished = 0
     limited = False
     with session() as conn:
@@ -34,11 +34,11 @@ def drain(client, settled=None):
                         log.warning("nemo: gave up deleting %s in %s after %s attempts: %s",
                                     message_ts, channel_id, GIVE_UP_AFTER, failure)
                     continue
-            channelguards.removed(conn, event_id)
+            channelguards.clear_remove_pending(conn, event_id)
             finished += 1
 
     if finished:
         log.info("nemo: settled %s queued allow-list delete(s)", finished)
-        if settled is not None:
-            settled()
+        if on_finished is not None:
+            on_finished()
     return len(pending) == PER_DRAIN and not limited

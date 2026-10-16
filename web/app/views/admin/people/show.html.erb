@@ -11,7 +11,7 @@
     <%= avatar(@user_id, css: "avatar avatar-band") %>
     <span class="two-line">
       <b><%= person_name(@user_id) %></b>
-      <span class="mono"><%= @user_id %> &middot; <%= acted_label(@last_acted) %></span>
+      <span class="mono"><%= @user_id %> &middot; <%= last_action_label(@last_action_at) %></span>
     </span>
   </div>
 
@@ -20,7 +20,7 @@
     <span class="metric-value is-text <%= "is-none" if @roles.empty? %>">
       <%= @roles.any? ? @roles.map { |r| Authz.role_label(r) }.to_sentence : "No role" %>
     </span>
-    <span class="metric-note"><%= @access_since ? "Since #{@access_since.strftime("%b %Y")}" : "Never held one" %></span>
+    <span class="metric-note"><%= @access_since ? "Since #{@access_since.strftime("%b %Y")}" : "n/a" %></span>
   </div>
 
   <div class="metric">
@@ -30,19 +30,19 @@
   </div>
 
   <div class="metric">
-    <span class="metric-key">Off default</span>
+    <span class="metric-key">Overrides</span>
     <span class="metric-value <%= "is-none" if @deviations.empty? %>"><%= @deviations.size %></span>
-    <span class="metric-note">Changed by hand</span>
+    <span class="metric-note">Manual</span>
   </div>
 
   <div class="metric">
     <span class="metric-key">Channels</span>
     <span class="metric-value <%= "is-none" if @channel_rows.empty? %>"><%= @channel_rows.size %></span>
-    <span class="metric-note">Named to them</span>
+    <span class="metric-note">Granted</span>
   </div>
 
   <div class="metric">
-    <span class="metric-key">Looked up</span>
+    <span class="metric-key">Identity reads</span>
     <span class="metric-value <%= "is-none" if @identity_reads.zero? %>"><%= @identity_reads %></span>
     <span class="metric-note">Identities, 30 days</span>
   </div>
@@ -60,8 +60,8 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>Scope</th><th class="detail-cell">What it does</th>
-              <th class="detail-cell">Given by</th><th class="col-num"><span class="sr-only">Change</span></th>
+              <th>Scope</th><th class="detail-cell">Description</th>
+              <th class="detail-cell">Granted by</th><th class="col-num"><span class="sr-only">Change</span></th>
             </tr>
           </thead>
           <tbody>
@@ -73,7 +73,7 @@
                   <%= person_name(grant.granted_by) %>, <%= grant.granted_at.strftime("%b %Y") %>
                 </td>
                 <td class="col-num">
-                  <span class="sub"><%= grant.denial? ? "Taken away" : "Added" %></span>
+                  <span class="sub"><%= grant.denial? ? "Denied" : "Added" %></span>
                 </td>
               </tr>
             <% end %>
@@ -83,7 +83,7 @@
     </div>
   <% else %>
     <div class="empty">
-      <p class="empty-title">Nothing added or removed by hand</p>
+      <p class="empty-title">No extra scopes</p>
     </div>
   <% end %>
 </section>
@@ -105,7 +105,7 @@
           <div class="lrow">
             <span class="grow">
               <%= grant.label %>
-              <% if grant.revoked? %><span class="sub">Taken back</span><% end %>
+              <% if grant.revoked? %><span class="sub">Revoked</span><% end %>
             </span>
             <span class="lrow-right sub">
               <%= (grant.revoked_at || grant.granted_at)&.strftime("%b %Y") || "n/a" %>
@@ -113,14 +113,14 @@
           </div>
         <% end %>
         <% if @history.empty? %>
-          <div class="empty"><p class="empty-title">Never held anything</p></div>
+          <div class="empty"><p class="empty-title">No grants</p></div>
         <% end %>
       </div>
     </div>
 
     <div class="card card-flush">
       <div class="card-head">
-        <h2 class="card-title">What they did</h2>
+        <h2 class="card-title">Actions</h2>
         <span class="card-sub">Last 30 days</span>
       </div>
       <% if @audit_rows.any? %>

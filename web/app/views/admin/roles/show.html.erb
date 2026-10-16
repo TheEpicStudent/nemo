@@ -2,16 +2,16 @@
 
 <section class="section">
   <div class="section-head">
-    <h2 class="section-title">What each role carries</h2>
+    <h2 class="section-title">Capabilities by role</h2>
     <% if @override_count.positive? %>
-      <p class="section-note"><%= pluralize(@override_count, "capability") %> off default</p>
+      <p class="section-note"><%= pluralize(@override_count, "override") %></p>
     <% end %>
     <% if @override_count.positive? %>
       <div class="section-tools">
-        <%= gated_button "access.grant", "Put back the defaults", fd_role_permission_path,
+        <%= gated_button "access.grant", "Reset to defaults", fd_role_permission_path,
               method: :delete, css: "btn btn-sm",
               form: { class: "contents",
-                      data: { turbo_confirm: "Put every capability back to its default?" } } %>
+                      data: { turbo_confirm: "Reset all capabilities to defaults?" } } %>
       </div>
     <% end %>
   </div>
@@ -22,7 +22,7 @@
         <thead>
           <tr>
             <th>Capability</th>
-            <th class="detail-cell">What it lets them do</th>
+            <th class="detail-cell">Description</th>
             <% @roles.each do |role| %>
               <th class="col-switch">
                 <%= Authz.role_label(role) %>

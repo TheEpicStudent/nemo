@@ -39,7 +39,7 @@
              next if m.claim_dates_complete
 
              { at: i, note: "#{number_with_delimiter(m.undated_claims)} of " \
-                 "#{number_with_delimiter(m.claimed_members)} sign-ins have no date yet" }
+                 "#{number_with_delimiter(m.claimed_members)} sign-ins undated" }
            end %>
         <div
           data-controller="chart"
@@ -48,7 +48,7 @@
           data-chart-pct-value="true"
           <% if voids.any? %>data-chart-voids-value="<%= voids.to_json %>"<% end %>
           <% if mean %>data-chart-rule-value="<%= { at: mean,
-            label: "settled mean #{mean.round}%" }.to_json %>"<% end %>
+            label: "mean #{mean.round}%" }.to_json %>"<% end %>
           data-chart-data-value="<%= {
             labels: growth_months.map { |m| m.month.strftime("%b %Y") },
             datasets: [{ label: "claim rate, 30 days",

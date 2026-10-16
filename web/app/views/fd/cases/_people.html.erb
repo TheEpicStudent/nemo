@@ -2,15 +2,15 @@
   <div class="section-head">
     <h2 class="section-title">People</h2>
     <div class="section-tools">
-      <%= opens_modal "case.people", "Add somebody", opens: "add-person", on: kase %>
+      <%= opens_modal "case.people", "Add person", opens: "add-person", on: kase %>
     </div>
   </div>
 
   <% if people.size.zero? %>
     <div class="empty">
-      <p class="empty-title">Nobody is on this case yet</p>
+      <p class="empty-title">No people</p>
       <div class="empty-do">
-        <%= opens_modal "case.people", "Add somebody", opens: "add-person", on: kase,
+        <%= opens_modal "case.people", "Add person", opens: "add-person", on: kase,
               css: "btn btn-primary" %>
       </div>
     </div>

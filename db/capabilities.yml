@@ -58,9 +58,9 @@ areas:
   identity: People
   channel: Channels
   engine: Engine
-  slack: Your own account
+  slack: Account
   access: Access
-  app: The dashboard
+  app: Dashboard
   api: Public API
   audit: Audit log
 
@@ -80,7 +80,7 @@ capabilities:
     events: [case/opened, assignee/claimed, assignee/unclaimed, assignee/attached, assignee/detached]
 
   case.categorise:
-    label: Set the violation on a case
+    label: Set the category on a case
     area: case
     locked: true
     events: [case/categorised]
@@ -109,7 +109,7 @@ capabilities:
     locked: true
 
   case.reply:
-    label: Answer the reporter
+    label: Reply to the reporter
     area: case
     locked: true
     events: [report/answered]
@@ -187,7 +187,7 @@ capabilities:
     logged: true
 
   link.verdict:
-    label: Judge whether two linked accounts are one person
+    label: Record a verdict on two linked accounts
     area: member
     locked: true
     events: [member_link_verdict/linked, member_link_verdict/unlinked]
@@ -205,7 +205,7 @@ capabilities:
     logged: true
 
   channel.read:
-    label: View analytics for channels they manage
+    label: View analytics for managed channels
     area: channel
     record_scope: channel
     every_account: true
@@ -243,29 +243,29 @@ capabilities:
     events: [channel_purge/queued, channel_purge/performed]
 
   message.read:
-    label: View their own message activity, where the channel allows it
+    label: View own message activity in enabled channels
     area: channel
     record_scope: author
     every_account: true
 
   message.show:
-    label: Select the channels that expose message activity
+    label: Enable message activity per channel
     area: channel
     locked: true
     events: [message_activity/turned_on, message_activity/turned_off]
 
   engine.manage:
-    label: Run and tune the engine
+    label: Run and configure the engine
     area: engine
     locked: true
 
   slack.link:
-    label: Link their own Slack account to send as themselves
+    label: Link own Slack account
     area: slack
     events: [slack_account/linked, slack_account/unlinked]
 
   access.read:
-    label: View who holds access and their activity
+    label: View access holders and their activity
     area: access
 
   access.grant:

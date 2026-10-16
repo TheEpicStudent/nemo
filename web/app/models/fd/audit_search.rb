@@ -119,7 +119,7 @@ module Fd
         if !identity? || (emails.empty? && domains.empty?)
           []
         else
-          MemberIdentity.kept.where(email_condition(emails, domains)).pluck(:user_id)
+          MemberIdentity.unpurged.where(email_condition(emails, domains)).pluck(:user_id)
         end
     end
 

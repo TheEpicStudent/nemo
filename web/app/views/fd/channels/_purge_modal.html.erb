@@ -11,12 +11,12 @@
           <label>
             <%= radio_button_tag :kind, Fd::ChannelPurgesController::LAST, true, id: nil,
                   class: "purge-kind-last" %>
-            The last messages
+            Latest messages
           </label>
           <label>
             <%= radio_button_tag :kind, Fd::ChannelPurgesController::MEMBER, false, id: nil,
                   class: "purge-kind-member" %>
-            One member
+            By member
           </label>
         </div>
       <% else %>
@@ -26,9 +26,9 @@
 
       <% if last %>
         <label class="field-label purge-count">
-          Channel messages
+          Message count
           <%= number_field_tag :wanted, 10, class: "input", id: nil,
-                min: 1, max: Fd::ChannelPurge::MOST %>
+                min: 1, max: Fd::ChannelPurge::MAX_MESSAGES %>
         </label>
       <% end %>
 
@@ -36,17 +36,17 @@
         <div class="field-label purge-member">
           <span>Member</span>
           <%= render "shared/combobox", name: "member_id", single: true,
-                label: "search for the member" %>
+                label: "Search members" %>
         </div>
         <label class="field-label purge-member">
           Messages
           <%= number_field_tag :member_wanted, nil, class: "input", id: nil, placeholder: "All",
-                min: 1, max: Fd::ChannelPurge::MOST %>
+                min: 1, max: Fd::ChannelPurge::MAX_MESSAGES %>
         </label>
       <% end %>
 
       <label class="field-label">
-        Why
+        Reason
         <%= text_area_tag :reason, nil, rows: 3, class: "textarea", id: nil,
               maxlength: Fd::ChannelPurgesController::MAX_REASON_LENGTH %>
       </label>

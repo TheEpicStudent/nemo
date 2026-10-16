@@ -8,15 +8,15 @@ module Api
     WITHDRAWN = "withdrawn".freeze
 
     MAX_REASON = 500
-    SHORTEST_REASON = 10
+    MIN_REASON_LENGTH = 10
 
-    class AlreadyError < StandardError; end
-    class TooThinError < StandardError; end
+    class StateConflictError < StandardError; end
+    class ReasonTooShortError < StandardError; end
 
     belongs_to :app, class_name: "Api::App", foreign_key: :app_id, inverse_of: false
 
     scope :pending, -> { where(state: PENDING) }
-    scope :settled, -> { where.not(state: PENDING) }
+    scope :decided, -> { where.not(state: PENDING) }
 
     def self.open_for?(app_id)
       pending.exists?(app_id: app_id)
@@ -30,11 +30,11 @@ module Api
       pending.where(app_id: App.live.select(:id)).order(created_at: :asc)
     end
 
-    def self.ask!(app, reason:)
-      raise AlreadyError if open_for?(app.id) || Approval.active?(app.id)
+    def self.submit!(app, reason:)
+      raise StateConflictError if open_for?(app.id) || Approval.active?(app.id)
 
       text = reason.to_s.strip
-      raise TooThinError if text.length < SHORTEST_REASON
+      raise ReasonTooShortError if text.length < MIN_REASON_LENGTH
 
       row = create!(app_id: app.id, reason: text.first(MAX_REASON))
       Event.record!("access_requested", actor: app.owner_user_id, subject: app.name,
@@ -71,7 +71,7 @@ module Api
     private
 
     def record_decision!(new_state, by, note)
-      raise AlreadyError unless pending?
+      raise StateConflictError unless pending?
 
       update!(state: new_state, decided_by: by, decided_at: Time.current,
         note: note.to_s.strip.presence)

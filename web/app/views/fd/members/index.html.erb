@@ -25,7 +25,7 @@
     </span>
     <p class="empty-title">No member open</p>
     <div class="empty-do">
-      <%= link_to "Browse as a table", fd_members_path(request.query_parameters.merge(layout: "table")),
+      <%= link_to "Table", fd_members_path(request.query_parameters.merge(layout: "table")),
             class: "btn" %>
     </div>
   </div>
@@ -91,7 +91,7 @@
                           <b><%= person_name(row.user_id) %></b>
                         <% end %>
                         <span>
-                          joined <%= member_context&.cohort_at ? on_day(member_context.cohort_at).downcase : "n/a" %><% if @grants[row.user_id] %> &middot; <%= @grants[row.user_id].label %><% end %>
+                          Joined <%= member_context&.cohort_at ? on_day(member_context.cohort_at) : "n/a" %><% if @grants[row.user_id] %> &middot; <%= @grants[row.user_id].label %><% end %>
                         </span>
                       </span>
                     </span>

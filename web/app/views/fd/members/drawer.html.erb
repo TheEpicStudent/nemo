@@ -5,7 +5,7 @@
       <span class="person-menu-who">
         <b><%= person_name(@user_id) %></b>
         <span>
-          <%= @context&.cohort_at ? "Joined #{on_day(@context.cohort_at)}" : "Join date unknown" %>
+          <%= @context&.cohort_at ? "Joined #{on_day(@context.cohort_at)}" : "Join date n/a" %>
           <% if @context&.messages_posted %>
             &middot; <%= number_with_delimiter(@context.messages_posted) %> messages
           <% end %>
@@ -40,14 +40,14 @@
       <% related_cases = (@record.subject_cases + @record.logged_cases).uniq(&:id).sort_by(&:opened_at) %>
       <% if related_cases.any? %>
         <section class="person-menu-group">
-          <h3 class="person-menu-label">Cases they appear in</h3>
+          <h3 class="person-menu-label">Cases</h3>
           <% by_case = @record.actions.group_by(&:case_id) %>
           <% related_cases.each do |kase| %>
             <div class="person-menu-item">
               <%= link_to fd_case_path(kase), class: "person-menu-case", data: { turbo_frame: "_top" } do %>
                 <span class="two-line">
                   <b>#<%= kase.id %><%= " #{category_label(kase.category_key)}" if kase.category_key.present? %></b>
-                  <span><%= kase.subject_user_ids.include?(@user_id) ? "Subject" : "Named" %></span>
+                  <span><%= kase.subject_user_ids.include?(@user_id) ? "Subject" : "Mentioned" %></span>
                 </span>
                 <span class="row-right"><%= case_status_chip(kase) %></span>
               <% end %>
@@ -78,7 +78,7 @@
 
     <div class="person-menu-foot">
       <button type="button" class="btn btn-ghost" data-action="click->person-drawer#close">Close</button>
-      <%= link_to "Open the full record", fd_member_path(@user_id), class: "btn btn-primary",
+      <%= link_to "Open record", fd_member_path(@user_id), class: "btn btn-primary",
             data: { turbo_frame: "_top" } %>
     </div>
   </div>

@@ -36,9 +36,9 @@ def escape_but_mentions(text):
 
 def quote(body, blocks=None):
     if blocks:
-        made = richtext.quote_blocks(blocks)
-        if made:
-            return made
+        quote_value = richtext.quote_blocks(blocks)
+        if quote_value:
+            return quote_value
 
     words = quote_text(body)
     return richtext.quote(words) if words else None

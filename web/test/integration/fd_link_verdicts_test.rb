@@ -7,7 +7,7 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
   DELETED = "UVGONE".freeze
 
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
     member!(ACTIVE)
     member!(DELETED)
@@ -25,7 +25,7 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
 
   def compare_href = fd_link_compare_path(a: [ACTIVE, DELETED].min, b: [ACTIVE, DELETED].max, back: fd_links_path)
 
-  test "a pair is judged from compare and leaves the unreviewed list" do
+  test "create verdict records a LinkVerdict and removes the pair from the unreviewed list" do
     get fd_links_path
     assert_select "a.btn[href=?]", compare_href, text: "Review"
 
@@ -37,7 +37,7 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
       post_verdict("different_people", note: "cousins")
     end
     assert_redirected_to fd_links_path
-    assert_equal "verdict recorded", flash[:notice]
+    assert_equal "Verdict recorded", flash[:notice]
     follow_redirect!
     assert_select "a.btn[href=?]", compare_href, count: 0
 
@@ -45,7 +45,7 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
     assert_equal ["different_people", "UME", "cousins"], [row.verdict, row.decided_by, row.note]
   end
 
-  test "a verdict is written to the audit log like the command writes it" do
+  test "create verdict writes a linked audit entry with after verdict and no before" do
     post_verdict("same_person")
 
     entry = Fd::AuditEntry.where(entity_type: "member_link_verdict").order(:id).last
@@ -56,26 +56,26 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
     assert_nil entry.before
   end
 
-  test "a changed verdict keeps what it said before" do
+  test "create with a changed verdict writes an unlinked audit entry and keeps the note" do
     post_verdict("same_person", note: "dm")
     post_verdict("different_people")
 
     entry = Fd::AuditEntry.where(entity_type: "member_link_verdict").order(:id).last
     assert_equal "unlinked", entry.verb
     assert_equal "same_person", entry.before["verdict"]
-    assert_equal "dm", Fd::LinkVerdict.last.note, "an empty note keeps the one already given"
-    assert_match "verdict changed", flash[:notice]
+    assert_equal "dm", Fd::LinkVerdict.last.note, "blank note keeps the existing note"
+    assert_match "Verdict changed", flash[:notice]
   end
 
-  test "saying the same thing twice writes nothing" do
+  test "create with an unchanged verdict writes no audit entry and notices Verdict unchanged" do
     post_verdict("allowed_alt")
     assert_no_difference -> { Fd::AuditEntry.where(entity_type: "member_link_verdict").count } do
       post_verdict("allowed_alt")
     end
-    assert_match "verdict unchanged", flash[:notice]
+    assert_match "Verdict unchanged", flash[:notice]
   end
 
-  test "a judged pair shows its verdict under reviewed and can be changed" do
+  test "links reviewed view renders the verdict state and a Change button" do
     post_verdict("allowed_alt")
 
     get fd_links_path(view: "reviewed")
@@ -83,7 +83,7 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
     assert_select ".link-table a.btn", "Change"
   end
 
-  test "the member pane and the cluster page judge pairs too" do
+  test "member links pane and cluster links tab render Review buttons" do
     get fd_member_links_path(ACTIVE)
     assert_select "a.btn[href=?]", fd_link_compare_path(a: ACTIVE, b: DELETED, back: fd_member_path(ACTIVE, tab: "links")),
       text: "Review"
@@ -95,7 +95,7 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
     assert_select ".link-table a.btn", "Review"
   end
 
-  test "a judgement comes back to the page it was made on" do
+  test "create verdict redirects to the back path and ignores an external back url" do
     post_verdict("same_person", back: fd_member_path(ACTIVE, do: "links"))
     assert_redirected_to fd_member_path(ACTIVE, do: "links")
 
@@ -103,17 +103,17 @@ class FdLinkVerdictsTest < ActionDispatch::IntegrationTest
     assert_redirected_to fd_links_path
   end
 
-  test "a verdict needs two accounts and one of the three answers" do
+  test "create verdict with one account or an unknown verdict alerts" do
     post fd_link_verdicts_path, params: { a: ACTIVE, b: ACTIVE, verdict: "same_person" }
-    assert_equal "pick two accounts", flash[:alert]
+    assert_equal "Select two accounts", flash[:alert]
 
     post fd_link_verdicts_path, params: { a: ACTIVE, b: DELETED, verdict: "maybe" }
-    assert_equal "pick a verdict", flash[:alert]
+    assert_equal "Select a verdict", flash[:alert]
   end
 
-  test "somebody without link.verdict sees no buttons and is refused" do
-    move_capability!("firefighter", "link.verdict", false, by: "UME")
-    sign_in_as(hold_role!("UFF", "firefighter"))
+  test "without link.verdict links view renders Compare and create adds no row" do
+    override_capability!("firefighter", "link.verdict", false, by: "UME")
+    sign_in_as(grant_role!("UFF", "firefighter"))
 
     get fd_links_path
     assert_select ".link-table a.btn", "Compare"

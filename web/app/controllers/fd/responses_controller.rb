@@ -10,7 +10,7 @@ module Fd
       return redirect_with_alert(error) if error
 
       writing do
-        audit_setting(AppSetting.flip(AppSetting::AUTORESPONSE_ON, params[:on].present?,
+        audit_setting(AppSetting.set_enabled(AppSetting::AUTORESPONSE_ON, params[:on].present?,
           by: current_account.user_id))
         audit_setting(AppSetting.set_words(AppSetting::AUTORESPONSE_EMOJI, params[:emoji],
           by: current_account.user_id))
@@ -27,7 +27,7 @@ module Fd
       return redirect_with_alert("That is not a valid link") if link.present? && !link.match?(%r{\Ahttps?://})
 
       writing do
-        audit_setting(AppSetting.flip(AppSetting::UNSUB_SHIELD_ON, params[:on].present?,
+        audit_setting(AppSetting.set_enabled(AppSetting::UNSUB_SHIELD_ON, params[:on].present?,
           by: current_account.user_id))
         write_if_present(AppSetting::UNSUB_SHIELD_LINK, link)
       end
@@ -56,12 +56,12 @@ module Fd
     def autoresponse_error
       return nil if params[:on].blank?
 
-      return "say what to answer with" if body.blank?
-      return "keep it under #{MAX_BODY_LENGTH} characters" if body.length > MAX_BODY_LENGTH
-      return "pick which channel to watch" if channel_id.blank?
+      return "Enter a message" if body.blank?
+      return "Keep it under #{MAX_BODY_LENGTH} characters" if body.length > MAX_BODY_LENGTH
+      return "Select a channel" if channel_id.blank?
       return "#{channel_id} is not a channel" unless channel_exists?(channel_id)
-      return "pick at least one emoji" if requested_emoji.empty?
-      return "say how many days, from 1 to #{MAX_COOLDOWN_DAYS}" unless cooldown.between?(1, MAX_COOLDOWN_DAYS)
+      return "Select an emoji" if requested_emoji.empty?
+      return "Enter 1 to #{MAX_COOLDOWN_DAYS} days" unless cooldown.between?(1, MAX_COOLDOWN_DAYS)
 
       nil
     end

@@ -106,7 +106,7 @@ def reject(conn, channel_id, ts, why, counts=None):
 
 def walk_channel(conn, client, channel_id, oldest=None, counts=None, latest=None, max_pages=None, on_page=None):
     params = walk_params(channel_id, oldest, latest)
-    state = {"threads": [], "kept": [],
+    state = {"threads": [], "buffered": [],
              "oldest_ts": None, "newest_ts": None, "pages": 0}
     message_count = 0
     exhausted = True
@@ -116,11 +116,11 @@ def walk_channel(conn, client, channel_id, oldest=None, counts=None, latest=None
             if state["threads"]:
                 cur.executemany(THREAD_SQL, state["threads"])
             cur.execute(WALK_SQL, (
-                channel_id, state["oldest_ts"], state["newest_ts"], len(state["kept"]), done))
-        archive.from_api_many(conn, channel_id, state["kept"], METHOD, TRANSPORT,
+                channel_id, state["oldest_ts"], state["newest_ts"], len(state["buffered"]), done))
+        archive.from_api_many(conn, channel_id, state["buffered"], METHOD, TRANSPORT,
                               on_reject=lambda ts, why: reject(conn, channel_id, ts, why, counts))
         conn.commit()
-        state["kept"] = []
+        state["buffered"] = []
         state["threads"] = []
         state["oldest_ts"] = state["newest_ts"] = None
         if page:
@@ -137,7 +137,7 @@ def walk_channel(conn, client, channel_id, oldest=None, counts=None, latest=None
         if max_pages is not None and state["pages"] >= max_pages:
             exhausted = False
             break
-        state["kept"].append(message)
+        state["buffered"].append(message)
         thread = thread_row(channel_id, message)
         if thread:
             state["threads"].append(thread)
@@ -146,7 +146,7 @@ def walk_channel(conn, client, channel_id, oldest=None, counts=None, latest=None
         state["oldest_ts"] = ts if state["oldest_ts"] is None or ts < state["oldest_ts"] else state["oldest_ts"]
         state["newest_ts"] = ts if state["newest_ts"] is None or ts > state["newest_ts"] else state["newest_ts"]
 
-    checkpoint(exhausted and oldest is None, page=bool(state["kept"]))
+    checkpoint(exhausted and oldest is None, page=bool(state["buffered"]))
     return message_count, state["pages"], exhausted
 
 
@@ -181,7 +181,7 @@ WITH rate AS (
       AND s.window_start > current_date - 8
     GROUP BY 1
 ),
-ladder AS (
+tail_interval AS (
     SELECT d.channel_id, w.newest_ts, coalesce(r.per_day, 0) AS per_day,
            CASE
                WHEN coalesce(r.per_day, 0) >= 100 THEN 300
@@ -202,7 +202,7 @@ SELECT l.channel_id AS target_key, '' AS target_sub_key,
        CASE WHEN l.newest_ts IS NULL THEN 0
             ELSE greatest(1, 1000 - (l.per_day * 10)::integer) END AS priority,
        '{}'::jsonb AS payload, NULL::integer AS expected
-FROM ladder l
+FROM tail_interval l
 LEFT JOIN ingest.work_item i
        ON i.work_kind = 'channel_tail' AND i.target_key = l.channel_id AND i.target_sub_key = ''
 WHERE i.work_item_id IS NULL

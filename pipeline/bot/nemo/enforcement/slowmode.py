@@ -32,7 +32,7 @@ NOTICE_POSTED = "UPDATE fd.channel_guards SET notice_ts = %s WHERE id = %s"
 
 NOTICE_AGAIN = "UPDATE fd.channel_guards SET notice_wanted = state = 'live' WHERE id = %s"
 
-TICK = """
+CLAIM_SLOT = """
 INSERT INTO fd.slowmode_clock (channel_id, thread_ts, user_id, posted_at)
 VALUES (%s, %s, %s, now())
 ON CONFLICT (channel_id, thread_ts, user_id) DO UPDATE SET posted_at = now()
@@ -40,36 +40,36 @@ WHERE fd.slowmode_clock.posted_at <= now() - make_interval(secs => %s)
 RETURNING posted_at
 """
 
-SINCE = """
+SECONDS_REMAINING = """
 SELECT ceil(extract(epoch FROM (posted_at + make_interval(secs => %s)) - now()))::int
 FROM fd.slowmode_clock
 WHERE channel_id = %s AND thread_ts = %s AND user_id = %s
 """
 
 
-def scope(guard, event):
+def clock_scope(guard, event):
     thread_ts = event.get("thread_ts")
     if not thread_ts:
         return ""
     return thread_ts if guard.threads() else None
 
 
-def record_post(conn, channel_id, thread_ts, user_id, seconds):
-    return conn.execute(TICK, (channel_id, thread_ts, user_id, seconds)).fetchone()
+def claim_post_slot(conn, channel_id, thread_ts, user_id, seconds):
+    return conn.execute(CLAIM_SLOT, (channel_id, thread_ts, user_id, seconds)).fetchone()
 
 
-def left_to_go(conn, channel_id, thread_ts, user_id, seconds):
-    row = conn.execute(SINCE, (seconds, channel_id, thread_ts, user_id)).fetchone()
+def seconds_remaining_for(conn, channel_id, thread_ts, user_id, seconds):
+    row = conn.execute(SECONDS_REMAINING, (seconds, channel_id, thread_ts, user_id)).fetchone()
     return max(1, row[0]) if row and row[0] else 1
 
 
-def replied_in(event):
+def reply_thread_ts(event):
     thread_ts = event.get("thread_ts")
     return thread_ts if thread_ts and thread_ts != event.get("ts") else None
 
 
-def applying(channel_id, event):
-    thread_ts = replied_in(event)
+def applicable_guard(channel_id, event):
+    thread_ts = reply_thread_ts(event)
     if thread_ts:
         if guards.has_live_guard(channel_id, thread_ts):
             return None, None
@@ -77,10 +77,10 @@ def applying(channel_id, event):
         if own is not None:
             return own, thread_ts
 
-    guard = channelguards.guarding(channel_id, KIND)
+    guard = channelguards.active_guard(channel_id, KIND)
     if guard is None:
         return None, None
-    return guard, scope(guard, event)
+    return guard, clock_scope(guard, event)
 
 
 @on_event("message", open_to_all=True)
@@ -90,8 +90,8 @@ def on_message(ctx):
     if not channel_id:
         return None
 
-    guard, thread_ts = applying(channel_id, event)
-    if guard is None or thread_ts is None or guard.lets_past(subject_id):
+    guard, thread_ts = applicable_guard(channel_id, event)
+    if guard is None or thread_ts is None or guard.allows(subject_id):
         return None
 
     seconds = guard.seconds()
@@ -101,9 +101,9 @@ def on_message(ctx):
     with session() as conn:
         if exemptions.is_exempt(conn, subject_id):
             return None
-        if record_post(conn, channel_id, thread_ts, subject_id, seconds):
+        if claim_post_slot(conn, channel_id, thread_ts, subject_id, seconds):
             return None
-        seconds_remaining = left_to_go(conn, channel_id, thread_ts, subject_id, seconds)
+        seconds_remaining = seconds_remaining_for(conn, channel_id, thread_ts, subject_id, seconds)
 
     body = event.get("text") or ""
     try:
@@ -117,9 +117,9 @@ def on_message(ctx):
         channelguards.record_enforcement(conn, guard.guard_id, channel_id, subject_id,
                                DELETED, text=body, message_ts=ts)
 
-    told = card.held_back(seconds_remaining, body, in_thread=bool(event.get("thread_ts")))
-    notify.post_ephemeral(ctx.client, channel_id, subject_id, told["text"],
-                          thread_ts=event.get("thread_ts"), blocks=told["blocks"])
+    notice = card.removal_notice(seconds_remaining, body, in_thread=bool(event.get("thread_ts")))
+    notify.post_ephemeral(ctx.client, channel_id, subject_id, notice["text"],
+                          thread_ts=event.get("thread_ts"), blocks=notice["blocks"])
     log.info("nemo: slow mode %s removed %s from %s", guard.guard_id, ts, channel_id)
     return True
 

@@ -1,8 +1,5 @@
 module Admin
   class SettingsController < BaseController
-    SOONEST = Fd::AppSetting::SOONEST
-    MOST_STRIKES = Fd::AppSetting::MOST_STRIKES
-    MOST_RESETS = Fd::AppSetting::MOST_RESETS
     MEMBER_ID = /\A[UW][A-Z0-9]{2,}\z/
 
     def show
@@ -20,7 +17,7 @@ module Admin
       @trusted_senders = Fd::AppSetting.trusted_senders
       configured_ids = ([@firehouse, @reports_channel, @log_channel] + @react_channels).compact.uniq
       @channels_by_id = Analytics::DimChannel.where(channel_id: configured_ids).index_by(&:channel_id)
-      @seats = configured_ids.index_with { |channel_id| Fd::ChannelMembership.seat(channel_id) }
+      @memberships = configured_ids.index_with { |channel_id| Fd::ChannelMembership.membership_for(channel_id) }
     end
 
     def join_mode
@@ -34,11 +31,11 @@ module Admin
 
     def sweep
       hours = params[:soon_hours].to_s.strip.to_i
-      return redirect_with_alert("Enter a number of hours, from 1 to #{SOONEST}") unless hours.between?(1, SOONEST)
+      return redirect_with_alert("Enter a number of hours, from 1 to #{Fd::AppSetting::MAX_SOON_HOURS}") unless hours.between?(1, Fd::AppSetting::MAX_SOON_HOURS)
 
       audit_setting(Fd::AppSetting.write(Fd::AppSetting::SWEEP_SOON_HOURS, hours.to_s,
         by: current_account.user_id))
-      audit_setting(Fd::AppSetting.flip(Fd::AppSetting::SWEEP_TELLS_MEMBER, params[:tells].present?,
+      audit_setting(Fd::AppSetting.set_enabled(Fd::AppSetting::SWEEP_TELLS_MEMBER, params[:tells].present?,
         by: current_account.user_id))
       redirect_to admin_settings_path, notice: "Guard expiry settings saved"
     end
@@ -51,13 +48,13 @@ module Admin
       }
 
       strikes = Integer(params[:strikes].to_s.strip, 10, exception: false)
-      unless strikes&.between?(1, MOST_STRIKES)
-        return redirect_with_alert("Enter a number of replies, from 1 to #{MOST_STRIKES}")
+      unless strikes&.between?(1, Fd::AppSetting::MAX_STRIKES)
+        return redirect_with_alert("Enter a number of replies, from 1 to #{Fd::AppSetting::MAX_STRIKES}")
       end
 
       resets = Integer(params[:resets].to_s.strip, 10, exception: false)
-      unless resets&.between?(0, MOST_RESETS)
-        return redirect_with_alert("Enter a number of sign-outs, from 0 to #{MOST_RESETS}")
+      unless resets&.between?(0, Fd::AppSetting::MAX_RESETS)
+        return redirect_with_alert("Enter a number of sign-outs, from 0 to #{Fd::AppSetting::MAX_RESETS}")
       end
 
       modes.merge(Fd::AppSetting::SESSION_RESET_STRIKES => strikes.to_s,
@@ -95,7 +92,7 @@ module Admin
         notice: "##{name_of(channel_id)} added to case reaction channels"
     end
 
-    def drop_react
+    def remove_react
       channel_id = params[:channel_id].to_s.strip
       channel_ids = Fd::AppSetting.case_react_channels - [channel_id]
       audit_setting(Fd::AppSetting.set_case_react_channels(channel_ids, by: current_account.user_id))
@@ -114,7 +111,7 @@ module Admin
       redirect_to admin_settings_path, notice: "@#{user_id} added to trusted senders"
     end
 
-    def drop_trusted_sender
+    def remove_trusted_sender
       user_id = params[:user_id].to_s.strip
       user_ids = Fd::AppSetting.trusted_senders - [user_id]
       audit_setting(Fd::AppSetting.set_trusted_senders(user_ids, by: current_account.user_id))
@@ -145,7 +142,7 @@ module Admin
       Analytics::DimChannel.find_by(channel_id: channel_id)&.name.presence || channel_id
     end
 
-    def redirect_with_alert(message = "that is not allowed")
+    def redirect_with_alert(message = "Not allowed")
       redirect_to admin_settings_path, alert: message
     end
   end

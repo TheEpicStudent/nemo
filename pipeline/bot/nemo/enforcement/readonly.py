@@ -29,8 +29,8 @@ def on_message(ctx):
     if not channel_id:
         return None
 
-    guard = channelguards.guarding(channel_id, KIND)
-    if guard is None or guard.lets_past(subject_id):
+    guard = channelguards.active_guard(channel_id, KIND)
+    if guard is None or guard.allows(subject_id):
         return None
     if in_a_thread(event) and not guard.threads():
         return None

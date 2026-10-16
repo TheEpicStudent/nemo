@@ -23,7 +23,7 @@ module ExploreHelper
       { key: "format", label: "Format", choices: [["full", "1,204", "Full"], ["compact", "1.2k", "Compact"]] }
     ]],
     ["Tiles", [
-      { key: "sizeBy", label: "Size by", choices: [["messages", "This window"], ["prior", "Before"]] }
+      { key: "sizeBy", label: "Size by", choices: [["messages", "This window"], ["prior", "Prior period"]] }
     ]],
     ["Show", [
       { key: "grid", label: "Gridlines", shortcut: "G" },

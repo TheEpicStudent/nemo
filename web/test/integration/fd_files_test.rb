@@ -4,7 +4,7 @@ class FdFilesTest < ActionDispatch::IntegrationTest
   PNG = "\x89PNG\r\n\x1a\n#{"\x00" * 24}".b
 
   setup do
-    sign_in_as(hold_role!("UME", "firefighter"))
+    sign_in_as(grant_role!("UME", "firefighter"))
   end
 
   def stored_file(mimetype, body)

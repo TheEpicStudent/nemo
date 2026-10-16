@@ -4,7 +4,8 @@
 <% grantable = Authz.keys.reject { |key| Authz.locked?(key) || Authz.every_account?(key) } %>
 <% baselines = Authz.role_names.index_with { |name| Authz.baseline(name) }.merge("" => []) %>
 <%= render layout: "fd/modal", locals: { id: "give-access",
-      title: person ? "What #{names[person]} holds" : "Give access" } do %>
+      title: person ? "Edit access" : "Give access",
+      sub: (names[person] if person) } do %>
   <%= form_with url: admin_grants_path, method: :post,
         html: { autocomplete: "off", id: "give-access-form" },
         data: { controller: "give-access",
@@ -14,9 +15,9 @@
         <%= hidden_field_tag :user_id, person, id: nil %>
       <% else %>
         <div class="field-label">
-          <span>Who</span>
+          <span>Person</span>
           <%= render "shared/combobox", name: "user_id", single: true,
-                label: "search for who to give it to", url: search_admin_people_path %>
+                label: "Search people", url: search_admin_people_path %>
         </div>
       <% end %>
 
@@ -57,7 +58,7 @@
           <% end %>
         </div>
         <p class="card-note" data-give-access-target="empty" hidden>
-          Nothing left to add
+          No scopes
         </p>
       </div>
 
@@ -68,22 +69,21 @@
       </div>
 
       <label class="field-label">
-        <span>Why</span>
-        <%= text_field_tag :reason, nil, class: "field",
-              placeholder: "kept on every grant this makes" %>
+        <span>Reason</span>
+        <%= text_field_tag :reason, nil, class: "field" %>
       </label>
     </div>
   <% end %>
 
   <div class="modal-foot">
     <% if person && role.present? %>
-      <%= button_to "Take it all back", admin_grant_path(person), method: :delete,
+      <%= button_to "Revoke all", admin_grant_path(person), method: :delete,
             class: "btn btn-danger",
             form: { class: "contents", data: { turbo_confirm:
-              "Take everything back from #{names[person]}?" } } %>
+              "Revoke all access for #{names[person]}?" } } %>
     <% end %>
     <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
-    <%= submit_tag(person ? "Save" : "Give it", class: "btn btn-primary",
+    <%= submit_tag(person ? "Save" : "Grant", class: "btn btn-primary",
           form: "give-access-form") %>
   </div>
 <% end %>

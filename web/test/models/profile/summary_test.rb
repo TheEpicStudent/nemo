@@ -12,12 +12,12 @@ class Profile::SummaryTest < ActiveSupport::TestCase
   end
 
   def summary_with_member_since(on)
-    Profile::Summary.new(IDLE).tap do |person|
-      person.define_singleton_method(:member_since) { on }
+    Profile::Summary.new(IDLE).tap do |summary|
+      summary.define_singleton_method(:member_since) { on }
     end
   end
 
-  test "an idle stretch on days we loaded reads zero, not untracked" do
+  test "slack stats for loaded days without activity are zero" do
     loaded!("member_day", Date.new(2020, 1, 15))
 
     stats = Profile::Summary.new(IDLE).slack(Date.new(2020, 1, 10), Date.new(2020, 1, 20))
@@ -26,7 +26,7 @@ class Profile::SummaryTest < ActiveSupport::TestCase
     assert_equal 0, stats[:messages]
   end
 
-  test "an idle stretch in the imported years reads zero too" do
+  test "slack stats for member_day_import loaded days without activity are zero" do
     loaded!("member_day_import", Date.new(2020, 3, 4))
 
     stats = Profile::Summary.new(IDLE).slack(Date.new(2020, 3, 1), Date.new(2020, 3, 7))
@@ -34,13 +34,13 @@ class Profile::SummaryTest < ActiveSupport::TestCase
     assert_equal 0, stats[:days_active]
   end
 
-  test "a stretch with no day loaded stays untracked" do
+  test "slack stats days_active is nil when no day in range is loaded" do
     loaded!("member_day", Date.new(2020, 1, 15))
 
     assert_nil Profile::Summary.new(IDLE).slack(Date.new(2019, 6, 1), Date.new(2019, 6, 30))[:days_active]
   end
 
-  test "days before somebody joined are not counted as idle" do
+  test "slack stats days_active is nil when range precedes member_since" do
     loaded!("member_day", Date.new(2020, 1, 15))
 
     stats = summary_with_member_since(Time.utc(2020, 2, 1)).slack(Date.new(2020, 1, 10), Date.new(2020, 1, 20))
@@ -48,7 +48,7 @@ class Profile::SummaryTest < ActiveSupport::TestCase
     assert_nil stats[:days_active]
   end
 
-  test "all time starts the first day Slack reported somebody, not their first active day" do
+  test "floor is the first loaded day on or after member_since" do
     loaded!("member_day", Date.new(2020, 1, 15))
     loaded!("member_day", Date.new(2020, 2, 3))
 

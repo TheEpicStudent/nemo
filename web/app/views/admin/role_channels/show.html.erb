@@ -9,7 +9,7 @@
           <%= form_with url: admin_role_channels_path(role: @role), method: :post,
                 class: "contents" do %>
             <%= render "shared/combobox", kind: "channel", name: :channel_id, submit: true,
-                  url: search_admin_channels_path, trigger: "Add a channel" %>
+                  url: search_admin_channels_path, trigger: "Add channel" %>
           <% end %>
         </div>
       <% end %>
@@ -38,7 +38,7 @@
                 </td>
                 <td class="col-btn">
                   <% if may_grant? %>
-                    <%= button_to "Take out",
+                    <%= button_to "Remove",
                           admin_role_channels_path(role: @role, channel_id: row.channel_id),
                           method: :delete, class: "btn btn-sm", form: { class: "contents" } %>
                   <% end %>
@@ -50,7 +50,7 @@
       </div>
     <% else %>
       <div class="empty">
-        <p class="empty-title">No channels yet</p>
+        <p class="empty-title">No channels</p>
       </div>
     <% end %>
   </div>
@@ -59,7 +59,7 @@
 <% if @role_user_ids.any? %>
   <section class="section">
     <div class="section-head">
-      <h2 class="section-title">Who this reaches</h2>
+      <h2 class="section-title">Members</h2>
     </div>
     <div class="card card-flush">
       <div class="cardbar">

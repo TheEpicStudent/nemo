@@ -1,7 +1,7 @@
 <%= turbo_frame_tag "merge-body" do %>
   <div class="merge-pane">
     <div class="merge-list">
-      <p class="merge-group">ticked, and who holds them</p>
+      <p class="merge-group">Selected cases</p>
       <% plan.all.each do |kase| %>
         <%= link_to fd_confirm_merge_cases_path(query_params.merge(case_ids: plan.all.map(&:id),
               keep: kase.id)), class: "merge-pick", data: { turbo_frame: "merge-body" },

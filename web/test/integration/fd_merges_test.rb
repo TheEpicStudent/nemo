@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdMergesTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     @main = make_case
     @dup_one = make_case
     @dup_two = make_case
@@ -13,13 +13,13 @@ class FdMergesTest < ActionDispatch::IntegrationTest
       params: { case_ids: Array(ids).map(&:to_s), duplicate_of: target.to_s }.merge(params)
   end
 
-  test "a signed out visitor cannot merge anything" do
+  test "merge signed out redirects to login and resolves nothing" do
     merge([@dup_one.id], @main.id)
     assert_redirected_to login_path
     assert_nil @dup_one.reload.resolved_at
   end
 
-  test "several cases close as duplicates of one main case" do
+  test "merge marks cases duplicate of the target and keeps the target open" do
     sign_in_as(@me)
     merge([@dup_one.id, @dup_two.id], @main.id)
 
@@ -31,10 +31,10 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     end
 
     assert_nil @main.reload.resolved_at, "the main case must stay open"
-    assert_match(/2 cases closed as duplicates of case #{@main.id}, which stays open/, flash[:notice])
+    assert_match(/2 cases marked duplicate of case #{@main.id}/, flash[:notice])
   end
 
-  test "each duplicate keeps its own threads and people" do
+  test "merge keeps threads and participants on the duplicate and adds no thread to the target" do
     Fd::CaseThread.create!(case_id: @dup_one.id, channel_id: "C1", thread_ts: "1.1",
       is_primary: true, added_by: "UFF1")
     Fd::CaseParticipant.create!(case_id: @dup_one.id, user_id: "UINV", role: "subject")
@@ -62,16 +62,16 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_equal [@dup_one.id, @dup_two.id], entries.first.after["source_case_ids"].sort
   end
 
-  test "the main case is ignored even if it is ticked too" do
+  test "merge ignores the target when it is also in case_ids" do
     sign_in_as(@me)
     merge([@main.id, @dup_one.id], @main.id)
 
     assert_nil @main.reload.resolved_at
     assert_equal "duplicate", @dup_one.reload.resolution
-    assert_match(/1 case closed as duplicate/, flash[:notice])
+    assert_match(/1 case marked duplicate/, flash[:notice])
   end
 
-  test "a chain of duplicates collapses to the original" do
+  test "merge into a duplicate target sets duplicate_of to the original case" do
     @main.update!(resolved_at: 1.hour.ago, resolution: "duplicate", duplicate_of: @dup_two.id)
     sign_in_as(@me)
     merge([@dup_one.id], @main.id)
@@ -80,25 +80,25 @@ class FdMergesTest < ActionDispatch::IntegrationTest
       "pointing at a duplicate must resolve to the case it duplicates"
   end
 
-  test "already resolved cases are left alone and counted" do
+  test "merge skips resolved cases and reports the skipped count" do
     @dup_two.update!(resolved_at: 1.hour.ago, resolution: "no_action")
     sign_in_as(@me)
     merge([@dup_one.id, @dup_two.id], @main.id)
 
     assert_equal "no_action", @dup_two.reload.resolution
-    assert_match(/1 case closed as duplicate of case #{@main.id}, which stays open, 1 left alone/, flash[:notice])
+    assert_match(/1 case marked duplicate of case #{@main.id} · 1 skipped/, flash[:notice])
   end
 
-  test "every ticked case being resolved already says only that" do
+  test "merge with all cases resolved alerts Cases already resolved" do
     @dup_one.update!(resolved_at: 1.hour.ago, resolution: "no_action")
     @dup_two.update!(resolved_at: 1.hour.ago, resolution: "no_action")
     sign_in_as(@me)
     merge([@dup_one.id, @dup_two.id], @main.id)
 
-    assert_equal "Nothing to mark: those cases are already resolved", flash[:alert]
+    assert_equal "Cases already resolved", flash[:alert]
   end
 
-  test "a case assigned to somebody else still merges" do
+  test "merge resolves a case assigned to another user" do
     @dup_one.assign!("UOTHER")
     sign_in_as(@me)
     merge([@dup_one.id], @main.id)
@@ -107,7 +107,7 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_equal @main.id, @dup_one.duplicate_of
   end
 
-  test "with no case named, the oldest of the ticked ones stays open" do
+  test "merge without duplicate_of keeps the oldest case open as target" do
     @main.update!(opened_at: 9.days.ago)
     sign_in_as(@me)
     post fd_merge_cases_path, params: { case_ids: [@main.id, @dup_one.id, @dup_two.id].map(&:to_s) }
@@ -117,27 +117,27 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_equal @main.id, @dup_two.reload.duplicate_of
   end
 
-  test "ticking a single case explains that duplicates need two" do
+  test "merge with one case_id alerts Select at least two cases" do
     sign_in_as(@me)
     post fd_merge_cases_path, params: { case_ids: [@dup_one.id.to_s] }
     assert_nil @dup_one.reload.resolved_at
     assert_match(/Select at least two cases/, flash[:alert])
   end
 
-  test "merging with nothing ticked is refused" do
+  test "merge with empty case_ids alerts Select cases" do
     sign_in_as(@me)
     merge([], @main.id)
-    assert_match(/Select the cases/, flash[:alert])
+    assert_match(/Select cases/, flash[:alert])
   end
 
-  test "a named case that does not exist is refused" do
+  test "merge with unknown duplicate_of alerts Case not found" do
     sign_in_as(@me)
     merge([@dup_one.id], 999_999)
     assert_nil @dup_one.reload.resolved_at
-    assert_match(/no longer exists/, flash[:alert])
+    assert_match(/Case not found/, flash[:alert])
   end
 
-  test "every duplicate writes its own trail entry under one request" do
+  test "merge writes one resolved audit entry per case with a shared request_id" do
     sign_in_as(@me)
     merge([@dup_one.id, @dup_two.id], @main.id)
 
@@ -148,7 +148,7 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_equal [@main.id, @main.id], rows.map { |r| r.after["duplicate_of"] }
   end
 
-  test "the merge body groups candidates and allows selecting several" do
+  test "show merge renders candidate groups and multi-select checkboxes" do
     sign_in_as(@me)
     get fd_case_merge_path(@dup_one)
 
@@ -159,7 +159,7 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_select "input[type='submit'][disabled]", count: 1
   end
 
-  test "a candidate shows what its report said, not only who and when" do
+  test "show merge renders the report body of a candidate" do
     body_text = "they kept posting the same link after being asked to stop"
     Fd::CaseReport.create!(case_id: @main.id, is_anonymous: true,
       source_app: "relay", received_at: Time.current, body: body_text)
@@ -171,14 +171,14 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_select ".merge-pick .queue-subject", text: /#{Regexp.escape(body_text)}/, minimum: 1
   end
 
-  test "a candidate with no report says so rather than showing nothing" do
+  test "show merge renders No report for a candidate without a report" do
     sign_in_as(@me)
     get fd_case_merge_path(@dup_one)
 
-    assert_select ".merge-pick .queue-subject", text: /no report on file/, minimum: 1
+    assert_select ".merge-pick .queue-subject", text: /No report/, minimum: 1
   end
 
-  test "a candidate reads like the same case does in the queue" do
+  test "show merge renders candidates with queue row id and violation markup" do
     sign_in_as(@me)
     get fd_case_merge_path(@dup_one)
 
@@ -200,7 +200,7 @@ class FdMergesTest < ActionDispatch::IntegrationTest
       permalink: link, is_reachable: true)
   end
 
-  test "a report that is only a link shows what was forwarded, not the url" do
+  test "show merge renders the forwarded body for a link only report and hides the url" do
     body_text = "read the room, nobody wants that here"
     forwarded_into(@main, body_text: body_text)
 
@@ -211,10 +211,10 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_select ".merge-pick .queue-cite-body", text: /#{Regexp.escape(body_text)}/, minimum: 1
     assert_select ".merge-pick .queue-cite-how", text: /forwarded/, minimum: 1
     assert_select ".merge-pick .queue-cite-body", { text: /hackclub\.slack\.com/, count: 0 },
-      "the bare link is what we replaced, so it must not show"
+      "bare link is not rendered"
   end
 
-  test "words of their own outrank anything they also forwarded" do
+  test "show merge renders the typed report body and no forwarded citation" do
     forwarded_into(@main, body_text: "the forwarded words")
     @main.reports.first.update!(body: "what the reporter typed themselves")
 
@@ -225,12 +225,12 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_select ".merge-pick .queue-cite", count: 0
   end
 
-  def others(count)
+  def make_extra_cases(count)
     count.times { |n| make_case(subject: format("UOTHER%02d", n)) }
   end
 
-  test "the list stops at a page and offers to fetch the next" do
-    others(12)
+  test "show merge limits candidates to PER_PAGE and renders the expand target" do
+    make_extra_cases(12)
     sign_in_as(@me)
 
     get fd_case_merge_path(@dup_one)
@@ -239,8 +239,8 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_select ".pane-more[data-expand-into-value='merge-around']", count: 1
   end
 
-  test "scrolling on fetches the next page and says whether expand follow" do
-    others(20)
+  test "show merge page 2 renders distinct candidates and an expand-next template" do
+    make_extra_cases(20)
     sign_in_as(@me)
 
     get fd_case_merge_path(@dup_one)
@@ -255,7 +255,7 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_select "template[data-expand-next]", count: 1
   end
 
-  test "the last page offers nothing further" do
+  test "show merge past the last page renders no candidates and no expand-next template" do
     sign_in_as(@me)
 
     get fd_case_merge_path(@dup_one, page: 9)
@@ -265,8 +265,8 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_select ".merge-pick", count: 0
   end
 
-  test "a later page carries only the rows, not the whole modal" do
-    others(12)
+  test "show merge page 2 renders rows without turbo-frame or form" do
+    make_extra_cases(12)
     sign_in_as(@me)
 
     get fd_case_merge_path(@dup_one, page: 2)
@@ -276,7 +276,7 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_select ".merge-pick", minimum: 1
   end
 
-  test "reading the candidates' reports does not query once per candidate" do
+  test "show merge queries case_reports at most twice for all candidates" do
     [@main, @dup_two].each do |kase|
       Fd::CaseReport.create!(case_id: kase.id, is_anonymous: true,
         source_app: "relay", received_at: Time.current, body: "a report on #{kase.id}")
@@ -291,14 +291,14 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_operator queries.size, :<=, 2, "the reports must be preloaded, not read per candidate"
   end
 
-  def in_order
+  def stagger_opened_at
     @main.update!(opened_at: 3.days.ago)
     @dup_one.update!(opened_at: 2.days.ago)
     @dup_two.update!(opened_at: 1.day.ago)
   end
 
-  test "the confirmation names every ticked case and merges nothing yet" do
-    in_order
+  test "confirm merge responds success and resolves no case" do
+    stagger_opened_at
     sign_in_as(@me)
     get fd_confirm_merge_cases_path(case_ids: [@dup_two.id, @main.id, @dup_one.id])
 
@@ -307,7 +307,7 @@ class FdMergesTest < ActionDispatch::IntegrationTest
       .where.not(resolved_at: nil).count
   end
 
-  test "confirming with one case ticked is refused" do
+  test "confirm merge with one case_id redirects to cases with alert" do
     sign_in_as(@me)
     get fd_confirm_merge_cases_path(case_ids: [@main.id])
 

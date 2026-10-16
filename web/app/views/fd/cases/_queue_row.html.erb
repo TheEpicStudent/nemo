@@ -4,7 +4,7 @@
   <%= row_reporter_face(kase) %>
   <span class="queue-id">#<%= kase.id %></span>
   <span class="queue-by trunc"><%= row_reporter_label(kase) %></span>
-  <span class="queue-age <%= age_ink(case_age_seconds(kase)) unless kase.resolved? %>">
+  <span class="queue-age <%= age_class(case_age_seconds(kase)) unless kase.resolved? %>">
     <%= kase.resolved? ? "closed" : case_age_label(case_age_seconds(kase)) %>
   </span>
 </span>
@@ -29,7 +29,7 @@
 
 <% tag_names = kase.case_tags.map { |link| link.tag.name } %>
 <span class="queue-meta">
-  <span class="queue-violation trunc"><%= label || "no violation set" %></span>
+  <span class="queue-violation trunc"><%= label || "No category" %></span>
   <% if tag_names.any? %>
     <span class="queue-tags" title="<%= tag_names.join(", ") %>">
       <%= render "fd/cases/tag_mark", css: "tag-mark" %>

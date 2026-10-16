@@ -9,36 +9,36 @@ def at(hour):
 
 
 def install_fakes(monkeypatch, last_ok_times):
-    prepared = []
+    prepare_calls = []
     monkeypatch.setattr(settings, "last_ok", lambda conn, key: last_ok_times.get(key))
     monkeypatch.setattr(member_history_worker, "prepare_member_history",
-                        lambda conn: prepared.append(conn) or 3)
-    return prepared
+                        lambda conn: prepare_calls.append(conn) or 3)
+    return prepare_calls
 
 
-def test_the_first_wake_prepares_and_remembers_the_newest_input(monkeypatch):
-    prepared = install_fakes(monkeypatch, {"member_days": at(3), "member_range": at(4), "users_list": at(5)})
+def test_prepare_if_new_without_previous_run_prepares_and_returns_newest_input(monkeypatch):
+    prepare_calls = install_fakes(monkeypatch, {"member_days": at(3), "member_range": at(4), "users_list": at(5)})
 
     assert member_history_worker.prepare_if_new("conn", None) == at(5)
-    assert prepared == ["conn"]
+    assert prepare_calls == ["conn"]
 
 
-def test_a_wake_with_no_new_input_skips_the_prep(monkeypatch):
-    prepared = install_fakes(monkeypatch, {"member_days": at(3), "member_range": at(4), "users_list": at(5)})
+def test_prepare_if_new_unchanged_inputs_skips_prepare(monkeypatch):
+    prepare_calls = install_fakes(monkeypatch, {"member_days": at(3), "member_range": at(4), "users_list": at(5)})
 
     assert member_history_worker.prepare_if_new("conn", at(5)) == at(5)
-    assert prepared == []
+    assert prepare_calls == []
 
 
-def test_one_newer_input_is_enough_to_prepare_again(monkeypatch):
-    prepared = install_fakes(monkeypatch, {"member_days": at(6), "member_range": at(4), "users_list": at(5)})
+def test_prepare_if_new_one_newer_input_prepares(monkeypatch):
+    prepare_calls = install_fakes(monkeypatch, {"member_days": at(6), "member_range": at(4), "users_list": at(5)})
 
     assert member_history_worker.prepare_if_new("conn", at(5)) == at(6)
-    assert prepared == ["conn"]
+    assert prepare_calls == ["conn"]
 
 
-def test_inputs_that_never_landed_still_prepare_once_per_wake(monkeypatch):
-    prepared = install_fakes(monkeypatch, {})
+def test_prepare_if_new_without_input_timestamps_prepares_and_returns_none(monkeypatch):
+    prepare_calls = install_fakes(monkeypatch, {})
 
     assert member_history_worker.prepare_if_new("conn", None) is None
-    assert prepared == ["conn"]
+    assert prepare_calls == ["conn"]

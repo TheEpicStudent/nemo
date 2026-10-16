@@ -18,23 +18,23 @@ NOT_ENABLED = "Activity is not available in this channel."
 NOT_YOURS = "You can only see activity for your own messages."
 NOT_NOW = "Could not load activity. Try again in a minute."
 
-NO_FILE = "slack_file"
-FILE_SETTLES = 0.8
-FILE_TRIES = 3
+FILE_NOT_READY = "slack_file"
+FILE_RETRY_DELAY_SECONDS = 0.8
+FILE_MAX_ATTEMPTS = 3
 
 
-def filled(client, view_id, chart_view, fallback_view):
+def update_view_with_chart(client, view_id, chart_view, fallback_view):
     """Poll until the uploaded file is usable in a block; render without the
     chart on timeout."""
-    for attempt in range(FILE_TRIES):
-        last = attempt == FILE_TRIES - 1
+    for attempt in range(FILE_MAX_ATTEMPTS):
+        last = attempt == FILE_MAX_ATTEMPTS - 1
         try:
             return client.views_update(view_id=view_id, view=fallback_view if last else chart_view)
         except SlackApiError as failure:
-            if NO_FILE not in str(failure):
+            if FILE_NOT_READY not in str(failure):
                 raise
             log.warning("activity: slack would not take the chart yet: %s", failure)
-            time.sleep(FILE_SETTLES)
+            time.sleep(FILE_RETRY_DELAY_SECONDS)
     return None
 
 
@@ -68,7 +68,7 @@ def open_activity_modal(ctx):
         if not activity.may_read(ctx.user_id, author_id):
             return refused(conn, ctx, NOT_YOURS, ts)
         archived_message = activity.archived_message(conn, ctx.channel_id, ts)
-        crowd = activity.members(conn, ctx.channel_id)
+        channel_members = activity.members(conn, ctx.channel_id)
 
     opened = ctx.client.views_open(trigger_id=ctx.trigger_id, view=card.loading_view())
     view_id = ((opened or {}).get("view") or {}).get("id")
@@ -80,13 +80,13 @@ def open_activity_modal(ctx):
         posted_at = (archived_message or {}).get("posted_at") or dt.datetime.fromtimestamp(float(ts), dt.UTC)
         file_id, span = activity.chart(ctx.client, stats["curves"], posted_at, stats["viewers"])
         args = (ctx.channel_id, ts, author_id, message.get("text"), stats)
-        view_kwargs = {"archived_message": archived_message, "crowd": crowd,
+        view_kwargs = {"archived_message": archived_message, "channel_members": channel_members,
                 "activity_url": channel.app_url(f"/messages/{ctx.channel_id}/{ts}")}
         chart_view = card.build_view(*args, chart=(file_id, span) if file_id else None, **view_kwargs)
         fallback_view = card.build_view(*args, **view_kwargs)
 
     if view_id:
-        filled(ctx.client, view_id, chart_view, fallback_view)
+        update_view_with_chart(ctx.client, view_id, chart_view, fallback_view)
     log.info("nemo: %s read how %s/%s did", ctx.user_id, ctx.channel_id, ts)
     return stats
 

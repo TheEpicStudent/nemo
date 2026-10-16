@@ -30,14 +30,14 @@ def open_slowmode_modal(ctx):
     return None
 
 
-def save(conn, channel_id, thread_ts, values, by):
-    seconds = card.seconds_of(values)
+def apply_slowmode(conn, channel_id, thread_ts, values, by):
+    seconds = card.parse_seconds(values)
     current = channelguards.slowmode_row(conn, channel_id, thread_ts)
     if current is None and not values["starting"]:
         return None, None, ALREADY_OFF
     values["expires_at"] = card.new_end(values, current)
     if current:
-        guard_id = channelguards.tune_slowmode(
+        guard_id = channelguards.update_slowmode(
             conn, current, seconds, by, values["reason"], values["expires_at"])
     else:
         guard_id = channelguards.open_slowmode(
@@ -54,10 +54,10 @@ def post_notice(ctx, guard_id, channel_id, thread_ts, values):
     try:
         ctx.client.chat_postMessage(
             channel=channel_id, thread_ts=thread_ts, unfurl_links=False,
-            **card.notice(card.seconds_of(values), values["expires_at"], ctx.user_id),
+            **card.notice(card.parse_seconds(values), values["expires_at"], ctx.user_id),
         )
     except Exception as failure:
-        error_code = channels.refusal(failure)
+        error_code = channels.slack_error_code(failure)
         with session() as conn:
             channelguards.lift(conn, guard_id, ctx.user_id)
             channelguards.refresh(conn)
@@ -67,12 +67,12 @@ def post_notice(ctx, guard_id, channel_id, thread_ts, values):
     return True
 
 
-def reshape(ctx, block_id):
+def reshape_slowmode_modal(ctx, block_id):
     view = ctx.view
     if view.get("callback_id") != card.CALLBACK:
         return None
 
-    channel_id, thread_ts = card.opened(view)
+    channel_id, thread_ts = card.parse_metadata(view)
     values = card.submitted_values(view.get("state") or {})
     custom = values["duration" if block_id == card.DURATION else "extend"] == card.CUSTOM
     with session() as conn:
@@ -86,29 +86,29 @@ def reshape(ctx, block_id):
 
 
 @on_action(card.DURATION, needs="thread.guard")
-def duration_picked(ctx):
-    return reshape(ctx, card.DURATION)
+def reshape_slowmode_on_duration(ctx):
+    return reshape_slowmode_modal(ctx, card.DURATION)
 
 
 @on_action(card.EXTEND, needs="thread.guard")
-def extension_picked(ctx):
-    return reshape(ctx, card.EXTEND)
+def reshape_slowmode_on_extension(ctx):
+    return reshape_slowmode_modal(ctx, card.EXTEND)
 
 
 @on_view(card.CALLBACK, needs="thread.guard", refuse_block=card.REASON)
-def saved(ctx):
+def submit_slowmode(ctx):
     values = card.submitted_values(ctx.view.get("state") or {})
     errors = card.validation_errors(values)
     if errors:
         return ctx.ack(response_action="errors", errors=errors)
 
     ctx.ack()
-    channel_id, thread_ts = card.opened(ctx.view)
+    channel_id, thread_ts = card.parse_metadata(ctx.view)
     if not channel_id or not thread_ts:
         return None
 
     with session() as conn:
-        guard_id, current, refusal = save(conn, channel_id, thread_ts, values, ctx.user_id)
+        guard_id, current, refusal = apply_slowmode(conn, channel_id, thread_ts, values, ctx.user_id)
 
     if refusal:
         return ctx.post_ephemeral(refusal, channel_id, thread_ts)
@@ -117,7 +117,7 @@ def saved(ctx):
 
     verb = "updated" if current else "enabled"
     ctx.post_ephemeral(
-        card.confirmation(verb, card.seconds_of(values), values["expires_at"], values["reason"]),
+        card.confirmation(verb, card.parse_seconds(values), values["expires_at"], values["reason"]),
         channel_id, thread_ts,
     )
     log.info("nemo: %s %s thread slow mode %s on %s", ctx.user_id, verb, guard_id, thread_ts)
@@ -125,12 +125,12 @@ def saved(ctx):
 
 
 @on_action(card.DISABLE, needs="thread.guard")
-def disabled(ctx):
+def disable_slowmode(ctx):
     view = ctx.view
     if view.get("callback_id") != card.CALLBACK:
         return None
 
-    channel_id, thread_ts = card.opened(view)
+    channel_id, thread_ts = card.parse_metadata(view)
     with session() as conn:
         current = channelguards.slowmode_row(conn, channel_id, thread_ts)
         lifted = current is not None and channelguards.lift(conn, current["id"], ctx.user_id)

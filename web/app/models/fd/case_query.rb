@@ -14,8 +14,8 @@ module Fd
       "quarter" => "this quarter", "year" => "this year"
     }.freeze
     SORT = {
-      "opened" => "when it opened", "resolved" => "when it closed",
-      "case" => "case number", "actions" => "most actions"
+      "opened" => "opened", "resolved" => "resolved",
+      "case" => "case number", "actions" => "action count"
     }.freeze
     DIRS = %w[asc desc].freeze
     ASSIGNEE = { "anyone" => "anyone", "me" => "me", "nobody" => "nobody" }.freeze
@@ -27,10 +27,10 @@ module Fd
 
     VIEWS = {
       "attention" => "Open",
-      "unassigned" => "Nobody on it",
+      "unassigned" => "Unassigned",
       "mine" => "Mine",
-      "acted" => "Acted on",
-      "aging" => "Aging over 5d",
+      "acted" => "With actions",
+      "aging" => "Over 5d",
       "resolved" => "Resolved",
       "everything" => "Everything"
     }.freeze
@@ -191,13 +191,13 @@ module Fd
 
     def empty_note
       case view
-      when "attention" then "Nothing needs attention right now."
-      when "mine" then "Nothing is assigned to you."
-      when "unassigned" then "Nothing unassigned."
-      when "aging" then "Nothing open has been sitting for five days."
-      when "resolved" then "Nothing has been resolved this month yet."
-      when "everything" then "n/a"
-      else "No case matches this."
+      when "attention" then "No open cases"
+      when "mine" then "No assigned cases"
+      when "unassigned" then "No unassigned cases"
+      when "aging" then "No cases over 5d"
+      when "resolved" then "No resolved cases"
+      when "everything" then "No cases"
+      else "No matching cases"
       end
     end
 
@@ -389,7 +389,7 @@ module Fd
       case self["status"]
       when "open" then "Open"
       when "resolved" then "Resolved"
-      else "Every case"
+      else "All cases"
       end
     end
 

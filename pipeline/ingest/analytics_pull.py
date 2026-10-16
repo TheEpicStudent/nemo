@@ -278,7 +278,7 @@ def note_unavailable(source, day, reason):
     return True
 
 
-DAY_LOCKED = "held"
+DAY_LOCKED = "locked"
 
 
 def lane_outcome(source, requested, loaded, failed, pending, unavailable, locked=()):
@@ -347,7 +347,7 @@ def backfill_days(conn, source, kind, pull_fn, limit, workers=DAY_WORKERS):
         raise RuntimeError(error)
 
 
-def aside_state(exc):
+def failure_state(exc):
     return "unavailable" if str(exc).startswith(PERMANENT_DAY_ERRORS) else "short"
 
 
@@ -400,7 +400,7 @@ def pull_member_day(conn, pull_date):
                     flush()
             flush()
         except Exception as exc:
-            coverage.settle_aside(MEMBER_DAYS_KEY, iso, fence, aside_state(exc),
+            coverage.settle_on_new_connection(MEMBER_DAYS_KEY, iso, fence, failure_state(exc),
                                   client.last_num_found, counts.rows_in, note=f"{type(exc).__name__}: {exc}")
             raise
 
@@ -445,7 +445,7 @@ def pull_channel_day(conn, pull_date):
                 cur.executemany(CHANNEL_ACTIVITY_SQL, activity_rows)
                 cur.executemany(CHANNEL_DIM_MERGE_SQL, by_key(dim_rows))
         except Exception as exc:
-            coverage.settle_aside(CHANNEL_DAYS_KEY, iso, fence, aside_state(exc), None, counts.rows_in,
+            coverage.settle_on_new_connection(CHANNEL_DAYS_KEY, iso, fence, failure_state(exc), None, counts.rows_in,
                                   note=f"{type(exc).__name__}: {exc}")
             raise
 

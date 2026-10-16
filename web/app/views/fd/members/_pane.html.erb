@@ -26,7 +26,7 @@
     <% if rows.any? %>
       <div aria-label="Members" id="member-listbox">
         <%= render "fd/members/pane_rows", rows: rows, context: context, grants: grants,
-              open_id: open_id, carry: query.to_params %>
+              open_id: open_id, query_params: query.to_params %>
       </div>
       <% if query.pages > query.page %>
         <div class="pane-more" data-controller="expand" data-expand-into-value="member-listbox"
@@ -38,7 +38,7 @@
         <span class="empty-mark" aria-hidden="true">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="9" cy="8" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 8h5M18.5 5.5v5"/></svg>
         </span>
-        <p class="empty-title">Nobody matches that filter</p>
+        <p class="empty-title">No matches</p>
       </div>
     <% else %>
       <div class="empty">

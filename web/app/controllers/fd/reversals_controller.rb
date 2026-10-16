@@ -44,7 +44,7 @@ module Fd
         redirect_to fd_case_path(kase, tab: "actions"), notice: reversed_notice(lifted)
       else
         redirect_to fd_case_path(kase, tab: "actions"),
-          alert: "That action is not on this case, or was already reversed"
+          alert: "Action not found or already reversed"
       end
     end
 
@@ -52,11 +52,11 @@ module Fd
 
     def lift_linked_guard(action, reason)
       guard = action.guard
-      return nil if guard.nil? || !MemberGuard::STILL_ON.include?(guard.state)
+      return nil if guard.nil? || !MemberGuard::ACTIVE_STATES.include?(guard.state)
       return nil if Action.live.exists?(guard_id: guard.id)
 
       previous_state = guard.state
-      lift_reason = "the action was reversed: #{reason}"
+      lift_reason = "Action reversed: #{reason}"
       return nil unless guard.lift!(by: current_account.user_id, reason: lift_reason)
 
       audit(guard, "lifted", before: { "state" => previous_state },
@@ -65,20 +65,20 @@ module Fd
     end
 
     def reversed_notice(guard)
-      return "action reversed, and the record keeps both" if guard.nil?
+      return "Action reversed" if guard.nil?
 
-      "action reversed, and the #{guard_label_text(guard)} it held is lifted"
+      "Action reversed · #{guard_label_text(guard)} lifted"
     end
 
     def guard_label_text(guard) = FdHelper::ACTION_LABELS.fetch(guard.kind, guard.kind).downcase
 
     def validation_error(reason)
       if reason.blank?
-        return wrong!(:reversal_reason, "Say why it is being reversed. It goes on the record.")
+        return field_error!(:reversal_reason, "Enter a reason")
       end
       if reason.length > MAX_REASON
-        return wrong!(:reversal_reason,
-          "Keep it under #{MAX_REASON} characters. That one is #{reason.length}.", reason)
+        return field_error!(:reversal_reason,
+          "Keep it under #{MAX_REASON} characters", reason)
       end
 
       nil

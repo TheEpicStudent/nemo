@@ -23,7 +23,7 @@ def base_url():
 def scim_client():
     token = admin_token()
     if not token:
-        raise RuntimeError("the admin token must be set for SCIM")
+        raise RuntimeError("admin token not set")
     return SCIMClient(token=token, base_url=base_url(), timeout=UPSTREAM_TIMEOUT,
                       retry_handlers=[])
 
@@ -35,13 +35,13 @@ def user_id_of(params):
     return value
 
 
-def check_response(answer):
-    errors = answer.errors
+def check_response(response):
+    errors = response.errors
     if errors is not None:
         raise ScimError(f"scim {errors.code}: {errors.description}")
-    if answer.status_code >= 400:
-        raise ScimError(f"scim http {answer.status_code}: {answer.raw_body or ''}"[:500])
-    return {"ok": True, "status": answer.status_code}
+    if response.status_code >= 400:
+        raise ScimError(f"scim http {response.status_code}: {response.raw_body or ''}"[:500])
+    return {"ok": True, "status": response.status_code}
 
 
 def call(method, params):

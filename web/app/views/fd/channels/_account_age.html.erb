@@ -19,7 +19,7 @@
           <span class="setname">Days old</span>
           <span class="setval">
             <%= number_field_tag :min_age_days, guard.min_age_days, class: "input", id: nil,
-                  min: 1, max: Fd::ChannelGuard::OLDEST %>
+                  min: 1, max: Fd::ChannelGuard::MAX_ACCOUNT_AGE_DAYS %>
           </span>
         </label>
       </div>

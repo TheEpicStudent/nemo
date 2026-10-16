@@ -65,7 +65,7 @@ export default class extends Controller {
 
     if (this.hasNameTarget) {
       const label = option.querySelector(".theme-label")?.textContent
-      this.nameTarget.textContent = pinned ? label : `${label}, auto`
+      this.nameTarget.textContent = pinned ? label : `${label} · auto`
     }
   }
 }

@@ -22,7 +22,7 @@ def block(blocks, block_id):
     ("indef_ban", False, False),
     ("warning", False, False),
 ])
-def test_expiry_flags_read_actions_table(key, takes, needs):
+def test_takes_expiry_needs_expiry_read_actions_table(key, takes, needs):
     assert (action.takes_expiry(key), action.needs_expiry(key)) == (takes, needs)
 
 
@@ -38,7 +38,7 @@ def test_build_blocks_temp_ban_end_date_is_required():
     assert block(action.build_blocks(1, submission(type_key="temp_ban")), action.UNTIL)["optional"] is False
 
 
-def test_build_blocks_warning_has_no_end():
+def test_build_blocks_warning_omits_end_blocks():
     blocks = action.build_blocks(1, submission(type_key="warning"))
 
     assert block(blocks, action.UNTIL) is None
@@ -72,7 +72,7 @@ def test_validation_errors_date_and_time_is_valid():
     assert action.validation_errors(submission(expires_on="2026-10-16", expires_time="11:00")) is None
 
 
-def test_header_text_shows_end_time():
+def test_header_text_with_expiry_shows_end_date_and_time():
     on = dt.date.today() + dt.timedelta(days=4)
     values = submission(expires_on=on.isoformat(), expires_time="14:30")
 

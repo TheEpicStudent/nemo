@@ -43,7 +43,7 @@ module Fd
     def closed_line(names)
       return nil unless outcome_notified?
 
-      "told the outcome #{closed_at.strftime('%-d %b')} by #{names[closed_by]}"
+      "outcome sent #{closed_at.strftime('%-d %b')} by #{names[closed_by]}"
     end
   end
 end

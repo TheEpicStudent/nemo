@@ -4,14 +4,14 @@ module Fd
   class InfractionCategoryTest < ActiveSupport::TestCase
     setup { Current.categories = nil }
 
-    test "the table holds the twenty-two categories in order" do
+    test "active_keys returns 22 keys starting with nos and label resolves from the table" do
       assert_equal 22, InfractionCategory.active_keys.size
       assert_equal "nos", InfractionCategory.active_keys.first
       assert_equal "Spam, mass pings or invites", InfractionCategory.label("spam")
       assert_equal "Disruption or trolling", InfractionCategory.label("disruption")
     end
 
-    test "a retired category keeps its label but leaves the pickers" do
+    test "retired category keeps label and known_key? and leaves active_keys" do
       InfractionCategory.find("adult").update!(retired_at: Time.current)
       Current.categories = nil
 
@@ -21,12 +21,12 @@ module Fd
       assert_not_includes InfractionCategory.active_keys, "adult"
     end
 
-    test "an unknown key reads as itself" do
+    test "label humanizes an unknown key and known_key? is false" do
       assert_equal "brand new", InfractionCategory.label("brand_new")
       assert_not InfractionCategory.known_key?("brand_new")
     end
 
-    test "case labels come from the table" do
+    test "Case.category_label returns the InfractionCategory label" do
       assert_equal "Impersonation", Case.category_label("impersonation")
     end
   end

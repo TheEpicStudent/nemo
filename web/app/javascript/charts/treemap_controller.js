@@ -3,11 +3,11 @@ import { TileChart, clip, esc, N, PC } from "charts/tiles"
 const CLAMP = 100
 const TONES = ["d3", "d2", "d1", "z", "u1", "u2", "u3"]
 const TONE_NAMES = {
-  d3: "shrank a lot", d2: "shrank", d1: "shrank a little", z: "flat",
-  u1: "grew a little", u2: "grew", u3: "grew a lot", na: "new"
+  d3: "large decrease", d2: "decrease", d1: "small decrease", z: "flat",
+  u1: "small increase", u2: "increase", u3: "large increase", na: "new"
 }
 const FLAT_BAND = 4
-const SIZES = { messages: "member messages", prior: "window before" }
+const SIZES = { messages: "member messages", prior: "previous window" }
 
 const signed = (v) => `${v >= 0 ? "+" : ""}${Number(v).toFixed(0)}%`
 const toneColor = (tone) => `var(--dv-${tone})`
@@ -102,14 +102,14 @@ export default class extends TileChart {
     }
     const growingCount = rows.filter((r) => r.pct != null && r.pct > 0).length
     const shrinkingCount = rows.filter((r) => r.pct != null && r.pct < 0).length
-    bits.push(`${growingCount} grew, ${shrinkingCount} shrank`)
+    bits.push(`${growingCount} increased, ${shrinkingCount} decreased`)
     return bits.join(", ")
   }
 
   tipMarkup({ row: r, tone }) {
     const swatch = (t) => `<i style="background: var(--dv-${t})"></i>`
     const rows = [`<div class="row">${swatch(tone)}member messages<b>${N(r.messages)}</b></div>`]
-    if (r.prior != null) rows.push(`<div class="row">${swatch("na")}window before<b>${N(r.prior)}</b></div>`)
+    if (r.prior != null) rows.push(`<div class="row">${swatch("na")}previous window<b>${N(r.prior)}</b></div>`)
     const pct = changeOf(r)
     if (pct != null) {
       rows.push(`<div class="row">${swatch(tone)}change<b>${signed(pct)}</b></div>`)
@@ -136,8 +136,8 @@ export default class extends TileChart {
 
   legendScale() {
     return {
-      low: "shrank", high: "grew", steps: TONES.map(toneColor),
-      extras: [{ label: `under ${N(this.floor)} before`, color: toneColor("na") }],
+      low: "decrease", high: "increase", steps: TONES.map(toneColor),
+      extras: [{ label: `base under ${N(this.floor)}`, color: toneColor("na") }],
       note: `Size: ${SIZES[this.sizeBy]}`
     }
   }
@@ -169,9 +169,9 @@ export default class extends TileChart {
       total: null,
       values: [
         value("member messages", N(r.messages), {
-          change: pct == null ? null : { value: pct, unit: "%" }, comparison: "from the window before"
+          change: pct == null ? null : { value: pct, unit: "%" }, comparison: "from the previous window"
         }),
-        r.prior != null && value("window before", N(r.prior), { color: null, shape: "none" }),
+        r.prior != null && value("previous window", N(r.prior), { color: null, shape: "none" }),
         this.total && value("share of all channels", PC(r.messages / this.total * 100, 2), { color: null, shape: "none" }),
         rank > 0 && value("rank", `${rank} of ${this.items().length}`, { color: null, shape: "none" })
       ].filter(Boolean)
@@ -188,9 +188,9 @@ export default class extends TileChart {
       summary: [
         { label: "channels", value: N(rows.length) },
         { label: "member messages", value: N(rows.reduce((at, r) => at + (Number(r.messages) || 0), 0)) },
-        { label: "grew", value: N(count((pct) => pct >= FLAT_BAND)) },
+        { label: "increased", value: N(count((pct) => pct >= FLAT_BAND)) },
         { label: "flat", value: N(count((pct) => Math.abs(pct) < FLAT_BAND)) },
-        { label: "shrank", value: N(count((pct) => pct <= -FLAT_BAND)) },
+        { label: "decreased", value: N(count((pct) => pct <= -FLAT_BAND)) },
         { label: "new", value: N(rows.filter((r) => changeOf(r) == null).length) }
       ]
     }
@@ -202,7 +202,7 @@ export default class extends TileChart {
     const columns = [
       { key: "label", label: "Channel", numeric: false },
       { key: "messages", label: "member messages", numeric: true },
-      { key: "prior", label: "window before", numeric: true },
+      { key: "prior", label: "previous window", numeric: true },
       { key: "change", label: "change", numeric: true },
       this.total && { key: "share", label: "share of all channels", numeric: true }
     ].filter(Boolean)

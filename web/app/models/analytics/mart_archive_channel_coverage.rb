@@ -4,7 +4,6 @@ module Analytics
     self.primary_key = "channel_id"
 
     scope :reachable, -> { where(unreachable_reason: nil) }
-    scope :held, -> { where("messages_held > 0") }
 
     def readonly?
       true

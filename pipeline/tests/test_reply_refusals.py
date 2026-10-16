@@ -8,17 +8,17 @@ def formatted(fault):
     return f"{fault.name}: {fault.detail}"
 
 
-def test_gave_way_stores_the_fault_class_with_the_detail():
+def test_record_failure_stores_fault_name_with_detail():
     body = inspect.getsource(channel_replies_pull.record_failure)
     assert 'f"{fault.name}: {fault.detail}"' in body
 
 
-def test_an_entity_fault_is_written_where_the_revive_guard_can_see_it():
+def test_entity_fault_stored_text_starts_with_entity_prefix():
     fault = faults.fault("entity", "channel_not_found")
     assert formatted(fault)[:7] == "entity:"
 
 
-def test_the_web_client_sentence_alone_defeats_both_guards():
+def test_web_client_detail_is_not_entity_prefix_or_refusal():
     detail = (
         "The request to the Slack API failed. (url: https://slack.com/api/conversations.replies) "
         "The server responded with: {'ok': False, 'error': 'channel_not_found'}"
@@ -30,12 +30,12 @@ def test_the_web_client_sentence_alone_defeats_both_guards():
     assert formatted(fault)[:7] == "entity:"
 
 
-def test_a_forgiven_fault_stays_revivable():
-    slow = faults.fault("contended", "canceling statement due to lock timeout")
-    assert formatted(slow)[:7] != "entity:"
-    assert slow.name in channel_replies_pull.RETRYABLE_FAULTS
+def test_contended_fault_is_retryable_without_entity_prefix():
+    contended_fault = faults.fault("contended", "canceling statement due to lock timeout")
+    assert formatted(contended_fault)[:7] != "entity:"
+    assert contended_fault.name in channel_replies_pull.RETRYABLE_FAULTS
 
 
-def test_the_attempt_cap_still_reads_the_bare_fault_name():
+def test_record_failure_checks_retryable_faults_by_bare_fault_name():
     body = inspect.getsource(channel_replies_pull.record_failure)
     assert "fault.name in RETRYABLE_FAULTS" in body

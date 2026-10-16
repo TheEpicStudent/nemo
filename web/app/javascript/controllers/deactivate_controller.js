@@ -1,14 +1,14 @@
 import { Controller } from "@hotwired/stimulus"
 
-const SLOW_AFTER = 10000
+const SLOW_NOTICE_DELAY_MS = 10000
 const HIGHLIGHT_MS = 1600
 
 export default class extends Controller {
   static targets = ["slow"]
 
   connect() {
-    this.mark()
-    this.waitForSlack()
+    this.highlightLanded()
+    this.scheduleSlowNotice()
   }
 
   disconnect() {
@@ -20,7 +20,7 @@ export default class extends Controller {
     return this.element.dataset.enforcementStatus
   }
 
-  mark() {
+  highlightLanded() {
     if (this.element.dataset.landed !== "true") return
 
     this.element.classList.add("just-landed")
@@ -29,11 +29,11 @@ export default class extends Controller {
     }, HIGHLIGHT_MS)
   }
 
-  waitForSlack() {
+  scheduleSlowNotice() {
     if (this.enforcementStatus !== "pending" || !this.hasSlowTarget) return
 
     this.slowTimer = setTimeout(() => {
       this.slowTarget.hidden = false
-    }, SLOW_AFTER)
+    }, SLOW_NOTICE_DELAY_MS)
   }
 }

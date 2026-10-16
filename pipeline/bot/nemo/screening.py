@@ -24,20 +24,20 @@ OUTCOME_FOR_EFFECT = {FLAG: FLAGGED, HOLD: SHUSHED, DEACTIVATE: DEACTIVATED}
 SHUSH_DAYS = 7
 
 OUTCOME_NOTICES = {
-    FLAGGED: "joined with an email on {domain}, which is flagged",
-    SHUSHED: "joined with an email on {domain} and was shushed",
-    DEACTIVATED: "joined with an email on {domain} and was deactivated",
-    FAILED: "joined with an email on {domain}. The shush or deactivation failed",
+    FLAGGED: "Email on {domain} · flagged",
+    SHUSHED: "Email on {domain} · shushed",
+    DEACTIVATED: "Email on {domain} · deactivated",
+    FAILED: "Email on {domain} · shush or deactivation failed",
 }
 
-LIVE = """
+ACTIVE_DOMAINS = """
 SELECT id, domain, match_mode, effect
 FROM fd.blocked_domains
 WHERE active
 ORDER BY id
 """
 
-SCREENED = """
+INSERT_JOIN_SCREEN = """
 INSERT INTO fd.join_screen
     (user_id, email_domain, domain_id, matched, effect, outcome, guard_id, detail)
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -45,7 +45,7 @@ ON CONFLICT (user_id) DO NOTHING
 RETURNING id
 """
 
-_watching = []
+_rules = []
 _loaded = False
 _lock = threading.Lock()
 
@@ -57,7 +57,7 @@ class DomainRule:
         self.match_mode = match_mode
         self.effect = effect
 
-    def holds(self, domain):
+    def matches(self, domain):
         if not self.domain or not domain:
             return False
         if self.match_mode == EXACT:
@@ -67,16 +67,16 @@ class DomainRule:
 
 def refresh(conn):
     global _loaded
-    rules = [DomainRule(*row) for row in conn.execute(LIVE).fetchall()]
+    rules = [DomainRule(*row) for row in conn.execute(ACTIVE_DOMAINS).fetchall()]
     with _lock:
-        _watching[:] = rules
+        _rules[:] = rules
         _loaded = True
     return len(rules)
 
 
-def watching():
+def active_rules():
     with _lock:
-        return list(_watching) if _loaded else None
+        return list(_rules) if _loaded else None
 
 
 def domain_of(email):
@@ -88,18 +88,18 @@ def domain_of(email):
 
 
 def highest_severity(domain):
-    rules = watching()
+    rules = active_rules()
     if not rules or not domain:
         return None
 
-    matches = [one for one in rules if one.holds(domain)]
+    matches = [one for one in rules if one.matches(domain)]
     if not matches:
         return None
     return min(matches, key=lambda one: WORST_FIRST.index(one.effect))
 
 
 def record(conn, user_id, domain, rule, outcome, guard_id=None, detail=None):
-    return conn.execute(SCREENED, (
+    return conn.execute(INSERT_JOIN_SCREEN, (
         user_id, domain,
         rule.domain_id if rule else None,
         rule.domain if rule else None,
@@ -121,7 +121,7 @@ def post_to_internal_log(client, conn, user_id, domain, outcome):
     try:
         client.chat_postMessage(
             channel=log_channel_id,
-            text=f"<@{user_id}> {OUTCOME_NOTICES[outcome].format(domain=domain)}.",
+            text=f"<@{user_id}> joined · {OUTCOME_NOTICES[outcome].format(domain=domain)}",
             unfurl_links=False,
         )
     except Exception as failure:  # noqa: BLE001
@@ -166,7 +166,7 @@ def open_screening_guard(conn, user_id, rule, by):
     from bot.nemo import memberguards
 
     kind = memberguards.DEACTIVATION if rule.effect == DEACTIVATE else memberguards.SHUSH
-    reason = f"signing up with an email address on {rule.domain}"
+    reason = f"Signup with email on {rule.domain}"
     expires = None if kind == memberguards.DEACTIVATION else shush_expiry(conn)
 
     try:
@@ -177,7 +177,7 @@ def open_screening_guard(conn, user_id, rule, by):
         return None, str(failure)[:500]
 
     if guard_id is None:
-        return None, "a guard of that kind already stands on them"
+        return None, "Guard already active"
     return guard_id, None
 
 

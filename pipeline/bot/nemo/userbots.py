@@ -4,7 +4,7 @@ log = logging.getLogger("bot.nemo")
 
 BOT_MESSAGE = "bot_message"
 
-_people = {}
+_users = {}
 
 
 def fetch_user(client, user_id):
@@ -16,12 +16,12 @@ def fetch_user(client, user_id):
 
 
 def get_user(client, user_id):
-    if user_id not in _people:
+    if user_id not in _users:
         user = fetch_user(client, user_id)
         if not user:
             return {}
-        _people[user_id] = user
-    return _people[user_id]
+        _users[user_id] = user
+    return _users[user_id]
 
 
 def is_person(client, user_id):

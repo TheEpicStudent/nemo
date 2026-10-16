@@ -20,12 +20,13 @@ module Fd
         LEFT JOIN fd.member_joins j ON j.user_id = c.user_id
         GROUP BY c.cluster_id
       ), returns AS (
-        SELECT gone.cluster_id, count(DISTINCT back.user_id) AS returns
-        FROM fd.member_cluster gone
-        JOIN fd.evidence_snapshot s ON s.user_id = gone.user_id
-        JOIN fd.member_cluster back ON back.cluster_id = gone.cluster_id AND back.active
-        JOIN fd.member_joins j ON j.user_id = back.user_id AND j.joined_at > s.deactivated_at
-        GROUP BY gone.cluster_id
+        SELECT deactivated_member.cluster_id, count(DISTINCT returned_member.user_id) AS returns
+        FROM fd.member_cluster deactivated_member
+        JOIN fd.evidence_snapshot s ON s.user_id = deactivated_member.user_id
+        JOIN fd.member_cluster returned_member
+          ON returned_member.cluster_id = deactivated_member.cluster_id AND returned_member.active
+        JOIN fd.member_joins j ON j.user_id = returned_member.user_id AND j.joined_at > s.deactivated_at
+        GROUP BY deactivated_member.cluster_id
       )
       SELECT clusters.*, coalesce(returns.returns, 0) AS returns
       FROM clusters LEFT JOIN returns USING (cluster_id)
@@ -34,14 +35,14 @@ module Fd
     MEMBERS_SQL = <<~SQL.squish.freeze
       SELECT cluster_id, user_id, deactivated, joined_at FROM (
         SELECT c.cluster_id, c.user_id, coalesce(m.is_deleted, false) AS deactivated, j.joined_at,
-               row_number() OVER (PARTITION BY c.cluster_id ORDER BY j.joined_at NULLS LAST, c.user_id) AS place
+               row_number() OVER (PARTITION BY c.cluster_id ORDER BY j.joined_at NULLS LAST, c.user_id) AS member_rank
         FROM fd.member_cluster c
         LEFT JOIN fd.member m ON m.user_id = c.user_id
         LEFT JOIN fd.member_joins j ON j.user_id = c.user_id
         WHERE c.cluster_id IN (:ids)
       ) ranked
-      WHERE place <= :shown
-      ORDER BY cluster_id, place
+      WHERE member_rank <= :shown
+      ORDER BY cluster_id, member_rank
     SQL
 
     EDGES_SQL = <<~SQL.squish.freeze

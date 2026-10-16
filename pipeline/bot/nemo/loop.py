@@ -31,11 +31,11 @@ BOT_KICK = "fd_bot_kick"
 CATEGORY = "fd_infraction_category"
 FIRE_ENGINE_SOURCE = '"fire_engine"'
 
-DEFAULT_SECONDS = 300
-DEFAULT_JOIN_SECONDS = 1800
+DEFAULT_SWEEP_SECONDS = 300
+DEFAULT_JOIN_SWEEP_SECONDS = 1800
 GIVE_UP_AFTER = 3
 
-UNCARDED = """
+CASES_WITHOUT_REPORT_CARD = """
 SELECT r.case_id
 FROM fd.case_reports r
 JOIN fd.intake_conversations v ON v.report_id = r.id
@@ -44,7 +44,7 @@ ORDER BY r.received_at
 LIMIT 20
 """
 
-CARDLESS = """
+CASES_WITHOUT_CARD = """
 SELECT c.id
 FROM fd.cases c
 WHERE c.card_ts IS NULL
@@ -54,7 +54,7 @@ ORDER BY c.opened_at
 LIMIT 20
 """
 
-WORTH_REDRAWING = """
+RECENT_REPORT_CARDS = """
 SELECT r.case_id
 FROM fd.case_reports r
 JOIN fd.cases c ON c.id = r.case_id
@@ -65,22 +65,22 @@ LIMIT 200
 """
 
 
-def every():
-    return int(os.environ.get("NEMO_SWEEP_SECONDS", DEFAULT_SECONDS))
+def sweep_interval_seconds():
+    return int(os.environ.get("NEMO_SWEEP_SECONDS", DEFAULT_SWEEP_SECONDS))
 
 
-def every_join_sweep():
-    return int(os.environ.get("NEMO_JOIN_SECONDS", DEFAULT_JOIN_SECONDS))
+def join_sweep_interval_seconds():
+    return int(os.environ.get("NEMO_JOIN_SECONDS", DEFAULT_JOIN_SWEEP_SECONDS))
 
 
 def join_sweep(case_channel, stopping=None):
     client = case_channel.client
-    apart(("joining configured channels", lambda: channels.join_configured(client)),
-          ("joining channels", lambda: channels.reconcile(client, stopping=stopping)))
+    run_each(("joining configured channels", lambda: channels.join_configured(client)),
+             ("joining channels", lambda: channels.reconcile(client, stopping=stopping)))
 
 
 def join_configured(client):
-    apart(("joining configured channels", lambda: channels.join_configured(client)))
+    run_each(("joining configured channels", lambda: channels.join_configured(client)))
 
 
 def start_configured_joins(client):
@@ -89,7 +89,7 @@ def start_configured_joins(client):
 
 
 def apply_missed_close_reactions(client):
-    apart(("applying missed close reactions", lambda: missed_reactions.apply_missed_close_reactions(client)))
+    run_each(("applying missed close reactions", lambda: missed_reactions.apply_missed_close_reactions(client)))
 
 
 def start_missed_reaction_pass(client):
@@ -102,23 +102,23 @@ def join_channel(client, channel_id):
         return False
 
     with session() as conn:
-        if channels.mode(conn) == channels.OFF or channels.inside(conn, channel_id):
+        if channels.mode(conn) == channels.OFF or channels.is_inside(conn, channel_id):
             return False
         return channels.join(client, conn, channel_id, verb="joined")
 
 
-def seat_and_announce(client, channel_id):
-    apart((f"joining {channel_id}", lambda: join_channel(client, channel_id)),
-          ("posting slow mode notices", lambda: slowmode.post_notices(client)))
+def join_and_post_notices(client, channel_id):
+    run_each((f"joining {channel_id}", lambda: join_channel(client, channel_id)),
+             ("posting slow mode notices", lambda: slowmode.post_notices(client)))
 
 
-def take_up(client, guard):
+def enforce_guard(client, guard):
     with session() as conn:
-        enforcement.take_up(client, conn, guard)
+        enforcement.enforce(client, conn, guard)
 
 
-def apart(*doing):
-    for name, work in doing:
+def run_each(*tasks):
+    for name, work in tasks:
         try:
             work()
         except Exception:
@@ -137,79 +137,79 @@ def start_join_request(client, request_id):
 
 def lift_expired_locks(client):
     with session() as conn:
-        due = guards.lifting(conn)
+        due = guards.expired_locks(conn)
     for guard_id in due:
-        apart((f"lifting guard {guard_id}", lambda one=guard_id: guard_actions.lift_lock(client, one)))
+        run_each((f"lifting guard {guard_id}", lambda one=guard_id: guard_actions.lift_lock(client, one)))
 
 
 def lift_lapsed_channel_guards():
     with session() as conn:
-        lifted = channelguards.lift_lapsed(conn)
-        if lifted:
+        lifted_guards = channelguards.lift_lapsed(conn)
+        if lifted_guards:
             channelguards.refresh(conn)
-    for guard_id, kind, channel_id, thread_ts in lifted:
+    for guard_id, kind, channel_id, thread_ts in lifted_guards:
         log.info("nemo: %s guard %s on %s%s ended", kind, guard_id, channel_id,
                  f" thread {thread_ts}" if thread_ts else "")
-    return len(lifted)
+    return len(lifted_guards)
 
 
-def lift_due(client):
-    apart(("lifting what has run out", lambda: sweep.sweep_lapsed(client)),
-          ("lifting expired thread locks", lambda: lift_expired_locks(client)),
-          ("lifting expired channel guards", lift_lapsed_channel_guards))
+def lift_expired(client):
+    run_each(("lifting what has run out", lambda: sweep.sweep_lapsed(client)),
+             ("lifting expired thread locks", lambda: lift_expired_locks(client)),
+             ("lifting expired channel guards", lift_lapsed_channel_guards))
     with session() as conn:
         return sweep.seconds_to_next_expiry(conn)
 
 
-def flush_pending(client):
+def apply_pending_guards(client):
     with session() as conn:
         memberguards.refresh(conn)
-        taking_up = memberguards.unenforced(conn)
-        finishing = memberguards.still_lifting(conn)
-        lifted = memberguards.lifted_not_notified(conn, sweep.LIFT_LOOKBACK)
+        pending_guards = memberguards.unenforced(conn)
+        lifting_guards = memberguards.still_lifting(conn)
+        lifted_guards = memberguards.lifted_not_notified(conn, sweep.LIFT_LOOKBACK)
 
-    for guard in taking_up:
-        apart((f"taking up {guard['kind']} {guard['id']}",
-               lambda one=guard: take_up(client, one)))
-    for guard in finishing:
-        apart((f"finishing the lift of {guard['kind']} {guard['id']}",
-               lambda one=guard: sweep.release_now(client, one)))
-    for guard in lifted:
-        apart((f"releasing the lifted {guard['kind']} {guard['id']}",
-               lambda one=guard: sweep.release_lifted(client, one)))
+    for guard in pending_guards:
+        run_each((f"taking up {guard['kind']} {guard['id']}",
+                  lambda one=guard: enforce_guard(client, one)))
+    for guard in lifting_guards:
+        run_each((f"finishing the lift of {guard['kind']} {guard['id']}",
+                  lambda one=guard: sweep.release_now(client, one)))
+    for guard in lifted_guards:
+        run_each((f"releasing the lifted {guard['kind']} {guard['id']}",
+                  lambda one=guard: sweep.release_lifted(client, one)))
 
 
-def each(cases, doing, work, client, channel_id):
-    done, failing = 0, 0
+def run_for_cases(cases, description, work, client, channel_id):
+    succeeded_count, failing = 0, 0
     for case_id in cases:
         with session() as conn:
             try:
                 work(client, conn, case_id, channel_id)
-                done += 1
+                succeeded_count += 1
                 failing = 0
             except Exception as failure:
                 failing += 1
-                log.warning("nemo: case %s %s: %s", case_id, doing, failure)
+                log.warning("nemo: case %s %s: %s", case_id, description, failure)
                 if failing >= GIVE_UP_AFTER:
                     log.warning(
                         "nemo: giving up this sweep, %s is failing for %d case(s) in a row",
-                        doing, failing,
+                        description, failing,
                     )
                     break
-    return done
+    return succeeded_count
 
 
-def once(case_channel, channel_id=None):
+def sweep_once(case_channel, channel_id=None):
     client = case_channel.client
 
     with session() as conn:
-        missing = [row[0] for row in conn.execute(UNCARDED).fetchall()]
-        cardless = [row[0] for row in conn.execute(CARDLESS).fetchall()]
-        redraw_ids = [row[0] for row in conn.execute(WORTH_REDRAWING).fetchall()]
-        unmirrored = chat.waiting_anywhere(conn)
-        following = channel.waiting_follow_ups(conn)
-        woke = channel.unannounced_reopens(conn)
-        unshared = channel.waiting_files(conn)
+        report_case_ids = [row[0] for row in conn.execute(CASES_WITHOUT_REPORT_CARD).fetchall()]
+        cardless_case_ids = [row[0] for row in conn.execute(CASES_WITHOUT_CARD).fetchall()]
+        redraw_ids = [row[0] for row in conn.execute(RECENT_REPORT_CARDS).fetchall()]
+        unmirrored_case_ids = chat.waiting_anywhere(conn)
+        follow_up_case_ids = channel.waiting_follow_ups(conn)
+        reopened_case_ids = channel.unnotified_reopens(conn)
+        file_case_ids = channel.waiting_files(conn)
         guards.refresh(conn)
         channelguards.refresh(conn)
         memberguards.refresh(conn)
@@ -218,39 +218,39 @@ def once(case_channel, channel_id=None):
         screening.refresh(conn)
         categories.refresh(conn)
         channel.refresh_channels(conn)
-        destroying = guards.pending(conn)
-        lifting = guards.lifting(conn)
-        purging = [row[0] for row in purge.waiting(conn)]
-        joining = join_requests.queued(conn)
+        destroy_guard_ids = guards.pending_destroys(conn)
+        lock_guard_ids = guards.expired_locks(conn)
+        purge_ids = [row[0] for row in purge.queued_purges(conn)]
+        join_request_ids = join_requests.queued(conn)
 
-    posted = each(missing, "still has no card", channel.post_report, client, channel_id)
-    posted += each(cardless, "was opened without a card", case_queue.card, client, channel_id)
-    redrawn_count = each(redraw_ids, "could not be redrawn", channel.refresh_card, client, channel_id)
-    mirrored_count = each(
-        unmirrored, "has chat that did not go out", channel.mirror, client, channel_id
+    posted = run_for_cases(report_case_ids, "still has no card", channel.post_report, client, channel_id)
+    posted += run_for_cases(cardless_case_ids, "was opened without a card", case_queue.post_missing_card, client, channel_id)
+    redrawn_count = run_for_cases(redraw_ids, "could not be redrawn", channel.refresh_card, client, channel_id)
+    mirrored_count = run_for_cases(
+        unmirrored_case_ids, "has chat that did not go out", channel.mirror, client, channel_id
     )
-    each(unshared, "has a file that never went into the thread",
-         channel.carry_files, client, channel_id)
-    each(following, "has a follow-up still waiting",
-         channel.carry_follow_ups, client, channel_id)
-    each(redraw_ids, "has links that would not unfurl",
-         channel.carry_unfurls, client, channel_id)
-    each(woke, "was reopened without saying so",
-         channel.post_reopen_notice, client, channel_id)
-    case_channel.echo_queued()
-    case_channel.tick_queued()
+    run_for_cases(file_case_ids, "has a file that never went into the thread",
+                  channel.post_files, client, channel_id)
+    run_for_cases(follow_up_case_ids, "has a follow-up still waiting",
+                  channel.post_follow_ups, client, channel_id)
+    run_for_cases(redraw_ids, "has links that would not unfurl",
+                  channel.post_unfurls, client, channel_id)
+    run_for_cases(reopened_case_ids, "was reopened without saying so",
+                  channel.post_reopen_notice, client, channel_id)
+    case_channel.mirror_outbox_replies()
+    case_channel.mark_outbox_results()
     case_channel.announce_fire_engine()
 
-    for guard_id in destroying:
-        apart((f"destroying guard {guard_id}", lambda id=guard_id: guard_actions.run_destroy(client, id)))
-    for guard_id in lifting:
-        apart((f"lifting guard {guard_id}", lambda id=guard_id: guard_actions.lift_lock(client, id)))
-    for purge_id in purging:
+    for guard_id in destroy_guard_ids:
+        run_each((f"destroying guard {guard_id}", lambda id=guard_id: guard_actions.run_destroy(client, id)))
+    for guard_id in lock_guard_ids:
+        run_each((f"lifting guard {guard_id}", lambda id=guard_id: guard_actions.lift_lock(client, id)))
+    for purge_id in purge_ids:
         start_purge(client, purge_id)
-    for request_id in joining:
-        apart((f"joining for request {request_id}",
-               lambda one=request_id: join_requests.run(client, one)))
-    apart(
+    for request_id in join_request_ids:
+        run_each((f"joining for request {request_id}",
+                  lambda one=request_id: join_requests.run(client, one)))
+    run_each(
         ("clearing unremoved guard artifacts", lambda: guard_actions.sweep_removals(client)),
         ("removing ended lock notices", lambda: guard_actions.remove_lock_warnings(client)),
         ("posting internal log lines", lambda: internal_log.drain(client)),
@@ -260,7 +260,7 @@ def once(case_channel, channel_id=None):
         ("lifting expired channel guards", lift_lapsed_channel_guards),
         ("posting slow mode notices", lambda: slowmode.post_notices(client)),
         ("notifying manually lifted guards", lambda: sweep.sweep_lifted(client)),
-        ("reclaiming released work", lambda: sweep.sweep_dropped(client)),
+        ("reclaiming released work", lambda: sweep.sweep_failed(client)),
         ("notifying expiring guards", lambda: sweep.sweep_ending(client)),
     )
 
@@ -277,21 +277,21 @@ def start(case_channel, stopping, channel_id=None):
         screening.refresh(conn)
         categories.refresh(conn)
         channel.refresh_channels(conn)
-        stranded = purge.requeue_stranded(conn)
-    if stranded:
+        interrupted_ids = purge.requeue_interrupted(conn)
+    if interrupted_ids:
         log.info("nemo: %s purge(s) were cut off by a restart and go again: %s",
-                 len(stranded), stranded)
+                 len(interrupted_ids), interrupted_ids)
 
-    wake_notices = loops.draining(f"{NAME}-notices",
+    wake_notices = loops.run_on_wake(f"{NAME}-notices",
                                   lambda: guard_notices.drain(case_channel.client), stopping)
-    wake_member_guards = loops.draining(f"{NAME}-member-guards",
-                                        lambda: flush_pending(case_channel.client), stopping)
-    wake_removals = loops.draining(f"{NAME}-removals",
+    wake_member_guards = loops.run_on_wake(f"{NAME}-member-guards",
+                                        lambda: apply_pending_guards(case_channel.client), stopping)
+    wake_removals = loops.run_on_wake(f"{NAME}-removals",
                                    lambda: guard_removals.drain(case_channel.client, wake_notices),
-                                   stopping, settle=1.0, every=5.0)
-    wake_lapses = loops.timed(f"{NAME}-lapses", lambda: lift_due(case_channel.client), stopping)
-    wake_log = loops.draining(f"{NAME}-log", lambda: internal_log.drain(case_channel.client), stopping)
-    wake_kicks = loops.draining(f"{NAME}-kicks", lambda: bot_kicks.drain(case_channel.client), stopping)
+                                   stopping, debounce_seconds=1.0, interval_seconds=5.0)
+    wake_lapses = loops.run_on_timer(f"{NAME}-lapses", lambda: lift_expired(case_channel.client), stopping)
+    wake_log = loops.run_on_wake(f"{NAME}-log", lambda: internal_log.drain(case_channel.client), stopping)
+    wake_kicks = loops.run_on_wake(f"{NAME}-kicks", lambda: bot_kicks.drain(case_channel.client), stopping)
 
     def on_notify(channel_name, payload):
         if channel_name == GUARD_NOTICE:
@@ -311,7 +311,7 @@ def start(case_channel, stopping, channel_id=None):
         elif channel_name == CHAT:
             case_channel.mirror(payload)
         elif channel_name == OUTBOX:
-            apart(("echoing", case_channel.echo_queued), ("ticking", case_channel.tick_queued))
+            run_each(("echoing", case_channel.mirror_outbox_replies), ("ticking", case_channel.mark_outbox_results))
         elif channel_name == GUARD:
             with session() as conn:
                 guards.refresh(conn)
@@ -339,7 +339,7 @@ def start(case_channel, stopping, channel_id=None):
             with session() as conn:
                 channelguards.refresh(conn)
             threading.Thread(
-                target=seat_and_announce, args=(case_channel.client, payload),
+                target=join_and_post_notices, args=(case_channel.client, payload),
                 name=f"nemo-seat-{payload}", daemon=True,
             ).start()
             wake_lapses()
@@ -347,19 +347,19 @@ def start(case_channel, stopping, channel_id=None):
             wake_member_guards()
             wake_lapses()
         elif channel_name == CONVERSATION:
-            apart(("catching up", lambda: case_channel.caught_up(payload)),
-                  ("ticking", case_channel.tick_queued))
+            run_each(("catching up", lambda: case_channel.sync_case(payload)),
+                     ("ticking", case_channel.mark_outbox_results))
         else:
-            case_channel.caught_up(payload)
+            case_channel.sync_case(payload)
 
     return (
-        loops.watching(NAME,
+        loops.start_listener(NAME,
                        (CASES, CHAT, OUTBOX, CONVERSATION, GUARD, CHANNEL_GUARD,
                         MEMBER_GUARD, APP_SETTING, AUTOMOD_WORD, PURGE,
                         GUARD_NOTICE, GUARD_REMOVE, JOIN_REQUEST, BLOCKED_DOMAIN,
                         AUDIT_EVENT, AUTOMOD_MATCH, BOT_KICK, CATEGORY),
                        on_notify, stopping),
-        loops.sweeping(NAME, every(), lambda: once(case_channel, channel_id), stopping),
-        loops.sweeping(f"{NAME}-joins", every_join_sweep(), lambda: join_sweep(case_channel, stopping),
+        loops.run_periodically(NAME, sweep_interval_seconds(), lambda: sweep_once(case_channel, channel_id), stopping),
+        loops.run_periodically(f"{NAME}-joins", join_sweep_interval_seconds(), lambda: join_sweep(case_channel, stopping),
                        stopping),
     )

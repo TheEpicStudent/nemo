@@ -2,7 +2,7 @@
   <% if guards.any? %>
     <% family = kase.family_ids %>
     <div class="field-label">
-      <span>Already standing on them</span>
+      <span>Active guards</span>
       <div class="optlist">
         <% guards.each do |guard| %>
           <% attached = guard.on_case?(family) %>
@@ -24,7 +24,7 @@
                 data: { action: "change->action-standing#toggleFields" } %>
           <span class="opt-dot" aria-hidden="true"></span>
           <span class="opt-body">
-            <span class="opt-label">None of these, take a new action</span>
+            <span class="opt-label">New action</span>
           </span>
         </label>
       </div>

@@ -8,7 +8,7 @@ class FdClustersTest < ActionDispatch::IntegrationTest
   DELETED = "UCGONE".freeze
 
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
     [ROOT, ALT, DELETED].each_with_index do |user_id, at|
       member!(user_id)
@@ -24,7 +24,7 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     snapshot!(DELETED)
   end
 
-  test "a cluster page draws every account and the links between them" do
+  test "show renders a node and an accounts row per account with edges between them" do
     get fd_cluster_path(ROOT)
     assert_response :success
 
@@ -39,7 +39,7 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     assert_select "table.data-table tbody tr", 3
   end
 
-  test "accounts with no link between them share one ring and keep their names" do
+  test "show with 20 unlinked accounts renders every node named and not packed" do
     20.times do |n|
       user_id = "UCBIG#{n.to_s.rjust(2, '0')}"
       member!(user_id)
@@ -55,7 +55,7 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     assert_select ".cluster-map circle.face-ring[r='18']", 23
   end
 
-  test "a cluster past twenty four shrinks its faces and names only the hub of each group" do
+  test "show with more than 24 accounts renders packed nodes and names only the hub" do
     70.times do |n|
       user_id = "UCDISC#{n.to_s.rjust(2, '0')}"
       member!(user_id)
@@ -73,7 +73,7 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     assert_select ".cluster-map a.node[data-name][data-x][data-y]", 73
   end
 
-  test "every account on the map shows its face and opens beside the map" do
+  test "show renders a node link with image and name for each account" do
     get fd_cluster_path(ROOT)
 
     [ROOT, ALT, DELETED].each do |user_id|
@@ -84,7 +84,7 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "the sessions show which address the accounts shared" do
+  test "sessions tab marks shared and own addresses and lists only shared ones in the key" do
     get fd_cluster_path(ROOT, tab: "sessions")
 
     assert_select ".cluster-cells i.shared", 2
@@ -92,10 +92,10 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     assert_match "81.2.69.144", response.body
     legend = css_select(".cluster-map-key").map(&:text).join
     assert_includes legend, "81.2.69.144"
-    assert_not_includes legend, "10.9.9.9", "an address one account used alone is not listed as shared"
+    assert_not_includes legend, "10.9.9.9", "unshared address is not listed in the key"
   end
 
-  test "the evidence frozen at deactivation is shown" do
+  test "snapshots tab renders the evidence snapshot table" do
     get fd_cluster_path(ROOT, tab: "snapshots")
 
     assert_equal %w[Account Deactivated By Reason Email IPs Clients], css_select("thead th").map { |cell| cell.text.squish }
@@ -103,16 +103,16 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     assert_select "tbody td div.mono", "10.9.9.9"
   end
 
-  test "reading a cluster is logged for every account in it" do
+  test "show writes AccessLog rows for links and login fields per account" do
     assert_difference -> { AccessLog.where(field_class: "links", subject_user_id: [ROOT, ALT, DELETED]).count }, 3 do
       get fd_cluster_path(ROOT)
     end
     assert_equal 3, AccessLog.where(field_class: "login", subject_user_id: [ROOT, ALT, DELETED]).count
   end
 
-  test "without identity.read the addresses and snapshots stay hidden" do
-    move_capability!("firefighter", "identity.read", false, by: "UME")
-    sign_in_as(hold_role!("UFF", "firefighter"))
+  test "show without identity.read hides the Sessions and Snapshots tabs and addresses" do
+    override_capability!("firefighter", "identity.read", false, by: "UME")
+    sign_in_as(grant_role!("UFF", "firefighter"))
 
     get fd_cluster_path(ROOT)
     assert_response :success
@@ -123,14 +123,14 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     assert_select "h2", text: "Sign-ins per day", count: 0
   end
 
-  test "a case can be opened about the whole cluster" do
+  test "show renders an Open case link with every account as subject_user_ids" do
     get fd_cluster_path(ROOT)
 
     href = css_select("a.btn-primary").find { |one| one.text.include?("Open case") }["href"]
     [ROOT, ALT, DELETED].each { |user_id| assert_includes CGI.unescape(href), "subject_user_ids[]=#{user_id}" }
   end
 
-  test "deactivating from a cluster opens a guard per active account and comes back here" do
+  test "bulk deactivation from a cluster creates a guard per active account and redirects to it" do
     get fd_cluster_path(ROOT)
     assert_select ".modal-host[data-modal-id-value='cluster-deactivate'] input[name='user_ids[]']", 2
 
@@ -140,12 +140,12 @@ class FdClustersTest < ActionDispatch::IntegrationTest
     assert_redirected_to fd_cluster_path(ROOT)
   end
 
-  test "an unknown cluster is not found" do
+  test "show with unknown cluster id returns 404" do
     get fd_cluster_path("UNOBODY")
     assert_response :not_found
   end
 
-  test "the clusters tab and a member pane both lead to the cluster" do
+  test "clusters index and member links render links to the cluster" do
     get fd_clusters_path
     assert_select "a.ccard-link[href='#{fd_cluster_path(ROOT)}']"
 

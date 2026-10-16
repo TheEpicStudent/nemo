@@ -15,7 +15,7 @@ class DevSessionsController < ApplicationController
     roles = Authz.effective_roles(staff.user_id).map { |role| Authz.role_label(role) }
     extras = Authz::Grant.live.for_person(staff.user_id).capabilities
       .where(effect: "allow").count
-    return "holding nothing" if roles.empty? && extras.zero?
+    return "no access" if roles.empty? && extras.zero?
 
     text = roles.any? ? roles.to_sentence : "no role"
     return text if extras.zero?

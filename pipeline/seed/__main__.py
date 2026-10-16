@@ -18,7 +18,7 @@ from seed.writer import (
 )
 from seed.generate import HISTORY_MONTHS, build, events
 from seed.guards import SeedRefusedError, check, check_target_name
-from seed.adversarial import poison_channels
+from seed.adversarial import rename_channels_hostile
 
 TRUTHY = {"1", "true", "yes", "on"}
 
@@ -50,10 +50,10 @@ def clear_only(args):
         clear(conn, force=args.force)
         unstamp(conn)
     print(
-        f"seed: cleared what the seeder wrote from {dbname}"
-        f"{', and everything else in those tables' if args.force else ''}"
+        f"seed: cleared seeded rows from {dbname}"
+        f"{' and all other rows in those tables' if args.force else ''}"
     )
-    print(f"seed: {dbname} is marked live again, the bot and the listener will start against it")
+    print(f"seed: {dbname} marked live")
     return 0
 
 
@@ -85,7 +85,7 @@ def main(argv=None):
     stream = events(rng, members, profile, as_of)
     print(f"seed: generated {len(members)} members and {len(channels)} channels")
     if args.hostile:
-        print(f"seed: poisoned {poison_channels(rng, channels)} channel names")
+        print(f"seed: renamed {rename_channels_hostile(rng, channels)} channels with hostile names")
 
     with connect() as conn:
         clear(conn, force=args.force)
@@ -102,8 +102,8 @@ def main(argv=None):
     for notice in notices:
         print(f"seed: postgres reported: {notice}")
     print(
-        f"seed: wrote {sum(counts.values())} rows in {time.monotonic() - started:.1f}s. "
-        f"{dbname} is now marked seeded, run dbt build next"
+        f"seed: wrote {sum(counts.values())} rows in {time.monotonic() - started:.1f}s, "
+        f"{dbname} marked seeded"
     )
 
 

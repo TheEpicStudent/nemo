@@ -4,23 +4,23 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
   end
 
-  test "the links page opens" do
+  test "links index returns success" do
     get fd_links_path
     assert_response :success
   end
 
-  test "the links page listens for changes and reloads its own list" do
+  test "links index renders a cable stream source and the list turbo frame with data-src" do
     get fd_links_path(view: "strong")
 
     assert_select "turbo-cable-stream-source"
     assert_select %(turbo-frame##{Fd::MemberLinkBroadcast::LIST_FRAME}[data-src="#{fd_links_path(view: "strong")}"])
   end
 
-  test "the linked accounts tab listens for changes to that member's links" do
+  test "member links tab renders cable stream sources and the member links frame" do
     member!("UONE")
     get fd_member_path("UONE", tab: "links")
 
@@ -28,7 +28,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_select %(turbo-frame#member-links-UONE)
   end
 
-  test "a member link pane reads the links" do
+  test "member links pane lists the linked account and for_member returns band certain" do
     member!("UONE")
     member!("UTWO")
     link!("UONE", "UTWO", score: 9.5, top: "ip_exact",
@@ -45,7 +45,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_equal "certain", links.first.band
   end
 
-  test "a link is found from either side" do
+  test "for_member finds a link from either member" do
     member!("UONE")
     member!("UTWO")
     link!("UONE", "UTWO", score: 3.0, top: "ip_prefix")
@@ -54,7 +54,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_equal ["UONE"], Fd::MemberLink.for_member("UTWO").map(&:other_id)
   end
 
-  test "the bands are read off the score" do
+  test "band is weak for score 3.0" do
     member!("UONE")
     member!("UTWO")
     link!("UONE", "UTWO", score: 3.0, top: "ip_prefix")
@@ -62,15 +62,15 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_equal "weak", Fd::MemberLink.for_member("UONE").first.band
   end
 
-  test "somebody without member.links is handed nothing" do
-    move_capability!("firefighter", "member.links", false, by: "UME")
-    sign_in_as(hold_role!("UFF", "firefighter"))
+  test "links index without member.links redirects" do
+    override_capability!("firefighter", "member.links", false, by: "UME")
+    sign_in_as(grant_role!("UFF", "firefighter"))
 
     get fd_links_path
     assert_response :redirect
   end
 
-  test "the page opens on strong links to a deactivated account nobody has judged yet" do
+  test "links index defaults to the unreviewed view with strong links to deleted accounts" do
     member!("UACTIVE")
     member!("UGONE")
     member!("UJUDGED")
@@ -97,7 +97,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_match "kid@gmail.com", rows.first.text
   end
 
-  test "the old clusters and pairs addresses move to their own pages" do
+  test "links index with view clusters redirects to clusters and view pairs to strong" do
     get fd_links_path(view: "clusters")
     assert_redirected_to fd_clusters_path
 
@@ -105,7 +105,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_redirected_to fd_links_path(view: "strong")
   end
 
-  test "the certain view keeps only certain links and shows the reasons" do
+  test "links index certain view lists only certain links with the signal value" do
     member!("UONE")
     member!("UTWO")
     member!("UTHREE")
@@ -121,7 +121,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_match "81.2.69.144", response.body
   end
 
-  test "a member pane lists the rest of their cluster when nothing links them directly" do
+  test "member links pane lists other cluster accounts when the member has no direct links" do
     member!("UONE")
     cluster!("UONE", "UROOT", accounts: 3, active: true)
     cluster!("UROOT", "UROOT", accounts: 3, active: true)
@@ -139,7 +139,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_select ".empty-title", count: 0
   end
 
-  test "a big cluster shows a dozen of its accounts and one way into it" do
+  test "member links pane limits cluster faces to CLUSTER_MEMBER_LIMIT and shows a more count" do
     member!("UONE")
     cluster!("UONE", "UBIG00", accounts: 21, active: true)
     20.times { |n| cluster!("UBIG#{n.to_s.rjust(2, '0')}", "UBIG00", accounts: 21, active: true) }
@@ -151,14 +151,14 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_select "a", text: "Open cluster", count: 1
   end
 
-  test "the links page leaves the pipeline lanes to the engine" do
+  test "links index certain view renders no facts strip and no rescoring queue text" do
     get fd_links_path(view: "certain")
 
     assert_select "dl.facts-strip", 0
     assert_no_match "Queued for rescoring", response.body
   end
 
-  test "a lane that never ran reads as n/a" do
+  test "lane_run_label returns n/a for a run that never ran" do
     health = Fd::LinkHealth.new(queued: 0, oldest_touched_at: nil, runs: {})
 
     assert health.run("member_links").never?
@@ -166,7 +166,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     assert_equal "n/a", ApplicationController.helpers.lane_run_label(health.run("member_links"))
   end
 
-  test "the sidebar groups the alt pages and marks the one open" do
+  test "sidebar renders the Alts and Records groups and marks the current page" do
     get fd_clusters_path
 
     assert_select "p.community-nav-label", text: "Alts"
@@ -207,7 +207,7 @@ class FdMemberLinksTest < ActionDispatch::IntegrationTest
     seeded!("fd.member_link", "a_user_id", a)
   end
 
-  test "the linked accounts pane lists at most the member link limit" do
+  test "MEMBER_LINK_LIMIT is 25 and BANDS has no most_per_member" do
     assert_equal 25, Fd::MemberLink::MEMBER_LINK_LIMIT
     assert_not Fd::MemberLink::BANDS.key?("most_per_member")
   end

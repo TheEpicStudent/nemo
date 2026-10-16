@@ -121,7 +121,7 @@ def upsert_member(conn, user):
     return user["id"]
 
 
-def arrived(conn, user):
+def record_join(conn, user):
     inserted = conn.execute(JOINED, (user["id"],)).fetchone()
     upsert_member(conn, user)
     return bool(inserted)

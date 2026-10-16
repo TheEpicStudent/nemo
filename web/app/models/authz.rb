@@ -129,10 +129,10 @@ class Authz
 
     def why_not(account, key, record = nil)
       return nil if may?(account, key, record)
-      return "you hold no access" if account.nil? || effective_capabilities(account.user_id).empty?
+      return "No access" if account.nil? || effective_capabilities(account.user_id).empty?
       return refusal(key) unless holds?(account, key)
 
-      "that is not yours"
+      "Not permitted"
     end
 
     def refusal(key)
@@ -140,7 +140,7 @@ class Authz
       standard_roles, superadmin_roles = role_names.partition { |role| !superadmin?(role) }
       granting_roles = standard_roles.select { |role| baseline(role).include?(key) }
       granting_roles = superadmin_roles.select { |role| baseline(role).include?(key) } if granting_roles.empty?
-      return "#{label} is not yours to use" if granting_roles.empty?
+      return "#{label} is not permitted" if granting_roles.empty?
 
       "#{label} is #{granting_roles.map { |role| role_label(role) }.to_sentence} only"
     end

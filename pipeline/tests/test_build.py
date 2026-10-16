@@ -35,13 +35,13 @@ class Conn:
         self.rolled_back = True
 
 
-def test_the_build_is_a_short_hash_of_the_running_source():
+def test_fingerprint_returns_12_char_hex_digest():
     assert len(build.fingerprint()) == 12
     assert int(build.fingerprint(), 16) >= 0
     assert build.fingerprint() == build.digest()
 
 
-def test_a_changed_source_file_changes_the_build(tmp_path):
+def test_digest_changes_when_source_file_changes(tmp_path):
     root = tree(tmp_path, {"pipeline/lib/a.py": "x = 1\n", "db/migrations/0001_a.sql": "SELECT 1;\n"})
     original_digest = build.digest(root)
 
@@ -50,7 +50,7 @@ def test_a_changed_source_file_changes_the_build(tmp_path):
     assert build.digest(root) != original_digest
 
 
-def test_a_renamed_migration_changes_the_build(tmp_path):
+def test_digest_changes_when_migration_is_renamed(tmp_path):
     root = tree(tmp_path, {"db/migrations/0001_a.sql": "SELECT 1;\n"})
     original_digest = build.digest(root)
 
@@ -59,7 +59,7 @@ def test_a_renamed_migration_changes_the_build(tmp_path):
     assert build.digest(root) != original_digest
 
 
-def test_tests_caches_the_venv_and_other_files_leave_the_build_alone(tmp_path):
+def test_digest_ignores_tests_venv_pycache_and_non_source_files(tmp_path):
     root = tree(tmp_path, {"pipeline/lib/a.py": "x = 1\n", "db/sources.yml": "a: 1\n"})
     original_digest = build.digest(root)
 
@@ -74,7 +74,7 @@ def test_tests_caches_the_venv_and_other_files_leave_the_build_alone(tmp_path):
     assert build.digest(root) == original_digest
 
 
-def test_a_beat_stamps_this_build_and_reads_the_newest(monkeypatch):
+def test_record_build_inserts_build_heartbeats_and_returns_newest(monkeypatch):
     monkeypatch.setattr(build, "fingerprint", lambda: "abc123abc123")
     conn = Conn(newest=("def456def456",))
 
@@ -85,21 +85,21 @@ def test_a_beat_stamps_this_build_and_reads_the_newest(monkeypatch):
     assert conn.committed
 
 
-def test_a_database_without_the_build_table_leaves_the_newest_unknown():
+def test_record_build_without_build_table_returns_none():
     conn = Conn(broken=True)
 
     assert build.record_build(conn, "audit_worker") is None
     assert conn.rolled_back
 
 
-def test_only_running_deployed_workers_decide_the_newest_build():
+def test_newest_sql_filters_active_non_manual_workers():
     assert "h.beat_at >= now() - make_interval(secs => %(active_within)s)" in build.NEWEST_SQL
     assert "h.worker <> %(manual_worker)s" in build.NEWEST_SQL
     assert "ORDER BY b.first_seen_at DESC" in build.NEWEST_SQL
     assert build.ACTIVE_WITHIN_SECONDS == 300
 
 
-def test_heartbeats_keep_a_build_and_builds_keep_when_they_were_first_seen():
+def test_worker_build_migration_adds_build_and_first_seen_at_columns():
     sql = (build.ROOT / "db" / "migrations" / "0210_worker_build.sql").read_text()
 
     assert "ADD COLUMN IF NOT EXISTS build text" in sql

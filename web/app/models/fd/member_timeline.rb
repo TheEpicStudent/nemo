@@ -176,7 +176,7 @@ module Fd
 
     def logged_detail(kase, person)
       parts = [kase.category_key&.tr("_", " ")]
-      parts << "they were not the subject"
+      parts << "not the subject"
       parts.compact.join(" · ")
     end
 

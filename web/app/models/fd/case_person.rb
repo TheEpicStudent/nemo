@@ -61,10 +61,10 @@ module Fd
     end
 
     def skip_reason(other, targeted_actions)
-      return "logged, not the subject" unless other.subject_user_ids.include?(user_id)
+      return "not the subject" unless other.subject_user_ids.include?(user_id)
       return "still open" if other.resolved_at.nil?
-      return "nothing was done to them" if targeted_actions.empty?
-      return "the action was reversed" if targeted_actions.all?(&:reversed?)
+      return "no action taken" if targeted_actions.empty?
+      return "action reversed" if targeted_actions.all?(&:reversed?)
       return "outside 12 months" if other.resolved_at < @kase.opened_at - Case::PRIOR_WINDOW
 
       nil

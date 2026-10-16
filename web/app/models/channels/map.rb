@@ -3,10 +3,10 @@ module Channels
     CHANNEL_LIMIT = 80
 
     QUADRANTS = {
-      high_high: ["working", 2],
-      high_low: ["landing, not staying", 4],
-      low_high: ["small and sticky", 1],
-      low_low: ["quiet", 0]
+      high_high: ["high volume, high retention", 2],
+      high_low: ["high volume, low retention", 4],
+      low_high: ["low volume, high retention", 1],
+      low_low: ["low volume, low retention", 0]
     }.freeze
 
     Point = Struct.new(:channel_id, :name, :x, :y, :n, :series_color, :phase, keyword_init: true) do

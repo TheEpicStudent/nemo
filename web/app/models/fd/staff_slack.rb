@@ -50,7 +50,7 @@ module Fd
       revoked_by == SLACK
     end
 
-    def return_token!(by)
+    def revoke_token!(by)
       update!(revoked_at: Time.current, revoked_by: by)
     end
   end

@@ -80,19 +80,19 @@ CONSISTENCY_CHECKS = [
         "where r.is_reply and m.ts is null",
     ),
     (
-        "nobody replies to themselves",
+        "no thread reply by the root author",
         "select count(*) from archive.message r join archive.message m "
         "on m.channel_id = r.channel_id and m.ts = r.thread_root_ts "
         "where r.is_reply and r.author_id = m.author_id",
     ),
     (
-        "every thread counts the replies it actually has",
+        "thread reply_count matches archived replies",
         "select count(*) from raw.thread t where t.reply_count <> ("
         "select count(*) from archive.message m where m.channel_id = t.channel_id "
         "and m.thread_root_ts = t.root_ts and m.is_reply)",
     ),
     (
-        "every walk counts the messages it actually saw",
+        "walk messages_seen matches archived messages",
         "select count(*) from raw.channel_walk w where w.messages_seen <> ("
         "select count(*) from archive.message m where m.channel_id = w.channel_id)",
     ),
@@ -100,22 +100,22 @@ CONSISTENCY_CHECKS = [
 
 ANALYTICS_CHECKS = [
     (
-        "every member holds exactly one current version",
+        "one current version per member",
         "select count(*) from (select user_id from analytics.dim_member_scd "
         "where is_current group by user_id having count(*) <> 1) t",
     ),
     (
-        "every channel holds exactly one current version",
+        "one current version per channel",
         "select count(*) from (select channel_id from analytics.dim_channel_scd "
         "where is_current group by channel_id having count(*) <> 1) t",
     ),
     (
-        "no member version starts before the one it replaces",
+        "no member version with valid_to <= valid_from",
         "select count(*) from analytics.dim_member_scd "
         "where valid_to is not null and valid_to <= valid_from",
     ),
     (
-        "no message is counted in a channel that was never walked",
+        "no message in an unwalked channel",
         "select count(*) from analytics.fct_message m "
         "left join analytics.fct_channel_walk w on w.channel_id = m.channel_id "
         "where w.channel_id is null",
@@ -192,7 +192,7 @@ def main(argv=None):
         conn.read_only = True
         mode = conn.execute("SELECT mode FROM raw.deployment").fetchone()[0]
         if mode != "seeded":
-            print(f"seed.verify: this database is {mode}, not seeded. nothing to verify")
+            print(f"seed.verify: database is {mode}, expected seeded")
             raise SystemExit(2)
         seeded = capture(conn)
         print("shape against the captured profile")
@@ -207,12 +207,12 @@ def main(argv=None):
         failures += report(check_marts(admin))
         print("model consistency")
         failures += report(check_consistency(admin, ANALYTICS_CHECKS))
-        print("known gaps, reported but not counted")
+        print("known gaps")
         for table, column, reason in KNOWN_GAPS:
             count = admin.execute(
                 f"SELECT count(*) FROM analytics.{table} WHERE {column} IS NOT NULL"
             ).fetchone()[0]
-            state = "now populated, retire this entry" if count else "still empty"
+            state = "populated" if count else "empty"
             print(f"  gap  {table}.{column:28} {state}: {reason}")
 
     print(f"seed.verify: {failures} failing check(s)")

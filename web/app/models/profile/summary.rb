@@ -9,8 +9,8 @@ module Profile
     TOP_CHANNELS = 8
 
     STREAK_BASES = {
-      "posted" => "days you posted",
-      "online" => "days you were online"
+      "posted" => "days posted",
+      "online" => "days online"
     }.freeze
     DEFAULT_BASIS = "posted".freeze
 

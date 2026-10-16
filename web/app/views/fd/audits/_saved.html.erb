@@ -21,7 +21,7 @@
       <%= hidden_field_tag :query, @query.term, id: nil %>
       <%= hidden_field_tag :view, @query.to_params["view"], id: nil %>
       <%= text_field_tag :name, nil, id: "audit_saved_name", class: "input", placeholder: "Name",
-            maxlength: Fd::AuditSavedQuery::LONGEST_NAME, required: true, aria: { label: "Name" } %>
+            maxlength: Fd::AuditSavedQuery::MAX_NAME_LENGTH, required: true, aria: { label: "Name" } %>
       <label class="audit-saved-shared">
         <%= check_box_tag :shared, "1", false, id: "audit_saved_shared" %> Shared
       </label>

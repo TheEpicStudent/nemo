@@ -32,7 +32,7 @@ SELECT resolved_at IS NULL FROM fd.cases WHERE id = %s
 """
 
 
-def claimed(conn, case_id, user_id):
+def record_claim(conn, case_id, user_id):
     conn.execute(CLAIM, (case_id, user_id, user_id))
     audit.record(conn, "assignee", case_id, "claimed", user_id, after={"user_id": user_id})
 
@@ -50,7 +50,7 @@ VALUES (%s, %s, %s, %s, 'card')
 """
 
 
-OPEN_ABOUT = """
+OPEN_CASES_FOR_SUBJECT = """
 SELECT c.id FROM fd.cases c
 JOIN fd.case_participants p ON p.case_id = c.id AND p.role = 'subject'
 WHERE p.user_id = %s AND c.resolved_at IS NULL
@@ -131,7 +131,7 @@ SELECT count(*) FROM fd.case_reports WHERE case_id = %s AND closed_at IS NULL
 """
 
 
-RESOLUTION_ECHO_ACTIONS = """
+RESOLUTION_LOG_ACTIONS = """
 SELECT target_user_id, type_key, reason FROM fd.actions
 WHERE case_id = %s AND reversed_at IS NULL
 ORDER BY performed_at, id
@@ -231,7 +231,7 @@ def add_note(conn, case_id, body, by):
     return note_id
 
 
-def assign_people(conn, case_id, user_ids, by):
+def assign_users(conn, case_id, user_ids, by):
     added = []
     for user_id in user_ids:
         row = conn.execute(ASSIGN, (case_id, user_id, by)).fetchone()
@@ -268,8 +268,8 @@ def reopen(conn, case_id, by):
     return True
 
 
-def open_about(conn, user_id):
-    return [row[0] for row in conn.execute(OPEN_ABOUT, (user_id,)).fetchall()]
+def open_cases_for_subject(conn, user_id):
+    return [row[0] for row in conn.execute(OPEN_CASES_FOR_SUBJECT, (user_id,)).fetchall()]
 
 
 def open_case(conn, subject, body, by):
@@ -291,7 +291,7 @@ def member_note(conn, subject, body, by):
     return note_id
 
 
-def counted(conn, sql, case_id):
+def scalar_for_case(conn, sql, case_id):
     return conn.execute(sql, (case_id,)).fetchone()[0]
 
 
@@ -308,14 +308,14 @@ def live_actions(conn, case_id):
     ]
 
 
-def resolution_echo_actions(conn, case_id):
+def resolution_log_actions(conn, case_id):
     return [
         {
             "target_user_id": row[0],
             "type_key": row[1],
             "reason": row[2],
         }
-        for row in conn.execute(RESOLUTION_ECHO_ACTIONS, (case_id,)).fetchall()
+        for row in conn.execute(RESOLUTION_LOG_ACTIONS, (case_id,)).fetchall()
     ]
 
 
@@ -327,10 +327,10 @@ def close_reports(conn, case_id, values, user_id):
             conn, "report", report_id, "closed", user_id,
             before={"closed_at": None}, after={"closed_at": "now", "case_id": case_id},
         )
-        open_one = conn.execute(OPEN_CONVERSATION, (report_id,)).fetchone()
-        if open_one is None:
+        open_conversation = conn.execute(OPEN_CONVERSATION, (report_id,)).fetchone()
+        if open_conversation is None:
             continue
-        conn.execute(QUEUE_OUTCOME, (open_one[0], values, user_id))
+        conn.execute(QUEUE_OUTCOME, (open_conversation[0], values, user_id))
         notified += 1
     return notified
 
@@ -355,7 +355,7 @@ def resolve(conn, case_id, values, user_id):
     return notified
 
 
-REVERSED_BECAUSE = "the action was reversed: {why}"
+ACTION_REVERSED_REASON = "Action reversed: {why}"
 
 REVERSE_ACTION = """
 UPDATE fd.actions SET reversed_at = now(), reversed_by = %s, reversal_reason = %s
@@ -378,7 +378,7 @@ def reverse_action(conn, case_id, action_id, reason, user_id):
         before={"reversed_at": None},
         after={"reversed_at": str(row[0]), "reversed_by": user_id, "reason": reason},
     )
-    memberguards.lift_for_action(conn, action_id, user_id, REVERSED_BECAUSE.format(why=reason))
+    memberguards.lift_for_action(conn, action_id, user_id, ACTION_REVERSED_REASON.format(why=reason))
     return True
 
 
@@ -472,19 +472,19 @@ def copy_assignees_to_target(conn, target_id, source_case_ids, by):
     return copied_user_ids
 
 
-def settled_resolution(conn, case_id):
+def default_resolution(conn, case_id):
     return "action_taken" if live_actions(conn, case_id) else "no_action"
 
 
-def close_quietly(conn, case_id, resolution, by):
-    final_resolution = resolution or settled_resolution(conn, case_id)
+def close_without_notice(conn, case_id, resolution, by):
+    final_resolution = resolution or default_resolution(conn, case_id)
     values = {"resolution": final_resolution, "member_note": None, "message": None,
               "notify_reporter": False}
     return final_resolution if resolve(conn, case_id, values, by) is not None else None
 
 
-def resolve_and_tell(conn, case_id, message, by):
-    final_resolution = settled_resolution(conn, case_id)
+def resolve_and_notify(conn, case_id, message, by):
+    final_resolution = default_resolution(conn, case_id)
     values = {"resolution": final_resolution, "member_note": None, "message": message,
               "notify_reporter": True}
     notified = resolve(conn, case_id, values, by)
@@ -493,13 +493,13 @@ def resolve_and_tell(conn, case_id, message, by):
     return None, close_reports(conn, case_id, message, by)
 
 
-MARK_RESOLUTION_ECHO = "UPDATE fd.cases SET resolution_echo_by = %s WHERE id = %s"
+MARK_RESOLUTION_LOG = "UPDATE fd.cases SET resolution_echo_by = %s WHERE id = %s"
 
-PENDING_RESOLUTION_ECHOES = "SELECT id FROM fd.cases WHERE resolution_echo_by IS NOT NULL"
+PENDING_RESOLUTION_LOGS = "SELECT id FROM fd.cases WHERE resolution_echo_by IS NOT NULL"
 
-RESOLUTION_ECHO_DUE = """
+RESOLUTION_LOG_DUE = """
 WITH due AS (
-    SELECT k.id, k.resolution_echo_by AS held_by, k.resolution, k.member_note
+    SELECT k.id, k.resolution_echo_by AS log_by, k.resolution, k.member_note
     FROM fd.cases k
     WHERE k.id = %(case_id)s AND k.resolution_echo_by IS NOT NULL
       AND NOT EXISTS (
@@ -512,17 +512,17 @@ WITH due AS (
 )
 UPDATE fd.cases k SET resolution_echo_by = NULL
 FROM due WHERE k.id = due.id
-RETURNING due.held_by, due.resolution, due.member_note
+RETURNING due.log_by, due.resolution, due.member_note
 """
 
 
-def mark_resolution_echo_pending(conn, case_id, by):
-    conn.execute(MARK_RESOLUTION_ECHO, (by, case_id))
+def mark_resolution_log_pending(conn, case_id, by):
+    conn.execute(MARK_RESOLUTION_LOG, (by, case_id))
 
 
-def pending_resolution_echoes(conn):
-    return [row[0] for row in conn.execute(PENDING_RESOLUTION_ECHOES).fetchall()]
+def pending_resolution_logs(conn):
+    return [row[0] for row in conn.execute(PENDING_RESOLUTION_LOGS).fetchall()]
 
 
-def resolution_echo_due(conn, case_id):
-    return conn.execute(RESOLUTION_ECHO_DUE, {"case_id": case_id}).fetchone()
+def resolution_log_due(conn, case_id):
+    return conn.execute(RESOLUTION_LOG_DUE, {"case_id": case_id}).fetchone()

@@ -17,17 +17,17 @@ IN_CHANNEL = (
     "Your message was removed. You are banned from this channel for {why}, {until}."
 )
 
-OVER = "Your ban from <#{channel_id}> has ended. You can join it again."
+LIFTED_DM = "Your ban from <#{channel_id}> has ended. You can join it again."
 
 
-def remove_from_channel(conn, guard):
-    how = privileged.kick(guard["channel_id"], guard["subject_id"])
-    if how != KICKED:
-        memberguards.dropped(conn, guard["id"], how)
+def kick_from_channel(conn, guard):
+    outcome = privileged.kick(guard["channel_id"], guard["subject_id"])
+    if outcome != KICKED:
+        memberguards.mark_failed(conn, guard["id"], outcome)
         memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], guard["channel_id"],
-                              "failed", detail=how)
+                              "failed", detail=outcome)
         log.warning("nemo: channel ban %s could not put %s out of %s: %s",
-                    guard["id"], guard["subject_id"], guard["channel_id"], how)
+                    guard["id"], guard["subject_id"], guard["channel_id"], outcome)
         return False
 
     memberguards.mark_enforced(conn, guard["id"])
@@ -35,8 +35,8 @@ def remove_from_channel(conn, guard):
     return True
 
 
-def take_up(client, conn, guard):
-    if not remove_from_channel(conn, guard):
+def enforce(client, conn, guard):
+    if not kick_from_channel(conn, guard):
         return False
 
     notify.dm_subject(client, conn, guard, APPLIED_DM.format(
@@ -50,12 +50,12 @@ def take_up(client, conn, guard):
 
 def lift(client, conn, guard, notify_member=True):
     if notify_member:
-        notify.dm_subject(client, conn, guard, OVER.format(channel_id=guard["channel_id"]))
+        notify.dm_subject(client, conn, guard, LIFTED_DM.format(channel_id=guard["channel_id"]))
     return True
 
 
-def reapply(conn, guard, why):
-    if not notify.reset_threshold_met(conn, guard, KICKED):
+def reapply_kick(conn, guard, why):
+    if not notify.should_reset_sessions(conn, guard, KICKED):
         return False
 
     notify.reset(conn, guard, why)
@@ -69,7 +69,7 @@ def on_message(ctx):
     if not channel_id:
         return None
 
-    guard = memberguards.banned(subject_id, channel_id)
+    guard = memberguards.active_ban(subject_id, channel_id)
     if guard is None:
         return None
 
@@ -77,7 +77,7 @@ def on_message(ctx):
         try:
             guard_actions.remove(ctx.client, channel_id, ts)
         except Exception as failure:
-            memberguards.dropped(conn, guard["id"], str(failure))
+            memberguards.mark_failed(conn, guard["id"], str(failure))
             memberguards.record_enforcement(conn, guard["id"], subject_id, channel_id,
                                   "failed", message_ts=ts, detail=str(failure)[:500])
             return None
@@ -86,26 +86,26 @@ def on_message(ctx):
                               "deleted", message_ts=ts)
         notify.post_ephemeral(ctx.client, channel_id, subject_id, IN_CHANNEL.format(
             why=guard["reason"], until=notify.ending(guard)), thread_ts=event.get("thread_ts"))
-        remove_from_channel(conn, guard)
-        reapply(conn, guard, "posting")
+        kick_from_channel(conn, guard)
+        reapply_kick(conn, guard, "posting")
     return True
 
 
 @on_event("member_joined_channel", open_to_all=True)
-def joined(ctx):
+def reapply_ban_on_join(ctx):
     event = ctx.payload or {}
     channel_id = event.get("channel")
     subject_id = event.get("user")
     if not channel_id or not subject_id:
         return None
 
-    guard = memberguards.banned(subject_id, channel_id)
+    guard = memberguards.active_ban(subject_id, channel_id)
     if guard is None:
         return None
 
     with session() as conn:
-        remove_from_channel(conn, guard)
-        reapply(conn, guard, "coming back")
+        kick_from_channel(conn, guard)
+        reapply_kick(conn, guard, "coming back")
     log.info("nemo: %s came back to %s under channel ban %s",
              subject_id, channel_id, guard["id"])
     return True

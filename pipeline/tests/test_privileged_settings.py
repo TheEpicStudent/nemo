@@ -34,7 +34,7 @@ def no_proxy(monkeypatch):
     ("sometimes", privileged.LOG),
     (None, privileged.LOG),
 ])
-def test_mode_reads_session_reset_setting(stored, expected):
+def test_mode_session_reset_setting_value_maps_to_mode(stored, expected):
     conn = Conn({} if stored is None else {privileged.SESSION_RESET_SETTING: stored})
 
     assert privileged.mode(conn) == expected
@@ -46,7 +46,7 @@ def test_mode_reads_session_reset_setting(stored, expected):
     ("off", privileged.OFF),
     (None, privileged.LOG),
 ])
-def test_deactivation_mode_reads_deactivate_setting(stored, expected):
+def test_deactivation_mode_deactivate_setting_value_maps_to_mode(stored, expected):
     conn = Conn({} if stored is None else {privileged.DEACTIVATE_SETTING: stored})
 
     assert privileged.deactivation_mode(conn) == expected
@@ -59,7 +59,7 @@ def test_deactivation_mode_reads_deactivate_setting(stored, expected):
     ("0", 1),
     ("many", privileged.DEFAULT_STRIKES),
 ])
-def test_strikes_needed_reads_setting_with_floor_of_one(stored, expected):
+def test_strikes_needed_setting_value_floors_at_one_and_defaults_when_invalid(stored, expected):
     conn = Conn({} if stored is None else {privileged.STRIKES_SETTING: stored})
 
     assert privileged.strikes_needed(conn) == expected
@@ -71,21 +71,21 @@ def test_strikes_needed_reads_setting_with_floor_of_one(stored, expected):
     ("-3", 0),
     ("12", 12),
 ])
-def test_cap_per_guard_reads_setting_with_floor_of_zero(stored, expected):
+def test_cap_per_guard_setting_value_floors_at_zero(stored, expected):
     conn = Conn({} if stored is None else {privileged.CAP_SETTING: stored})
 
     assert privileged.cap_per_guard(conn) == expected
 
 
 @pytest.mark.parametrize(("stored", "outcome"), [("off", "off"), ("log", "would")])
-def test_reset_sessions_off_or_log_skips_proxy(monkeypatch, stored, outcome):
+def test_reset_sessions_off_or_log_mode_does_not_call_proxy(monkeypatch, stored, outcome):
     no_proxy(monkeypatch)
 
     assert privileged.reset_sessions("USUB", Conn({privileged.SESSION_RESET_SETTING: stored})) == outcome
 
 
 @pytest.mark.parametrize(("stored", "outcome"), [("off", "off"), ("log", "would")])
-def test_deactivate_off_or_log_skips_proxy(monkeypatch, stored, outcome):
+def test_deactivate_and_reactivate_off_or_log_mode_do_not_call_proxy(monkeypatch, stored, outcome):
     no_proxy(monkeypatch)
     conn = Conn({privileged.DEACTIVATE_SETTING: stored})
 
@@ -93,7 +93,7 @@ def test_deactivate_off_or_log_skips_proxy(monkeypatch, stored, outcome):
     assert privileged.reactivate("USUB", conn) == outcome
 
 
-def test_deactivate_on_calls_scim(monkeypatch):
+def test_deactivate_on_mode_calls_proxy_with_deactivate_method(monkeypatch):
     calls = []
 
     class Proxy:
@@ -108,7 +108,7 @@ def test_deactivate_on_calls_scim(monkeypatch):
     assert calls == [(privileged.DEACTIVATE, {"user_id": "USUB"}, "admin")]
 
 
-def test_setting_without_connection_opens_session(monkeypatch):
+def test_mode_without_conn_opens_session(monkeypatch):
     conn = Conn({privileged.SESSION_RESET_SETTING: "on"})
 
     @contextlib.contextmanager

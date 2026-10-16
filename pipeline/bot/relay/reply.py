@@ -1,14 +1,14 @@
 from bot.core.formatting import escape
 
-ANONYMOUSLY = "sent anonymously"
+ANONYMOUS = "Anonymous"
 
-GOT_IT = "white_check_mark"
+RECEIVED_REACTION = "white_check_mark"
 
-NEMO_QUIET_AFTER = "5 minutes"
+NEMO_HEARTBEAT_MAX_AGE = "5 minutes"
 
-CATCHING_UP = "Delivery is delayed. Your report is saved, so there is no need to send it again."
+DELIVERY_DELAYED = "Delivery delayed"
 
-HANDOFF_FAILED = "Your report was not sent. Try again in a few minutes."
+SUBMIT_FAILED = "Your report was not sent. Try again in a few minutes."
 
 NEMO_HEARTBEAT = """
 SELECT bool_or(beat_at > now() - %s::interval)
@@ -17,29 +17,29 @@ WHERE worker LIKE 'bot%%' AND worker LIKE '%%nemo%%'
 """
 
 
-def nemo_is_behind(conn):
+def nemo_delayed(conn):
     try:
-        row = conn.execute(NEMO_HEARTBEAT, (NEMO_QUIET_AFTER,)).fetchone()
+        row = conn.execute(NEMO_HEARTBEAT, (NEMO_HEARTBEAT_MAX_AGE,)).fetchone()
     except Exception:
         return False
     return row is None or not row[0]
 
 
-SUBMITTED = "Report sent. We usually reply within a couple of hours."
+SUBMITTED = "Report sent"
 
 
 def receipt_text(case_id):
     return SUBMITTED
 
 
-def receipt(case_id, anonymous, behind=False):
+def receipt(case_id, anonymous, delayed=False):
     text = receipt_text(case_id)
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     notes = []
     if anonymous:
-        notes.append(ANONYMOUSLY)
-    if behind:
-        notes.append(CATCHING_UP)
+        notes.append(ANONYMOUS)
+    if delayed:
+        notes.append(DELIVERY_DELAYED)
     if notes:
         blocks.append(
             {
@@ -50,9 +50,9 @@ def receipt(case_id, anonymous, behind=False):
     return text, blocks
 
 
-def handoff_failed():
-    return HANDOFF_FAILED, [
-        {"type": "section", "text": {"type": "mrkdwn", "text": HANDOFF_FAILED}}
+def submit_failed():
+    return SUBMIT_FAILED, [
+        {"type": "section", "text": {"type": "mrkdwn", "text": SUBMIT_FAILED}}
     ]
 
 

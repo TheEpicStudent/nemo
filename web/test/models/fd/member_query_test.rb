@@ -31,24 +31,24 @@ class Fd::MemberQueryTest < ActiveSupport::TestCase
     skip "no members to sort" if Fd::Member.live.count < 4
   end
 
-  test "the two name directions are exact opposites" do
+  test "summary_rows with dir asc reverses the default name order" do
     forward = query("view" => "everyone", "sort" => "name").summary_rows.map(&:user_id)
     backward = query("view" => "everyone", "sort" => "name", "dir" => "asc")
       .summary_rows.map(&:user_id)
 
     assert_equal forward.reverse, backward,
-      "one direction must be the other read backwards"
+      "dir asc is the reverse of the default order"
     assert_operator forward.size, :>, 1
   end
 
-  test "the name sort groups people by the name they show, not their id" do
+  test "rows with name sort order by displayed name" do
     names = named(query("view" => "everyone", "sort" => "name").rows.map(&:user_id))
 
     assert_equal names, names.sort { |a, b| collate(a) <=> collate(b) },
-      "the page is not in the order the database collates names"
+      "rows are not ordered by displayed name"
   end
 
-  test "a page is the matching slice of the whole ordering" do
+  test "rows for page 1 and 2 match slices of summary_rows" do
     params = { "view" => "everyone", "sort" => "name" }
     all_ids = query(params).summary_rows.map(&:user_id)
 
@@ -57,19 +57,19 @@ class Fd::MemberQueryTest < ActiveSupport::TestCase
       query(params.merge("page" => "2")).rows.map(&:user_id)
   end
 
-  test "a page costs the same whether it is the first or a later one" do
+  test "rows runs the same number of queries for page 1 and page 3" do
     first_page_count = count_queries { query("view" => "everyone").rows }
     later_page_count = count_queries { query("view" => "everyone", "page" => "3").rows }
 
-    assert_equal first_page_count, later_page_count, "a later page must not walk further than the first"
-    assert_operator first_page_count, :<=, 2, "one count and one page, not a walk of the whole roster"
+    assert_equal first_page_count, later_page_count, "page 3 query count equals page 1"
+    assert_operator first_page_count, :<=, 2, "at most two queries per page"
   end
 
-  test "a page holds at most one page worth of people" do
+  test "rows returns at most LIMIT rows" do
     assert_operator query("view" => "everyone").rows.size, :<=, Fd::MemberQuery::LIMIT
   end
 
-  test "the roster counts everybody the views claim" do
+  test "total matches view_counts for everyone open and notes" do
     counts = Fd::MemberQuery.view_counts
 
     assert_equal counts["everyone"], query("view" => "everyone").total
@@ -88,27 +88,27 @@ class Fd::MemberQueryCountsCacheTest < ActiveSupport::TestCase
     Rails.cache = @store
   end
 
-  test "view counts are computed once per cache window rather than once per request" do
-    roster_passes = lambda do |&block|
-      passes = 0
+  test "views runs the roster query once across repeated calls with a cache" do
+    count_roster_queries = lambda do |&block|
+      roster_queries = 0
       listener = ActiveSupport::Notifications.subscribe("sql.active_record") do |_, _, _, _, payload|
-        passes += 1 if payload[:sql].include?("conduct AS")
+        roster_queries += 1 if payload[:sql].include?("conduct AS")
       end
       block.call
-      passes
+      roster_queries
     ensure
       ActiveSupport::Notifications.unsubscribe(listener)
     end
 
-    first = roster_passes.call { Fd::MemberQuery.new({}).views }
-    second = roster_passes.call { Fd::MemberQuery.new({}).views }
+    first = count_roster_queries.call { Fd::MemberQuery.new({}).views }
+    second = count_roster_queries.call { Fd::MemberQuery.new({}).views }
     assert_equal 1, first
     assert_equal 0, second
   end
 end
 
 class Fd::MemberQueryDefaultSortTest < ActiveSupport::TestCase
-  test "the list opens sorted by message count, busiest first, people without a count last" do
+  test "default sort is messages descending with nil counts last" do
     query = Fd::MemberQuery.new({})
     assert_equal "messages", query["sort"]
     assert_equal "most messages", query.sort_label

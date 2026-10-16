@@ -9,8 +9,8 @@ class CaseChatPresenceChannelTest < ActionCable::Channel::TestCase
 
   teardown { Rails.cache = @original_cache }
 
-  test "somebody who may read the case is counted as here, and leaves cleanly" do
-    hold_role!("UME", "community_manager")
+  test "subscribe as community_manager confirms and tracks presence through beat and unsubscribe" do
+    grant_role!("UME", "community_manager")
     stub_connection(user_id: "UME")
 
     subscribe(case_id: @kase.id)
@@ -19,16 +19,16 @@ class CaseChatPresenceChannelTest < ActionCable::Channel::TestCase
     assert_equal %w[UME], Fd::ChatPresence.present_user_ids(@kase.id)
 
     travel 100.seconds do
-      assert_empty Fd::ChatPresence.present_user_ids(@kase.id), "no beat, so gone"
+      assert_empty Fd::ChatPresence.present_user_ids(@kase.id), "presence expires without beat"
       perform :beat
-      assert_equal %w[UME], Fd::ChatPresence.present_user_ids(@kase.id), "a beat brings them back"
+      assert_equal %w[UME], Fd::ChatPresence.present_user_ids(@kase.id), "beat restores presence"
     end
 
     unsubscribe
     assert_empty Fd::ChatPresence.present_user_ids(@kase.id)
   end
 
-  test "somebody with no role is turned away and never counted" do
+  test "subscribe without a role is rejected and adds no presence" do
     Account.find_or_create_by!(user_id: "UNOBODY")
     stub_connection(user_id: "UNOBODY")
 
@@ -38,8 +38,8 @@ class CaseChatPresenceChannelTest < ActionCable::Channel::TestCase
     assert_empty Fd::ChatPresence.present_user_ids(@kase.id)
   end
 
-  test "a case that does not exist is turned away" do
-    hold_role!("UME", "community_manager")
+  test "subscribe with an unknown case id is rejected" do
+    grant_role!("UME", "community_manager")
     stub_connection(user_id: "UME")
 
     subscribe(case_id: 0)

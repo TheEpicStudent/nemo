@@ -79,7 +79,7 @@ def relay(monkeypatch):
     return state
 
 
-def test_trusted_sender_message_opens_a_named_case_without_the_prompt(relay):
+def test_dm_message_from_trusted_bot_runs_named_handoff_and_closes_conversation(relay):
     client = FakeSlack()
 
     assert relay["on_message"](trusted_event(), client) == 512
@@ -88,7 +88,7 @@ def test_trusted_sender_message_opens_a_named_case_without_the_prompt(relay):
     assert client.calls == [("reactions_add", {"channel": DM_CHANNEL_ID, "timestamp": "1.0", "name": "white_check_mark"})]
 
 
-def test_trusted_human_sender_skips_the_prompt_too(relay):
+def test_dm_message_from_trusted_human_posts_no_prompt(relay):
     client = FakeSlack()
 
     relay["on_message"](trusted_event(user="UHUMAN1", bot_id=None), client)
@@ -97,7 +97,7 @@ def test_trusted_human_sender_skips_the_prompt_too(relay):
     assert "chat_postMessage" not in client.methods()
 
 
-def test_untrusted_bot_message_is_ignored(relay):
+def test_dm_message_from_untrusted_bot_returns_none(relay):
     relay["senders"] = "UHUMAN1"
     client = FakeSlack()
 
@@ -106,14 +106,14 @@ def test_untrusted_bot_message_is_ignored(relay):
 
 
 @pytest.mark.parametrize(("handed_off", "inserted"), [(True, True), (False, False)])
-def test_trusted_sender_message_already_handled_is_not_handed_off_again(relay, handed_off, inserted):
+def test_dm_trusted_message_already_handled_or_duplicate_skips_handoff(relay, handed_off, inserted):
     relay["handed_off"], relay["inserted"] = handed_off, inserted
 
     assert relay["on_message"](trusted_event(), FakeSlack()) is None
     assert relay["handoffs"] == [] and relay["closed"] == []
 
 
-def test_trusted_sender_hand_off_failure_leaves_the_conversation_open(relay, monkeypatch):
+def test_dm_trusted_message_with_failing_handoff_does_not_close_conversation(relay, monkeypatch):
     app = FakeApp()
     dm.register(app, lambda conversation_id, message_id, anonymous=True: (_ for _ in ()).throw(RuntimeError("db")))
 
@@ -121,7 +121,7 @@ def test_trusted_sender_hand_off_failure_leaves_the_conversation_open(relay, mon
     assert relay["closed"] == []
 
 
-def test_trusted_senders_reads_the_setting_list():
+def test_trusted_senders_parses_comma_separated_setting():
     conn = FakeConn({dm.TRUSTED_SENDERS: (" U1 , ,U2",)})
 
     assert dm.trusted_senders(conn) == {"U1", "U2"}
@@ -132,14 +132,14 @@ def test_trusted_senders_reads_the_setting_list():
     (intake.TRUSTED_SENDER, "Not sent. Replies are disabled for trusted senders."),
     ("relay:reporter closed", "Not sent. The reporter's conversation is closed."),
 ])
-def test_answered_on_closed_conversation_refuses_with_its_reason(monkeypatch, closed_by, refusal):
+def test_queue_reply_on_closed_conversation_posts_ephemeral_refusal(monkeypatch, closed_by, refusal):
     @contextlib.contextmanager
     def fake_session():
-        yield FakeConn({case_channel.WHO_TO_REACH: (7, DM_CHANNEL_ID, "1.0", "2026-10-16", 30, closed_by)})
+        yield FakeConn({case_channel.REPORT_CONVERSATION: (7, DM_CHANNEL_ID, "1.0", "2026-10-16", 30, closed_by)})
 
     monkeypatch.setattr(case_channel, "session", fake_session)
     client = FakeSlack()
 
-    assert case_channel.CaseChannel(client).answered("5.0", "thanks", "UMOD", at=("C_FIRE", "5.1")) is None
+    assert case_channel.CaseChannel(client).queue_reply("5.0", "thanks", "UMOD", at=("C_FIRE", "5.1")) is None
     assert ("chat_postEphemeral", {"channel": "C_FIRE", "user": "UMOD", "thread_ts": "5.1", "text": refusal}) \
         in client.calls

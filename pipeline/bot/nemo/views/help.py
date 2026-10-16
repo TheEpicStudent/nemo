@@ -5,7 +5,7 @@ SELECT user_id FROM app.effective_capability WHERE capability = 'access.grant'
 ORDER BY user_id
 """
 
-HEADER = "Commands you have access to."
+HEADER = "Commands"
 
 NO_ACCESS = "You have no Fire Department access. Ask {who}."
 
@@ -24,7 +24,7 @@ NOTES = (
     "Notes and cases",
     (
         ("member.note", "/nemo note @member text", "member note, shown on every case"),
-        ("case.open", "/nemo open @member summary", "open a case, @member optional"),
+        ("case.open", "/nemo open @member summary", "open a case"),
         ("case.resolve", "/nemo merge 23 25", "close 25 as a duplicate of 23"),
     ),
 )
@@ -73,7 +73,6 @@ THREAD = (
         ("case.note", "!note text", "case note"),
         ("member.note", "!note @member text", "member note"),
         ("case.resolve", "!resolve", "resolve and notify the reporter"),
-        ("case.chat", "anything else", "case chat, not sent to the reporter"),
     ),
 )
 
@@ -100,7 +99,7 @@ def section(title, rows, capabilities):
     return "*{}*\n{}".format(title, "\n".join(lines))
 
 
-def words(title, rows, capabilities):
+def section_block(title, rows, capabilities):
     text = section(title, rows, capabilities)
     return {"type": "section", "text": {"type": "mrkdwn", "text": text}} if text else None
 
@@ -113,7 +112,7 @@ def grant_prompt(granters):
 
 def build_blocks(capabilities, granters=()):
     built = [{"type": "section", "text": {"type": "mrkdwn", "text": HEADER}}]
-    visible_sections = [words(title, rows, capabilities) for title, rows in SECTIONS]
+    visible_sections = [section_block(title, rows, capabilities) for title, rows in SECTIONS]
     visible_sections = [one for one in visible_sections if one]
 
     if not visible_sections:
@@ -130,10 +129,10 @@ def build_blocks(capabilities, granters=()):
     return built
 
 
-def flat(capabilities):
+def fallback_text(capabilities):
     parts = [section(title, rows, capabilities) for title, rows in SECTIONS]
     return "\n\n".join(one for one in parts if one) or HEADER
 
 
 def build_view(capabilities, granters=()):
-    return {"text": flat(capabilities), "blocks": build_blocks(capabilities, granters)}
+    return {"text": fallback_text(capabilities), "blocks": build_blocks(capabilities, granters)}

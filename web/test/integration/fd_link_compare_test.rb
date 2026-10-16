@@ -3,30 +3,30 @@ require "test_helper"
 class FdLinkCompareTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
-  GONE = "UCMPGONE".freeze
-  BACK = "UCMPBACK".freeze
+  DEACTIVATED = "UCMPGONE".freeze
+  ACTIVE = "UCMPBACK".freeze
   SIGNALS = '{"mailbox_alias": {"value": "kid@gmail.com", "people": 2, "score": 8.0}, ' \
             '"device_agent": {"value": "Slack/4.41 Mac", "people": 2, "score": 3.0}}'.freeze
 
   setup do
-    @me = hold_role!("UCMPBOSS", "community_manager")
+    @me = grant_role!("UCMPBOSS", "community_manager")
     sign_in_as(@me)
-    member!(GONE, email: "kid@gmail.com")
-    member!(BACK, email: "k.i.d+2@gmail.com")
-    as_pipeline("UPDATE fd.member SET is_deleted = true WHERE user_id = ?", GONE)
-    a, b = [GONE, BACK].sort
+    member!(DEACTIVATED, email: "kid@gmail.com")
+    member!(ACTIVE, email: "k.i.d+2@gmail.com")
+    as_pipeline("UPDATE fd.member SET is_deleted = true WHERE user_id = ?", DEACTIVATED)
+    a, b = [DEACTIVATED, ACTIVE].sort
     as_pipeline("INSERT INTO fd.member_link (a_user_id, b_user_id, score, top_signal, signals) VALUES (?, ?, 11.0, 'mailbox_alias', ?::jsonb)",
       a, b, SIGNALS)
     seeded!("fd.member_link", "a_user_id", a)
     seeded!("fd.member_link_verdict", "a_user_id", a)
-    joined!(GONE, 20.days.ago)
-    joined!(BACK, 2.days.ago)
-    as_pipeline(<<~SQL.squish, GONE)
+    joined!(DEACTIVATED, 20.days.ago)
+    joined!(ACTIVE, 2.days.ago)
+    as_pipeline(<<~SQL.squish, DEACTIVATED)
       INSERT INTO fd.evidence_snapshot (user_id, deactivated_at, source, actor_id, reason, identity, traits, links)
       VALUES (?, now() - interval '5 days', 'fire_engine', 'UCMPBOSS', 'ban evasion', '{}', '[]', '[]')
     SQL
-    seeded!("fd.evidence_snapshot", "user_id", GONE)
-    [GONE, BACK].each do |user_id|
+    seeded!("fd.evidence_snapshot", "user_id", DEACTIVATED)
+    [DEACTIVATED, ACTIVE].each do |user_id|
       trait!(user_id, "mailbox", "kid@gmail.com")
       login!(user_id, "81.2.69.144", 1.day.ago)
     end
@@ -56,8 +56,8 @@ class FdLinkCompareTest < ActionDispatch::IntegrationTest
     css_select(".cmp-grid .cmp-row").find { |row| row.at_css(".cmp-key")&.text&.squish == label }
   end
 
-  test "compare lines both accounts up row by row with the values they share" do
-    get fd_link_compare_path(a: GONE, b: BACK)
+  test "link compare renders heads and rows with shared values marked" do
+    get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE)
     assert_response :success
 
     heads = css_select(".cmp-heads .cmp-head")
@@ -72,13 +72,13 @@ class FdLinkCompareTest < ActionDispatch::IntegrationTest
     assert email.at_css(".cmp-match .cmp-yes")
     assert_equal 2, attribute("IP").css(".cmp-value.is-shared").size
     assert_equal 1, email.css(".cmp-value").map { |value| value["data-v"] }.uniq.size,
-      "the same value carries one key on both sides"
-    assert_nil attribute("JA4"), "a row neither account has is left out"
+      "both sides share one data-v"
+    assert_nil attribute("JA4"), "no JA4 row when neither account has one"
     assert_match "18 d apart", attribute("Joined").text
   end
 
-  test "a TLS fingerprint from anomaly events becomes a shared JA3 row" do
-    [GONE, BACK].each do |user_id|
+  test "link compare renders shared JA3 row from anomaly events" do
+    [DEACTIVATED, ACTIVE].each do |user_id|
       as_pipeline(<<~SQL.squish, SecureRandom.uuid, 2.days.ago, user_id, { details: { client_ja3_fingerprint: "e7d705a3286e19ea42f587b344ee6865", client_ja4_fingerprint: nil } }.to_json)
         INSERT INTO slack.audit_event (id, at, action, actor_kind, actor_id, ours, payload)
         VALUES (?, ?, 'anomaly', 'user', ?, false, ?::jsonb)
@@ -86,16 +86,16 @@ class FdLinkCompareTest < ActionDispatch::IntegrationTest
       seeded!("slack.audit_event", "actor_id", user_id)
     end
 
-    get fd_link_compare_path(a: GONE, b: BACK)
+    get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE)
 
     ja3 = attribute("JA3")
     assert_match "e7d705a3286e19ea42f587b344ee6865", ja3.text
     assert_equal 2, ja3.css(".cmp-value.is-shared").size
-    assert_nil attribute("JA4"), "the anomaly carried no JA4, so no row"
+    assert_nil attribute("JA4"), "no JA4 row when anomaly has no JA4 fingerprint"
   end
 
-  test "the score shows its band and the families behind it, and the signals add up by family" do
-    get fd_link_compare_path(a: GONE, b: BACK)
+  test "link compare renders score band with signal families and weights" do
+    get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE)
 
     assert_select ".cmp-score-value", "11.0"
     assert_select ".cmp-score .state", /Certain/
@@ -105,14 +105,14 @@ class FdLinkCompareTest < ActionDispatch::IntegrationTest
     assert_select ".cmp-signal .cmp-weight", "+8.0"
   end
 
-  test "a variant shows its own score and signals and keeps the variant through the verdict" do
-    a, b = [GONE, BACK].sort
+  test "link compare with variant renders its score and signals and keeps variant in back" do
+    a, b = [DEACTIVATED, ACTIVE].sort
     as_pipeline("INSERT INTO fd.member_link_shadow (variant, a_user_id, b_user_id, score, top_signal, signals) " \
                 "VALUES ('flat_inbox', ?, ?, 4.0, 'device_agent', ?::jsonb)",
       a, b, '{"device_agent": {"value": "Slack/4.41 Mac", "people": 2, "score": 4.0}}')
     seeded!("fd.member_link_shadow", "a_user_id", a)
 
-    get fd_link_compare_path(a: GONE, b: BACK, variant: "flat_inbox")
+    get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE, variant: "flat_inbox")
 
     assert_select ".cmp-score-value", "4.0"
     assert_select ".cmp-variant b", "flat_inbox"
@@ -120,36 +120,36 @@ class FdLinkCompareTest < ActionDispatch::IntegrationTest
     back = css_select("form.px-verdictbar input[name=back]").first["value"]
     assert_includes back, "variant=flat_inbox"
 
-    get fd_link_compare_path(a: GONE, b: BACK, variant: "live")
+    get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE, variant: "live")
     assert_select ".cmp-score-value", "11.0"
     assert_select ".cmp-variant", 0
   end
 
-  test "the floating bar records a verdict and comes back to compare" do
-    get fd_link_compare_path(a: GONE, b: BACK, back: fd_links_path)
+  test "link verdict create redirects to back and compare marks verdict recorded" do
+    get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE, back: fd_links_path)
     assert_select "form.px-verdictbar button[name=verdict][data-key='1'][value=same_person]"
     back = css_select("form.px-verdictbar input[name=back]").first["value"]
 
-    post fd_link_verdicts_path, params: { a: GONE, b: BACK, verdict: "same_person", back: back }
+    post fd_link_verdicts_path, params: { a: DEACTIVATED, b: ACTIVE, verdict: "same_person", back: back }
     assert_redirected_to back
     follow_redirect!
     assert_select "form.px-verdictbar button[aria-pressed=true]", /Same person/
     assert_select ".cmp-recorded .state", "Same person"
   end
 
-  test "the bar deactivates the active account as an alt of the deactivated one" do
-    get fd_link_compare_path(a: GONE, b: BACK)
+  test "link compare renders deactivate as alt modal for the active account" do
+    get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE)
 
     assert_select "form.px-verdictbar button[data-modal-open=member-deactivate][data-key=d]", /Deactivate .* as alt/
-    assert_select ".modal-host[data-modal-id-value=member-deactivate] form[action=?]", fd_member_guards_path(BACK)
+    assert_select ".modal-host[data-modal-id-value=member-deactivate] form[action=?]", fd_member_guards_path(ACTIVE)
     assert_select ".modal-host[data-modal-id-value=member-deactivate] textarea[name=reason]", /Alt of/
   end
 
-  test "the activity log puts each account on its side and marks sign-ins from one address within the hour" do
+  test "link compare activity log splits accounts by side and marks same IP within 1 h" do
     as_pipeline("INSERT INTO fd.ip_network (ip_prefix, asn, network, country, class, source) " \
                 "VALUES ('81.2.69.0/24', 64500, 'Example Net', 'GB', 'stable', 'ipinfo') ON CONFLICT DO NOTHING")
     seeded!("fd.ip_network", "ip_prefix", "81.2.69.0/24")
-    get fd_link_compare_path(a: GONE, b: BACK)
+    get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE)
 
     rows = css_select(".cmp-log-row:not(.cmp-log-heads)")
     left = rows.map { |row| row.css(".cmp-log-side")[0].text.squish }
@@ -162,26 +162,26 @@ class FdLinkCompareTest < ActionDispatch::IntegrationTest
     assert(css_select(".cmp-event.is-shared").all? { |event| event.text.include?("Stable") })
   end
 
-  test "without identity.read the email and addresses are hidden but still matched" do
-    firefighter = hold_role!("UCMPFF", "firefighter")
-    move_capability!("firefighter", "identity.read", false, by: "UCMPBOSS")
+  test "link compare without identity.read hides email and IP and marks IP match" do
+    firefighter = grant_role!("UCMPFF", "firefighter")
+    override_capability!("firefighter", "identity.read", false, by: "UCMPBOSS")
     sign_in_as(firefighter)
 
-    get fd_link_compare_path(a: GONE, b: BACK)
+    get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE)
     assert_response :success
     assert_no_match "kid@gmail.com", response.body
     assert_no_match "81.2.69.144", response.body
     assert attribute("IP").at_css(".cmp-match .cmp-yes")
   end
 
-  test "reading a pair is logged against both accounts" do
-    assert_difference -> { AccessLog.where(field_class: "links", subject_user_id: [GONE, BACK]).count }, 2 do
-      get fd_link_compare_path(a: GONE, b: BACK)
+  test "link compare creates one AccessLog row per account" do
+    assert_difference -> { AccessLog.where(field_class: "links", subject_user_id: [DEACTIVATED, ACTIVE]).count }, 2 do
+      get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE)
     end
   end
 
-  test "a pair needs two distinct member IDs" do
-    get fd_link_compare_path(a: GONE, b: GONE)
+  test "link compare with identical a and b returns not found" do
+    get fd_link_compare_path(a: DEACTIVATED, b: DEACTIVATED)
     assert_response :not_found
   end
 end

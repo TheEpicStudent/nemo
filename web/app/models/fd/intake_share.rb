@@ -23,7 +23,7 @@ module Fd
     end
 
     def why_not
-      "a link we could not open" unless body?
+      "link unavailable" unless body?
     end
 
     def file_ids

@@ -1,7 +1,7 @@
-from bot.relay.messages import MessageRelay, shared_at
+from bot.relay.messages import MessageRelay, file_share_ts
 
 CHANNEL_ID = "D123"
-THREAD = "100.000"
+THREAD_TS = "100.000"
 
 
 class Slack:
@@ -25,41 +25,41 @@ def shared(ts):
     return {"shares": {"private": {CHANNEL_ID: [{"ts": ts}]}}}
 
 
-def test_the_upload_answer_is_used_when_it_names_the_share():
+def test_resolve_file_ts_upload_with_share_returns_ts_without_api_calls():
     slack = Slack()
-    one = MessageRelay(slack)
-    destination = one.resolve_destination(dict(shared("1.1"), id="F1"), CHANNEL_ID, THREAD)
+    relay = MessageRelay(slack)
+    destination = relay.resolve_file_ts(dict(shared("1.1"), id="F1"), CHANNEL_ID, THREAD_TS)
     assert destination == "1.1"
     assert slack.calls == [], "no need to ask twice when the upload already said"
 
 
-def test_files_info_is_asked_when_the_upload_says_nothing():
+def test_resolve_file_ts_upload_without_share_uses_files_info():
     slack = Slack(info={"file": shared("2.2")})
-    destination = MessageRelay(slack).resolve_destination({"id": "F1"}, CHANNEL_ID, THREAD)
+    destination = MessageRelay(slack).resolve_file_ts({"id": "F1"}, CHANNEL_ID, THREAD_TS)
     assert destination == "2.2"
     assert slack.calls == ["files.info"]
 
 
-def test_the_thread_settles_it_when_slack_will_not():
+def test_resolve_file_ts_without_files_info_uses_thread_replies():
     slack = Slack(replies={"messages": [
         {"ts": "3.0", "files": [{"id": "OTHER"}]},
         {"ts": "3.3", "files": [{"id": "F1"}]},
     ]})
-    destination = MessageRelay(slack).resolve_destination({"id": "F1"}, CHANNEL_ID, THREAD)
+    destination = MessageRelay(slack).resolve_file_ts({"id": "F1"}, CHANNEL_ID, THREAD_TS)
     assert destination == "3.3", "the message carrying our file is the message it made"
     assert slack.calls == ["files.info", "conversations.replies"]
 
 
-def test_a_file_nobody_can_place_is_not_guessed_at():
+def test_resolve_file_ts_unmatched_file_returns_none():
     slack = Slack(replies={"messages": [{"ts": "4.0", "files": [{"id": "OTHER"}]}]})
-    assert MessageRelay(slack).resolve_destination({"id": "F1"}, CHANNEL_ID, THREAD) is None
+    assert MessageRelay(slack).resolve_file_ts({"id": "F1"}, CHANNEL_ID, THREAD_TS) is None
 
 
-def test_an_upload_with_no_id_is_left_alone():
+def test_resolve_file_ts_without_file_id_returns_none_and_makes_no_calls():
     slack = Slack()
-    assert MessageRelay(slack).resolve_destination({}, CHANNEL_ID, THREAD) is None
+    assert MessageRelay(slack).resolve_file_ts({}, CHANNEL_ID, THREAD_TS) is None
     assert slack.calls == []
 
 
-def test_shared_at_ignores_another_channel():
-    assert shared_at({"shares": {"private": {"D999": [{"ts": "9.9"}]}}}, CHANNEL_ID) is None
+def test_file_share_ts_other_channel_returns_none():
+    assert file_share_ts({"shares": {"private": {"D999": [{"ts": "9.9"}]}}}, CHANNEL_ID) is None

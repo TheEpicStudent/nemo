@@ -48,7 +48,7 @@ export function reloadFrame(frame, src = null, version = null) {
   fullReload(frame, targetSrc)
 }
 
-export function catchUp(frame) {
+export function syncFrame(frame) {
   if (!frame || frame.dataset.pendingVersion) return
 
   const targetSrc = frame.dataset.src

@@ -21,7 +21,7 @@ def rich_text_lists(message):
     return [element for element in message["blocks"][0]["elements"] if element["type"] == "rich_text_list"]
 
 
-def test_build_message_nests_entries_under_cases():
+def test_build_message_with_two_cases_nests_entries_under_each_case():
     message = view.build_message(
         2, [make_case(4913, "spam", hours=76), make_case(4920, assignees=["UMOD", "UTWO"])], {}, now=NOW)
 
@@ -135,7 +135,7 @@ def test_fetch_open_cases_uses_reports_or_card_opening(monkeypatch):
     assert cases[2]["entries"] == []
 
 
-def test_open_cases_query_orders_oldest_first_with_limit():
+def test_open_cases_sql_orders_oldest_first_and_limits_reports():
     assert "WHERE c.resolved_at IS NULL" in open_cases.OPEN_CASES
     assert "ORDER BY c.opened_at, c.id" in open_cases.OPEN_CASES
     assert "WHERE report_index <= %s" in open_cases.CASE_REPORTS
@@ -144,4 +144,4 @@ def test_open_cases_query_orders_oldest_first_with_limit():
 def test_parse_command_queue_requires_case_read():
     assert command.parse_command("queue") == (command.QUEUE, None, None)
     assert command.NEEDED[command.QUEUE] == "case.read"
-    assert "/nemo queue" in command.helping.flat({"case.read"})
+    assert "/nemo queue" in command.helping.fallback_text({"case.read"})

@@ -45,7 +45,6 @@ export default class extends Controller {
 
   presenceLabel(names) {
     if (names.length === 0) return ""
-    if (names.length === 1) return `${names[0]} is on this case`
-    return `${names.slice(0, -1).join(", ")} and ${names.at(-1)} are on this case`
+    return `Viewing: ${names.join(", ")}`
   }
 }

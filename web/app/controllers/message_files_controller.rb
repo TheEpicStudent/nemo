@@ -1,5 +1,5 @@
 class MessageFilesController < ApplicationController
-  before_action { needs(:analytics) }
+  before_action { require_flag(:analytics) }
   before_action :require_reading
 
   CACHE = "private, max-age=300".freeze

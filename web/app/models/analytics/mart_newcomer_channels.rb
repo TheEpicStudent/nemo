@@ -8,7 +8,7 @@ module Analytics
       "first" => { label: "posted here first", rank: :newcomer_first_posts,
                    gate: :newcomer_first_posts },
       "posting" => { label: "posted here", rank: :newcomers_posting, gate: :newcomers_posting },
-      "returning" => { label: "came back", rank: :newcomers_returning, gate: :newcomers_posting },
+      "returning" => { label: "returned", rank: :newcomers_returning, gate: :newcomers_posting },
       "joined" => { label: "joined", rank: :newcomers_joined, gate: :newcomers_joined }
     }.freeze
 

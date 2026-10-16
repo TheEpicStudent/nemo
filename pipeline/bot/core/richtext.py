@@ -3,8 +3,6 @@ import re
 
 LEADING_USER_ID = re.compile(r"\A([UW](?=[A-Z0-9]*\d)[A-Z0-9]{6,})(?=\s|\Z)")
 
-MENTION = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>|<#(C[A-Z0-9]+)(?:\|[^>]*)?>")
-
 PIECE = re.compile(
     r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>"
     r"|<#(C[A-Z0-9]+)(?:\|[^>]*)?>"
@@ -23,22 +21,22 @@ def leading_user_id(text):
 
 def link(url, label=None):
     href = html.unescape(url)
-    made = {"type": "link", "url": href}
+    element = {"type": "link", "url": href}
     text = html.unescape(label or "")
     if text and text != href:
-        made["text"] = text
-    return made
+        element["text"] = text
+    return element
 
 
 def elements(text, style=None):
     body = text or ""
     out = []
-    at = 0
+    position = 0
 
     for match in PIECE.finditer(body):
-        before = body[at : match.start()]
-        if before:
-            out.append(text_element(before, style))
+        preceding_text = body[position : match.start()]
+        if preceding_text:
+            out.append(text_element(preceding_text, style))
 
         user_id, channel_id, url, label, bare = match.groups()
         if user_id:
@@ -49,23 +47,19 @@ def elements(text, style=None):
             out.append(link(url, label))
         else:
             out.append(link(bare))
-        at = match.end()
+        position = match.end()
 
-    tail = body[at:]
+    tail = body[position:]
     if tail or not out:
         out.append(text_element(tail, style))
     return out
 
 
 def text_element(text, style=None):
-    made = {"type": "text", "text": text}
+    element = {"type": "text", "text": text}
     if style:
-        made["style"] = style
-    return made
-
-
-def mentions(text):
-    return bool(MENTION.search(text or ""))
+        element["style"] = style
+    return element
 
 
 def flatten(value):

@@ -3,17 +3,17 @@
       <%= form_with url: fd_cases_path, method: :post, html: { autocomplete: "off" } do %>
         <div class="modal-body">
           <div class="field-label">
-            <span>Who the case is about</span>
+            <span>Subjects</span>
             <%= render "shared/combobox", name: "subject_user_ids[]",
-                  label: "search for who the case is about", preset: @subject_preset %>
+                  label: "Search members", preset: @subject_preset %>
           </div>
 
           <div class="field-label">
             <span>Category</span>
-            <%= render "shared/choice", name: :category_key, blank: "Not sure yet",
+            <%= render "shared/choice", name: :category_key, blank: "Not set",
                   chosen: (params[:category_key].present? ?
-                    category_label(params[:category_key]) : "Not sure yet"),
-                  options: [{ value: "", label: "Not sure yet",
+                    category_label(params[:category_key]) : "Not set"),
+                  options: [{ value: "", label: "Not set",
                               current: params[:category_key].blank? }] +
                     Fd::InfractionCategory.active_keys.map { |key| {
                       value: key, label: category_label(key),
@@ -21,9 +21,9 @@
           </div>
 
           <label class="field-label">
-            What happened
+            Description
             <%= render "fd/mention_field", name: :body, value: params[:body], rows: 4,
-                  placeholder: "type @ to name somebody", required: true,
+                  placeholder: nil, required: true,
                   maxlength: Fd::CaseChat::MAX_LENGTH %>
           </label>
 
@@ -38,7 +38,7 @@
         </div>
         <div class="modal-foot">
           <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
-          <%= submit_tag "Open the case", class: "btn btn-primary" %>
+          <%= submit_tag "Open case", class: "btn btn-primary" %>
         </div>
       <% end %>
 <% end %>

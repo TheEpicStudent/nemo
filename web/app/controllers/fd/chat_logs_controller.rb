@@ -10,7 +10,7 @@ module Fd
       @reports = [@thread].compact
       @conversation = IntakeConversation.for_case(family).find_by(report_id: @thread&.id)
       @conversation_messages = IntakeMessage.tail([@conversation&.id].compact)
-      @queued = if @conversation
+      @queued_replies = if @conversation
         IntakeOutbox.where(conversation_id: @conversation.id, sent_at: nil).oldest_first.to_a
       else
         []
@@ -19,9 +19,9 @@ module Fd
       @earlier_chat = CaseChat.earlier_than(family, @chat.size)
       @cited_shares = IntakeShare.for_messages(@conversation_messages.map(&:id))
       @channels = ChannelNames.for(cited.map(&:source_channel_id).compact +
-        ChatChannels.ids(@chat, @conversation_messages, @queued, @reports))
+        ChatChannels.ids(@chat, @conversation_messages, @queued_replies, @reports))
       @names = Names.for(people_ids)
-      @emoji = ChatEmoji.for(@chat, @conversation_messages, @queued, @reports)
+      @emoji = ChatEmoji.for(@chat, @conversation_messages, @queued_replies, @reports)
 
       respond_to do |format|
         format.html { render layout: false }
@@ -38,7 +38,7 @@ module Fd
     def people_ids
       user_ids = @reports.map(&:reporter_user_id) + @reports.map(&:closed_by) +
         @conversation_messages.map(&:sent_by) + cited.map(&:source_author_user_id) +
-        @queued.map(&:requested_by) + @chat.map(&:author_user_id) + [@case.opened_by]
+        @queued_replies.map(&:requested_by) + @chat.map(&:author_user_id) + [@case.opened_by]
       return user_ids if @reports.any?(&:anonymous?)
 
       user_ids + @conversation_messages.map(&:author_user_id)
@@ -58,10 +58,10 @@ module Fd
       previous_chat, previous_messages, previous_queued = previous_parts
       @chat_changed = @chat.select { |line| changed_since?(line, previous_chat, :posted_at, :edited_at, :deleted_at) }
       @messages_changed = @conversation_messages.select { |message| changed_since?(message, previous_messages, :posted_at, :edited_at, :deleted_at) }
-      @queued_changed = @queued.select { |row| changed_since?(row, previous_queued, :requested_at, :sent_at, :failed_at) }
+      @queued_replies_changed = @queued_replies.select { |row| changed_since?(row, previous_queued, :requested_at, :sent_at, :failed_at) }
       @sent_ids = sent_since(previous_queued)
 
-      head :no_content if [@chat_changed, @messages_changed, @queued_changed, @sent_ids].all?(&:empty?)
+      head :no_content if [@chat_changed, @messages_changed, @queued_replies_changed, @sent_ids].all?(&:empty?)
     end
 
     def changed_since?(row, previous, *columns)

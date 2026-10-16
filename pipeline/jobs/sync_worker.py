@@ -32,7 +32,7 @@ from lib.db import (
 
 DEFAULT_AT = "03:00"
 DEFAULT_POLL_SECONDS = 60
-NEVER = float("-inf")
+NO_PROBE_YET = float("-inf")
 CANCEL_POLL_SECONDS = 30
 BEAT_SECONDS = 60
 CHANNEL = "sync_request"
@@ -85,14 +85,14 @@ def next_run_at(at, now):
     return scheduled if scheduled > now else scheduled + timedelta(days=1)
 
 
-def todays_run_elapsed():
+def todays_run_status():
     try:
         with connect() as conn, conn.cursor() as cur:
             cur.execute(RAN_TODAY_SQL, (SOURCE,))
             completed, abandoned = cur.fetchone()
             return completed > 0, abandoned
     except Exception as exc:
-        print(f"sync worker: cannot tell whether tonight's run ran, {type(exc).__name__}: {exc}")
+        print(f"sync worker: could not read today's run status, {type(exc).__name__}: {exc}")
         return True, MAX_CATCH_UPS
 
 
@@ -205,12 +205,12 @@ def expire_stale_runs(stale_after_hours=STALE_AFTER_HOURS):
             failed_request_ids = [row[0] for row in cur.fetchall()]
             conn.commit()
     except psycopg.Error as exc:
-        print(f"sync worker: reaper skipped after {type(exc).__name__}: {exc}")
+        print(f"sync worker: stale run cleanup skipped after {type(exc).__name__}: {exc}")
         return
     for run_id, source in abandoned_runs:
         print(f"sync worker: abandoned stale run {run_id} ({source})")
     for request_id in failed_request_ids:
-        print(f"sync worker: failed stranded sync request {request_id}")
+        print(f"sync worker: failed stale sync request {request_id}")
 
 
 def scheduled_at():
@@ -292,8 +292,8 @@ def main():
         except SeededDeployment as exc:
             print(f"sync worker: {exc}")
             raise SystemExit(1) from exc
-        for orphan, source in clear_stale_sessions(conn):
-            print(f"sync worker: swept run {orphan} ({source}), left running by an earlier boot")
+        for run_id, source in clear_stale_sessions(conn):
+            print(f"sync worker: abandoned run {run_id} ({source}) from an earlier boot")
 
     at = scheduled_at()
     poll = int(os.environ.get("SYNC_POLL_SECONDS", "") or DEFAULT_POLL_SECONDS)
@@ -305,10 +305,10 @@ def main():
     listen_conn = listener()
     expire_stale_runs(stale_after_hours=0)
     state = {"note": waiting_note(scheduled)}
-    last_probe_at = NEVER
+    last_probe_at = NO_PROBE_YET
 
     with heartbeat_loop(WORKER, lambda: state["note"], every=BEAT_SECONDS):
-        boot_reason = boot_run(at, datetime.now(), *todays_run_elapsed())
+        boot_reason = boot_run(at, datetime.now(), *todays_run_status())
         if boot_reason:
             state["note"] = f"{boot_reason} run"
             run_scheduled(boot_reason)

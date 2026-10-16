@@ -8,24 +8,24 @@ class Fd::ChatVersionTest < ActiveSupport::TestCase
       source_app: "fire_engine")
   end
 
-  test "an empty case still has a version to compare against" do
+  test "for returns the zero version for a case without messages" do
     assert_equal "0.0.0-0.0.0-0.0.0-0.0.0-0.0.0", Fd::ChatVersion.for(@kase.id)
   end
 
-  test "a new message moves the version" do
+  test "for changes after a message is created" do
     before = Fd::ChatVersion.for(@kase.id)
     chat
     assert_not_equal before, Fd::ChatVersion.for(@kase.id)
   end
 
-  test "a deleted message moves it too, so the reload is not skipped" do
+  test "for changes after a message is destroyed" do
     row = chat
     before = Fd::ChatVersion.for(@kase.id)
     row.destroy!
     assert_not_equal before, Fd::ChatVersion.for(@kase.id)
   end
 
-  test "housekeeping columns the trigger fires on leave it alone" do
+  test "for is unchanged after a last_seen_at update" do
     row = chat
     before = Fd::ChatVersion.for(@kase.id)
     row.update_columns(last_seen_at: 1.minute.from_now)

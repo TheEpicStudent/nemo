@@ -3,10 +3,10 @@ module Fd
     private
 
     def note_body_error(body, field)
-      return wrong!(field, "Enter the note") if body.blank?
+      return field_error!(field, "Enter the note") if body.blank?
 
       max_length = NotesController::MAX_LENGTH
-      return wrong!(field, "Keep it under #{max_length} characters", body) if body.length > max_length
+      return field_error!(field, "Keep it under #{max_length} characters", body) if body.length > max_length
 
       nil
     end

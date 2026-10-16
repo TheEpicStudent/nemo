@@ -3,7 +3,7 @@ from datetime import date
 from lib import planners
 
 
-def test_day_planner_lists_missing_days_newest_first_and_honours_the_limit():
+def test_day_lists_missing_days_newest_first_with_limit():
     floor, edge = date(2026, 9, 1), date(2026, 9, 6)
     covered = {date(2026, 9, 2), "2026-09-04"}
     assert planners.day(floor, edge, covered) == [
@@ -14,7 +14,7 @@ def test_day_planner_lists_missing_days_newest_first_and_honours_the_limit():
     assert planners.day(floor, edge, set(), newest_first=False)[0] == floor
 
 
-def test_month_planner_skips_covered_months_and_can_drop_the_open_month():
+def test_month_skips_covered_months_and_complete_only_drops_open_month():
     floor, edge = date(2026, 6, 15), date(2026, 9, 6)
     months = planners.month(floor, edge, {"2026-07"})
     assert months == [date(2026, 6, 1), date(2026, 8, 1), date(2026, 9, 1)]
@@ -22,7 +22,7 @@ def test_month_planner_skips_covered_months_and_can_drop_the_open_month():
     assert planners.month(floor, date(2026, 9, 30), set(), complete_only=True)[-1] == date(2026, 9, 1)
 
 
-def test_window_planner_clamps_to_the_calendar():
+def test_window_clamps_to_calendar_floor_and_edge():
     floor, edge = date(2025, 8, 4), date(2026, 9, 4)
     assert planners.window(floor, edge) == (floor, edge)
     assert planners.window(floor, edge, days=30) == (date(2026, 8, 6), edge)
@@ -31,7 +31,7 @@ def test_window_planner_clamps_to_the_calendar():
     assert planners.window(floor, edge, end=date(2030, 1, 1)) == (floor, edge)
 
 
-def test_snapshot_and_slice_key():
+def test_snapshot_returns_edge_unless_covered_and_slice_key_formats_range():
     edge = date(2026, 9, 4)
     assert planners.snapshot(edge, set()) == [edge]
     assert planners.snapshot(edge, {"2026-09-04"}) == []

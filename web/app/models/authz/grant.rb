@@ -14,7 +14,7 @@ class Authz
     scope :newest_first, -> { order(granted_at: :desc, id: :desc) }
 
     def self.grant!(user_id, kind:, name:, by:, effect: "allow", reason: nil)
-      refuse "#{kind} is not a kind of grant" unless KINDS.include?(kind.to_s)
+      refuse "#{kind} is not a grant kind" unless KINDS.include?(kind.to_s)
       refuse "#{effect} is not an effect" unless EFFECTS.include?(effect.to_s)
       check!(kind.to_s, name.to_s, effect.to_s)
 
@@ -34,19 +34,19 @@ class Authz
       if kind == "role"
         refuse "#{name} is not a role" unless Authz.role_names.include?(name)
         refuse "#{name} is not a grantable role" unless Authz.grantable_roles.include?(name)
-        refuse "a role cannot be denied" unless effect == "allow"
+        refuse "A role cannot be denied" unless effect == "allow"
       else
         refuse "#{name} is not a capability" unless Authz.keys.include?(name)
-        refuse "#{Authz.label(name)} cannot be handed out" if Authz.locked?(name)
+        refuse "#{Authz.label(name)} cannot be granted" if Authz.locked?(name)
       end
     end
 
-    def self.take_back_all!(user_id, by:)
+    def self.revoke_all!(user_id, by:)
       live.for_person(user_id).find_each { |grant| grant.revoke!(by: by) }
     end
 
     def revoke!(by:, at: Time.current)
-      refuse "that grant already ended" if revoked?
+      refuse "Grant already revoked" if revoked?
 
       update!(revoked_by: by, revoked_at: at)
     end

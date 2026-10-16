@@ -48,7 +48,7 @@ def run(client, request_id):
         channel_id, requested_by = row
 
         if not channels.joinable(conn, channel_id):
-            channels.noted(conn, channel_id, REFUSED, channels.NEEDS_INVITE, requested_by)
+            channels.record_join_event(conn, channel_id, REFUSED, channels.NEEDS_INVITE, requested_by)
             state, error = REFUSED, channels.NEEDS_INVITE
         elif channels.join(client, conn, channel_id, by=requested_by):
             state, error = JOINED, None

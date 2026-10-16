@@ -36,10 +36,10 @@ class Slack:
         self.ephemeral = []
         self.fails = fails
         self.users = users or {}
-        self.looked_up = []
+        self.user_lookups = []
 
     def users_info(self, user):
-        self.looked_up.append(user)
+        self.user_lookups.append(user)
         if user not in self.users:
             raise RuntimeError("user_not_found")
         return {"user": self.users[user]}
@@ -57,39 +57,39 @@ class Slack:
         return {"ok": True}
 
 
-def guard(**over):
+def guard(**overrides):
     row = {"id": 7, "kind": "shush", "subject_id": USER_ID, "channel_id": None,
            "reason": "being awful", "expires_at": EXPIRES_AT}
-    row.update(over)
+    row.update(overrides)
     return row
 
 
-def event(**over):
+def event(**overrides):
     row = {"channel": CHANNEL_ID, "user": USER_ID, "ts": TS, "subtype": None}
-    row.update(over)
+    row.update(overrides)
     return row
 
 
-def test_ending_with_a_time_shows_the_time_in_utc():
+def test_ending_with_expires_at_time_formats_utc_datetime():
     assert notify.ending(guard(expires_at=dt.datetime(2026, 3, 10, 14, 30, tzinfo=dt.UTC))) == \
         "until 10 Mar, 14:30 UTC"
 
 
-def test_a_date_reads_as_a_date_and_none_says_so():
+def test_ending_formats_end_of_day_as_date_and_none_as_endless():
     assert notify.ending(guard()) == "until 10 Mar"
     assert notify.ending(guard(expires_at=None)) == "with no end date"
 
 
 @pytest.fixture(autouse=True)
 def no_cached_users(monkeypatch):
-    monkeypatch.setattr(userbots, "_people", {})
+    monkeypatch.setattr(userbots, "_users", {})
 
 
-def test_a_message_with_words_in_it_is_ours():
+def test_message_target_plain_message_returns_channel_user_ts():
     assert notify.message_target(event(), Slack()) == (CHANNEL_ID, USER_ID, TS)
 
 
-def test_a_direct_message_is_never_ours():
+def test_message_target_direct_message_channel_returns_none():
     assert notify.message_target(event(channel="D1"), Slack())[0] is None
 
 
@@ -98,86 +98,86 @@ def test_message_target_plain_post_does_not_look_up_user():
 
     notify.message_target(event(), client)
 
-    assert client.looked_up == []
+    assert client.user_lookups == []
 
 
-def test_message_target_bot_user_post_is_skipped():
+def test_message_target_bot_user_post_returns_none():
     client = Slack(users={USER_ID: {"id": USER_ID, "is_bot": True}})
 
     assert notify.message_target(event(bot_id="B1"), client)[0] is None
 
 
-def test_message_target_user_token_post_is_ours():
+def test_message_target_user_token_post_returns_target():
     client = Slack(users={USER_ID: {"id": USER_ID, "is_bot": False}})
 
     assert notify.message_target(event(bot_id="B1"), client) == (CHANNEL_ID, USER_ID, TS)
 
 
-def test_message_target_user_lookup_failure_is_skipped():
+def test_message_target_user_lookup_failure_returns_none():
     assert notify.message_target(event(bot_id="B1"), Slack())[0] is None
 
 
-def test_message_target_user_lookup_is_cached():
+def test_message_target_repeated_post_looks_up_user_once():
     client = Slack(users={USER_ID: {"id": USER_ID, "is_bot": False}})
 
     notify.message_target(event(bot_id="B1"), client)
     notify.message_target(event(bot_id="B1"), client)
 
-    assert client.looked_up == [USER_ID]
+    assert client.user_lookups == [USER_ID]
 
 
-def test_a_subtype_that_carries_nothing_is_skipped():
+def test_message_target_non_message_subtype_returns_none():
     for subtype in ("channel_join", "message_deleted", "message_changed", "bot_message"):
         assert notify.message_target(event(subtype=subtype), Slack())[0] is None, subtype
 
 
-def test_every_subtype_that_carries_words_is_ours():
+def test_message_target_handled_subtype_returns_channel():
     for subtype in (None, "file_share", "thread_broadcast", "me_message"):
         assert notify.message_target(event(subtype=subtype), Slack())[0] == CHANNEL_ID, subtype
 
 
-def test_the_notification_is_written_down():
+def test_dm_subject_posts_dm_and_records_notified_event():
     conn, client = Conn(), Slack()
     notify.dm_subject(client, conn, guard(), "you've been shushed")
     assert client.posted[0]["channel"] == USER_ID
     assert conn.args_for("INSERT INTO fd.member_guard_events")[0][3] == "notified"
 
 
-def test_a_dm_that_will_not_send_is_written_down_as_such():
+def test_dm_subject_with_dm_failure_records_could_not_notify_detail():
     conn = Conn()
     notify.dm_subject(Slack(fails=("dm",)), conn, guard(), "anything")
     assert conn.args_for("INSERT INTO fd.member_guard_events")[0][6].startswith("could not notify")
 
 
-def test_a_whisper_that_will_not_send_is_swallowed():
+def test_post_ephemeral_with_failure_does_not_raise():
     notify.post_ephemeral(Slack(fails=("post_ephemeral",)), CHANNEL_ID, USER_ID, "anything")
 
 
-def test_ten_in_an_hour_earns_a_reset():
-    assert notify.reset_threshold_met(Conn({"deleted": 10, "reset": 0}), guard(), "deleted")
+def test_should_reset_sessions_with_ten_events_in_window_returns_true():
+    assert notify.should_reset_sessions(Conn({"deleted": 10, "reset": 0}), guard(), "deleted")
 
 
-def test_nine_in_an_hour_does_not():
-    assert not notify.reset_threshold_met(Conn({"deleted": 9, "reset": 0}), guard(), "deleted")
+def test_should_reset_sessions_with_nine_events_in_window_returns_false():
+    assert not notify.should_reset_sessions(Conn({"deleted": 9, "reset": 0}), guard(), "deleted")
 
 
-def test_one_reset_an_hour_is_enough():
-    assert not notify.reset_threshold_met(Conn({"deleted": 40, "reset": 1}), guard(), "deleted")
+def test_should_reset_sessions_with_recent_reset_returns_false():
+    assert not notify.should_reset_sessions(Conn({"deleted": 40, "reset": 1}), guard(), "deleted")
 
 
-def test_each_carrier_counts_its_own_verb():
+def test_should_reset_sessions_counts_each_verb_separately():
     counts_conn = Conn({"deleted": 10, "kicked": 0, "reset": 0})
-    assert notify.reset_threshold_met(counts_conn, guard(), "deleted")
-    assert not notify.reset_threshold_met(counts_conn, guard(), "kicked")
+    assert notify.should_reset_sessions(counts_conn, guard(), "deleted")
+    assert not notify.should_reset_sessions(counts_conn, guard(), "kicked")
 
 
-def test_the_count_only_looks_back_an_hour():
+def test_should_reset_sessions_counts_events_in_one_hour_window():
     conn = Conn({"deleted": 10, "reset": 0})
-    notify.reset_threshold_met(conn, guard(), "deleted")
+    notify.should_reset_sessions(conn, guard(), "deleted")
     assert all(args[2] == "1 hour" for args in conn.args_for("verb = %s AND at >"))
 
 
-def test_a_reset_is_written_down_with_what_came_of_it(monkeypatch):
+def test_reset_records_event_with_reset_sessions_outcome(monkeypatch):
     monkeypatch.setattr(notify.privileged, "reset_sessions", lambda user_id, conn=None: "reset")
     conn = Conn()
     assert notify.reset(conn, guard(), "posting") == "reset"

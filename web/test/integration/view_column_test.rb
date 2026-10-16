@@ -13,13 +13,13 @@ class ViewColumnTest < ActionDispatch::IntegrationTest
     "Analytics::FctWorkerHeartbeat" => %w[worker beat_at note]
   }.freeze
 
-  test "every analytics relation a Rails model points at exists" do
+  test "every Analytics model table exists" do
     MODELS.each do |model|
       assert model.table_exists?, "#{model.table_name} is missing, dbt has not built it"
     end
   end
 
-  test "every column the engine page reads exists on the view it reads it from" do
+  test "engine page columns exist on their Analytics models" do
     ENGINE_READS.each do |name, columns|
       model = name.constantize
       missing = columns - model.column_names

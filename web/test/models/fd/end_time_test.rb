@@ -17,11 +17,11 @@ module Fd
       assert_equal [Time.utc(2026, 11, 2, 14, 30), nil], EndTime.read("2026-11-02", "14:30:00")
     end
 
-    test "read with a bad date names it" do
+    test "read with an invalid date returns an error containing the input" do
       assert_equal [nil, "the ninth is not a date"], EndTime.read("the ninth", "")
     end
 
-    test "read with a time and no date asks for the date" do
+    test "read with a time and no date returns the enter a date error" do
       assert_equal [nil, "Enter a date for the end time"], EndTime.read("", "14:30")
     end
   end

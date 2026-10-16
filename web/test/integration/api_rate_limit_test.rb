@@ -22,13 +22,13 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
 
   def body = JSON.parse(response.body)
 
-  test "the default budget is twenty a minute" do
+  test "rate_per_minute setting and token rate default to 20" do
     assert_equal 20, Api::Setting.value("rate_per_minute")
     assert_equal 20, @token.rate
   end
 
-  test "every answer says how much budget is left" do
-    with_a_real_cache do
+  test "token route sets RateLimit limit remaining and reset headers" do
+    with_memory_store do
       get_token
 
       assert_response :success
@@ -38,18 +38,18 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "the remaining budget counts down, and stops at nought" do
-    with_a_real_cache do
+  test "RateLimit-Remaining decrements per request and floors at 0" do
+    with_memory_store do
       3.times { get_token }
       assert_equal "17", rate_limit_headers["RateLimit-Remaining"]
 
       20.times { get_token }
-      assert_equal "0", rate_limit_headers["RateLimit-Remaining"], "it never goes negative"
+      assert_equal "0", rate_limit_headers["RateLimit-Remaining"], "remaining does not go below 0"
     end
   end
 
-  test "past the budget it refuses, and says when to come back" do
-    with_a_real_cache do
+  test "request over limit returns 429 rate_limited with Retry-After" do
+    with_memory_store do
       20.times { get_token }
       assert_response :success
 
@@ -62,8 +62,8 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "one token running hot does not spend another token's budget" do
-    with_a_real_cache do
+  test "exhausted token does not reduce another token remaining" do
+    with_memory_store do
       other_app = make_app!("UOWNER2", name: "Arcade")
       other_token, other_secret = Api::Token.mint!(other_app, "Arcade")
       21.times { get_token }
@@ -77,8 +77,8 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a token with its own limit is held to that, not the shared one" do
-    with_a_real_cache do
+  test "token rate_limit overrides default and returns 429 after 2 requests" do
+    with_memory_store do
       @token.update!(rate_limit: 2)
 
       2.times { get_token }
@@ -90,17 +90,17 @@ class ApiRateLimitTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a refusal before the token is known carries no budget at all" do
-    with_a_real_cache do
+  test "unknown token returns 401 with no RateLimit headers" do
+    with_memory_store do
       get_token("nemo_live_neverissuedatall12")
 
       assert_response :unauthorized
-      assert_empty rate_limit_headers, "there is no budget to report without a token"
+      assert_empty rate_limit_headers, "RateLimit headers absent"
     end
   end
 
-  test "the budget is spent on checks too, not only on the token route" do
-    with_a_real_cache do
+  test "channel manager check decrements RateLimit-Remaining" do
+    with_memory_store do
       channel = Analytics::DimChannel.first.channel_id
       get api_v1_channel_manager_path(channel_id: channel, user_id: "U0BGRUHPTTR"),
         headers: { "Authorization" => "Bearer #{@secret}" }

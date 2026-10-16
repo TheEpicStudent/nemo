@@ -9,12 +9,12 @@ module Fd
 
     UNDONE_IN_SLACK = [DEACTIVATION].freeze
     NON_DEACTIVATION_KINDS = (KINDS - [DEACTIVATION]).freeze
-    WORST_KINDS = [DEACTIVATION, CHANNEL_BAN, SHUSH].freeze
+    SEVERITY_KINDS = [DEACTIVATION, CHANNEL_BAN, SHUSH].freeze
 
     LIVE = "live".freeze
     LIFTING = "lifting".freeze
     LIFTED = "lifted".freeze
-    STILL_ON = [LIVE, LIFTING].freeze
+    ACTIVE_STATES = [LIVE, LIFTING].freeze
 
     PENDING = "pending".freeze
     HELD = "held".freeze
@@ -22,12 +22,6 @@ module Fd
 
     NEMO = "nemo".freeze
     BY_HAND = "by_hand".freeze
-
-    MONITOR = "monitor".freeze
-    ALREADY_DONE = "by_hand".freeze
-    ADOPT = "adopt".freeze
-    EXTEND = "extend".freeze
-    RECORD = "record".freeze
 
     UNGUARDED = :unguarded
     ORPHANED = :orphaned
@@ -43,7 +37,7 @@ module Fd
     belongs_to :kase, class_name: "Fd::Case", foreign_key: :case_id, optional: true,
       inverse_of: false
 
-    scope :still_on, -> { where(state: STILL_ON) }
+    scope :active, -> { where(state: ACTIVE_STATES) }
     scope :live, -> { where(state: LIVE) }
     scope :on_no_case, -> { where(case_id: nil) }
     scope :orphaned, -> { live.on_no_case }
@@ -70,20 +64,20 @@ module Fd
       subject = subject_id.to_s.upcase.presence
       return [] if subject.nil?
 
-      still_on.for_subject(subject).oldest_first.to_a
+      active.for_subject(subject).oldest_first.to_a
     end
 
-    def self.worst_kinds_first(kinds)
-      Array(kinds).uniq.sort_by { |kind| WORST_KINDS.index(kind) || WORST_KINDS.size }
+    def self.kinds_by_severity(kinds)
+      Array(kinds).uniq.sort_by { |kind| SEVERITY_KINDS.index(kind) || SEVERITY_KINDS.size }
     end
 
-    def self.worst_first(guards)
-      weight = Action::WORST_FIRST
+    def self.by_severity(guards)
+      weight = Action::SEVERITY_ORDER
       guards.sort_by { |guard| [weight.index(guard.kind) || weight.size, -guard.opened_at.to_i] }
     end
 
     def self.standing_for(subject_id, kind:, channel_id: nil)
-      still_on.find_by(subject_id: subject_id, kind: kind, channel_id: channel_id)
+      active.find_by(subject_id: subject_id, kind: kind, channel_id: channel_id)
     end
 
     def self.for_action(type_key, subject_id, channel_id: nil)
@@ -106,19 +100,19 @@ module Fd
     end
 
     def attach_to!(case_id)
-      updated_count = self.class.still_on.where(id: id, case_id: nil)
+      updated_count = self.class.active.where(id: id, case_id: nil)
         .update_all(case_id: case_id, updated_at: Time.current)
       updated_count.positive? ? reload : nil
     end
 
-    def run_until!(expires_at)
-      updated_count = self.class.still_on.where(id: id)
+    def set_expiry!(expires_at)
+      updated_count = self.class.active.where(id: id)
         .update_all(expires_at: expires_at, updated_at: Time.current)
       updated_count.positive? ? reload : nil
     end
 
     def lift!(by:, reason: nil)
-      updated_count = self.class.still_on.where(id: id).update_all(
+      updated_count = self.class.active.where(id: id).update_all(
         **lifting_columns, lifted_by: by, lift_reason: reason, updated_at: Time.current
       )
       updated_count.positive? ? reload : nil
@@ -155,7 +149,7 @@ module Fd
       ELSEWHERE
     end
 
-    def people_named
+    def referenced_user_ids
       [opened_by, lifted_by].compact
     end
 

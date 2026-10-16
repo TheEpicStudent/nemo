@@ -100,7 +100,7 @@ def run_drain(monkeypatch, conn, client):
     return guard_notices.drain(client)
 
 
-def test_a_burst_opens_one_parent_with_every_message_under_it(monkeypatch):
+def test_drain_ten_events_posts_one_parent_with_ten_replies(monkeypatch):
     events = [event(n) for n in range(1, 11)]
     conn, client = Conn(groups=[(7, BOT)], claims=[events]), Slack()
 
@@ -118,7 +118,7 @@ def test_a_burst_opens_one_parent_with_every_message_under_it(monkeypatch):
     assert client.updated == []
 
 
-def test_events_for_an_open_thread_reply_and_update_the_parent(monkeypatch):
+def test_drain_open_thread_posts_replies_and_updates_parent(monkeypatch):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1), event(2)]],
                 thread=(11, THREAD_TS), totals=(5, 1))
     client = Slack()
@@ -134,7 +134,7 @@ def test_events_for_an_open_thread_reply_and_update_the_parent(monkeypatch):
     assert "Removed from the channel 1 time." in update["text"]
 
 
-def test_the_thread_lookup_uses_the_idle_timeout_and_max_age(monkeypatch):
+def test_drain_thread_lookup_passes_idle_timeout_and_max_age(monkeypatch):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1)]])
     run_drain(monkeypatch, conn, Slack())
 
@@ -142,7 +142,7 @@ def test_the_thread_lookup_uses_the_idle_timeout_and_max_age(monkeypatch):
     assert args == (7, BOT, guard_notices.IDLE_TIMEOUT, guard_notices.MAX_AGE)
 
 
-def test_the_claim_skips_notices_that_were_given_up(monkeypatch):
+def test_drain_claim_queries_pass_give_up_after_and_limits(monkeypatch):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1)]])
     run_drain(monkeypatch, conn, Slack())
 
@@ -152,7 +152,7 @@ def test_the_claim_skips_notices_that_were_given_up(monkeypatch):
     assert group_args == (guard_notices.GIVE_UP_AFTER, guard_notices.GROUPS_PER_DRAIN)
 
 
-def test_no_thread_is_opened_when_the_parent_cannot_be_posted(monkeypatch):
+def test_drain_parent_post_failure_inserts_no_thread_and_counts_attempt(monkeypatch):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1), event(2)]])
 
     run_drain(monkeypatch, conn, Slack(fail_post_at=0))
@@ -162,7 +162,7 @@ def test_no_thread_is_opened_when_the_parent_cannot_be_posted(monkeypatch):
     assert conn.args_for("notice_attempts = notice_attempts + 1") == [([1, 2],)]
 
 
-def test_a_reply_that_fails_leaves_the_rest_for_the_next_drain(monkeypatch):
+def test_drain_failed_reply_marks_prior_events_noticed_and_counts_attempt(monkeypatch):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1), event(2), event(3)]])
     client = Slack(fail_post_at=3)
 
@@ -175,7 +175,7 @@ def test_a_reply_that_fails_leaves_the_rest_for_the_next_drain(monkeypatch):
     assert "Deleted 2 messages." in update["text"]
 
 
-def test_a_notice_is_given_up_after_its_last_attempt(monkeypatch, caplog):
+def test_drain_notice_at_give_up_after_logs_warning(monkeypatch, caplog):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1)]], attempts=guard_notices.GIVE_UP_AFTER)
     caplog.set_level("WARNING", logger="bot.nemo")
 
@@ -185,7 +185,7 @@ def test_a_notice_is_given_up_after_its_last_attempt(monkeypatch, caplog):
                for one in caplog.records)
 
 
-def test_a_failed_update_still_marks_the_events_noticed(monkeypatch):
+def test_drain_failed_parent_update_still_marks_events_noticed(monkeypatch):
     conn = Conn(groups=[(7, BOT)], claims=[[event(1)]], thread=(11, THREAD_TS), totals=(4, 0))
 
     run_drain(monkeypatch, conn, Slack(fail_update=True))
@@ -193,7 +193,7 @@ def test_a_failed_update_still_marks_the_events_noticed(monkeypatch):
     assert conn.args_for("SET noticed_at = now()") == [([1],)]
 
 
-def test_a_full_claim_is_followed_by_another(monkeypatch):
+def test_drain_full_claim_triggers_another_claim(monkeypatch):
     monkeypatch.setattr(guard_notices, "EVENTS_PER_CLAIM", 2)
     conn = Conn(groups=[(7, BOT)], claims=[[event(1), event(2)], [event(3)]])
     client = Slack()
@@ -203,7 +203,7 @@ def test_a_full_claim_is_followed_by_another(monkeypatch):
     assert conn.args_for("SET noticed_at = now()") == [([1, 2],), ([3],)]
 
 
-def test_one_failing_group_does_not_stop_the_others(monkeypatch):
+def test_drain_failing_group_does_not_stop_other_groups(monkeypatch):
     conn = Conn(groups=[(7, "U1"), (7, "U2")], claims=[[event(1, subject="U1")]])
     calls = []
     original_drain_group = guard_notices.drain_group
@@ -220,52 +220,52 @@ def test_one_failing_group_does_not_stop_the_others(monkeypatch):
     assert calls == ["U1", "U2"]
 
 
-def test_drain_asks_for_another_pass_when_the_group_limit_is_hit(monkeypatch):
+def test_drain_at_groups_per_drain_limit_returns_true(monkeypatch):
     monkeypatch.setattr(guard_notices, "GROUPS_PER_DRAIN", 1)
     conn = Conn(groups=[(7, BOT)], claims=[[event(1)]])
 
     assert run_drain(monkeypatch, conn, Slack()) is True
 
 
-def test_details_name_the_member_channel_and_reason():
+def test_event_line_returns_member_channel_and_reason_per_verb():
     deleted = as_dict(event(1))
     kicked = {**deleted, "verb": "kicked", "message_ts": None}
     away_event = {**deleted, "verb": "let_past", "detail": "away", "message_ts": None}
 
-    assert guard_notices.detail_of(deleted).startswith(
+    assert guard_notices.event_line(deleted).startswith(
         f"Deleted a message from <@{BOT}> in <#{CHANNEL_ID}>, not on the allow list.\n> buy now")
-    assert "<https://link/1|Message>" in guard_notices.detail_of(deleted)
-    assert guard_notices.detail_of(kicked).startswith(
+    assert "<https://link/1|Message>" in guard_notices.event_line(deleted)
+    assert guard_notices.event_line(kicked).startswith(
         f"Removed <@{BOT}> from <#{CHANNEL_ID}>, not on the allow list.")
-    assert guard_notices.detail_of(away_event).startswith(
+    assert guard_notices.event_line(away_event).startswith(
         f"<@{BOT}> joined <#{CHANNEL_ID}> without being on the allow list and could not be removed "
         "(the admin account is not in the channel).")
 
 
-def test_a_delete_that_was_given_up_says_so():
+def test_event_line_let_past_cant_delete_message_reports_failed_delete():
     let_past_event = as_dict(event(1, verb="let_past", detail="cant_delete_message"))
 
-    text = guard_notices.detail_of(let_past_event)
+    text = guard_notices.event_line(let_past_event)
     assert text.startswith(
         f"Could not delete a message from <@{BOT}> in <#{CHANNEL_ID}> (cant_delete_message).")
     assert "> buy now" in text
     assert "<https://link/1|Message>" in text
 
 
-def test_notices_wait_for_a_queued_delete():
+def test_claim_notices_and_notice_groups_exclude_remove_pending():
     from bot.nemo import channelguards
 
     assert "NOT remove_pending" in channelguards.CLAIM_NOTICES
     assert "NOT remove_pending" in channelguards.NOTICE_GROUPS
 
 
-def test_a_bot_with_no_user_is_named_by_its_label():
-    assert guard_notices.naming("B1", "spammer") == "*spammer*"
-    assert guard_notices.naming("B1", None) == "*B1*"
-    assert guard_notices.naming(BOT, "spammer") == f"<@{BOT}>"
+def test_subject_label_bot_id_returns_label_or_id_and_user_returns_mention():
+    assert guard_notices.subject_label("B1", "spammer") == "*spammer*"
+    assert guard_notices.subject_label("B1", None) == "*B1*"
+    assert guard_notices.subject_label(BOT, "spammer") == f"<@{BOT}>"
 
 
-def test_summary_pluralises():
+def test_summary_singular_and_plural_counts_use_matching_nouns():
     assert guard_notices.summary("*x*", CHANNEL_ID, 1, 0) == (
         f"*x* is not on the allow list for <#{CHANNEL_ID}>. Deleted 1 message."
     )

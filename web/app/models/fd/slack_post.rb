@@ -31,7 +31,7 @@ module Fd
       thread_ts = thread_for(chat.case_id)
       channel_id = channel_for(chat.case_id)
       if grant.nil? || thread_ts.nil? || channel_id.nil?
-        return mark_unsent(chat, "there is nothing to send it with")
+        return mark_unsent(chat, "No linked Slack account or thread")
       end
 
       result = post_message(grant, channel_id, thread_ts, chat.body)
@@ -47,7 +47,7 @@ module Fd
         thread_ts: thread_ts, text: escape_markup(body))
       return { ts: response["ts"] } if response["ok"]
 
-      { error: response["error"].to_s.presence || "slack refused it" }
+      { error: response["error"].to_s.presence || "Slack rejected the request" }
     rescue Slack::Chat::UnavailableError => error
       { error: error.message }
     end

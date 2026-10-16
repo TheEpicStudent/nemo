@@ -9,8 +9,8 @@ module Fd
 
       writing do
         sent = Outgoing.queue(conversation_for(kase), parsed.body, mode: mode(parsed),
-          by: current_account.user_id, asked: params[:conversation_id].present?)
-        answered(kase, sent.queued) if sent.queued
+          by: current_account.user_id, conversation_selected: params[:conversation_id].present?)
+        audit_reply(kase, sent.queued) if sent.queued
       end
 
       return redirect_to(back_to(kase), alert: sent.problem) if sent.problem
@@ -18,8 +18,7 @@ module Fd
       respond_to do |format|
         format.turbo_stream { render turbo_stream: CaseChatBroadcast.tag(kase.id) }
         format.html do
-          flash[:detail] = "It goes out as a DM. Your name is on it either way."
-          redirect_to back_to(kase), notice: "Reply queued for the reporter"
+          redirect_to back_to(kase), notice: "Reply queued"
         end
       end
     end
@@ -33,7 +32,7 @@ module Fd
       conversations.find_by(id: params[:conversation_id])
     end
 
-    def answered(kase, queued)
+    def audit_reply(kase, queued)
       audit(queued.conversation.report, "answered", entity_id: kase.id,
         after: { "outbox_id" => queued.id, "mode" => queued.mode })
     end

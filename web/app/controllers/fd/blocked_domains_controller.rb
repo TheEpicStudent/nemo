@@ -18,7 +18,7 @@ module Fd
           "match_mode" => blocked_domain.match_mode, "effect" => blocked_domain.effect })
       end
 
-      redirect_to return_path, notice: "#{domain_param} is on the list, set to #{effect}"
+      redirect_to return_path, notice: "#{domain_param} added · #{effect}"
     rescue ActiveRecord::RecordNotUnique
       redirect_with_alert("Already on the list")
     end
@@ -54,15 +54,15 @@ module Fd
     def overridden? = params[:anyway].present?
 
     def validation_error
-      return "no domain given" if domain_param.blank?
-      return "a domain is under #{MAX_DOMAIN_LENGTH} characters" if domain_param.length > MAX_DOMAIN_LENGTH
+      return "Enter a domain" if domain_param.blank?
+      return "Keep it under #{MAX_DOMAIN_LENGTH} characters" if domain_param.length > MAX_DOMAIN_LENGTH
       return "#{domain_param} is not a domain" unless BlockedDomain.valid_domain?(domain_param)
       return nil if overridden?
 
-      account_count = BlockedDomain.people_on(domain_param, match_mode: match_mode)
+      account_count = BlockedDomain.account_count_on(domain_param, match_mode: match_mode)
       return nil unless BlockedDomain.too_many?(account_count)
 
-      wrong!(:domain, "#{domain_param} is on #{helpers.pluralize(account_count, 'account')} already", domain_param)
+      field_error!(:domain, "#{domain_param} is on #{helpers.pluralize(account_count, 'account')} already", domain_param)
     end
 
     def redirect_with_alert(message)

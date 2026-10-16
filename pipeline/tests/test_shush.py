@@ -7,14 +7,14 @@ from bot.nemo import memberguards
 from bot.nemo.enforcement import shush
 
 
-class _conn_context:
+class ConnContext:
     def __init__(self, conn):
         self.conn = conn
 
     def __enter__(self):
         return self.conn
 
-    def __exit__(self, *failure):
+    def __exit__(self, *exc_info):
         return False
 
 
@@ -84,9 +84,9 @@ def stub_remove(monkeypatch):
     monkeypatch.setattr(shush.guard_actions, "remove", lambda client, channel_id, ts: True)
 
 
-def test_taking_one_up_notifies_them_once_and_says_when_it_ends():
+def test_enforce_new_guard_posts_notice_with_end_date_and_records_notified():
     conn, client = Conn(), Slack()
-    assert shush.take_up(client, conn, guard())
+    assert shush.enforce(client, conn, guard())
 
     posted = client.posted[0]
     assert posted["channel"] == USER_ID
@@ -95,19 +95,19 @@ def test_taking_one_up_notifies_them_once_and_says_when_it_ends():
     assert conn.args_for("INSERT INTO fd.member_guard_events")[0][3] == "notified"
 
 
-def test_one_that_never_ends_says_so_rather_than_a_date():
+def test_enforce_guard_without_expiry_notice_says_no_end_date():
     client = Slack()
-    shush.take_up(client, Conn(), guard(expires_at=None))
+    shush.enforce(client, Conn(), guard(expires_at=None))
     assert "with no end date" in client.posted[0]["text"]
 
 
-def test_one_already_held_is_not_notified_again():
+def test_enforce_unclaimed_guard_does_not_notify():
     client = Slack()
-    assert not shush.take_up(client, Conn(claims=False), guard())
+    assert not shush.enforce(client, Conn(claims=False), guard())
     assert client.posted == []
 
 
-def test_a_removed_message_is_written_down_and_the_guard_reads_as_held():
+def test_remove_success_records_deleted_event_and_updates_enforcement_status():
     conn = Conn()
     assert shush.remove(Slack(), conn, guard(), CHANNEL_ID, TS)
 
@@ -117,8 +117,8 @@ def test_a_removed_message_is_written_down_and_the_guard_reads_as_held():
     assert recorded[4] == TS
 
 
-def test_seen_notifies_them_inside_the_thread_they_posted_in(monkeypatch):
-    monkeypatch.setattr(shush, "session", lambda: _conn_context(Conn()))
+def test_on_message_shushed_user_in_thread_posts_ephemeral_in_thread(monkeypatch):
+    monkeypatch.setattr(shush, "session", lambda: ConnContext(Conn()))
     monkeypatch.setattr(shush.channel, "firehouse_channel", lambda: "COTHER")
     memberguards._shushes[USER_ID] = guard()
     memberguards._loaded = True
@@ -131,8 +131,8 @@ def test_seen_notifies_them_inside_the_thread_they_posted_in(monkeypatch):
         memberguards._loaded = False
 
 
-def test_seen_tells_them_channel_wide_outside_a_thread(monkeypatch):
-    monkeypatch.setattr(shush, "session", lambda: _conn_context(Conn()))
+def test_on_message_shushed_user_outside_thread_posts_ephemeral_without_thread_ts(monkeypatch):
+    monkeypatch.setattr(shush, "session", lambda: ConnContext(Conn()))
     monkeypatch.setattr(shush.channel, "firehouse_channel", lambda: "COTHER")
     memberguards._shushes[USER_ID] = guard()
     memberguards._loaded = True
@@ -145,7 +145,7 @@ def test_seen_tells_them_channel_wide_outside_a_thread(monkeypatch):
         memberguards._loaded = False
 
 
-def test_a_message_that_will_not_go_drops_the_guard(monkeypatch):
+def test_remove_failure_records_failed_event_and_status(monkeypatch):
     def failing_remove(client, channel_id, ts):
         raise RuntimeError("channel_not_found")
 
@@ -157,23 +157,23 @@ def test_a_message_that_will_not_go_drops_the_guard(monkeypatch):
     assert conn.args_for("INSERT INTO fd.member_guard_events")[0][3] == "failed"
 
 
-def test_the_live_set_is_only_what_is_still_live():
+def test_live_guards_sql_selects_only_live_state():
     assert "state = 'live'" in memberguards.LIVE_GUARDS
     assert "lifting" not in memberguards.LIVE_GUARDS
 
 
-def test_only_what_nemo_carries_is_taken_up():
+def test_unenforced_sql_selects_nemo_pending_guards():
     assert "enforced_by = 'nemo'" in memberguards.UNENFORCED
     assert "enforcement_status = 'pending'" in memberguards.UNENFORCED
 
 
-def test_nothing_is_shushed_until_the_set_has_been_loaded():
+def test_active_shush_and_active_ban_before_load_return_none():
     memberguards._loaded = False
-    assert memberguards.shushed(USER_ID) is None
-    assert memberguards.banned(USER_ID, CHANNEL_ID) is None
+    assert memberguards.active_shush(USER_ID) is None
+    assert memberguards.active_ban(USER_ID, CHANNEL_ID) is None
 
 
-def test_a_guard_the_web_opens_reaches_the_bot_without_waiting_for_a_sweep():
+def test_loop_listens_for_member_guard_notify():
     from bot.nemo import loop
 
     assert loop.MEMBER_GUARD == "fd_member_guard"
@@ -182,7 +182,7 @@ def test_a_guard_the_web_opens_reaches_the_bot_without_waiting_for_a_sweep():
     assert "elif channel_name == MEMBER_GUARD:" in loop_source
 
 
-def test_the_trigger_that_wakes_the_bot_fires_on_a_fresh_guard():
+def test_member_guards_migration_trigger_notifies_on_insert():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
             / "0131_member_guards.sql").read_text()
     assert "AFTER INSERT OR UPDATE OF state, carry, expires_at, case_id OR DELETE" in sql

@@ -48,17 +48,17 @@ def settings(monkeypatch, firehouse="C_FIRE", reports=None, logs=None, react=("C
     monkeypatch.setattr(channel.channels, "react_channels", lambda conn: set(react))
 
 
-def test_a_card_can_land_in_the_firehouse_or_a_react_channel(monkeypatch):
+def test_case_channels_returns_firehouse_and_react_channels(monkeypatch):
     settings(monkeypatch)
     assert channel.case_channels(Conn()) == {"C_FIRE", "C_REACT"}
 
 
-def test_the_firehouse_alone_is_enough(monkeypatch):
+def test_case_channels_without_react_channels_returns_firehouse(monkeypatch):
     settings(monkeypatch, react=())
     assert channel.case_channels(Conn()) == {"C_FIRE"}
 
 
-def test_the_channels_are_remembered_so_every_message_does_not_ask(monkeypatch):
+def test_case_channels_second_call_uses_cache(monkeypatch):
     settings(monkeypatch)
     channel.case_channels(Conn())
     monkeypatch.setattr(channel.channels, "react_channels", lambda conn: 1 / 0)
@@ -68,18 +68,18 @@ def test_the_channels_are_remembered_so_every_message_does_not_ask(monkeypatch):
 CARD_ROWS = {"FROM fd.case_reports WHERE card_channel_id IS NOT NULL": [("C_OLDFIRE",), ("G01DBHPLK25",)]}
 
 
-def test_case_channels_includes_card_channels_after_firehouse_moves(monkeypatch):
+def test_case_channels_after_firehouse_change_includes_card_channels(monkeypatch):
     settings(monkeypatch, firehouse="C_NEWFIRE")
 
     assert channel.case_channels(Conn(lists=CARD_ROWS)) == {"C_NEWFIRE", "C_REACT", "C_OLDFIRE", "G01DBHPLK25"}
 
 
-def test_card_channels_reads_reports_and_cases():
+def test_card_channels_query_reads_reports_and_cases():
     assert "FROM fd.case_reports WHERE card_channel_id IS NOT NULL" in channel.CARD_CHANNELS
     assert "FROM fd.cases WHERE card_channel_id IS NOT NULL" in channel.CARD_CHANNELS
 
 
-def test_card_channels_are_cached_between_refreshes(monkeypatch):
+def test_card_channels_after_refresh_returns_cached_channels(monkeypatch):
     settings(monkeypatch)
     channel.refresh_channels(Conn(lists=CARD_ROWS))
 
@@ -87,20 +87,20 @@ def test_card_channels_are_cached_between_refreshes(monkeypatch):
     assert "C_OLDFIRE" in channel.case_channels()
 
 
-def refreshes_recorded(monkeypatch):
-    refreshed = []
-    monkeypatch.setattr(loop.channel, "refresh_channels", lambda conn: refreshed.append(conn))
-    return refreshed
+def capture_refreshes(monkeypatch):
+    refreshed_conns = []
+    monkeypatch.setattr(loop.channel, "refresh_channels", lambda conn: refreshed_conns.append(conn))
+    return refreshed_conns
 
 
-def test_loop_once_refreshes_channels():
-    assert "channel.refresh_channels(conn)" in inspect.getsource(loop.once)
+def test_sweep_once_calls_refresh_channels():
+    assert "channel.refresh_channels(conn)" in inspect.getsource(loop.sweep_once)
 
 
-def test_app_setting_notify_refreshes_channels(monkeypatch):
+def test_start_app_setting_notify_refreshes_channels(monkeypatch):
     conn = Conn()
-    refreshed = refreshes_recorded(monkeypatch)
-    watched = {}
+    refreshed_conns = capture_refreshes(monkeypatch)
+    listener_handlers = {}
 
     @contextlib.contextmanager
     def fake_session():
@@ -110,37 +110,37 @@ def test_app_setting_notify_refreshes_channels(monkeypatch):
     for module in (loop.guards, loop.channelguards, loop.memberguards, loop.automod,
                    loop.responses, loop.screening):
         monkeypatch.setattr(module, "refresh", lambda conn: 0)
-    monkeypatch.setattr(loop.purge, "requeue_stranded", lambda conn: [])
-    monkeypatch.setattr(loop.loops, "draining", lambda *args, **kwargs: (lambda: None))
-    monkeypatch.setattr(loop.loops, "watching",
-                        lambda name, names, on_notify, stopping: watched.update(on_notify=on_notify))
-    monkeypatch.setattr(loop.loops, "sweeping", lambda *args, **kwargs: None)
-    monkeypatch.setattr(loop.loops, "timed", lambda *args, **kwargs: (lambda: None))
+    monkeypatch.setattr(loop.purge, "requeue_interrupted", lambda conn: [])
+    monkeypatch.setattr(loop.loops, "run_on_wake", lambda *args, **kwargs: (lambda: None))
+    monkeypatch.setattr(loop.loops, "start_listener",
+                        lambda name, names, on_notify, stopping: listener_handlers.update(on_notify=on_notify))
+    monkeypatch.setattr(loop.loops, "run_periodically", lambda *args, **kwargs: None)
+    monkeypatch.setattr(loop.loops, "run_on_timer", lambda *args, **kwargs: (lambda: None))
     monkeypatch.setattr(loop, "start_configured_joins", lambda client: None)
 
     loop.start(SimpleNamespace(client=None), threading.Event())
-    refreshed.clear()
-    watched["on_notify"](loop.APP_SETTING, "nemo.firehouse_channel")
+    refreshed_conns.clear()
+    listener_handlers["on_notify"](loop.APP_SETTING, "nemo.firehouse_channel")
 
-    assert refreshed == [conn]
+    assert refreshed_conns == [conn]
 
 
-def test_a_thread_on_no_case_names_none():
+def test_case_of_thread_without_case_returns_none():
     assert chat.case_of_thread(Conn(), "100.000") is None
 
 
-def test_the_thread_is_asked_for_by_name_not_by_position():
+def test_case_of_thread_passes_ts_as_named_parameter():
     conn = Conn({"SELECT case_id FROM (": (6,)})
     assert chat.case_of_thread(conn, "100.000") == 6
     assert conn.args_for("SELECT case_id FROM (")[0] == {"ts": "100.000"}
 
 
-def test_thread_for_a_case_with_a_report_uses_its_forwarded_ts():
+def test_thread_for_case_with_report_returns_forwarded_ts():
     conn = Conn({"SELECT coalesce(": ("200.000",)})
     assert channel.thread_for(conn, 412) == "200.000"
 
 
-def test_thread_for_a_case_with_no_thread_at_all_is_none():
+def test_thread_for_case_without_thread_returns_none():
     conn = Conn()
     assert channel.thread_for(conn, 412) is None
 
@@ -157,7 +157,7 @@ class Slack:
         return {"ts": "9.9"}
 
 
-def test_an_action_echo_quotes_a_report_thread(monkeypatch):
+def test_post_action_log_in_report_thread_posts_and_records_chat_row(monkeypatch):
     monkeypatch.setattr(channel.profile, "profile",
         lambda client, user_id: {"name": user_id, "icon": None})
     conn = Conn({
@@ -166,7 +166,7 @@ def test_an_action_echo_quotes_a_report_thread(monkeypatch):
     })
     client = Slack()
 
-    ts = channel.post_action_echo(client, conn, 412,
+    ts = channel.post_action_log(client, conn, 412,
         {"type_key": "warning", "target_user_id": "USUB", "reason": "kept at it"}, "UMOD")
 
     assert ts == "9.9"
@@ -174,14 +174,14 @@ def test_an_action_echo_quotes_a_report_thread(monkeypatch):
     assert posted["channel"] == "CCARD"
     assert posted["thread_ts"] == "100.000"
     assert posted["blocks"][0]["text"]["text"] == "Warning"
-    recorded = conn.args_for("INSERT INTO fd.case_chat")[0]
-    assert recorded[0] == 412
-    assert recorded[1] == "UMOD"
-    assert recorded[2].obj == posted["blocks"]
-    assert recorded[3:] == ("CCARD", "9.9", "9.9")
+    chat_row = conn.args_for("INSERT INTO fd.case_chat")[0]
+    assert chat_row[0] == 412
+    assert chat_row[1] == "UMOD"
+    assert chat_row[2].obj == posted["blocks"]
+    assert chat_row[3:] == ("CCARD", "9.9", "9.9")
 
 
-def test_a_channel_ban_echo_names_its_channel_and_end_date(monkeypatch):
+def test_post_action_log_channel_ban_text_names_channel_and_expiry(monkeypatch):
     monkeypatch.setattr(channel.profile, "profile",
         lambda client, user_id: {"name": user_id, "icon": None})
     conn = Conn({
@@ -191,7 +191,7 @@ def test_a_channel_ban_echo_names_its_channel_and_end_date(monkeypatch):
     })
     client = Slack()
 
-    channel.post_action_echo(client, conn, 412, {
+    channel.post_action_log(client, conn, 412, {
         "type_key": "channel_ban", "target_user_id": "USUB", "reason": "kept at it",
         "channel_id": "CGEN", "expires_on": "2026-03-10",
     }, "UMOD")
@@ -201,27 +201,27 @@ def test_a_channel_ban_echo_names_its_channel_and_end_date(monkeypatch):
     assert conn.args_for("SELECT name FROM raw.channel_dim")[0] == ("CGEN",)
 
 
-def test_an_action_echo_with_nowhere_to_go_posts_nothing(monkeypatch):
+def test_post_action_log_without_card_channel_does_not_post(monkeypatch):
     conn = Conn()
     client = Slack()
 
-    assert channel.post_action_echo(client, conn, 412,
+    assert channel.post_action_log(client, conn, 412,
         {"type_key": "warning", "target_user_id": "USUB", "reason": "kept at it"}, "UMOD") is None
     assert client.posted == []
 
 
-def test_an_action_echo_slack_refuses_is_not_recorded(monkeypatch):
+def test_post_action_log_slack_error_returns_none_without_chat_row(monkeypatch):
     monkeypatch.setattr(channel.profile, "profile",
         lambda client, user_id: {"name": user_id, "icon": None})
     conn = Conn({"r.forwarded_ts FROM": ("100.000",), "card_channel_id FROM": ("CCARD",)})
     client = Slack(fails=True)
 
-    assert channel.post_action_echo(client, conn, 412,
+    assert channel.post_action_log(client, conn, 412,
         {"type_key": "warning", "target_user_id": "USUB", "reason": "kept at it"}, "UMOD") is None
     assert conn.args_for("INSERT INTO fd.case_chat") == []
 
 
-def test_a_resolution_echo_quotes_a_report_thread(monkeypatch):
+def test_post_resolution_log_in_report_thread_posts_and_records_chat_row(monkeypatch):
     monkeypatch.setattr(channel.profile, "profile",
         lambda client, user_id: {"name": user_id, "icon": None})
     conn = Conn({
@@ -230,25 +230,25 @@ def test_a_resolution_echo_quotes_a_report_thread(monkeypatch):
     })
     client = Slack()
 
-    ts = channel.post_resolution_echo(client, conn, 412, "no_action", None, "UMOD")
+    ts = channel.post_resolution_log(client, conn, 412, "no_action", None, "UMOD")
 
     assert ts == "9.9"
     posted = client.posted[0]
     assert posted["channel"] == "CCARD"
     assert posted["thread_ts"] == "100.000"
     assert posted["text"] == "No action needed"
-    recorded = conn.args_for("INSERT INTO fd.case_chat")[0]
-    assert recorded[0] == 412
-    assert recorded[1] == "UMOD"
-    assert recorded[2].obj == posted["blocks"]
-    assert recorded[3:] == ("CCARD", "9.9", "9.9")
+    chat_row = conn.args_for("INSERT INTO fd.case_chat")[0]
+    assert chat_row[0] == 412
+    assert chat_row[1] == "UMOD"
+    assert chat_row[2].obj == posted["blocks"]
+    assert chat_row[3:] == ("CCARD", "9.9", "9.9")
 
 
-def test_a_resolution_echo_with_nowhere_to_go_posts_nothing():
+def test_post_resolution_log_without_card_channel_does_not_post():
     conn = Conn()
     client = Slack()
 
-    assert channel.post_resolution_echo(client, conn, 412, "no_action", None, "UMOD") is None
+    assert channel.post_resolution_log(client, conn, 412, "no_action", None, "UMOD") is None
     assert client.posted == []
 
 
@@ -263,11 +263,11 @@ class FetchallConn:
         return self.rows
 
 
-def test_a_follow_up_that_will_not_carry_does_not_block_the_rest(monkeypatch):
-    shared_ids = []
+def test_post_follow_ups_failing_message_does_not_block_remaining_messages(monkeypatch):
+    follow_up_ids = []
 
     def fake_post_follow_up(client, conn, message_id, channel_id):
-        shared_ids.append(message_id)
+        follow_up_ids.append(message_id)
         if message_id == 46:
             raise RuntimeError("invalid_blocks")
         return "9.9"
@@ -275,11 +275,11 @@ def test_a_follow_up_that_will_not_carry_does_not_block_the_rest(monkeypatch):
     monkeypatch.setattr(channel, "post_follow_up", fake_post_follow_up)
     conn = FetchallConn([(46,), (47,), (48,)])
 
-    assert channel.carry_follow_ups(Slack(), conn, 19) == 2
-    assert shared_ids == [46, 47, 48]
+    assert channel.post_follow_ups(Slack(), conn, 19) == 2
+    assert follow_up_ids == [46, 47, 48]
 
 
-def test_a_file_that_will_not_carry_does_not_block_the_rest(monkeypatch):
+def test_post_files_failing_share_does_not_block_remaining_files(monkeypatch):
     shared_ids = []
 
     def fake_share(client, conn, message_id, channel_id, forwarded_ts, author_fields=None):
@@ -289,13 +289,13 @@ def test_a_file_that_will_not_carry_does_not_block_the_rest(monkeypatch):
         return "9.9"
 
     monkeypatch.setattr(channel.attachments, "share", fake_share)
-    monkeypatch.setattr(channel, "as_reporter", lambda client, anonymous, reporter: {})
+    monkeypatch.setattr(channel, "reporter_author_fields", lambda client, anonymous, reporter: {})
     conn = FetchallConn([
         (46, "100.000", False, "U1", None),
         (47, "100.000", False, "U1", None),
     ])
 
-    assert channel.carry_files(Slack(), conn, 19, "CCARD") == 1
+    assert channel.post_files(Slack(), conn, 19, "CCARD") == 1
     assert shared_ids == [46, 47]
 
 
@@ -313,9 +313,9 @@ def stub_report_views(monkeypatch):
     monkeypatch.setattr(channel.attachments, "share", lambda *args, **kwargs: None)
 
 
-def test_posting_a_report_points_its_message_at_the_new_card(monkeypatch):
+def test_post_report_updates_intake_message_with_card_ts(monkeypatch):
     stub_report_views(monkeypatch)
-    monkeypatch.setattr(channel, "gather", lambda conn, case_id: report_case())
+    monkeypatch.setattr(channel, "fetch_case", lambda conn, case_id: report_case())
     conn = Conn()
 
     ts = channel.post_report(Slack(), conn, 2, "CNEW")
@@ -324,10 +324,10 @@ def test_posting_a_report_points_its_message_at_the_new_card(monkeypatch):
     assert conn.args_for("UPDATE fd.intake_messages")[0] == ("9.9", None, 3)
 
 
-def test_rebuilding_a_card_in_a_new_channel_repoints_an_already_mirrored_message(monkeypatch):
+def test_post_report_with_mirrored_ts_updates_intake_message_with_card_ts(monkeypatch):
     stub_report_views(monkeypatch)
     monkeypatch.setattr(
-        channel, "gather", lambda conn, case_id: report_case(mirrored_ts="OLD.TS")
+        channel, "fetch_case", lambda conn, case_id: report_case(mirrored_ts="OLD.TS")
     )
     conn = Conn()
 
@@ -336,11 +336,11 @@ def test_rebuilding_a_card_in_a_new_channel_repoints_an_already_mirrored_message
     assert conn.args_for("UPDATE fd.intake_messages")[0] == ("9.9", None, 3)
 
 
-def test_a_card_sitting_in_a_thread_can_name_its_case():
+def test_case_of_thread_query_matches_card_thread_ts():
     assert "card_thread_ts = %(ts)s" in chat.CASE_OF_THREAD
 
 
-def test_a_report_card_outranks_a_case_card():
+def test_case_of_thread_query_checks_case_reports_before_card_thread_ts():
     assert chat.CASE_OF_THREAD.index("fd.case_reports") < chat.CASE_OF_THREAD.index(
         "card_thread_ts = %(ts)s"
     )

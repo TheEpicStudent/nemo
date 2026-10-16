@@ -12,33 +12,33 @@ class MentionRenderTest < ActionView::TestCase
     Fd::Names.none
   end
 
-  test "a labelled mention still becomes a link" do
+  test "user mention with label renders member link without the label" do
     html = mentioned("it was <@U0QUINN|old-handle> honestly")
     assert_match(/href="\/fd\/members\/U0QUINN"/, html)
     assert_no_match(/old-handle/, html)
   end
 
-  test "a user mention targets the person drawer, not its ambient frame" do
+  test "user mention targets the person-drawer turbo frame" do
     html = mentioned("it was <@U0QUINN> honestly")
     assert_match(/data-turbo-frame="person-drawer"/, html)
   end
 
-  test "a channel mention becomes a link, never an id" do
+  test "channel mention renders channel link and channel name" do
     html = mentioned("in <#C0LOUNGE|the-lounge>")
     assert_match(%r{href="/fd/channels/C0LOUNGE"}, html)
     assert_match(/#the-lounge/, html)
   end
 
-  test "a channel mention opens as a full page, not inside its ambient frame" do
+  test "channel mention targets the _top turbo frame" do
     html = mentioned("in <#C0LOUNGE|the-lounge>")
     assert_match(/data-turbo-frame="_top"/, html)
   end
 
-  test "a channel with no name at all still says something" do
+  test "channel mention without name renders the channel id" do
     assert_match(/C0GONE/, mentioned("in <#C0GONE>"))
   end
 
-  test "plain words are untouched" do
+  test "plain text renders unchanged" do
     assert_equal "nothing to see", mentioned("nothing to see")
   end
 end

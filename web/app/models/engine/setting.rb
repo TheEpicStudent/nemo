@@ -8,23 +8,23 @@ module Engine
     CADENCE = "cadence".freeze
     ENABLED = "enabled".freeze
     RETENTION = "retention_days".freeze
-    KEEP = "keep".freeze
-    LONGEST = 3650
+    RETAIN_ALL = "keep".freeze
+    MAX_RETENTION_DAYS = 3650
 
-    ENGINE_DIALS = {
-      "run_at" => { label: "Nightly at", default: "03:00", kind: :time },
-      "budget_minutes" => { label: "Budget for one night", default: "480", kind: :number,
+    ENGINE_SETTINGS = {
+      "run_at" => { label: "Nightly run time", default: "03:00", kind: :time },
+      "budget_minutes" => { label: "Nightly budget (minutes)", default: "480", kind: :number,
                             min: 5, max: 720 },
-      "breaker_mode" => { label: "Breakers", default: "observe", kind: :choice,
+      "breaker_mode" => { label: "Breaker mode", default: "observe", kind: :choice,
                           choices: %w[observe on off] },
-      "backfill_ceiling" => { label: "Backfill needs engine.sync over", default: "1000",
+      "backfill_ceiling" => { label: "Backfill ceiling (requests)", default: "1000",
                               kind: :number, min: 0, max: 100_000 },
-      "reclaim_seconds" => { label: "Reclaim a dead run after, seconds", default: "900",
+      "reclaim_seconds" => { label: "Dead run reclaim (seconds)", default: "900",
                              kind: :number, min: 300, max: 21_600 }
     }.freeze
 
     def self.choices(name)
-      ENGINE_DIALS.dig(name.to_s, :choices)
+      ENGINE_SETTINGS.dig(name.to_s, :choices)
     end
 
     def self.backfill_ceiling
@@ -32,7 +32,7 @@ module Engine
     end
 
     def self.overrides
-      Current.tuned ||= pluck(:source, :name, :value)
+      Current.engine_settings ||= pluck(:source, :name, :value)
         .to_h { |source, name, value| [[source, name], value] }
     end
 
@@ -45,10 +45,10 @@ module Engine
     end
 
     def self.default(source, name)
-      return ENGINE_DIALS.fetch(name.to_s).fetch(:default) if source.to_s == ENGINE
+      return ENGINE_SETTINGS.fetch(name.to_s).fetch(:default) if source.to_s == ENGINE
       return Source[source].cadence if name.to_s == CADENCE
       return "true" if name.to_s == ENABLED
-      return KEEP if name.to_s == RETENTION
+      return RETAIN_ALL if name.to_s == RETENTION
 
       Source[source].limit(name).fetch("default").to_s
     end
@@ -73,7 +73,7 @@ module Engine
       value = checked(source.to_s, name.to_s, value.to_s.strip)
       row = find_or_initialize_by(source: source.to_s, name: name.to_s)
       row.update!(value: value, changed_by: by, changed_at: Time.current)
-      Current.forget_tuned
+      Current.forget_engine_settings
       row
     end
 
@@ -82,7 +82,7 @@ module Engine
       return nil if row.nil?
 
       row.destroy!
-      Current.forget_tuned
+      Current.forget_engine_settings
       row
     end
 
@@ -110,41 +110,41 @@ module Engine
     end
 
     def self.checked_retention(source, value)
-      return KEEP if value.casecmp(KEEP).zero?
+      return RETAIN_ALL if value.casecmp(RETAIN_ALL).zero?
 
       floor = Source[source].prune_floor_days
-      raise RefusedError, "#{source} does not delete anything" if floor.nil?
+      raise RefusedError, "#{source} has no retention setting" if floor.nil?
 
-      in_bounds({ "min" => floor, "max" => LONGEST }, RETENTION, value)
+      in_bounds({ "min" => floor, "max" => MAX_RETENTION_DAYS }, RETENTION, value)
     end
 
     def self.checked_engine(name, value)
-      dial = ENGINE_DIALS.fetch(name) { raise RefusedError, "#{name} is not an engine setting" }
-      if dial[:kind] == :switch
+      definition = ENGINE_SETTINGS.fetch(name) { raise RefusedError, "#{name} is not an engine setting" }
+      if definition[:kind] == :switch
         return value if %w[true false].include?(value)
 
         raise RefusedError, "#{value} is not true or false"
       end
-      if dial[:kind] == :choice
-        return value if dial[:choices].include?(value)
+      if definition[:kind] == :choice
+        return value if definition[:choices].include?(value)
 
-        raise RefusedError, "#{value} is not one of #{dial[:choices].join(', ')}"
+        raise RefusedError, "#{value} is not one of #{definition[:choices].join(', ')}"
       end
-      return value if dial[:kind] == :time && value.match?(/\A([01]\d|2[0-3]):[0-5]\d\z/)
-      raise RefusedError, "#{value} is not a time of day" if dial[:kind] == :time
+      return value if definition[:kind] == :time && value.match?(/\A([01]\d|2[0-3]):[0-5]\d\z/)
+      raise RefusedError, "#{value} is not a time of day" if definition[:kind] == :time
 
-      in_bounds(dial.transform_keys(&:to_s), name, value)
+      in_bounds(definition.transform_keys(&:to_s), name, value)
     end
 
     def self.in_bounds(bounds, name, value)
-      raise RefusedError, "#{name} has to be a number" unless value.match?(/\A\d+\z/)
+      raise RefusedError, "#{name} must be a number" unless value.match?(/\A\d+\z/)
 
       number = value.to_i
       low = bounds.fetch("min")
       high = bounds.fetch("max")
       return value if number.between?(low, high)
 
-      raise RefusedError, "#{name} has to be between #{low} and #{high}"
+      raise RefusedError, "#{name} must be between #{low} and #{high}"
     end
   end
 end

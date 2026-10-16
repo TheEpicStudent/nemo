@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdCaseIndexTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
   end
 
@@ -11,7 +11,7 @@ class FdCaseIndexTest < ActionDispatch::IntegrationTest
       source_app: "relay", received_at: 3.days.ago }.merge(attrs))
   end
 
-  test "the index lists the open cases in the pane" do
+  test "index renders the open case in the queue pane" do
     kase = make_case
     report_on kase
 
@@ -22,7 +22,7 @@ class FdCaseIndexTest < ActionDispatch::IntegrationTest
     assert_match kase.id.to_s, response.body
   end
 
-  test "a layout parameter buys nothing" do
+  test "index with layout param lists the same cases and renders no queue table" do
     report_on make_case
     report_on make_case
 
@@ -40,7 +40,7 @@ class FdCaseIndexTest < ActionDispatch::IntegrationTest
     assert_select "table.queue-table", false
   end
 
-  test "the index is behind case.read" do
+  test "index without case.read does not respond 200" do
     sign_in_as(Account.create!(user_id: "UPLAIN"))
 
     get fd_cases_path

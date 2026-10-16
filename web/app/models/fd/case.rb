@@ -110,7 +110,7 @@ module Fd
         [row.fetch("label"), count] if count.positive?
       end
 
-      action_rows = Action::WORST_FIRST.filter_map do |key|
+      action_rows = Action::SEVERITY_ORDER.filter_map do |key|
         count = by_action[key].to_i
         [Action::LABELS.fetch(key), count] if count.positive?
       end
@@ -118,21 +118,21 @@ module Fd
       action_rows + rows
     end
 
-    AROUND = "around".freeze
+    NEARBY_GROUP = "nearby".freeze
 
     def self.candidate_parts(kase, siblings = [])
-      skip = kase.family_ids
-      shared = siblings.reject { |sibling| skip.include?(sibling.id) }
+      family_ids = kase.family_ids
+      shared = siblings.reject { |sibling| family_ids.include?(sibling.id) }
       subject = if kase.subject_user_ids.any?
         with_any_subject(kase.subject_user_ids)
-          .where.not(id: skip + shared.map(&:id)).order(opened_at: :desc).limit(10).to_a
+          .where.not(id: family_ids + shared.map(&:id)).order(opened_at: :desc).limit(10).to_a
       else
         []
       end
-      [shared, subject, skip + shared.map(&:id) + subject.map(&:id)]
+      [shared, subject, family_ids + shared.map(&:id) + subject.map(&:id)]
     end
 
-    def self.candidates_around(excluded_ids, page: 1, per: 8)
+    def self.nearby_candidates(excluded_ids, page: 1, per: 8)
       cases = unresolved.where.not(id: excluded_ids)
         .order(opened_at: :desc, id: :desc)
         .offset((page - 1) * per).limit(per + 1).to_a
@@ -249,10 +249,10 @@ module Fd
     end
 
     def mentioned_but_unlogged(notes: [], reports: [])
-      row = (notes + reports).flat_map { |row| Mentions.ids(row.body) }.uniq
-      return [] if row.empty?
+      mentioned_ids = (notes + reports).flat_map { |record| Mentions.ids(record.body) }.uniq
+      return [] if mentioned_ids.empty?
 
-      (row - participants.map(&:user_id) - Account.where(user_id: row).pluck(:user_id)) -
+      (mentioned_ids - participants.map(&:user_id) - Account.where(user_id: mentioned_ids).pluck(:user_id)) -
         [opened_by]
     end
 

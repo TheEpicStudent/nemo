@@ -34,7 +34,7 @@ class LockedThenFree:
         self.commits += 1
 
 
-def test_a_migration_that_finds_its_lock_on_the_second_try_applies(monkeypatch):
+def test_apply_lock_timeout_then_free_commits_after_one_rollback(monkeypatch):
     monkeypatch.setattr(migrate.time, "sleep", lambda s: None)
     conn = LockedThenFree(locked_for=1)
     migrate.apply(conn, FakePath(), attempts=3, wait=0)
@@ -43,18 +43,18 @@ def test_a_migration_that_finds_its_lock_on_the_second_try_applies(monkeypatch):
     assert any("schema_version" in s for s in conn.executed)
 
 
-def test_a_migration_that_never_gets_its_lock_exits_by_name(monkeypatch):
+def test_apply_lock_never_free_exits_with_filename_and_attempts(monkeypatch):
     monkeypatch.setattr(migrate.time, "sleep", lambda s: None)
     conn = LockedThenFree(locked_for=99)
-    with pytest.raises(SystemExit) as caught:
+    with pytest.raises(SystemExit) as exit_error:
         migrate.apply(conn, FakePath(), attempts=3, wait=0)
-    assert "0099_test.sql" in str(caught.value)
-    assert "3 attempts" in str(caught.value)
+    assert "0099_test.sql" in str(exit_error.value)
+    assert "3 attempts" in str(exit_error.value)
     assert conn.rollbacks == 3
     assert conn.commits == 0
 
 
-def test_a_migration_with_no_lock_trouble_applies_once():
+def test_apply_without_lock_contention_commits_once():
     conn = LockedThenFree(locked_for=0)
     migrate.apply(conn, FakePath())
     assert conn.rollbacks == 0
@@ -64,7 +64,7 @@ def test_a_migration_with_no_lock_trouble_applies_once():
 ALLOWED_DUPLICATE_NUMBERS = frozenset({"0140"})
 
 
-def test_every_migration_number_is_used_once():
+def test_migrations_numbers_are_unique_except_allowed_duplicates():
     from collections import Counter
 
     from lib.paths import MIGRATIONS_DIR, MIGRATIONS_POST_DIR

@@ -1,4 +1,4 @@
-<% content_for :page_title, "Joining" %>
+<% content_for :page_title, "Acquisition" %>
 
 <% content_for :head_actions do %>
   <%= render "shared/date_range", dates: false, label: "Last #{@growth_span} months",
@@ -23,7 +23,7 @@
         v: claim_mean ? number_to_percentage(claim_mean, precision: 1) : "n/a",
         spark: { name: "signed in within 30 days", labels: months, days: false,
                  data: @growth_months.map { |m| m.claim_rate_30d && (m.claim_rate_30d.to_f * 100).round(1) } },
-        caption: complete_months.any? ? "Mean of #{pluralize(complete_months.size, "settled month")}" : "No settled month yet" %>
+        caption: complete_months.any? ? "Mean of #{pluralize(complete_months.size, "complete month")}" : "n/a" %>
   <% if @newcomer_reach %>
     <%= render "shared/stat", k: "Newcomers, last 30 days",
           v: number_with_delimiter(@newcomer_reach.cohort_size.to_i),
@@ -47,7 +47,7 @@
         <div>
           <h2 class="card-title">Joining funnel</h2>
           <p class="card-sub">
-            <%= pluralize(complete_cohorts.size, "settled cohort") %>,
+            <%= pluralize(complete_cohorts.size, "complete cohort") %>,
             <%= complete_cohorts.last.month.strftime("%b %Y") %> to <%= complete_cohorts.first.month.strftime("%b %Y") %>
           </p>
         </div>
@@ -72,7 +72,7 @@
 
 <section class="section">
   <div class="section-head">
-    <h2 class="section-title">Newcomers landing</h2>
+    <h2 class="section-title">Newcomer channels</h2>
   </div>
   <%= render "newcomer_channels", newcomer_channels: @newcomer_channels,
         newcomer_reach: @newcomer_reach %>

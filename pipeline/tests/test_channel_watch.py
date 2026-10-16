@@ -17,17 +17,17 @@ def capture(monkeypatch):
     return recorded
 
 
-def test_a_renamed_channel_takes_its_new_name(monkeypatch):
+def test_record_channel_renamed_with_name_records_new_name(monkeypatch):
     recorded = capture(monkeypatch)
     ctx = SimpleNamespace(payload={"type": "channel_rename", "channel": {"id": "C1", "name": "lounge"}})
 
-    assert channel_watch.renamed(ctx) == "C1"
+    assert channel_watch.record_channel_renamed(ctx) == "C1"
     assert recorded == [("C1", {"name": "lounge"})]
 
 
-def test_a_rename_without_a_name_changes_nothing(monkeypatch):
+def test_record_channel_renamed_without_name_returns_none(monkeypatch):
     recorded = capture(monkeypatch)
 
-    assert channel_watch.renamed(SimpleNamespace(payload={"channel": {"id": "C1"}})) is None
-    assert channel_watch.renamed(SimpleNamespace(payload={"channel": "C1"})) is None
+    assert channel_watch.record_channel_renamed(SimpleNamespace(payload={"channel": {"id": "C1"}})) is None
+    assert channel_watch.record_channel_renamed(SimpleNamespace(payload={"channel": "C1"})) is None
     assert recorded == []

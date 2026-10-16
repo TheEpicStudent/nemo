@@ -2,9 +2,9 @@
   <div class="offered">
     <span class="grow rail-line">
       <%= link_to at_name(user_id), fd_member_path(user_id), class: "mention" %>
-      is named in a note but is not on the case
+      Mentioned in note
     </span>
-    <%= gated_button "case.people", "Add them", fd_case_participants_path(kase),
+    <%= gated_button "case.people", "Add", fd_case_participants_path(kase),
           on: kase, css: "btn", params: { user_ids: [user_id] } %>
   </div>
 <% end %>

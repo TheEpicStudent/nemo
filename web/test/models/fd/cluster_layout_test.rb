@@ -18,7 +18,7 @@ class Fd::ClusterLayoutTest < ActiveSupport::TestCase
     [ids, ids.drop(1).map { |id| [ids.first, id, score] }]
   end
 
-  test "a pair sits side by side on a short canvas" do
+  test "pair layout has pair size and two labeled points on one row" do
     layout = Fd::ClusterLayout.new(cluster(%w[A B], [["A", "B", 9.0]]))
 
     assert_equal [Fd::ClusterLayout::PAIR_WIDTH, Fd::ClusterLayout::PAIR_HEIGHT], [layout.width, layout.height]
@@ -27,7 +27,7 @@ class Fd::ClusterLayoutTest < ActiveSupport::TestCase
     assert layout.points.values.all?(&:labeled)
   end
 
-  test "a star puts its hub in the middle with straight spokes and curved side links" do
+  test "star group hub is at group center with L spoke paths and Q side-link paths" do
     ids, links = star("S", 6)
     links << ["S2", "S3", 5.5]
     layout = Fd::ClusterLayout.new(cluster(ids, links))
@@ -40,17 +40,17 @@ class Fd::ClusterLayoutTest < ActiveSupport::TestCase
     assert_match(/\AM[\d. ]+ Q/, layout.edge_path("S2", "S3"))
   end
 
-  test "the hub is the most linked account, not the first" do
+  test "hub is the account with the most links" do
     ids = %w[A B C D E]
     links = [["B", "A", 8.0], ["B", "C", 8.0], ["B", "D", 8.0], ["B", "E", 8.0]]
 
     assert_equal "B", Fd::ClusterLayout.new(cluster(ids, links)).groups.first.hub
   end
 
-  test "two stars joined by one bridge become two groups in one row with a straight bridge" do
-    one, one_links = star("P", 6)
-    two, two_links = star("Q", 6)
-    layout = Fd::ClusterLayout.new(cluster(one + two, one_links + two_links + [["P6", "Q2", 5.4]]))
+  test "two stars joined by one link form two groups on one row with an L bridge path" do
+    first_ids, first_links = star("P", 6)
+    second_ids, second_links = star("Q", 6)
+    layout = Fd::ClusterLayout.new(cluster(first_ids + second_ids, first_links + second_links + [["P6", "Q2", 5.4]]))
 
     assert_equal 2, layout.groups.size
     assert_equal %w[P1 Q1], layout.groups.map(&:hub).sort
@@ -59,7 +59,7 @@ class Fd::ClusterLayoutTest < ActiveSupport::TestCase
     assert_not_equal layout.points["P6"].group, layout.points["Q2"].group
   end
 
-  test "a different people verdict never pulls two accounts into one group" do
+  test "different_people verdict edge leaves the star as one group with hub V1" do
     ids, links = star("V", 4)
     layout = Fd::ClusterLayout.new(cluster(ids, links, [["V1", "V2", "different_people"]]))
 
@@ -67,7 +67,7 @@ class Fd::ClusterLayoutTest < ActiveSupport::TestCase
     assert_equal "V1", layout.groups.first.hub
   end
 
-  test "an account held only by a weak link joins its strongest neighbour's group" do
+  test "account with only a weak link is added to the neighbour group others" do
     ids, links = star("W", 5)
     ids << "LONE"
     links << ["W3", "LONE", 3.4]
@@ -77,7 +77,7 @@ class Fd::ClusterLayoutTest < ActiveSupport::TestCase
     assert_includes layout.groups.first.others, "LONE"
   end
 
-  test "big clusters shrink their faces and name only the hubs" do
+  test "large clusters are packed with smaller node size and only hubs labeled" do
     ids, links = star("B", 40)
     layout = Fd::ClusterLayout.new(cluster(ids, links))
 
@@ -87,24 +87,24 @@ class Fd::ClusterLayoutTest < ActiveSupport::TestCase
     assert_equal 11, Fd::ClusterLayout.new(cluster(*star("H", 70))).node
   end
 
-  test "every account lands inside the canvas" do
-    one, one_links = star("X", 25)
-    two, two_links = star("Y", 9)
-    layout = Fd::ClusterLayout.new(cluster(one + two, one_links + two_links + [["X3", "Y4", 6.0]]))
+  test "all points are within canvas width and height" do
+    first_ids, first_links = star("X", 25)
+    second_ids, second_links = star("Y", 9)
+    layout = Fd::ClusterLayout.new(cluster(first_ids + second_ids, first_links + second_links + [["X3", "Y4", 6.0]]))
 
     layout.points.each_value do |point|
       assert point.x.between?(0, layout.width) && point.y.between?(0, layout.height)
     end
   end
 
-  test "accounts with no link at all share one ring with no hub in the middle" do
+  test "accounts without links form a separate group with nil hub" do
     ids, links = star("G", 4)
     ids += %w[L1 L2 L3]
     layout = Fd::ClusterLayout.new(cluster(ids, links))
 
     assert_equal 2, layout.groups.size
-    loose = layout.groups.find { |group| group.hub.nil? }
-    assert_equal %w[L1 L2 L3], loose.others
+    unlinked = layout.groups.find { |group| group.hub.nil? }
+    assert_equal %w[L1 L2 L3], unlinked.others
     assert layout.points.values_at("L1", "L2", "L3").none?(&:hub)
   end
 end

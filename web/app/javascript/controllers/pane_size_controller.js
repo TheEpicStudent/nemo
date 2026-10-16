@@ -1,10 +1,10 @@
 import { Controller } from "@hotwired/stimulus"
 
-const WIDTH = "queuew"
+const WIDTH_COOKIE = "queuew"
 const DRAGGING = "sidebar-dragging"
 const MOBILE = "(max-width: 899px)"
-const MIN = 280
-const MAX = 620
+const MIN_WIDTH_PX = 280
+const MAX_WIDTH_PX = 620
 
 export default class extends Controller {
   connect() {
@@ -14,7 +14,7 @@ export default class extends Controller {
 
     this.mobile = window.matchMedia(MOBILE)
     const width = parseInt(this.storedWidth(), 10)
-    if (width >= MIN && width <= MAX) this.root.style.setProperty("--queue-w", `${width}px`)
+    if (width >= MIN_WIDTH_PX && width <= MAX_WIDTH_PX) this.root.style.setProperty("--queue-w", `${width}px`)
   }
 
   disconnect() {
@@ -35,7 +35,7 @@ export default class extends Controller {
   move(event) {
     if (this.from == null) return
 
-    const width = Math.min(MAX, Math.max(MIN, this.startWidth + event.clientX - this.from))
+    const width = Math.min(MAX_WIDTH_PX, Math.max(MIN_WIDTH_PX, this.startWidth + event.clientX - this.from))
     this.root.style.setProperty("--queue-w", `${Math.round(width)}px`)
   }
 
@@ -48,13 +48,13 @@ export default class extends Controller {
     this.handle = null
 
     const width = parseInt(this.root.style.getPropertyValue("--queue-w"), 10)
-    if (width) document.cookie = `${WIDTH}=${width}; path=/; max-age=31536000; samesite=lax`
+    if (width) document.cookie = `${WIDTH_COOKIE}=${width}; path=/; max-age=31536000; samesite=lax`
   }
 
   storedWidth() {
     return document.cookie
       .split("; ")
-      .find((pair) => pair.startsWith(`${WIDTH}=`))
+      .find((pair) => pair.startsWith(`${WIDTH_COOKIE}=`))
       ?.split("=")[1]
   }
 }

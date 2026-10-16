@@ -11,7 +11,7 @@ module ClockHelper
       title: "#{cell.day} at #{format('%02d:00', cell.hour)} #{clock.label}",
       rows: [
         { label: "messages", value: number_with_delimiter(cell.messages), tone: cell.tone },
-        { label: "of the busiest hour",
+        { label: "of peak hour",
           value: number_to_percentage((cell.share * 100).round(1), precision: 1) }
       ],
       note: clock_peak_note(cell, clock)
@@ -22,6 +22,6 @@ module ClockHelper
     top = clock.busiest
     return nil if top.nil? || (top.day == cell.day && top.hour == cell.hour)
 
-    "busiest is #{top.day} at #{format('%02d:00', top.hour)}"
+    "peak: #{top.day} at #{format('%02d:00', top.hour)}"
   end
 end

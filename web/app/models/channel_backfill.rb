@@ -7,7 +7,7 @@ class ChannelBackfill < ApplicationRecord
   REQUESTS_PER_MESSAGE = 0.076
 
   scope :open_work, -> { where(state: OPEN) }
-  scope :in_line, -> { where(state: "queued").order(:priority, :requested_at) }
+  scope :waiting, -> { where(state: "queued").order(:priority, :requested_at) }
 
   validates :state, inclusion: { in: STATES }
   validates :requested_by, presence: true
@@ -39,13 +39,13 @@ class ChannelBackfill < ApplicationRecord
       cancelled_by: nil, finished_at: nil, last_error: nil
     )
     row.save!
-    wake!
+    request_sync!
     row
   end
 
   STALE_CLAIM = 30.minutes
 
-  def self.wake!
+  def self.request_sync!
     live = SyncRequest.active
       .where("status = 'queued' OR claimed_at > ?", STALE_CLAIM.ago)
       .exists?
@@ -72,7 +72,7 @@ class ChannelBackfill < ApplicationRecord
   def queue_position
     return nil unless state == "queued"
 
-    self.class.in_line.where("priority < :p OR (priority = :p AND requested_at < :t)",
+    self.class.waiting.where("priority < :p OR (priority = :p AND requested_at < :t)",
       p: priority, t: requested_at).count + 1
   end
 end

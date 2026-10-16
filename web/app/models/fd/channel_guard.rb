@@ -8,11 +8,11 @@ module Fd
     ACCOUNT_AGE = "account_age".freeze
     KINDS = [BOT_ALLOWLIST, READONLY, SLOWMODE, ACCOUNT_AGE].freeze
 
-    SLOWEST = 3600
-    OLDEST = 365
+    MAX_SLOWMODE_SECONDS = 3600
+    MAX_ACCOUNT_AGE_DAYS = 365
 
-    SECONDS_TO_START = 30
-    DAYS_TO_START = 7
+    DEFAULT_SLOWMODE_SECONDS = 30
+    DEFAULT_ACCOUNT_AGE_DAYS = 7
 
     has_many :allows, class_name: "Fd::ChannelGuardAllow", foreign_key: :guard_id,
       inverse_of: :guard, dependent: :destroy
@@ -49,7 +49,7 @@ module Fd
 
     def min_age_days = settings["min_age_days"].to_i
 
-    def people_named
+    def referenced_user_ids
       [opened_by, lifted_by].compact + allows.map(&:added_by)
     end
   end

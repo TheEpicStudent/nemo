@@ -21,7 +21,7 @@ WHERE  source_key = %(source_key)s AND slice_key = %(slice_key)s AND fence = %(f
 
 SETTLE_SQL = """
 UPDATE ingest.slice_coverage
-SET    state = %(state)s, expected = %(expected)s, landed = %(landed)s, note = %(note)s,
+SET    state = %(state)s, expected = %(expected)s, landed = %(loaded_count)s, note = %(note)s,
        lease_until = NULL, settled_at = now(), updated_at = now()
 WHERE  source_key = %(source_key)s AND slice_key = %(slice_key)s AND fence = %(fence)s
 RETURNING id
@@ -54,23 +54,23 @@ def claim_slice(conn, source_key, slice_key, start=None, stop=None, run_id=None,
     return fence
 
 
-def settle(conn, source_key, slice_key, fence, state, expected=None, landed=None, note=None):
+def settle(conn, source_key, slice_key, fence, state, expected=None, loaded_count=None, note=None):
     with conn.cursor() as cur:
         cur.execute(SETTLE_SQL, {
             "source_key": source_key, "slice_key": slice_key, "fence": fence, "state": state,
-            "expected": expected, "landed": landed, "note": (note or None) and str(note)[:500],
+            "expected": expected, "loaded_count": loaded_count, "note": (note or None) and str(note)[:500],
         })
         if cur.fetchone() is None:
-            raise lease.FenceTokenExpiredError(f"{source_key} {slice_key}: fence {fence} is no longer ours, verdict not written")
+            raise lease.FenceTokenExpiredError(f"{source_key} {slice_key}: fence {fence} expired, state not written")
 
 
-def settle_aside(source_key, slice_key, fence, state, expected=None, landed=None, note=None):
+def settle_on_new_connection(source_key, slice_key, fence, state, expected=None, loaded_count=None, note=None):
     try:
         with connect() as conn:
-            settle(conn, source_key, slice_key, fence, state, expected, landed, note)
+            settle(conn, source_key, slice_key, fence, state, expected, loaded_count, note)
             conn.commit()
     except Exception as exc:
-        print(f"{source_key} {slice_key}: could not write the {state} verdict, {type(exc).__name__}: {exc}")
+        print(f"{source_key} {slice_key}: could not write state {state}, {type(exc).__name__}: {exc}")
         return False
     return True
 
@@ -84,7 +84,7 @@ def supersede(conn, source_key, current_slice_key):
 def enumerate_slices(conn, source_key):
     with conn.cursor() as cur:
         cur.execute(ENUMERATE_SQL, (source_key,))
-        return {key: (state, expected, landed) for key, state, expected, landed in cur.fetchall()}
+        return {key: (state, expected, loaded_count) for key, state, expected, loaded_count in cur.fetchall()}
 
 
 def covered(conn, source_key, states=SETTLED):

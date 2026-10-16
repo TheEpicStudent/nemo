@@ -25,7 +25,7 @@ class SyncRequest < ApplicationRecord
       request
     end
   rescue ActiveRecord::RecordNotUnique
-    raise AlreadyRunningError, "a sync is already queued or running"
+    raise AlreadyRunningError, "A sync is already queued or running"
   end
 
   def active?
@@ -37,19 +37,19 @@ class SyncRequest < ApplicationRecord
 
     stopped = false
     transaction do
-      still_queued = self.class.where(id: id, status: "queued")
+      queued_cancelled = self.class.where(id: id, status: "queued")
         .update_all(status: "cancelled", finished_at: Time.current, updated_at: Time.current)
 
-      if still_queued.positive?
+      if queued_cancelled.positive?
         stopped = true
         reload
         next
       end
 
       if worker_unavailable
-        released = self.class.where(id: id, status: %w[claimed cancelling])
+        orphan_cancelled = self.class.where(id: id, status: %w[claimed cancelling])
           .update_all(status: "cancelled", finished_at: Time.current, updated_at: Time.current)
-        next if released.zero?
+        next if orphan_cancelled.zero?
 
         stopped = true
         reload

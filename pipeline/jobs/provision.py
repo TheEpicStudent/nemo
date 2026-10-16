@@ -53,9 +53,8 @@ def report_mode(conn):
         print(f"provision: {roles.SEPARATED_MODE} deployment, grants enforced by "
               f"{', '.join(present_roles)}")
         return
-    print(f"provision: {roles.SHARED_MODE} deployment, every service shares "
-          f"{os.environ.get('POSTGRES_USER', 'one login')} and the boundary is the "
-          "application's own capability checks")
+    print(f"provision: {roles.SHARED_MODE} deployment, services share "
+          f"{os.environ.get('POSTGRES_USER', 'one login')}")
 
 
 def set_role_passwords(conn):
@@ -95,7 +94,7 @@ def apply_app_schema():
 
 def seed_staff():
     if not os.environ.get("BOOTSTRAP_ADMIN_SLACK_ID"):
-        print("provision: BOOTSTRAP_ADMIN_SLACK_ID not set, skipping the staff row")
+        print("provision: BOOTSTRAP_ADMIN_SLACK_ID not set, skipping staff row")
         return
     rails("db:seed")
 
@@ -118,26 +117,26 @@ def main():
     print("provision: raw schema")
     apply_migrations("pre")
 
-    print("provision: app schema from the rails migrations")
+    print("provision: app schema")
     apply_app_schema()
 
-    print("provision: the migrations that build on the app tables")
+    print("provision: post migrations")
     apply_migrations("post")
 
-    print("provision: grants over the tables the migrations just made")
+    print("provision: grants")
     with connect_admin() as conn:
         apply_init_sql(conn)
 
-    print("provision: the capability catalogue")
+    print("provision: capabilities")
     with connect_admin() as conn:
         keys, pairs = capabilities.sync(conn)
         conn.commit()
-    print(f"provision: {keys} capabilities, {pairs} role baseline entries")
+    print(f"provision: {keys} capabilities, {pairs} role capability entries")
 
-    print("provision: the first staff row")
+    print("provision: staff row")
     seed_staff()
 
-    print("provision: done. run `nemo transform` next so analytics has tables to read")
+    print("provision: done, run `nemo transform` next")
 
 
 if __name__ == "__main__":

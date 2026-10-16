@@ -1,6 +1,6 @@
 <%= render layout: "shared/dropdown", locals: {
-      label: "More for #{names[person.user_id]}", trigger: menu_dots } do %>
-    <%= link_to "Their cases", fd_cases_path(subject: person.user_id), class: "btn" %>
+      label: "Actions for #{names[person.user_id]}", trigger: menu_dots } do %>
+    <%= link_to "Cases", fd_cases_path(subject: person.user_id), class: "btn" %>
     <%= link_to "Open in Slack", slack_member_url(person.user_id), class: "btn",
           target: "_blank", rel: "noopener" %>
     <div class="menu-sep"></div>
@@ -9,6 +9,6 @@
             fd_case_participant_path(kase, person.user_id), on: kase, css: "btn",
             method: :delete, params: { role: record.role },
             form: { class: "contents", data: { turbo_frame: "_top",
-            turbo_confirm: "Take @#{person.user_id} off this case?" } } %>
+            turbo_confirm: "Remove @#{person.user_id} from this case?" } } %>
     <% end %>
 <% end %>

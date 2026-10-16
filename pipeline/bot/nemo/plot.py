@@ -13,17 +13,17 @@ FONTS = Path(__file__).resolve().parent / "fonts"
 SANS = FONTS / "ibm-plex-sans-variable.ttf"
 MONO = FONTS / "ibm-plex-mono-500.ttf"
 
-WIDE, HIGH = 1200, 520
+IMAGE_WIDTH, IMAGE_HEIGHT = 1200, 520
 SCALE = 2
-PAD = {"l": 92, "r": 40, "t": 118, "b": 74}
+PADDING = {"l": 92, "r": 40, "t": 118, "b": 74}
 
-PAPER = (251, 250, 248)
-INK = (42, 41, 38)
-INK_2 = (105, 103, 98)
-INK_4 = (160, 157, 150)
-GRID = (230, 227, 221)
-LINE = (194, 94, 27)
-WASH = (194, 94, 27)
+BACKGROUND_COLOR = (251, 250, 248)
+TEXT_COLOR = (42, 41, 38)
+MUTED_TEXT_COLOR = (105, 103, 98)
+FAINT_TEXT_COLOR = (160, 157, 150)
+GRID_COLOR = (230, 227, 221)
+LINE_COLOR = (194, 94, 27)
+FILL_COLOR = (194, 94, 27)
 
 SPANS = {
     "1h": ("minutes after posting", 60, 10, lambda m: f"{m}m"),
@@ -42,12 +42,12 @@ TITLES = {
 
 def font(path, size, weight=400):
     try:
-        face = ImageFont.truetype(str(path), size * SCALE)
+        font_face = ImageFont.truetype(str(path), size * SCALE)
         try:
-            face.set_variation_by_axes([weight])
+            font_face.set_variation_by_axes([weight])
         except (OSError, AttributeError):
             pass
-        return face
+        return font_face
     except OSError:
         return ImageFont.load_default(size * SCALE)
 
@@ -71,7 +71,7 @@ def axis_ticks(top, target_count=4):
     return ticks
 
 
-def smoothed(points, per_span=12):
+def smooth_curve(points, per_span=12):
     """Monotone cubic interpolation; does not overshoot on flat segments."""
     n = len(points)
     if n < 3:
@@ -114,7 +114,7 @@ def smoothed(points, per_span=12):
 
 def gradient_fill(size, polygon, floor, top):
     """Vertical gradient fill between the curve and the baseline."""
-    layer = Image.new("RGBA", size, WASH + (0,))
+    layer = Image.new("RGBA", size, FILL_COLOR + (0,))
     shape = Image.new("L", size, 0)
     ImageDraw.Draw(shape).polygon(polygon, fill=255)
     fade = Image.linear_gradient("L").resize((size[0], max(1, floor - top)))
@@ -172,12 +172,12 @@ def render(curve, span, viewers=None, age_seconds=None):
 
     unit_label, unit, step, format_tick = spec
     s = SCALE
-    size = (WIDE * s, HIGH * s)
-    image = Image.new("RGB", size, PAPER)
+    size = (IMAGE_WIDTH * s, IMAGE_HEIGHT * s)
+    image = Image.new("RGB", size, BACKGROUND_COLOR)
     draw = ImageDraw.Draw(image, "RGBA")
 
-    left, right = PAD["l"] * s, (WIDE - PAD["r"]) * s
-    top, floor = PAD["t"] * s, (HIGH - PAD["b"]) * s
+    left, right = PADDING["l"] * s, (IMAGE_WIDTH - PADDING["r"]) * s
+    top, floor = PADDING["t"] * s, (IMAGE_HEIGHT - PADDING["b"]) * s
 
     start = curve[0][0]
     span_seconds = full_span or 1
@@ -195,51 +195,51 @@ def render(curve, span, viewers=None, age_seconds=None):
     small = font(MONO, 15)
     for tick in ticks:
         y = y_of(tick)
-        draw.line([(left, y), (right, y)], fill=GRID, width=s)
+        draw.line([(left, y), (right, y)], fill=GRID_COLOR, width=s)
         label = f"{int(tick):,}" if float(tick).is_integer() else f"{tick:g}"
-        draw.text((left - 18 * s, y), label, font=small, fill=INK_4, anchor="rm")
+        draw.text((left - 18 * s, y), label, font=small, fill=FAINT_TEXT_COLOR, anchor="rm")
 
     unit_count = int(span_seconds // unit)
     for k in range(0, unit_count + 1, step):
         at = left + (right - left) * (k * unit / span_seconds)
-        draw.line([(at, floor), (at, floor + 6 * s)], fill=GRID, width=s)
-        draw.text((at, floor + 14 * s), format_tick(k), font=small, fill=INK_4, anchor="ma")
-    draw.text((right, floor + 40 * s), unit_label, font=small, fill=INK_4, anchor="ra")
+        draw.line([(at, floor), (at, floor + 6 * s)], fill=GRID_COLOR, width=s)
+        draw.text((at, floor + 14 * s), format_tick(k), font=small, fill=FAINT_TEXT_COLOR, anchor="ma")
+    draw.text((right, floor + 40 * s), unit_label, font=small, fill=FAINT_TEXT_COLOR, anchor="ra")
 
     points = [(x_of(at), y_of(count)) for at, count in curve]
-    smooth_points = smoothed(points)
+    smooth_points = smooth_curve(points)
     smooth_points = [(x, min(max(y, top), floor)) for x, y in smooth_points]
 
     fill_layer = gradient_fill(size, [(left, floor), *smooth_points, (smooth_points[-1][0], floor)], floor, top)
     image.paste(fill_layer, (0, 0), fill_layer)
     draw = ImageDraw.Draw(image, "RGBA")
-    draw.line([(left, floor), (right, floor)], fill=GRID, width=s)
-    draw.line(smooth_points, fill=LINE, width=int(3.2 * s), joint="curve")
+    draw.line([(left, floor), (right, floor)], fill=GRID_COLOR, width=s)
+    draw.line(smooth_points, fill=LINE_COLOR, width=int(3.2 * s), joint="curve")
 
     if age_seconds is not None and age_seconds < full_span:
         now_x = x_of(curve[-1][0])
         for y in range(int(top), int(floor), 8 * s):
-            draw.line([(now_x, y), (now_x, min(y + 4 * s, floor))], fill=INK_4, width=s)
-        draw.text((now_x + 8 * s, top + 2 * s), "now", font=small, fill=INK_4, anchor="la")
+            draw.line([(now_x, y), (now_x, min(y + 4 * s, floor))], fill=FAINT_TEXT_COLOR, width=s)
+        draw.text((now_x + 8 * s, top + 2 * s), "now", font=small, fill=FAINT_TEXT_COLOR, anchor="la")
 
     i = counts.index(peak)
     px, py = points[i]
-    draw.ellipse([px - 7 * s, py - 7 * s, px + 7 * s, py + 7 * s], fill=PAPER, outline=LINE,
+    draw.ellipse([px - 7 * s, py - 7 * s, px + 7 * s, py + 7 * s], fill=BACKGROUND_COLOR, outline=LINE_COLOR,
                  width=int(3 * s))
     peak_font = font(MONO, 16, 500)
     anchor = "ls" if px < (left + right) / 2 else "rs"
     label_offset = 14 * s if anchor == "ls" else -14 * s
-    draw.text((px + label_offset, py - 12 * s), f"{peak:,}", font=peak_font, fill=LINE, anchor=anchor)
+    draw.text((px + label_offset, py - 12 * s), f"{peak:,}", font=peak_font, fill=LINE_COLOR, anchor=anchor)
 
     title = font(SANS, 30, 620)
     sub = font(MONO, 16)
-    draw.text((left, 34 * s), f"Viewers over {format_span(full_span)}", font=title, fill=INK,
+    draw.text((left, 34 * s), f"Viewers over {format_span(full_span)}", font=title, fill=TEXT_COLOR,
               anchor="la")
     viewer_text = f"{sum(counts):,} of {viewers:,}" if viewers is not None else f"{sum(counts):,}"
     draw.text((left, 74 * s), f"{viewer_text} viewers · new viewers per {bucket_label(curve)}",
-              font=sub, fill=INK_2, anchor="la")
+              font=sub, fill=MUTED_TEXT_COLOR, anchor="la")
 
-    shrunk = image.resize((WIDE, HIGH), Image.LANCZOS).filter(ImageFilter.SHARPEN)
+    shrunk = image.resize((IMAGE_WIDTH, IMAGE_HEIGHT), Image.LANCZOS).filter(ImageFilter.SHARPEN)
     out = io.BytesIO()
     shrunk.save(out, format="PNG", optimize=True)
     return out.getvalue()

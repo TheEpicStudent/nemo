@@ -35,24 +35,21 @@ def problems(env=None):
     first_index_by_token, issues = {}, []
     for index, token in pool:
         if not token.startswith(USER_TOKEN_PREFIX):
-            issues.append(
-                f"{PREFIX}{index} is not a user token, so it cannot read a public channel "
-                "it has not joined"
-            )
+            issues.append(f"{PREFIX}{index} is not a user token")
         first_index = first_index_by_token.setdefault(token, index)
         if first_index != index:
-            issues.append(f"{PREFIX}{index} repeats {PREFIX}{first_index}, which shares one budget")
+            issues.append(f"{PREFIX}{index} repeats {PREFIX}{first_index}")
     return issues
 
 
 def describe(env=None):
     pool = discover(env)
     if not pool:
-        return f"ingest pool: no {PREFIX}n set, thread replies stay on the proxy"
+        return f"ingest pool: no {PREFIX}n set"
     indexes = ", ".join(str(index) for index, _ in pool)
     pinned = pinned_rate(env)
     pace = (f"pinned at {pinned:.0f}/min each" if pinned is not None
-            else f"finding its own pace from {START_PER_MINUTE:.0f}/min each")
+            else f"adaptive from {START_PER_MINUTE:.0f}/min each")
     line = (f"ingest pool: {len(pool)} token(s), {PREFIX}[{indexes}], {pace}, "
             f"{expected_per_minute(env):.0f}/min across the pool")
     issues = problems(env)
@@ -68,7 +65,7 @@ def report(env=None):
 
 class ThrottledError(RuntimeError):
     def __init__(self, retry_after):
-        super().__init__(f"slack asked for {retry_after}s")
+        super().__init__(f"Slack rate limit, retry after {retry_after}s")
         self.retry_after = retry_after
 
 
@@ -76,21 +73,21 @@ TIER3 = 50
 START_PER_MINUTE = float(TIER3)
 MIN_PER_MINUTE = 20.0
 MAX_PER_MINUTE = 600.0
-CLIMB_PER_MINUTE = 15.0
-CLIMB_AFTER = 20.0
+RATE_INCREASE_PER_MINUTE = 15.0
+RATE_INCREASE_AFTER = 20.0
 BACKOFF = 0.75
 BACKOFF_AFTER = 15.0
 CEILING_MARGIN = 0.95
-CEILING_PROBE_AFTER = 600.0
-CEILING_PROBE_BY = 1.1
+CEILING_RAISE_AFTER = 600.0
+CEILING_RAISE_FACTOR = 1.1
 BURST = 5.0
-PARK_CEILING = 300.0
+COOLDOWN_MAX_SECONDS = 300.0
 WAIT_SLICE = 5.0
 WAIT_CEILING = 900
 SHARD_TIMEOUT = 60
 
-_learned = {}
-_learned_lock = threading.Lock()
+_adaptive_rates = {}
+_adaptive_rates_lock = threading.Lock()
 
 
 def pinned_rate(env=None):
@@ -99,14 +96,14 @@ def pinned_rate(env=None):
     return float(configured) if configured else None
 
 
-def learned_rate(index):
-    with _learned_lock:
-        return _learned.get(index, START_PER_MINUTE)
+def adaptive_rate(index):
+    with _adaptive_rates_lock:
+        return _adaptive_rates.get(index, START_PER_MINUTE)
 
 
-def remember_rate(index, per_minute):
-    with _learned_lock:
-        _learned[index] = per_minute
+def store_rate(index, per_minute):
+    with _adaptive_rates_lock:
+        _adaptive_rates[index] = per_minute
 
 
 def expected_per_minute(env=None):
@@ -116,7 +113,7 @@ def expected_per_minute(env=None):
     pinned = pinned_rate(env)
     if pinned is not None:
         return pinned * len(pool)
-    return sum(learned_rate(index) for index, _ in pool)
+    return sum(adaptive_rate(index) for index, _ in pool)
 
 
 class Bucket:
@@ -146,10 +143,10 @@ class Shard:
         self.token = token
         configured_rate = pinned_rate() if per_minute is None else float(per_minute)
         self.pinned = configured_rate is not None
-        self.per_minute = configured_rate if self.pinned else learned_rate(index)
+        self.per_minute = configured_rate if self.pinned else adaptive_rate(index)
         self.clock = clock
         self.buckets = {}
-        self.parked_until = {}
+        self.cooldown_until = {}
         self._client = None
         self.lock = threading.Lock()
         self.acquired_count = 0
@@ -157,7 +154,7 @@ class Shard:
         self.changed_at = clock()
         self.ceiling = None
         self.throttled_at = None
-        self.starved = False
+        self.exhausted = False
 
     def name(self):
         return f"{PREFIX}{self.index}"
@@ -179,10 +176,10 @@ class Shard:
                 raise ThrottledError(float(headers.get("Retry-After", 1) or 1)) from failure
             raise
 
-    def parked_for(self, method=None):
+    def cooldown_remaining(self, method=None):
         if method is not None:
-            return max(0.0, self.parked_until.get(method, 0.0) - self.clock())
-        remaining = [until - self.clock() for until in self.parked_until.values()]
+            return max(0.0, self.cooldown_until.get(method, 0.0) - self.clock())
+        remaining = [until - self.clock() for until in self.cooldown_until.values()]
         return max([0.0, *remaining])
 
     def bucket(self, method):
@@ -192,15 +189,15 @@ class Shard:
             return self.buckets[method]
 
     def take(self, method):
-        parked_seconds = self.parked_for(method)
-        if parked_seconds > 0:
-            return False, parked_seconds
+        cooldown_seconds = self.cooldown_remaining(method)
+        if cooldown_seconds > 0:
+            return False, cooldown_seconds
         ok, wait = self.bucket(method).take()
         with self.lock:
             if ok:
                 self.acquired_count += 1
             else:
-                self.starved = True
+                self.exhausted = True
         return ok, wait
 
     def _retune(self, per_minute):
@@ -209,7 +206,7 @@ class Shard:
         for bucket in self.buckets.values():
             bucket.per_minute = per_minute
         self.changed_at = self.clock()
-        remember_rate(self.index, per_minute)
+        store_rate(self.index, per_minute)
         return per_minute
 
     def mark_success(self):
@@ -217,26 +214,26 @@ class Shard:
             return self.per_minute
         with self.lock:
             now = self.clock()
-            if not self.starved or now - self.changed_at < CLIMB_AFTER:
+            if not self.exhausted or now - self.changed_at < RATE_INCREASE_AFTER:
                 return self.per_minute
-            self.starved = False
-            target = self.per_minute + CLIMB_PER_MINUTE
+            self.exhausted = False
+            target = self.per_minute + RATE_INCREASE_PER_MINUTE
             if self.ceiling is not None:
-                if now - self.throttled_at >= CEILING_PROBE_AFTER:
-                    self.ceiling *= CEILING_PROBE_BY
+                if now - self.throttled_at >= CEILING_RAISE_AFTER:
+                    self.ceiling *= CEILING_RAISE_FACTOR
                     self.throttled_at = now
                 target = min(target, self.ceiling * CEILING_MARGIN)
             return self._retune(target)
 
     def cooldown(self, method, seconds):
-        seconds = min(max(float(seconds), 0.0), PARK_CEILING)
+        seconds = min(max(float(seconds), 0.0), COOLDOWN_MAX_SECONDS)
         with self.lock:
             now = self.clock()
             self.throttles += 1
-            already_parked = self.parked_until.get(method, 0.0) > now
+            already_cooling = self.cooldown_until.get(method, 0.0) > now
             recently_throttled = self.throttled_at is not None and now - self.throttled_at < BACKOFF_AFTER
-            self.parked_until[method] = now + seconds
-            if not self.pinned and not already_parked and not recently_throttled:
+            self.cooldown_until[method] = now + seconds
+            if not self.pinned and not already_cooling and not recently_throttled:
                 self.ceiling = self.per_minute
                 self.throttled_at = now
                 self._retune(self.per_minute * BACKOFF)
@@ -279,7 +276,7 @@ class Pool:
 
     def rates(self):
         return [
-            (shard.name(), shard.acquired_count, shard.throttles, round(shard.parked_for(), 1))
+            (shard.name(), shard.acquired_count, shard.throttles, round(shard.cooldown_remaining(), 1))
             for shard in self.shards
         ]
 
@@ -287,12 +284,12 @@ class Pool:
         if not self.shards:
             return "no pool"
         parts = []
-        for shard, acquired_count, throttles, parked in self.rates():
+        for shard, acquired_count, throttles, cooling in self.rates():
             piece = f"{shard.replace(PREFIX, 's')} {acquired_count}"
             if throttles:
                 piece += f"/{throttles}t"
-            if parked:
-                piece += f" parked {parked:.0f}s"
+            if cooling:
+                piece += f" cooldown {cooling:.0f}s"
             parts.append(piece)
         return (f"{len(self.shards)} shard(s): " + ", ".join(parts)
                 + f" @{self.per_minute():.0f}/min")
@@ -306,7 +303,7 @@ class ShardedClient(ProxyClient):
     def __init__(self, pool=None, read_timeout=SHARD_TIMEOUT, deadline_seconds=None, sleep=time.sleep):
         self.pool = pool if pool is not None else Pool()
         if not len(self.pool):
-            raise PoolUnavailableError(f"no {PREFIX}n is set, so there is no pool to call on")
+            raise PoolUnavailableError(f"no {PREFIX}n set")
         self.read_timeout = read_timeout
         self.deadline_seconds = deadline_seconds if deadline_seconds is not None else read_timeout
         self.last_num_found = None
@@ -329,9 +326,7 @@ class ShardedClient(ProxyClient):
                 pause = min(max(wait, 0.01), WAIT_SLICE)
                 waited += pause
                 if waited > self.wait_ceiling:
-                    raise ProxyError(
-                        f"{method}: waited {waited:.0f}s for a shard and the pool never opened"
-                    )
+                    raise ProxyError(f"{method}: no shard available after {waited:.0f}s")
                 self.sleep(pause)
                 continue
             try:
@@ -341,8 +336,7 @@ class ShardedClient(ProxyClient):
                 self.pool.cooldown(shard, method, throttle.retry_after)
                 if throttles > max(max_retries, len(self.pool) * 2):
                     raise ProxyError(
-                        f"{method}: {throttles} throttle(s) across {len(self.pool)} shard(s), "
-                        f"giving up"
+                        f"{method}: {throttles} throttle(s) across {len(self.pool)} shard(s)"
                     ) from throttle
                 continue
             shard.mark_success()

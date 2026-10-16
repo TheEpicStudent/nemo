@@ -52,7 +52,7 @@ def pass_calls(monkeypatch):
     monkeypatch.setattr(missed_reactions.whoami, "bot_user_id", lambda client, name: BOT_USER_ID)
     monkeypatch.setattr(missed_reactions.channels, "react_channels", lambda conn: {REACT_CHANNEL_ID})
     monkeypatch.setattr(missed_reactions.access, "may", fake_may)
-    monkeypatch.setattr(missed_reactions.case_actions, "close_quietly",
+    monkeypatch.setattr(missed_reactions.case_actions, "close_without_notice",
                         lambda conn, case_id, resolution, by: calls["closed"].append((case_id, resolution, by))
                         or (resolution or "no_action"))
     monkeypatch.setattr(missed_reactions.reaction_watch, "after_resolve",
@@ -60,7 +60,7 @@ def pass_calls(monkeypatch):
     return calls
 
 
-def test_close_reactions_returns_close_reactions_without_skin_tone():
+def test_close_reactions_mixed_reactions_returns_close_names_without_skin_tone():
     slack = FakeSlack({"1.0": [("white_check_mark::skin-tone-2", [MODERATOR_ID]), ("eyes", [MEMBER_ID]),
                                ("check-green", [MODERATOR_ID])]})
 
@@ -69,7 +69,7 @@ def test_close_reactions_returns_close_reactions_without_skin_tone():
     assert slack.requests == [{"channel": FIREHOUSE_ID, "timestamp": "1.0", "full": True}]
 
 
-def test_apply_missed_close_reactions_closes_from_root_and_skips_other_messages_of_closed_case(pass_calls):
+def test_apply_missed_close_reactions_root_and_card_of_one_case_closes_case_once(pass_calls):
     pass_calls["messages"] += [(1, "root", REACT_CHANNEL_ID, "1.0"), (1, "card", REACT_CHANNEL_ID, "1.1")]
     slack = FakeSlack({"1.0": [("white_check_mark", [BOT_USER_ID, MODERATOR_ID])]})
 
@@ -113,7 +113,7 @@ def test_apply_missed_close_reactions_continues_after_read_failure(pass_calls):
 
 
 def test_apply_missed_close_reactions_already_resolved_case_is_not_announced(pass_calls, monkeypatch):
-    monkeypatch.setattr(missed_reactions.case_actions, "close_quietly", lambda conn, case_id, resolution, by: None)
+    monkeypatch.setattr(missed_reactions.case_actions, "close_without_notice", lambda conn, case_id, resolution, by: None)
     pass_calls["messages"].append((7, "card", FIREHOUSE_ID, "7.0"))
     slack = FakeSlack({"7.0": [("white_check_mark", [MODERATOR_ID])]})
 
@@ -121,7 +121,7 @@ def test_apply_missed_close_reactions_already_resolved_case_is_not_announced(pas
     assert pass_calls["after"] == []
 
 
-def test_open_case_messages_query_covers_root_card_and_report_cards():
+def test_open_case_messages_selects_unresolved_root_card_and_report_card():
     sql = missed_reactions.OPEN_CASE_MESSAGES
     assert sql.count("resolved_at IS NULL") == 3
     assert "c.card_thread_ts IS NOT NULL" in sql

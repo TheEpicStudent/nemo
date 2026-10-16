@@ -33,7 +33,7 @@ Rails.application.routes.draw do
     end
     resources :requests, only: [:index, :create] do
       member do
-        post :settle
+        post :settle, action: :decide
         delete :withdraw
       end
     end
@@ -178,10 +178,10 @@ Rails.application.routes.draw do
     post "settings/sweep", to: "settings#sweep", as: :settings_sweep
     post "settings/accounts", to: "settings#accounts", as: :settings_accounts
     post "settings/react_channels", to: "settings#add_react", as: :settings_react_channels
-    delete "settings/react_channels/:channel_id", to: "settings#drop_react",
+    delete "settings/react_channels/:channel_id", to: "settings#remove_react",
            as: :settings_react_channel
     post "settings/trusted_senders", to: "settings#add_trusted_sender", as: :settings_trusted_senders
-    delete "settings/trusted_senders/:user_id", to: "settings#drop_trusted_sender",
+    delete "settings/trusted_senders/:user_id", to: "settings#remove_trusted_sender",
            as: :settings_trusted_sender
     resources :channels, only: [:index, :update], param: :channel_id do
       collection { get "search", as: :search }

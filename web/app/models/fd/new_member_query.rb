@@ -6,39 +6,35 @@ module Fd
       keyword_init: true)
     View = Struct.new(:key, :label, :count, :current, keyword_init: true)
     Row = Struct.new(:user_id, :joined_at, :source, :handle, :display_name,
-      :avatar_hash, :email, :domain, :domain_people, :in_force, :kinds, :deactivated,
-      :seen_app, :seen_country, :seen_people, :real_name, :ip, :region, :isp, :seen_os,
-      :raw_agent, :seen_at, keyword_init: true) do
+      :avatar_hash, :email, :domain, :domain_user_count, :in_force, :kinds, :deactivated,
+      :last_app, :last_country, :ip_user_count, :real_name, :ip, :region, :isp, :last_os,
+      :raw_agent, :last_seen_at, keyword_init: true) do
       def deactivated? = deactivated
 
       def guarded? = in_force.to_i.positive?
 
-      def lone_domain? = domain.present? && domain_people.to_i <= 1
+      def lone_domain? = domain.present? && domain_user_count.to_i <= 1
 
-      def seen_from
-        [seen_app, seen_country].compact_blank.join(" \u00b7 ").presence
-      end
+      def shared_range? = ip_user_count.to_i >= IP_USER_THRESHOLD
 
-      def crowded? = seen_people.to_i >= CROWDED
-
-      def close_company? = seen_people.to_i.between?(2, CROWDED - 1)
+      def shares_ip? = ip_user_count.to_i.between?(2, IP_USER_THRESHOLD - 1)
 
       def name = real_name.presence || display_name.presence || handle.presence
 
       def client
-        [seen_app, seen_os].compact_blank.join(" on ").presence
+        [last_app, last_os].compact_blank.join(" on ").presence
       end
 
-      def where_from
-        [Fd::Countries.name_for(seen_country), isp].compact_blank.join(", ").presence
+      def location_label
+        [Fd::Countries.name_for(last_country), isp].compact_blank.join(", ").presence
       end
 
-      def flag = Fd::Countries.flag_for(seen_country)
+      def flag = Fd::Countries.flag_for(last_country)
 
-      def detail? = [email, ip, client, where_from].any?(&:present?)
+      def detail? = [email, ip, client, location_label].any?(&:present?)
     end
 
-    CROWDED = 20
+    IP_USER_THRESHOLD = 20
     LIMIT = 50
     MIN_TERM = 2
 
@@ -60,8 +56,8 @@ module Fd
              "any" => "any time" }.freeze
     STATE = { "any" => "any", "clean" => "nothing on record", "guarded" => "under a guard",
               "gone" => "deactivated" }.freeze
-    SHAPE = { "any" => "any", "lone" => "first on their domain" }.freeze
-    SORT = { "joined" => "when they joined", "domain" => "email domain",
+    SHAPE = { "any" => "any", "lone" => "first on domain" }.freeze
+    SORT = { "joined" => "join date", "domain" => "email domain",
              "name" => "name" }.freeze
     DIRS = %w[desc asc].freeze
 
@@ -245,12 +241,12 @@ module Fd
     end
 
     def empty_note
-      return "Nobody who joined #{WHEN.fetch(self[WINDOW_KEY])} matches #{term}." if searching?
+      return "No matches" if searching?
 
       case view
-      when "guarded" then "Nobody who joined lately is under a guard."
-      when "gone" then "Nobody who joined lately has been deactivated."
-      else "Nobody joined in this window."
+      when "guarded" then "No guarded members"
+      when "gone" then "No deactivated members"
+      else "No new members"
       end
     end
 
@@ -306,15 +302,15 @@ module Fd
     SQL
 
     SESSION_COLUMNS =
-      ", seen.ua_app AS seen_app, place.country AS seen_country, " \
-      "coalesce(cohort.people, 0) AS seen_people, " \
-      "host(seen.ip) AS ip, place.region AS region, place.isp AS isp, " \
-      "seen.ua_os AS seen_os, seen.ua AS raw_agent, seen.at AS seen_at".freeze
+      ", last_login.ua_app AS last_app, login_location.country AS last_country, " \
+      "coalesce(prefix_users.account_count, 0) AS ip_user_count, " \
+      "host(last_login.ip) AS ip, login_location.region AS region, login_location.isp AS isp, " \
+      "last_login.ua_os AS last_os, last_login.ua AS raw_agent, last_login.at AS last_seen_at".freeze
     BLIND_SESSION_COLUMNS =
-      ", NULL::text AS seen_app, NULL::text AS seen_country, 0 AS seen_people, " \
+      ", NULL::text AS last_app, NULL::text AS last_country, 0 AS ip_user_count, " \
       "NULL::text AS ip, NULL::text AS region, NULL::text AS isp, " \
-      "NULL::text AS seen_os, NULL::text AS raw_agent, " \
-      "NULL::timestamptz AS seen_at".freeze
+      "NULL::text AS last_os, NULL::text AS raw_agent, " \
+      "NULL::timestamptz AS last_seen_at".freeze
 
     SESSION_JOIN = <<~SQL.freeze
       LEFT JOIN LATERAL (
@@ -325,23 +321,23 @@ module Fd
         WHERE l.user_id = j.user_id
         ORDER BY l.last_at DESC
         LIMIT 1
-      ) seen ON true
+      ) last_login ON true
       LEFT JOIN LATERAL (
         SELECT l.country, l.region, l.isp
         FROM fd.login_event l
         WHERE l.user_id = j.user_id AND l.country IS NOT NULL
         ORDER BY l.last_at DESC
         LIMIT 1
-      ) place ON true
+      ) login_location ON true
       LEFT JOIN LATERAL (
-        SELECT count(*) AS people FROM fd.member_trait t
-        WHERE t.kind = 'ip_prefix' AND t.value = host(seen.ip_prefix)
-      ) cohort ON true
+        SELECT count(*) AS account_count FROM fd.member_trait t
+        WHERE t.kind = 'ip_prefix' AND t.value = host(last_login.ip_prefix)
+      ) prefix_users ON true
     SQL
 
     DOMAIN_TALLY = <<~SQL.freeze
       , domains AS (
-        SELECT lower(split_part(email, '@', 2)) AS domain, count(*) AS people
+        SELECT lower(split_part(email, '@', 2)) AS domain, count(*) AS account_count
         FROM fd.member_identity
         WHERE purged_at IS NULL AND email IS NOT NULL AND email <> ''
         GROUP BY 1
@@ -362,7 +358,7 @@ module Fd
           SELECT j.user_id, j.joined_at, j.source,
                  m.handle, m.display_name, m.avatar_hash
                  #{identity? ? IDENTITY_COLUMNS : BLIND_COLUMNS},
-                 #{identity? ? 'coalesce(d.people, 0)' : '0'} AS domain_people,
+                 #{identity? ? 'coalesce(d.account_count, 0)' : '0'} AS domain_user_count,
                  (SELECT count(*) FROM fd.member_guards g
                    WHERE g.subject_id = j.user_id AND g.state IN ('live', 'lifting')
                  ) AS in_force,
@@ -401,7 +397,7 @@ module Fd
 
     def filter_clause
       parts = ["true"]
-      parts << "domain IS NOT NULL AND domain_people <= 1" if self["shape"] == "lone"
+      parts << "domain IS NOT NULL AND domain_user_count <= 1" if self["shape"] == "lone"
       parts << "in_force = 0 AND NOT deactivated" if self["state"] == "clean"
       parts << "in_force > 0" if self["state"] == "guarded"
       parts << "deactivated" if self["state"] == "gone"
@@ -452,12 +448,12 @@ module Fd
         handle: row["handle"],
         display_name: row["display_name"], avatar_hash: row["avatar_hash"],
         email: row["email"], domain: row["domain"],
-        domain_people: row["domain_people"].to_i, in_force: row["in_force"].to_i,
+        domain_user_count: row["domain_user_count"].to_i, in_force: row["in_force"].to_i,
         kinds: row["kinds"].to_s.split(","), deactivated: row["deactivated"],
-        seen_app: row["seen_app"], seen_country: row["seen_country"],
-        seen_people: row["seen_people"].to_i, real_name: row["real_name"],
+        last_app: row["last_app"], last_country: row["last_country"],
+        ip_user_count: row["ip_user_count"].to_i, real_name: row["real_name"],
         ip: row["ip"], region: row["region"], isp: row["isp"],
-        seen_os: row["seen_os"], raw_agent: row["raw_agent"], seen_at: row["seen_at"]
+        last_os: row["last_os"], raw_agent: row["raw_agent"], last_seen_at: row["last_seen_at"]
       )
     end
 
@@ -486,7 +482,7 @@ module Fd
 
     def match_phrase
       case self["shape"]
-      when "lone" then "first on their email domain"
+      when "lone" then "first on email domain"
       end
     end
 

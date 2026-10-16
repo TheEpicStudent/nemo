@@ -1,6 +1,6 @@
 <div class="section">
   <div class="section-head">
-    <h2 class="section-title">Global dials</h2>
+    <h2 class="section-title">Global settings</h2>
   </div>
 
   <div class="grid g-1">
@@ -9,16 +9,16 @@
         <div><h2 class="card-title">Schedule</h2></div>
       </div>
       <div class="card-body flush">
-        <% Engine::Setting::ENGINE_DIALS.each do |name, dial| %>
+        <% Engine::Setting::ENGINE_SETTINGS.each do |name, definition| %>
           <div class="tgrid tgrid-schedule">
-            <div class="tstack"><b><%= dial[:label] %></b></div>
+            <div class="tstack"><b><%= definition[:label] %></b></div>
             <div class="tcell">
               <%= render "setting_value", source: Engine::Setting::ENGINE, name: name,
                     may_edit_setting: may_edit_setting, show_default: true %>
             </div>
             <div class="sub align-right">
               <% row = Engine::Setting.find_by(source: Engine::Setting::ENGINE, name: name) %>
-              <%= row ? "#{row.changed_by}, #{time_ago_in_words(row.changed_at)} ago" : "From the file" %>
+              <%= row ? "#{row.changed_by}, #{time_ago_in_words(row.changed_at)} ago" : "Default" %>
             </div>
           </div>
         <% end %>

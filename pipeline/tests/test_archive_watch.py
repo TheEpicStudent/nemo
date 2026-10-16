@@ -38,41 +38,41 @@ def event(**fields):
     return SimpleNamespace(payload=payload)
 
 
-def test_a_post_goes_into_the_archive_as_it_arrives(monkeypatch):
+def test_archive_channel_message_post_records_posted(monkeypatch):
     calls = capture(monkeypatch)
 
-    assert archive_watch.archived(event(user="U1", text="hi", ts=POSTED))
+    assert archive_watch.archive_channel_message(event(user="U1", text="hi", ts=POSTED))
     assert calls == [("posted", "C1", POSTED)]
 
 
-def test_a_private_channel_post_goes_in_too(monkeypatch):
+def test_archive_channel_message_private_channel_post_records_posted(monkeypatch):
     calls = capture(monkeypatch)
 
-    assert archive_watch.archived(event(channel="G1", channel_type="group", user="U1", ts=POSTED))
+    assert archive_watch.archive_channel_message(event(channel="G1", channel_type="group", user="U1", ts=POSTED))
     assert calls == [("posted", "G1", POSTED)]
 
 
-def test_an_edit_updates_the_message_it_names(monkeypatch):
+def test_archive_channel_message_edit_records_edited(monkeypatch):
     calls = capture(monkeypatch)
 
-    archive_watch.archived(event(subtype="message_changed", hidden=True, ts="1700000100.000000",
-                                 message={"ts": POSTED, "user": "U1", "text": "new"}))
+    archive_watch.archive_channel_message(event(subtype="message_changed", hidden=True, ts="1700000100.000000",
+                                                message={"ts": POSTED, "user": "U1", "text": "new"}))
     assert calls == [("edited", "C1", POSTED)]
 
 
-def test_a_deletion_marks_the_message_it_names(monkeypatch):
+def test_archive_channel_message_deletion_records_deleted(monkeypatch):
     calls = capture(monkeypatch)
 
-    archive_watch.archived(event(subtype="message_deleted", hidden=True, deleted_ts=POSTED,
-                                 event_ts="1700000200.000000"))
+    archive_watch.archive_channel_message(event(subtype="message_deleted", hidden=True, deleted_ts=POSTED,
+                                                event_ts="1700000200.000000"))
     assert calls == [("deleted", "C1", POSTED, "1700000200.000000")]
 
 
-def test_hidden_bookkeeping_and_direct_messages_stay_out(monkeypatch):
+def test_archive_channel_message_hidden_direct_and_channelless_events_return_none(monkeypatch):
     calls = capture(monkeypatch)
 
-    assert archive_watch.archived(event(subtype="message_replied", hidden=True,
-                                        message={"ts": POSTED})) is None
-    assert archive_watch.archived(event(channel="D1", channel_type="im", user="U1", ts=POSTED)) is None
-    assert archive_watch.archived(event(channel=None, user="U1", ts=POSTED)) is None
+    assert archive_watch.archive_channel_message(event(subtype="message_replied", hidden=True,
+                                                       message={"ts": POSTED})) is None
+    assert archive_watch.archive_channel_message(event(channel="D1", channel_type="im", user="U1", ts=POSTED)) is None
+    assert archive_watch.archive_channel_message(event(channel=None, user="U1", ts=POSTED)) is None
     assert calls == []

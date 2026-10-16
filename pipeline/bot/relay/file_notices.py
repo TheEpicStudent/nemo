@@ -7,7 +7,7 @@ log = logging.getLogger("bot.relay")
 
 SUBTYPE = "file_notice"
 
-DROPPED_FILES = """
+UNNOTIFIED_FILES = """
 SELECT DISTINCT ON (f.id) f.id, c.channel_id, c.thread_ts, f.fetch_state, f.fetch_error,
        coalesce(
            jsonb_path_query_first(m.raw, '$.** ? (@.id == $id).name',
@@ -46,7 +46,7 @@ def notice_text(state, error, name):
 
 def post_notices(client, limit=50):
     with session() as conn:
-        rows = conn.execute(DROPPED_FILES, (limit,)).fetchall()
+        rows = conn.execute(UNNOTIFIED_FILES, (limit,)).fetchall()
 
     sent = 0
     for file_id, channel_id, thread_ts, state, error, name in rows:

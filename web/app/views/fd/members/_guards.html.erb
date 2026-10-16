@@ -5,7 +5,7 @@
                 action: "change->guard-form#toggleChannel" } } do %>
     <div class="modal-body">
       <div class="field-label">
-        <span>What to hold</span>
+        <span>Guard</span>
         <%= render "shared/choice", name: :kind,
               chosen: action_label(Fd::MemberGuard::NON_DEACTIVATION_KINDS.first),
               options: Fd::MemberGuard::NON_DEACTIVATION_KINDS.each_with_index.map { |key, i| {
@@ -13,8 +13,8 @@
       </div>
 
       <div class="field-label" data-guard-form-target="channel" hidden>
-        <span>Which channel</span>
-        <%= render "shared/combobox", kind: "channel", name: :channel_id, label: "search for a channel" %>
+        <span>Channel</span>
+        <%= render "shared/combobox", kind: "channel", name: :channel_id, label: "Search channels" %>
       </div>
 
       <div class="field-label">
@@ -26,7 +26,7 @@
       </div>
 
       <label class="field-label">
-        Why
+        Reason
         <%= text_area_tag :reason, submitted_value(:reason), rows: 3, class: "textarea", id: nil %>
       </label>
       <%= field_wrong(:reason) %>
@@ -34,7 +34,7 @@
     </div>
     <div class="modal-foot">
       <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
-      <%= submit_tag "Hold it", class: "btn btn-primary" %>
+      <%= submit_tag "Apply", class: "btn btn-primary" %>
     </div>
   <% end %>
 <% end %>

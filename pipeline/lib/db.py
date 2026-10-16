@@ -129,9 +129,7 @@ def refuse_if_seeded(conn: psycopg.Connection) -> None:
     mode = deployment_mode(conn)
     if mode != "live":
         raise SeededDeployment(
-            f"{os.environ.get('POSTGRES_DB', 'this database')} is marked {mode}. "
-            "ingestion would mix real Slack data into synthetic data and spend real "
-            "API quota. rebuild the database if you meant to make it live"
+            f"{os.environ.get('POSTGRES_DB', 'this database')} is marked {mode}, ingestion refused"
         )
 
 
@@ -162,7 +160,7 @@ def start_run(
         for stale_id, stale_source in sweep_stale_runs(conn):
             print(f"abandoned stale run {stale_id} ({stale_source})")
         for dead_id, dead_source in suspect_dead_runs(conn, reclaim_seconds=settings.reclaim_seconds(conn)):
-            print(f"run {dead_id} ({dead_source}) has no heartbeat behind it")
+            print(f"run {dead_id} ({dead_source}) has no heartbeat")
     source_key = sources.key_for_run(source)
     with conn.cursor() as cur:
         cur.execute(START_RUN_SQL, {
@@ -192,8 +190,7 @@ def finish_run(
             (status, rows_in, rows_rejected, error_class, error_detail, run_id, worker(), WORKER_BOOT),
         )
         if cur.rowcount == 0:
-            print(f"finish_run: run {run_id} was not running or was reclaimed by another owner, "
-                  "its status was left alone")
+            print(f"finish_run: run {run_id} not running or reclaimed, status unchanged")
 
 
 SINGLETON_NAMESPACE = 8571
@@ -213,10 +210,7 @@ def instance_lock(name: str):
         ).fetchone()[0]
         lock_conn.commit()
         if not acquired:
-            raise AlreadyRunningError(
-                f"another {name} already holds the singleton lock on this database, "
-                "so this one would double every in-process rate budget"
-            )
+            raise AlreadyRunningError(f"another {name} holds the singleton lock")
         try:
             yield lock_conn
         finally:
@@ -255,16 +249,15 @@ def build_lock(wait_seconds=None, poll_seconds=BUILD_POLL_SECONDS,
             lock_conn.commit()
             if acquired:
                 if waited:
-                    print(f"dbt: the {BUILD_LOCK} lock came free, building now")
+                    print(f"dbt: acquired lock {BUILD_LOCK}")
                 break
             if clock() >= deadline:
                 raise AlreadyRunningError(
-                    f"another dbt build has held the {BUILD_LOCK} lock for more than "
-                    f"{wait_seconds}s, and two builds race each other for the same relations"
+                    f"lock {BUILD_LOCK} held by another dbt build for over {wait_seconds}s"
                 )
             if not waited:
                 waited = True
-                print(f"dbt: another build holds the {BUILD_LOCK} lock, waiting up to {wait_seconds}s")
+                print(f"dbt: waiting up to {wait_seconds}s for lock {BUILD_LOCK}")
             sleep(poll_seconds)
         try:
             yield lock_conn

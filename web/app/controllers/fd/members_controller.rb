@@ -33,8 +33,8 @@ module Fd
       load_member_audit if @tab == "audit"
       @guard_history = @tab == "enforcement" ? guard_history : []
       load_purges
-      @names = Names.for(@record.people_named + @pane_rows.map(&:user_id) + audit_member_ids +
-        @guard_history.flat_map(&:people_named) + @purges.map(&:asked_by))
+      @names = Names.for(@record.referenced_user_ids + @pane_rows.map(&:user_id) + audit_member_ids +
+        @guard_history.flat_map(&:referenced_user_ids) + @purges.map(&:asked_by))
       @member = @names.member(@user_id)
       @account = MemberAccount.find_by(user_id: @user_id)
       @entries = MemberTimeline.for(@record, names: @names)
@@ -64,7 +64,7 @@ module Fd
       render partial: "fd/members/pane_rows", layout: false, locals: {
         rows: rows, context: MemberContext.for(ids),
         grants: Authz::Grant.live.roles.where(user_id: ids).index_by(&:user_id),
-        open_id: params[:open].to_s.presence, more: more, carry: query.to_params
+        open_id: params[:open].to_s.presence, more: more, query_params: query.to_params
       }
     end
 
@@ -118,7 +118,7 @@ module Fd
     end
 
     def show_drawer
-      @names = Names.for(@record.people_named + [@user_id])
+      @names = Names.for(@record.referenced_user_ids + [@user_id])
       @member = @names.member(@user_id)
       @context = MemberContext.for([@user_id])[@user_id]
       @member_channels = SlackScan.channels(@user_id)

@@ -14,7 +14,7 @@ module Fd
       line = writing { create_chat_line(kase, parsed.body) }
       SlackPost.post_to_thread(line) if line.mirrored_as == "user"
 
-      answer(kase)
+      respond(kase)
     end
 
     private
@@ -33,16 +33,16 @@ module Fd
       sent = nil
       writing do
         sent = Outgoing.queue(conversation_for(kase), parsed.body, mode: mode(parsed),
-          by: current_account.user_id, asked: params[:conversation_id].present?)
-        answered(kase, sent.queued) if sent.queued
+          by: current_account.user_id, conversation_selected: params[:conversation_id].present?)
+        audit_reply(kase, sent.queued) if sent.queued
       end
 
       return redirect_to(back_to(kase), alert: sent.problem) if sent.problem
 
-      answer(kase)
+      respond(kase)
     end
 
-    def answered(kase, queued)
+    def audit_reply(kase, queued)
       audit(queued.conversation.report, "answered", entity_id: kase.id,
         after: { "outbox_id" => queued.id, "mode" => queued.mode })
     end
@@ -61,7 +61,7 @@ module Fd
       )
     end
 
-    def answer(kase)
+    def respond(kase)
       respond_to do |format|
         format.turbo_stream { render turbo_stream: CaseChatBroadcast.tag(kase.id) }
         format.html { redirect_to back_to(kase) }
@@ -73,8 +73,8 @@ module Fd
     end
 
     def validation_error(body)
-      return "write something first" if body.blank?
-      return "that is too long, keep it under #{CaseChat::MAX_LENGTH}" if
+      return "Enter a message" if body.blank?
+      return "Keep it under #{CaseChat::MAX_LENGTH} characters" if
         body.length > CaseChat::MAX_LENGTH
 
       nil

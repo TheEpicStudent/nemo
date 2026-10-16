@@ -4,7 +4,7 @@ from lib.db import ingest_run
 SOURCE = "useragent_reparse"
 BATCH = 5000
 
-UNREAD = """
+UNPARSED_SQL = """
 SELECT id, ua
 FROM slack.user_agent
 WHERE read_at IS NULL
@@ -12,7 +12,7 @@ ORDER BY id DESC
 LIMIT %s
 """
 
-REREAD = """
+UPDATE_PARSED_SQL = """
 UPDATE slack.user_agent
 SET app = coalesce(%s, app),
     os = coalesce(%s, os),
@@ -21,8 +21,8 @@ WHERE id = %s
 """
 
 
-def pass_over(conn, batch=BATCH):
-    rows = conn.execute(UNREAD, (batch,)).fetchall()
+def reparse_batch(conn, batch=BATCH):
+    rows = conn.execute(UNPARSED_SQL, (batch,)).fetchall()
     if not rows:
         return 0
 
@@ -32,14 +32,14 @@ def pass_over(conn, batch=BATCH):
         updates.append((parsed["ua_app"], parsed["ua_os"], agent_id))
 
     with conn.cursor() as cur:
-        cur.executemany(REREAD, updates)
+        cur.executemany(UPDATE_PARSED_SQL, updates)
     conn.commit()
     return len(updates)
 
 
 def run(conn):
     with ingest_run(conn, SOURCE) as counts:
-        counts.rows_in = pass_over(conn)
+        counts.rows_in = reparse_batch(conn)
 
     print(f"{SOURCE}: {counts.rows_in} agent string(s) read again")
     return counts.rows_in

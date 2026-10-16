@@ -163,7 +163,7 @@ def check_freshness(counts=None):
     for name in stale:
         print(f"dbt source freshness: {name} is stale")
     if stale:
-        print(f"dbt: {len(stale)} stale source(s); continuing with available data")
+        print(f"dbt: {len(stale)} stale source(s)")
         if counts is not None:
             counts.status = "partial"
     return code
@@ -175,7 +175,7 @@ def run_dbt(conn=None, select=(), wait_seconds=None):
     def build(counts=None):
         check_freshness(counts)
         if dbt("run", *select) != 0:
-            raise RuntimeError("dbt run exited non-zero, no mart was rebuilt")
+            raise RuntimeError("dbt run exited non-zero")
         code = dbt("test", *select)
         results = json.loads(RUN_RESULTS.read_text()) if RUN_RESULTS.exists() else {}
         failed, warned = dbt_outcomes(results)
@@ -186,10 +186,10 @@ def run_dbt(conn=None, select=(), wait_seconds=None):
         gated = [name for name, _ in failed if name in GATE_TESTS]
         if gated:
             raise RuntimeError(
-                f"dbt: {len(gated)} gate test(s) failed, refusing to publish: {', '.join(sorted(gated))}"
+                f"dbt: {len(gated)} gate test(s) failed: {', '.join(sorted(gated))}"
             )
         if failed:
-            print(f"dbt: {len(failed)} test(s) failed, the marts were still rebuilt")
+            print(f"dbt: {len(failed)} test(s) failed")
             if counts is not None:
                 counts.status = "partial"
         elif code != 0:
@@ -264,10 +264,10 @@ def reap_orphaned_dbt(before, after_seconds=ORPHAN_AFTER_SECONDS):
             terminated = cur.rowcount
             conn.commit()
     except Exception as exc:
-        print(f"nightly: could not reap orphaned dbt backends, {type(exc).__name__}: {exc}")
+        print(f"nightly: could not terminate orphaned dbt backends, {type(exc).__name__}: {exc}")
         return 0
     if terminated > 0:
-        print(f"nightly: terminated {terminated} dbt backend(s) left by an earlier attempt")
+        print(f"nightly: terminated {terminated} dbt backend(s) from an earlier attempt")
     return terminated
 
 
@@ -367,7 +367,7 @@ def refresh_statistics(name):
 
     analyze_error = analyze(tables)
     if analyze_error:
-        print(f"{name}: statistics NOT refreshed, {analyze_error}")
+        print(f"{name}: statistics not refreshed, {analyze_error}")
 
 
 def over_budget(elapsed_minutes, budget_minutes, ran, name):
@@ -393,7 +393,7 @@ def rows_loaded(conn, run_id):
         return int(cur.fetchone()[0] or 0)
 
 
-def due_anyway(conn, run_id, name, why):
+def transform_skip_reason(conn, run_id, name, why):
     if name != TRANSFORM or not why:
         return why
     if not settings.enabled(conn, name):
@@ -401,7 +401,7 @@ def due_anyway(conn, run_id, name, why):
     loaded_rows = rows_loaded(conn, run_id)
     if not loaded_rows:
         return why
-    print(f"{name}: {why}, but {loaded_rows} rows landed tonight")
+    print(f"{name}: {why}, but {loaded_rows} rows loaded this run")
     return None
 
 
@@ -429,7 +429,7 @@ def run_stages(conn, plan, run_id, budget=None):
         raise_if_cancelled()
         if why is WHEN_DUE:
             why = settings.skip_reason(conn, name, datetime.now(timezone.utc))
-        why = due_anyway(conn, run_id, name, why)
+        why = transform_skip_reason(conn, run_id, name, why)
         if not why:
             elapsed_minutes = (time.monotonic() - started) / 60
             why = over_budget(elapsed_minutes, budget, ran, name)

@@ -25,7 +25,7 @@
           <% if row.email.present? %>
             <%= plain_email(row.email) %>
             <span class="sub2">&middot;</span>
-            <span class="sub2"><%= number_with_delimiter(row.domain_people) %></span>
+            <span class="sub2"><%= number_with_delimiter(row.domain_user_count) %></span>
             <% if row.lone_domain? %>
               <span class="state state-warn">only them</span>
             <% end %>
@@ -46,13 +46,13 @@
           <% if row.ip.present? %>
             <span class="mono"><%= row.ip %></span>
             <% if row.flag %><span class="new-member-flag"><%= row.flag %></span><% end %>
-            <% if row.where_from %>
-              <span class="sub2"><%= row.where_from %></span>
+            <% if row.location_label %>
+              <span class="sub2"><%= row.location_label %></span>
             <% end %>
-            <% if row.crowded? %>
-              <span class="state state-warn"><%= row.seen_people %> on that network</span>
-            <% elsif row.close_company? %>
-              <span class="state"><%= row.seen_people %> on that network</span>
+            <% if row.shared_range? %>
+              <span class="state state-warn"><%= row.ip_user_count %> on that network</span>
+            <% elsif row.shares_ip? %>
+              <span class="state"><%= row.ip_user_count %> on that network</span>
             <% end %>
           <% else %>
             <span class="is-none">never signed in</span>
@@ -65,8 +65,8 @@
         <dd>
           <% if row.client %>
             <%= row.client %>
-            <% if row.seen_at %>
-              <span class="sub2">last seen <%= time_ago_in_words(row.seen_at) %> ago</span>
+            <% if row.last_seen_at %>
+              <span class="sub2">last seen <%= time_ago_in_words(row.last_seen_at) %> ago</span>
             <% end %>
           <% else %>
             <span class="is-none">unknown</span>
@@ -88,7 +88,7 @@
     </dl>
 
     <div class="new-member-foot">
-      <%= link_to "Open the member", fd_member_path(row.user_id), class: "btn btn-sm" %>
+      <%= link_to "Open member", fd_member_path(row.user_id), class: "btn btn-sm" %>
       <%= link_to "Open case", fd_cases_path(subject_user_id: row.user_id, open: "1"),
             class: "btn btn-sm" %>
     </div>

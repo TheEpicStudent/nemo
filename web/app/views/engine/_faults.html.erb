@@ -1,6 +1,6 @@
 <div class="section">
   <div class="section-head">
-    <h2 class="section-title">Open problems</h2>
+    <h2 class="section-title">Faults</h2>
   </div>
 
   <div class="card card-flush">
@@ -42,7 +42,7 @@
                     <span class="dial-set">
                       <%= button_to "Ack", engine_ack_incident_path(source_key: incident.source_key, kind: incident.kind),
                             class: "btn btn-sm", form: { class: "contents" } %>
-                      <%= button_to "Mute a day", engine_mute_incident_path(source_key: incident.source_key, kind: incident.kind),
+                      <%= button_to "Mute 24h", engine_mute_incident_path(source_key: incident.source_key, kind: incident.kind),
                             class: "btn btn-sm", form: { class: "contents" } %>
                     </span>
                   <% end %>
@@ -54,7 +54,7 @@
       </div>
     <% else %>
       <div class="empty">
-        <p class="empty-title">No incident open</p>
+        <p class="empty-title">No open incidents</p>
       </div>
     <% end %>
   </div>
@@ -92,7 +92,7 @@
       </div>
     <% else %>
       <div class="empty">
-        <p class="empty-title">Every check passed</p>
+        <p class="empty-title">No failed checks</p>
       </div>
     <% end %>
   </div>
@@ -106,7 +106,7 @@
   <div class="card card-flush">
     <div class="card-head">
       <div>
-        <h2 class="card-title">Headlines that disagree</h2>
+        <h2 class="card-title">Headline mismatches</h2>
       </div>
     </div>
     <% if headlines.any? %>
@@ -116,7 +116,7 @@
             <tr>
               <th>Headline</th>
               <th>State</th>
-              <th class="col-num">Ours</th>
+              <th class="col-num">Observed</th>
               <th>Expected</th>
               <th class="col-num">Checked</th>
             </tr>
@@ -136,7 +136,7 @@
       </div>
     <% else %>
       <div class="empty">
-        <p class="empty-title">Every headline agrees</p>
+        <p class="empty-title">No mismatches</p>
       </div>
     <% end %>
   </div>
@@ -144,8 +144,7 @@
   <div class="card card-flush">
     <div class="card-head">
       <div>
-        <h2 class="card-title">Suppressed</h2>
-        <p class="card-sub">Breakers <%= breaker_mode %><%= ", recording only" if breaker_mode == "observe" %></p>
+        <h2 class="card-title">Breakers</h2>
       </div>
       <div class="card-tools">
         <span class="queue-label">Mode</span>
@@ -171,11 +170,11 @@
                 <td class="mono"><%= row.assertion %></td>
                 <td>
                   <% if row.status == "fail" %>
-                    <span class="chip chip-crit"><%= breaker_mode == "on" ? "Open, skipping" : "Would open" %></span>
+                    <span class="chip chip-crit"><%= breaker_mode == "on" ? "Open" : "Would open" %></span>
                   <% elsif row.assertion.start_with?("mode:") %>
                     <span class="chip chip-good">None open</span>
                   <% else %>
-                    <span class="chip chip-off">Held closed</span>
+                    <span class="chip chip-off">Closed</span>
                   <% end %>
                 </td>
                 <td class="col-num"><%= row.observed %></td>
@@ -183,7 +182,7 @@
                 <td class="col-num"><%= short_age(row.checked_at) %></td>
                 <td class="col-btn">
                   <% if row.status == "fail" && may_edit_setting %>
-                    <%= button_to "Hold closed tonight", engine_override_breaker_path(source_key: row.assertion.split(":", 2).last),
+                    <%= button_to "Override tonight", engine_override_breaker_path(source_key: row.assertion.split(":", 2).last),
                           class: "btn btn-sm", form: { class: "contents" } %>
                   <% end %>
                 </td>
@@ -194,7 +193,7 @@
       </div>
     <% else %>
       <div class="empty">
-        <p class="empty-title">No breaker has tripped</p>
+        <p class="empty-title">No tripped breakers</p>
       </div>
     <% end %>
   </div>
@@ -214,7 +213,7 @@
     </div>
     <% if beats.empty? %>
       <div class="empty">
-        <p class="empty-title">No worker has reported</p>
+        <p class="empty-title">No workers</p>
       </div>
     <% else %>
       <div class="scroll">
@@ -274,7 +273,7 @@
       </div>
     <% else %>
       <div class="empty">
-        <p class="empty-title">Nothing failed</p>
+        <p class="empty-title">No failures</p>
       </div>
     <% end %>
   </div>

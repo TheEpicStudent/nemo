@@ -37,12 +37,12 @@ module Fd
       @duplicate_candidates = Case.candidates_for(@case, @siblings)
       @notes = Note.where(case_id: family).visible.recent_first.to_a
       @conversations = IntakeConversation.for_case(family).to_a
-      @reachable = @conversations.reject(&:closed?).map(&:report_id).to_set
+      @reachable_report_ids = @conversations.reject(&:closed?).map(&:report_id).to_set
       @thread = selected_thread(@reports)
       @thread_conversation = @conversations.find { |conversation| conversation.report_id == @thread&.id }
       @conversation_messages = IntakeMessage.tail([@thread_conversation&.id].compact)
       @conversation_count = IntakeMessage.count_for([@thread_conversation&.id].compact)
-      @queued = if @thread_conversation
+      @queued_replies = if @thread_conversation
         IntakeOutbox.where(conversation_id: @thread_conversation.id)
           .where(sent_at: nil).oldest_first.to_a
       else
@@ -61,14 +61,14 @@ module Fd
         @action_standing.map(&:channel_id) +
         @actions.filter_map { |action| action.details["channel_id"] } +
         Array(@pane_channels) +
-        ChatChannels.ids(@chat, @conversation_messages, @queued, @reports))
-      @emoji = ChatEmoji.for(@chat, @conversation_messages, @queued, @reports)
+        ChatChannels.ids(@chat, @conversation_messages, @queued_replies, @reports))
+      @emoji = ChatEmoji.for(@chat, @conversation_messages, @queued_replies, @reports)
       @person_priors = Case.prior_counts_for(@participants.map(&:user_id))
       @assignees = @case.assignees.to_a
       @mentioned = @case.mentioned_but_unlogged(
         notes: @notes + @standing_notes.values.flatten, reports: @reports
       )
-      @erasures = AuditEntry.erasures_for(case_id: family,
+      @erased_entries = AuditEntry.erasures_for(case_id: family,
         note_ids: Note.where(case_id: family).ids).to_a
       @names = Names.for(page_ids)
       @timeline = CaseTimeline.for(
@@ -78,7 +78,7 @@ module Fd
         notes: @notes + @standing_notes.values_at(*@case.subject_user_ids).compact.flatten,
         participants: @participants,
         assignees: @assignees,
-        erasures: @erasures,
+        erasures: @erased_entries,
         names: @names,
         channels: @channels,
       )
@@ -106,7 +106,7 @@ module Fd
       kase = Case.find(params[:id])
       requested_category = params[:category_key].to_s
       unless InfractionCategory.active_key?(requested_category)
-        wrong!(:category_key, "Pick one of these.")
+        field_error!(:category_key, "Select a category")
         return redirect_to(fd_case_path(kase, do: "category"))
       end
       if kase.category_key.present?
@@ -178,7 +178,7 @@ module Fd
         @thread_messages.map(&:author_user_id),
         @thread_messages.map(&:purged_by),
         @threads.map(&:added_by),
-        @erasures.map(&:actor_user_id),
+        @erased_entries.map(&:actor_user_id),
         cited_authors,
         Array(@pane_people)
       ]
@@ -200,23 +200,23 @@ module Fd
 
     def validation_error(subjects)
       unless subjects.all? { |id| id.match?(MEMBER_ID) }
-        return "that does not look like a Slack member id"
+        return "Not a Slack member ID"
       end
       if params[:category_key].present? && !InfractionCategory.active_key?(params[:category_key])
-        return "pick a category from the list"
+        return "Select a category"
       end
-      return "say what happened" if params[:body].to_s.strip.blank?
+      return "Enter a description" if params[:body].to_s.strip.blank?
       if params[:body].to_s.strip.length > CaseChat::MAX_LENGTH
-        return "that is too long, keep it under #{CaseChat::MAX_LENGTH}"
+        return "Keep it under #{CaseChat::MAX_LENGTH} characters"
       end
 
       nil
     end
 
     def opened_notice(kase, subjects)
-      return "case #{kase.id} opened" if subjects.one?
+      return "Case #{kase.id} opened" if subjects.one?
 
-      "case #{kase.id} opened, about #{subjects.size} people"
+      "Case #{kase.id} opened · #{subjects.size} subjects"
     end
 
     def write_opening(kase)
@@ -251,7 +251,7 @@ module Fd
       @pane_violations = Case.violations_for(@pane_cases.map(&:id))
       @cited_words = IntakeShare.first_shares_for(@pane_cases.map(&:id))
       @attachment_counts = IntakeFile.counts_for_cases(@pane_cases.map(&:id))
-      @pane_reachable = IntakeConversation.open
+      @pane_reachable_report_ids = IntakeConversation.open
         .where(report_id: @pane_cases.flat_map { |kase| kase.reports.map(&:id) })
         .pluck(:report_id).to_set
       @pane_people = @pane_cases.flat_map { |kase|

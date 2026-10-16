@@ -35,12 +35,12 @@
         <dt>IP</dt>
         <dd><%= locked_note("Hidden") %></dd>
       <% end %>
-      <% if (place = @context.place) %>
+      <% if (login_location = @context.login_location) %>
         <dt>Network</dt>
         <dd>
-          <%= [place.network, place.country].compact_blank.join(" · ") %>
+          <%= [login_location.network, login_location.country].compact_blank.join(" · ") %>
           <div class="side-dim">
-            <%= [place.kind, (pluralize(place.accounts, "account") + " on this IP" if place.accounts.positive?)].compact_blank.join(", ") %>
+            <%= [login_location.kind, (pluralize(login_location.accounts, "account") + " on this IP" if login_location.accounts.positive?)].compact_blank.join(", ") %>
           </div>
         </dd>
       <% end %>

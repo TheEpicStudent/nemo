@@ -4,7 +4,7 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
   end
 
@@ -28,7 +28,7 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
     Fd::AuditQuery.new({ "view" => view, "q" => term }, actor: @me)
   end
 
-  test "a category keeps the slack events in it and nothing from the other logs" do
+  test "audit query with category filter returns only matching slack events" do
     slack!("user_login", "sign_ins")
     slack!("channel_created", "channels")
     Fd::AuditEntry.create!(occurred_at: 1.hour.ago, actor_user_id: "UME", actor_kind: "human",
@@ -38,13 +38,13 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
     assert_equal %w[user_login], rows.map(&:verb)
   end
 
-  test "a category can be named by its label" do
+  test "audit search parse resolves category label and drops unknown category" do
     term = Fd::AuditSearch.parse("category:Huddles").terms.first
     assert_equal ["category", "huddles", "Huddles"], [term.kind, term.value, term.label]
     assert_empty Fd::AuditSearch.parse("category:nonsense").terms
   end
 
-  test "picking a filter replaces the one of its kind and keeps the rest" do
+  test "audit query set_params replaces term of same kind and keeps others" do
     audit_query = query("category:people did:user_login @UFILTER", view: "slack")
 
     params = audit_query.set_params("category", "channels")
@@ -52,7 +52,7 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
     assert_equal({ "q" => "action:user_login about:UFILTER" }, audit_query.set_params("category"))
   end
 
-  test "the filter row lists each category and narrows the actions to the one picked" do
+  test "audit index with category filter renders category summary and one menu group" do
     get fd_audit_path(q: "category:huddles")
     assert_response :success
 
@@ -62,7 +62,7 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
     assert_select ".audit-filters a[aria-current='true']", text: "Huddles"
   end
 
-  test "the time presets and the doer filter write the terms the search already reads" do
+  test "audit index renders time presets with is:human link and last:7d token" do
     get fd_audit_path
 
     assert_select ".audit-filters .daterange a[href*='last%3A24h']", "Last 24 hours"
@@ -75,7 +75,7 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
     assert_select ".audit-token", text: /last:\s*7d/
   end
 
-  test "a range picked on the calendar becomes after and before, the end day included" do
+  test "audit index with start and end params redirects to after and before terms" do
     get fd_audit_path(q: "did:user_login after:2026-01-01", start: "2026-10-01", end: "2026-10-03")
 
     assert_redirected_to fd_audit_path(q: "action:user_login after:2026-10-01 before:2026-10-04")
@@ -84,7 +84,7 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
     assert_select ".daterange-open", text: /Oct 1 - Oct 3, 2026/
   end
 
-  test "high-volume actions stay hidden until shown, and then all four kinds come" do
+  test "audit query hides high-volume actions unless show:high_volume" do
     slack!("user_login", "sign_ins")
     slim!(3)
     slim!(4)
@@ -96,7 +96,7 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
     assert_equal %w[canvas_opened file_downloaded list_cell_updated user_login], verbs.sort
   end
 
-  test "a category narrows the high-volume actions too" do
+  test "audit query with show:high_volume and category returns only that category" do
     slim!(3)
     slim!(4)
     slim!(2)
@@ -105,7 +105,7 @@ class FdAuditFiltersTest < ActionDispatch::IntegrationTest
     assert_equal %w[canvas_opened list_cell_updated], rows.map(&:verb).sort
   end
 
-  test "the toggle shows which way it is set and flips the term" do
+  test "audit index high-volume toggle shows state and link to opposite term" do
     get fd_audit_path
     assert_select ".audit-filters summary", text: /High-volume\s*Hidden/
     assert_select ".audit-filters a[href*='show%3Ahigh_volume']", "Shown"

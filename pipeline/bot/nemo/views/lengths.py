@@ -36,11 +36,11 @@ def end_picker(block_id):
             "element": {"type": "datetimepicker", "action_id": block_id}}
 
 
-def chosen(values, block_id):
+def selected_value(values, block_id):
     return (values.get(block_id, {}).get(block_id, {}).get("selected_option") or {}).get("value")
 
 
-def picked_time(values, block_id):
+def selected_datetime(values, block_id):
     picked = values.get(block_id, {}).get(block_id, {}).get("selected_date_time")
     return dt.datetime.fromtimestamp(picked, dt.UTC) if picked else None
 

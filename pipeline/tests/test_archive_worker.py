@@ -4,7 +4,7 @@ import time
 from jobs import archive_worker
 
 
-def test_an_archive_lane_on_an_old_build_never_runs_its_work(monkeypatch):
+def test_lane_on_old_build_does_not_run_work(monkeypatch):
     from lib import heartbeat
 
     calls = []
@@ -21,4 +21,4 @@ def test_an_archive_lane_on_an_old_build_never_runs_its_work(monkeypatch):
     thread.join(timeout=2)
 
     assert calls == []
-    assert lane_state == "held, old build"
+    assert lane_state == "paused, old build"

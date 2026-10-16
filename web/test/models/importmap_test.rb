@@ -5,7 +5,7 @@ class ImportmapTest < ActiveSupport::TestCase
     JSON.parse(Rails.application.importmap.to_json(resolver: ApplicationController.helpers))["imports"]
   end
 
-  test "no chart controller or d3 module is preloaded on a page that may have no chart" do
+  test "preloaded_module_paths excludes chart controllers and d3 modules" do
     preloaded = Rails.application.importmap.preloaded_module_paths(
       resolver: ApplicationController.helpers
     )
@@ -13,7 +13,7 @@ class ImportmapTest < ActiveSupport::TestCase
     assert_empty chart_paths, "preload pulls these on every page regardless of lazy registration"
   end
 
-  test "the chart controllers sit outside the eagerly loaded controllers namespace" do
+  test "chart controllers are pinned under charts and not under controllers" do
     assert_empty imports.keys.grep(%r{^controllers/(chart|funnel|hbars|lorenz|parts|ring|scatter|treemap)_controller$}),
       "eagerLoadControllersFrom('controllers') fetches everything it finds under that prefix"
     assert_equal %w[charts/chart_controller charts/export charts/frame
@@ -25,7 +25,7 @@ class ImportmapTest < ActiveSupport::TestCase
       imports.keys.grep(%r{^charts/}).sort
   end
 
-  test "a charts module that is not a controller is never registered as one" do
+  test "lazy registration pattern excludes charts modules that are not controllers" do
     index = Rails.root.join("app/javascript/controllers/index.js").read
     pattern = index[/\/\^charts\\\/\.\*_controller\$\//]
     assert pattern, "the lazy registration pattern moved"
@@ -33,11 +33,11 @@ class ImportmapTest < ActiveSupport::TestCase
       "squarify is a plain module, so the registration pattern must skip it")
   end
 
-  test "the charts namespace is registered lazily and the rest eagerly" do
+  test "index.js loads charts lazily and other controllers eagerly" do
     index = Rails.root.join("app/javascript/controllers/index.js").read
     assert_includes index, %(eagerLoadControllersFrom("controllers", application))
     assert_no_match(/eagerLoadControllersFrom\(\s*"charts"/, index,
-      "charts carry d3, so they must not load on pages that draw nothing")
+      "charts depend on d3 and must not load on pages without charts")
     assert_match(/\^charts\\\/\.\*_controller\$/, index,
       "the lazy registration must find its candidates in the charts namespace")
     assert_no_match(/lazyLoadControllersFrom/, index,

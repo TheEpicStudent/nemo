@@ -7,7 +7,7 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
   setup do
     Fd::Flag.set!(:public_api, true, by: "UBOSS")
     @member = Account.create!(user_id: "UASK1")
-    @reviewer = hold_role!("UREV1", "community_manager")
+    @reviewer = grant_role!("UREV1", "community_manager")
     sign_in_as(@member)
   end
 
@@ -21,7 +21,7 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
       params: { name: name, blurb: blurb, scope: scope, reason: reason }
   end
 
-  test "registering an app records it and asks in one move" do
+  test "app registration creates one app and one pending access request" do
     assert_difference -> { Api::App.count }, 1 do
       assert_difference -> { Api::AccessRequest.count }, 1 do
         register
@@ -35,30 +35,30 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
     assert_equal "access_requested", Api::Event.last.verb
   end
 
-  test "two apps of the same name get their own slugs" do
+  test "registering the same name twice gives slugs triage-bot and triage-bot-2" do
     register
     register
 
     assert_equal %w[triage-bot triage-bot-2], Api::App.order(:id).pluck(:slug)
   end
 
-  test "an app with nothing said about it is refused" do
+  test "app registration with an invalid blurb creates no app and alerts" do
     assert_no_difference -> { Api::App.count } do
       register(blurb: "bot")
     end
 
-    assert_match(/Describe what the app does/, flash[:alert])
+    assert_match(/Enter a description/, flash[:alert])
   end
 
-  test "a reason that says nothing is refused, and leaves no app behind" do
+  test "app registration with an invalid reason creates no app and alerts" do
     assert_no_difference -> { Api::App.count } do
       register(reason: "pls")
     end
 
-    assert_match(/what the app needs/, flash[:alert])
+    assert_match(/Enter a reason/, flash[:alert])
   end
 
-  test "a member cannot mint for an app with no approved scope" do
+  test "token create for an unapproved app creates no token and alerts" do
     register
     app = Api::App.sole
 
@@ -66,20 +66,20 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
       post settings_tokens_path, params: { app_id: app.id, name: "Toolbox" }
     end
 
-    assert_match(/no approved scope/, flash[:alert])
+    assert_match(/App not approved/, flash[:alert])
   end
 
-  test "a member cannot mint for somebody else's app" do
+  test "token create for another owner's app creates no token and alerts" do
     other_app = make_app!("UOTHER9", name: "Theirs")
 
     assert_no_difference -> { Api::Token.count } do
       post settings_tokens_path, params: { app_id: other_app.id, name: "Toolbox" }
     end
 
-    assert_match(/not yours/, flash[:alert])
+    assert_match(/Not your app/, flash[:alert])
   end
 
-  test "a member cannot reach the queue, and a reviewer can" do
+  test "requests index redirects a member to keys and succeeds for a reviewer" do
     get settings_requests_path
     assert_redirected_to settings_keys_path
 
@@ -88,7 +88,7 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
-  test "approving grants the app the scope and unlocks minting" do
+  test "approve sets state approved and an active approval and allows token create" do
     register
     access_request = Api::AccessRequest.sole
 
@@ -104,7 +104,7 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "declining settles the request and grants nothing" do
+  test "decline sets state declined with the note and leaves no active approval" do
     register
     access_request = Api::AccessRequest.sole
 
@@ -115,7 +115,7 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
     assert_not Api::Approval.active?(access_request.app_id)
   end
 
-  test "a member withdraws their own request and nobody else's" do
+  test "withdraw ignores a non-owner and withdraws for the owner" do
     register
     access_request = Api::AccessRequest.sole
 
@@ -128,7 +128,7 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
     assert_equal "withdrawn", access_request.reload.state
   end
 
-  test "opting in to one app says nothing about another" do
+  test "channel manager API returns withheld for an app without its own consent" do
     consented_app = make_app!(@member.user_id, name: "Mine")
     requesting_app = make_app!("UOTHER9", name: "Theirs")
     _token, key = Api::Token.mint!(requesting_app, "Toolbox")
@@ -142,7 +142,7 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
       "consent for one app must not answer for another"
   end
 
-  test "opting in to the asking app answers it" do
+  test "channel manager API returns granted for an app with consent" do
     requesting_app = make_app!("UOTHER9", name: "Theirs")
     _token, key = Api::Token.mint!(requesting_app, "Toolbox")
     Api::Consent.set!("USUBJECT1", requesting_app.id, SCOPE, true, via: "dashboard")
@@ -154,7 +154,7 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
     assert_equal "granted", response.parsed_body["consent"]
   end
 
-  test "a live key stops answering the moment the app's approval is taken back" do
+  test "channel manager API returns 403 not_approved after Api::Approval.revoke!" do
     app = make_app!(@member.user_id)
     Api::Consent.set!("USUBJECT1", app.id, SCOPE, true, via: "dashboard")
     _token, key = Api::Token.mint!(app, "Toolbox")
@@ -171,7 +171,7 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
     assert_equal "not_approved", response.parsed_body["error"]
   end
 
-  test "retiring an app revokes its keys and gives up its scopes" do
+  test "retiring an app marks it retired and revokes its tokens and approval" do
     app = make_app!(@member.user_id)
     token, = Api::Token.mint!(app, "Toolbox")
 
@@ -182,7 +182,7 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
     assert_not Api::Approval.active?(app.id)
   end
 
-  test "retiring an app takes its waiting request out of the queue" do
+  test "retiring an app withdraws its request and removes it from the queue" do
     register
     access_request = Api::AccessRequest.sole
 
@@ -194,10 +194,10 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
     sign_in_as(@reviewer)
     get settings_requests_path
     assert_select ".data-table tbody .text-btn", { text: "Review", count: 0 },
-      "a retired app must not still be waiting on a reviewer"
+      "a retired app must not appear in the review queue"
   end
 
-  test "a request for an app somebody retired is never left reviewable" do
+  test "queue excludes requests for a retired app" do
     register
     access_request = Api::AccessRequest.sole
     access_request.app.update!(retired_at: Time.current)
@@ -205,7 +205,7 @@ class MemberAccessTest < ActionDispatch::IntegrationTest
     assert_empty Api::AccessRequest.queue
   end
 
-  test "rotating keeps the row and kills the old secret" do
+  test "rotate keeps the token row and replaces the secret" do
     app = make_app!(@member.user_id)
     token, old_secret = Api::Token.mint!(app, "Toolbox")
 

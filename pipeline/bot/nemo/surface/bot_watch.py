@@ -29,7 +29,7 @@ def fetch_bot(client, bot_id):
         return {}
 
 
-def bot_face(client, bot_id):
+def bot_info(client, bot_id):
     if bot_id not in _apps:
         bot_info = fetch_bot(client, bot_id)
         if not bot_info:
@@ -38,7 +38,7 @@ def bot_face(client, bot_id):
     return _apps[bot_id]
 
 
-def who_posted(event):
+def bot_and_user_ids(event):
     if event.get("subtype") not in HANDLED_SUBTYPES:
         return None, None
     bot_id = event.get("bot_id")
@@ -50,17 +50,17 @@ def who_posted(event):
 def is_userbot(client, event, bot_id, user_id):
     if event.get("subtype") == userbots.BOT_MESSAGE or not user_id:
         return False
-    face_id, _label, _app_id = bot_face(client, bot_id) if bot_id else (None, None, None)
-    if user_id == face_id:
+    bot_user_id, _label, _app_id = bot_info(client, bot_id) if bot_id else (None, None, None)
+    if user_id == bot_user_id:
         return False
     return userbots.is_person(client, user_id)
 
 
-def names_for(client, bot_id, user_id):
-    face_id = label = app_id = None
+def sender_ids(client, bot_id, user_id):
+    bot_user_id = label = app_id = None
     if bot_id:
-        face_id, label, app_id = bot_face(client, bot_id)
-    return [one for one in (user_id, bot_id, face_id) if one], label, app_id
+        bot_user_id, label, app_id = bot_info(client, bot_id)
+    return [one for one in (user_id, bot_id, bot_user_id) if one], label, app_id
 
 
 def text_of(event):
@@ -76,15 +76,15 @@ def text_of(event):
 
 
 @on_event("message", open_to_all=True)
-def posted(ctx):
+def delete_unlisted_bot_message(ctx):
     event = ctx.payload or {}
     channel_id = event.get("channel")
     ts = event.get("ts")
-    bot_id, user_id = who_posted(event)
+    bot_id, user_id = bot_and_user_ids(event)
     if not channel_id or not ts or not (bot_id or user_id):
         return None
 
-    guard = channelguards.guarding(channel_id)
+    guard = channelguards.active_guard(channel_id)
     if guard is None:
         return None
 
@@ -92,17 +92,17 @@ def posted(ctx):
         log.info("nemo: %s posted in %s with a user token, not a bot", user_id, channel_id)
         return None
 
-    ids, label, app_id = names_for(ctx.client, bot_id, user_id)
+    ids, label, app_id = sender_ids(ctx.client, bot_id, user_id)
     if not ids:
         return None
     if set(ids) & (exempt_bot_ids() | {whoami.bot_user_id(ctx.client, "nemo")}):
         return None
-    if channelguards.lets_past(channel_id, *ids):
+    if channelguards.allows(channel_id, *ids):
         return None
 
     guard_id, _allowed = guard
-    face_id = next((one for one in ids if one and one.startswith("U")), None)
-    subject_id = face_id or bot_id or user_id
+    bot_user_id = next((one for one in ids if one and one.startswith("U")), None)
+    subject_id = bot_user_id or bot_id or user_id
     failure = None
     try:
         privileged.delete_message(channel_id, ts, max_retries=0)
@@ -130,14 +130,14 @@ def posted(ctx):
 
 
 @on_event("member_joined_channel", open_to_all=True)
-def joined(ctx):
+def kick_unlisted_bot_on_join(ctx):
     event = ctx.payload or {}
     channel_id = event.get("channel")
     who = event.get("user")
     if not channel_id or not who:
         return None
 
-    guard = channelguards.guarding(channel_id)
+    guard = channelguards.active_guard(channel_id)
     if guard is None:
         return None
     if who in (exempt_bot_ids() | {whoami.bot_user_id(ctx.client, "nemo")}):
@@ -151,7 +151,7 @@ def joined(ctx):
         return None
 
     ids = [who, (user.get("profile") or {}).get("bot_id")]
-    if channelguards.lets_past(channel_id, *[one for one in ids if one]):
+    if channelguards.allows(channel_id, *[one for one in ids if one]):
         return None
 
     guard_id, _allowed = guard

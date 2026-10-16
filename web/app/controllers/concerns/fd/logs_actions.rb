@@ -31,23 +31,23 @@ module Fd
     def may_deactivate? = current_account&.may?("member.deactivate")
 
     def action_error(kase)
-      return "pick what was done" unless FdHelper::ACTION_LABELS.key?(type_key)
+      return "Select an action" unless FdHelper::ACTION_LABELS.key?(type_key)
       return thread_lock_error(kase) if Action.from_thread_lock?(type_key)
-      return "say who it was directed at" if target_user_id.blank?
+      return "Select a target" if target_user_id.blank?
       return "#{target_user_id} is not a member id" unless target_user_id.match?(MEMBER_ID)
-      return "#{type_name.downcase} is not yours to log" if deactivates? && !may_deactivate?
+      return "Not permitted to log #{type_name}" if deactivates? && !may_deactivate?
       if NEEDS_EXPIRY.include?(type_key) && params[:expires_on].blank?
         return "#{type_name} needs an end date"
       end
       return expiry_error if expiry_error
       if NEEDS_CHANNEL.include?(type_key) && channel_id.blank?
-        return "#{type_name.downcase} needs a channel"
+        return "#{type_name} needs a channel"
       end
       if channel_id.present? && !channel_id.match?(SlackLink::CHANNEL)
         return "#{channel_id} is not a channel id"
       end
       if params[:reason].to_s.strip.blank?
-        return wrong!(:reason, "Enter why this was the answer", params[:reason])
+        return field_error!(:reason, "Enter a reason", params[:reason])
       end
 
       nil
@@ -71,10 +71,10 @@ module Fd
 
     def thread_lock_error(kase)
       family = kase.family_ids
-      return "pick which thread lock this is" if thread_lock.nil?
-      return "that thread lock is already on this case" if thread_lock.on_case?(family)
+      return "Select a thread lock" if thread_lock.nil?
+      return "Thread lock already on this case" if thread_lock.on_case?(family)
       if Action.live.exists?(case_id: family, thread_guard_id: thread_lock.id)
-        return "that thread lock is already logged on this case"
+        return "Thread lock already logged on this case"
       end
 
       nil
@@ -84,7 +84,7 @@ module Fd
       return @thread_lock if defined?(@thread_lock)
 
       guard_id = params[:thread_guard_id].to_s.presence
-      @thread_lock = guard_id && ThreadGuard.still_on.locks.find_by(id: guard_id)
+      @thread_lock = guard_id && ThreadGuard.active.locks.find_by(id: guard_id)
     end
 
     def log_thread_lock(kase, guard)
@@ -106,22 +106,22 @@ module Fd
 
     def guard_label_text(guard) = FdHelper::ACTION_LABELS.fetch(guard.kind, guard.kind).downcase
 
-    def standing_error(kase, guard)
+    def existing_guard_error(kase, guard)
       family = kase.family_ids
       label = guard_label_text(guard)
-      return "that #{label} is already on this case" if guard.on_case?(family)
+      return "#{label.upcase_first} already on this case" if guard.on_case?(family)
       if Action.live.exists?(case_id: family, guard_id: guard.id)
-        return "that #{label} is already logged on this case"
+        return "#{label.upcase_first} already logged on this case"
       end
 
       nil
     end
 
-    def standing_guard
+    def existing_guard
       guard_id = params[:standing_guard_id].to_s.presence
       return nil if guard_id.nil?
 
-      MemberGuard.still_on.for_subject(target_user_id).find_by(id: guard_id)
+      MemberGuard.active.for_subject(target_user_id).find_by(id: guard_id)
     end
 
     def guard_channel(type_key)
@@ -130,7 +130,7 @@ module Fd
       channel_id.presence
     end
 
-    def attach_standing(kase, guard)
+    def attach_existing_guard(kase, guard)
       previous_case_id = guard.case_id
       if guard.orphaned? && guard.attach_to!(kase.id)
         audit(guard, "attached", before: { "case_id" => previous_case_id },

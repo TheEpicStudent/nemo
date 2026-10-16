@@ -76,9 +76,9 @@ ON CONFLICT (user_id) DO UPDATE SET
     counted_through = now()::date
 """
 
-CARRY_FORWARD_SQL = """
+ADD_DAILY_COUNTS_SQL = """
 WITH delta AS (
-    SELECT s.user_id, sum(s.messages_posted) AS more, max(s.window_start) AS through
+    SELECT s.user_id, sum(s.messages_posted) AS added, max(s.window_start) AS latest_window
     FROM raw.member_activity_snapshot s
     JOIN raw.member_message_history h ON h.user_id = s.user_id
     WHERE s.window_start = s.window_end
@@ -86,14 +86,14 @@ WITH delta AS (
     GROUP BY s.user_id
 )
 UPDATE raw.member_message_history h
-SET total_messages = h.total_messages + delta.more,
-    counted_through = delta.through
+SET total_messages = h.total_messages + delta.added,
+    counted_through = delta.latest_window
 FROM delta
 WHERE h.user_id = delta.user_id
 """
 
 
-RANGE_SETTLE_SQL = """
+RANGE_COMPLETE_SQL = """
 WITH r AS (
     SELECT user_id, messages_posted, channel_messages_posted, window_start, window_end
     FROM raw.member_activity_snapshot
@@ -117,17 +117,17 @@ ON CONFLICT (user_id) DO NOTHING
 """
 
 
-def carry_forward(conn):
+def add_daily_counts(conn):
     with conn.cursor() as cur:
-        cur.execute(CARRY_FORWARD_SQL)
+        cur.execute(ADD_DAILY_COUNTS_SQL)
         advanced = cur.rowcount
     conn.commit()
     print(f"{SOURCE}: {advanced} member(s) carried forward from daily rows")
 
 
-def settle_from_range(conn):
+def complete_from_range(conn):
     with conn.cursor() as cur:
-        cur.execute(RANGE_SETTLE_SQL, (MEMBER_RANGE_SOURCE,))
+        cur.execute(RANGE_COMPLETE_SQL, (MEMBER_RANGE_SOURCE,))
         settled = cur.rowcount
     conn.commit()
     print(f"{SOURCE}: {settled} member(s) settled from the range, no search needed")
@@ -178,8 +178,8 @@ def enqueue_pending(conn):
 
 
 def prepare(conn):
-    settle_from_range(conn)
-    carry_forward(conn)
+    complete_from_range(conn)
+    add_daily_counts(conn)
     return enqueue_pending(conn)
 
 

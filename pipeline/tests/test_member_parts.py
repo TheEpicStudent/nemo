@@ -6,11 +6,11 @@ from bot.core import formatting
 from bot.relay import messages
 
 
-def test_split_text_keeps_short_text_whole():
+def test_split_text_short_text_returns_single_part():
     assert formatting.split_text("hello there", limit=50) == ["hello there"]
 
 
-def test_split_text_prefers_paragraphs_then_lines_then_words():
+def test_split_text_over_limit_splits_on_paragraph_then_line_then_word():
     paragraphs = "a" * 30 + "\n\n" + "b" * 30
     lines = "a" * 30 + "\n" + "b" * 30
     words = "a" * 30 + " " + "b" * 30
@@ -20,18 +20,18 @@ def test_split_text_prefers_paragraphs_then_lines_then_words():
     assert formatting.split_text(words, limit=40) == ["a" * 30, "b" * 30]
 
 
-def test_split_text_cuts_hard_without_spaces():
+def test_split_text_without_spaces_cuts_at_limit():
     assert formatting.split_text("x" * 95, limit=40) == ["x" * 40, "x" * 40, "x" * 15]
 
 
-def test_split_text_never_breaks_a_slack_link():
+def test_split_text_slack_link_is_not_split():
     link = "<https://example.com/x|the thread>"
     text = "w" * 30 + " " + link + " " + "z" * 30
 
     assert formatting.split_text(text, limit=60) == ["w" * 30, link, "z" * 30]
 
 
-def test_member_parts_escapes_each_part_but_keeps_links():
+def test_member_parts_escapes_angle_brackets_and_ampersand_keeps_links():
     parts = formatting.member_parts("1 < 2 & <https://example.com|link>")
 
     assert parts == ["1 &lt; 2 &amp; <https://example.com|link>"]
@@ -50,7 +50,7 @@ class FakeSlack:
         return {"ts": f"1.{len(self.posted)}"}
 
 
-def queued(body):
+def queued_message(body):
     return SimpleNamespace(id=9, body=body, channel_id="D1", thread_ts="1.0", mode="body", requested_by=None)
 
 
@@ -59,11 +59,11 @@ def long_body():
     return "\n\n".join(f"paragraph {index} " + "word " * 500 for index in range(3))
 
 
-def test_post_message_sends_every_part_in_order(long_body):
+def test_post_message_long_body_posts_parts_in_order(long_body):
     relay = messages.MessageRelay()
     relay.client = FakeSlack()
 
-    assert relay.post_message(queued(long_body)) == "1.1"
+    assert relay.post_message(queued_message(long_body)) == "1.1"
     texts = [one["text"] for one in relay.client.posted]
     assert len(texts) == 3
     assert [text.split(" ")[1] for text in texts] == ["0", "1", "2"]
@@ -71,16 +71,22 @@ def test_post_message_sends_every_part_in_order(long_body):
     assert all(one["thread_ts"] == "1.0" for one in relay.client.posted)
 
 
-def test_post_message_keeps_the_first_ts_when_a_later_part_fails(long_body):
+def test_post_message_second_part_failure_returns_first_ts(long_body):
     relay = messages.MessageRelay()
     relay.client = FakeSlack(failing_at=1)
 
-    assert relay.post_message(queued(long_body)) == "1.1"
+    assert relay.post_message(queued_message(long_body)) == "1.1"
 
 
-def test_post_message_raises_when_the_first_part_fails(long_body):
+def test_post_message_first_part_failure_raises_runtime_error(long_body):
     relay = messages.MessageRelay()
     relay.client = FakeSlack(failing_at=0)
 
     with pytest.raises(RuntimeError):
-        relay.post_message(queued(long_body))
+        relay.post_message(queued_message(long_body))
+
+
+def test_member_parts_keeps_user_and_channel_mentions_escapes_broadcasts():
+    parts = formatting.member_parts("thanks <@U123ABC> in <#C1|lounge> cc <!here> <!subteam^S1|@mods>")
+
+    assert parts == ["thanks <@U123ABC> in <#C1|lounge> cc &lt;!here&gt; &lt;!subteam^S1|@mods&gt;"]

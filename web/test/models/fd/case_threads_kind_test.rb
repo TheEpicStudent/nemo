@@ -12,11 +12,11 @@ class Fd::CaseThreadsKindTest < ActiveSupport::TestCase
     }.merge(attrs))
   end
 
-  test "a thread is evidence unless it says otherwise" do
+  test "CaseThread kind defaults to evidence" do
     assert attach(@one, "C1", "1.1").evidence?
   end
 
-  test "two cases citing the same evidence thread are siblings" do
+  test "sibling_cases includes cases sharing an evidence thread" do
     attach(@one, "C1", "1.1", is_primary: true)
     attach(@two, "C1", "1.1", is_primary: true)
 
@@ -24,16 +24,16 @@ class Fd::CaseThreadsKindTest < ActiveSupport::TestCase
     assert_equal [@one.id], @two.sibling_cases.pluck(:id)
   end
 
-  test "two cases discussed in one FD thread are not siblings" do
+  test "sibling_cases excludes cases sharing an internal thread" do
     attach(@one, "C-HQ", "9.9", kind: "internal")
     attach(@two, "C-HQ", "9.9", kind: "internal")
 
     assert_empty @one.sibling_cases,
-      "an internal FD discussion must not make unrelated cases look like duplicates"
+      "internal thread does not create siblings"
     assert_empty @two.sibling_cases
   end
 
-  test "an internal thread on one side does not match evidence on the other" do
+  test "sibling_cases excludes an internal thread matching an evidence thread" do
     attach(@one, "C1", "1.1", is_primary: true)
     attach(@two, "C1", "1.1", kind: "internal")
 
@@ -41,14 +41,14 @@ class Fd::CaseThreadsKindTest < ActiveSupport::TestCase
     assert_empty @two.sibling_cases
   end
 
-  test "a case with only internal threads has no siblings to look for" do
+  test "sibling_cases is empty for a case with only internal threads" do
     attach(@one, "C-HQ", "9.9", kind: "internal")
     attach(@two, "C1", "1.1", is_primary: true)
 
     assert_empty @one.sibling_cases
   end
 
-  test "siblings still work when a case carries both kinds" do
+  test "sibling_cases matches on evidence thread when a case has both kinds" do
     attach(@one, "C1", "1.1", is_primary: true)
     attach(@one, "C-HQ", "9.9", kind: "internal")
     attach(@two, "C1", "1.1", is_primary: true)
@@ -57,19 +57,19 @@ class Fd::CaseThreadsKindTest < ActiveSupport::TestCase
     assert_equal [@two.id], @one.sibling_cases.pluck(:id)
   end
 
-  test "the primary thread cannot be an internal one" do
+  test "CaseThread create with kind internal and is_primary raises StatementInvalid" do
     assert_raises(ActiveRecord::StatementInvalid) do
       attach(@one, "C-HQ", "9.9", kind: "internal", is_primary: true)
     end
   end
 
-  test "a kind outside the two is refused by the database" do
+  test "CaseThread create with unknown kind raises StatementInvalid" do
     assert_raises(ActiveRecord::StatementInvalid) do
       attach(@one, "C1", "1.1", kind: "deliberation")
     end
   end
 
-  test "the scopes split the two kinds" do
+  test "threads evidence and internal scopes filter by kind" do
     attach(@one, "C1", "1.1", is_primary: true)
     attach(@one, "C-HQ", "9.9", kind: "internal")
 

@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdMembersListTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
   end
 
@@ -27,33 +27,33 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
                          decided_by: "UFF1", performed_by: "UFF1" }.merge(attrs))
   end
 
-  test "a signed out visitor cannot see the list" do
+  test "members index after logout redirects to login" do
     delete logout_path
     get fd_members_path
     assert_redirected_to login_path
   end
 
-  test "landing on the list picks a view rather than leaving none chosen" do
+  test "member query defaults to everyone view and search finds subject" do
     make_case(subject: "UHASONE", opened_at: 2.days.ago)
 
     assert_equal "everyone", Fd::MemberQuery.new({}).view
     assert listed?("UHASONE", view: "history")
-    assert_equal ["UHASONE"], user_ids(q: "UHASONE"), "everyone sorts by messages, so a quiet subject is found by search"
+    assert_equal ["UHASONE"], user_ids(q: "UHASONE"), "search finds subject under everyone view"
   end
 
-  test "the history view narrows to people conduct work has touched" do
+  test "member query history view lists case subjects and excludes other members" do
     make_case(subject: "UHASONE", opened_at: 2.days.ago)
 
     assert listed?("UHASONE", view: "history")
     assert_not listed?(Fd::Member.live.where.not(user_id: "UHASONE").first.user_id, view: "history"),
-      "nine thousand quiet members are not the working set"
+      "history view excludes members without cases"
   end
 
-  test "somebody only ever logged in another case still belongs here" do
+  test "member query history view lists case participant with zero actions" do
     other_case = make_case(subject: "USOMEBODY", opened_at: 3.days.ago)
     other_case.participants.create!(user_id: "UWATCHER", role: "reporter")
 
-    assert listed?("UWATCHER", view: "history"), "a page of subjects would hide the people conduct work is for"
+    assert listed?("UWATCHER", view: "history"), "history view lists participants who are not subjects"
     assert_equal 0, row_for("UWATCHER", view: "history").actions
   end
 
@@ -62,45 +62,45 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
     [row.cases, row.actions]
   end
 
-  test "a row counts every case that named them, and the actions apart" do
+  test "member query row counts subject and participant cases and actions separately" do
     make_case(subject: "UBOTH", opened_at: 5.days.ago)
     other_case = make_case(subject: "USOMEBODY", opened_at: 3.days.ago)
     other_case.participants.create!(user_id: "UBOTH", role: "reporter")
 
     assert_equal [2, 0], numbers_for("UBOTH"),
-      "subject of one and logged in another is two cases, no actions"
+      "subject of one case and participant in another counts two cases and no actions"
   end
 
-  test "one case that names somebody twice is still one case" do
+  test "member query row counts case once when subject is also participant" do
     self_reported_case = make_case(subject: "UTWICE", opened_at: 5.days.ago)
     self_reported_case.participants.create!(user_id: "UTWICE", role: "reporter")
 
     assert_equal [1, 0], numbers_for("UTWICE"),
-      "reporting the case you are the subject of does not make it two cases"
+      "subject who is also participant counts one case"
   end
 
-  def hold(subject, **over)
+  def create_shush(subject, **over)
     Fd::MemberGuard.create!({ kind: "shush", subject_id: subject, opened_by: "UME",
                               reason: "being awful",
                               expires_at: 5.days.from_now }.merge(over))
   end
 
-  test "the in force view keeps only people something is being held on" do
-    hold "ULIVE"
-    hold "UENDLESS", expires_at: nil
-    hold "ULIFTED", state: "lifted", lifted_at: 1.day.ago, lifted_by: "UME"
+  test "member query force view lists live guards and excludes lifted guards and actions" do
+    create_shush "ULIVE"
+    create_shush "UENDLESS", expires_at: nil
+    create_shush "ULIFTED", state: "lifted", lifted_at: 1.day.ago, lifted_by: "UME"
 
     shush_case = make_case(subject: "ULOGGED", opened_at: 9.days.ago)
     act_on shush_case, target: "ULOGGED", type_key: "shush", expires_at: 5.days.from_now
 
     assert listed?("ULIVE", view: "force")
-    assert listed?("UENDLESS", view: "force"), "no end date does not mean not in force"
-    assert_not listed?("ULIFTED", view: "force"), "it was lifted"
+    assert listed?("UENDLESS", view: "force"), "guard without expires_at is in force"
+    assert_not listed?("ULIFTED", view: "force"), "lifted guard is not in force"
     assert_not listed?("ULOGGED", view: "force"),
-      "an action on its own holds nothing in Slack"
+      "action without guard is not in force"
   end
 
-  test "the open case view keeps only people with one open" do
+  test "member query open view lists only members with an open case" do
     make_case(subject: "UOPEN", opened_at: 2.days.ago)
     make_case(subject: "UCLOSED", opened_at: 9.days.ago, resolved_at: 1.day.ago,
       resolution: "no_action")
@@ -109,7 +109,7 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
     assert_not listed?("UCLOSED", view: "open")
   end
 
-  test "the priors view uses the definition, not the case count" do
+  test "member query priors view lists members with two action_taken cases only" do
     action_taken_case = make_case(subject: "UPRIORS", opened_at: 40.days.ago, resolved_at: 30.days.ago,
       resolution: "action_taken")
     act_on action_taken_case, target: "UPRIORS"
@@ -123,21 +123,21 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
       resolution: "no_action")
 
     assert listed?("UPRIORS", view: "priors")
-    assert_not listed?("UNOACTION", view: "priors"), "two resolved cases with no action are not two priors"
+    assert_not listed?("UNOACTION", view: "priors"), "resolved cases without actions are not priors"
   end
 
-  test "a facet narrows outside the tabs, and marks none of them current" do
+  test "member query with priors facet has no view and no current tab" do
     make_case(subject: "UHASONE", opened_at: 2.days.ago)
 
     assert_nil query(priors: "2").view
     assert query(priors: "2").views.none?(&:current)
   end
 
-  test "everyone reaches past the working set" do
+  test "member query everyone view total exceeds 100" do
     assert_operator Fd::MemberQuery.new({ "view" => "everyone" }).total, :>, 100
   end
 
-  test "a long list is paged rather than truncated" do
+  test "member query everyone view returns LIMIT rows and several pages" do
     everyone_query = query(view: "everyone")
 
     assert_equal Fd::MemberQuery::LIMIT, everyone_query.rows.size
@@ -145,7 +145,7 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
     assert_operator everyone_query.pages, :>, 1
   end
 
-  test "the next page shows the next slice, not the same one again" do
+  test "member query page 2 returns rows different from page 1" do
     first = user_ids(view: "everyone")
     second = user_ids(view: "everyone", page: "2")
 
@@ -154,65 +154,65 @@ class FdMembersListTest < ActionDispatch::IntegrationTest
     assert_equal 2, query(view: "everyone", page: "2").page
   end
 
-  test "a page past the end lands on the last page rather than an empty table" do
+  test "member query page past the end clamps to the last page" do
     out_of_range_query = query(view: "everyone", page: "99999")
 
     assert_equal out_of_range_query.pages, out_of_range_query.page
     assert_not_empty out_of_range_query.rows
   end
 
-  test "a nonsense page number is treated as the first" do
+  test "member query with negative page uses page 1" do
     assert_equal 1, query(view: "everyone", page: "-3").page
   end
 
-  test "narrowing resets to the first page" do
+  test "member query facet_params drops page param" do
     assert_equal 3, query(view: "everyone", page: "3").page
     assert_not_includes Fd::MemberQuery.new({ "view" => "everyone", "page" => "3" })
       .facet_params("priors" => "2").keys, "page"
   end
 
-  test "a short list has one page" do
+  test "member query with priors facet has one page when total is within LIMIT" do
     make_case(subject: "UHASONE", opened_at: 2.days.ago)
 
     assert_operator Fd::MemberQuery.new({ "priors" => "2" }).total, :<=, Fd::MemberQuery::LIMIT
     assert_equal 1, query(priors: "2").pages
   end
 
-  test "a view that matches nothing has no rows and says which nothing it is" do
+  test "member query notes view without standing notes has no rows and an empty_note" do
     Fd::Note.standing.update_all(deleted_at: Time.current, deleted_by: "UME")
 
     assert_empty user_ids(view: "notes")
-    assert_match(/No standing notes on anybody/, query(view: "notes").empty_note)
+    assert_match(/No standing notes/, query(view: "notes").empty_note)
   end
 
-  test "searching narrows the roster to the people asked for" do
+  test "member query with q returns the matching user" do
     make_case(subject: "UHASONE", opened_at: 2.days.ago)
 
     assert_equal ["UHASONE"], user_ids(q: "UHASONE")
   end
 
-  test "a leading at sign is ignored, so pasting a handle works" do
+  test "member query with leading at sign and lower case q lists member" do
     make_case(subject: "UHASONE", opened_at: 2.days.ago)
 
     assert listed?("UHASONE", q: "@uhasone"), "the search is case insensitive and tolerates the @"
   end
 
-  test "a search that matches nobody says so rather than showing everybody" do
+  test "member query with unmatched q returns no rows" do
     assert_empty user_ids(q: "UNOSUCHPERSON")
   end
 
-  test "an exact handle match comes before anyone who merely contains it" do
+  test "member query with handle q ranks the exact handle match first" do
     handle = Fd::Member.live.where.not(handle: [nil, ""]).where("length(handle) >= 4")
       .group(:handle).having("count(*) = 1").order(Arel.sql("min(user_id)")).limit(1).pluck(:handle).first
     named = handle && Fd::Member.live.find_by(handle: handle)
-    skip "the corpus has no member with a handle of its own" if named.nil?
+    skip "corpus has no member with a unique handle" if named.nil?
 
     assert_equal named.user_id, user_ids(q: named.handle).first
     assert_equal named.user_id, user_ids(q: named.user_id.downcase).first,
-      "an id typed in any case is still the exact match"
+      "lower case id is the exact match"
   end
 
-  test "the search survives paging and view links" do
+  test "member query page_params and facet_params keep q" do
     query = Fd::MemberQuery.new({ "q" => "UHASONE", "view" => "everyone" })
 
     assert_equal "UHASONE", query.page_params(2)["q"], "paging must not drop the search"
@@ -225,7 +225,7 @@ class FdMembersActivityTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
   end
 
   def record_activity!(user_id, post: nil, login: nil)
@@ -240,21 +240,21 @@ class FdMembersActivityTest < ActionDispatch::IntegrationTest
     Fd::MemberQuery.new(filters.transform_keys(&:to_s), actor: @me).rows.map(&:user_id)
   end
 
-  test "a login this week makes somebody active this week" do
+  test "member query with recent login matches active week and not dormant" do
     record_activity!("UJUSTIN", login: 1.hour.ago)
 
     assert_includes user_ids(q: "UJUSTIN", active: "week"), "UJUSTIN"
     assert_empty user_ids(q: "UJUSTIN", active: "dormant")
   end
 
-  test "a post this month makes somebody active this month" do
+  test "member query with post 12 days ago matches active month and not week" do
     record_activity!("UPOSTED", post: 12.days.ago, login: 200.days.ago)
 
     assert_includes user_ids(q: "UPOSTED", active: "month"), "UPOSTED"
     assert_empty user_ids(q: "UPOSTED", active: "week")
   end
 
-  test "somebody we have not seen in months is dormant" do
+  test "member query with post and login over 90 days ago matches dormant" do
     record_activity!("UGONE", post: 120.days.ago, login: 95.days.ago)
 
     assert_includes user_ids(q: "UGONE", active: "dormant"), "UGONE"
@@ -265,7 +265,7 @@ class FdMembersSearchTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
   end
 
   def named!(user_id, display_name, deleted: false)
@@ -279,7 +279,7 @@ class FdMembersSearchTest < ActionDispatch::IntegrationTest
     Fd::MemberQuery.new(filters.transform_keys(&:to_s), actor: @me)
   end
 
-  test "a search lists what the finder ranked, in its order, with its total" do
+  test "member query with q returns Fd::MemberFinder ids in order and total" do
     named!("U0RSTA1", "Quorvex Ombrine")
     named!("U0RSTA2", "Ombrine Quorvexa")
     ranked = Fd::MemberFinder.new("quorvex ombrine", actor: @me).find(limit: 50)
@@ -288,13 +288,13 @@ class FdMembersSearchTest < ActionDispatch::IntegrationTest
     assert_equal ranked.total, query(q: "quorvex ombrine").total
   end
 
-  test "a pasted id lists that member even when the account is gone" do
+  test "member query with pasted mention lists deleted member" do
     named!("U0RSTGONE1", "Quorvex Gone", deleted: true)
 
     assert_equal ["U0RSTGONE1"], query(q: "<@U0RSTGONE1>").rows.map(&:user_id)
   end
 
-  test "a search pages through its matches" do
+  test "member query with q paginates matches by 50" do
     55.times { |n| named!(format("U0RSTP%03d", n), "Quorvexpage #{n}") }
 
     first = query(q: "quorvexpage").rows.map(&:user_id)
@@ -304,7 +304,7 @@ class FdMembersSearchTest < ActionDispatch::IntegrationTest
     assert_empty first & second
   end
 
-  test "a facet narrows a search to the matches that hold it" do
+  test "member query with q and history view lists only members with cases" do
     named!("U0RSTF1", "Quorvex Facet")
     named!("U0RSTF2", "Quorvex Facetwo")
     make_case(subject: "U0RSTF2", opened_at: 2.days.ago)

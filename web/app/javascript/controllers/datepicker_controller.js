@@ -151,10 +151,10 @@ export default class extends Controller {
     this.popTarget.innerHTML = `
       <div class="datepicker-head">
         <button type="button" class="datepicker-nav" data-step="-1" data-action="datepicker#shift"
-          aria-label="previous month"${this.min && prevEnd < this.min ? " disabled" : ""}>&lsaquo;</button>
+          aria-label="Previous month"${this.min && prevEnd < this.min ? " disabled" : ""}>&lsaquo;</button>
         <span class="datepicker-title">${MONTHS[month]} ${year}</span>
         <button type="button" class="datepicker-nav" data-step="1" data-action="datepicker#shift"
-          aria-label="next month"${this.max && nextStart > this.max ? " disabled" : ""}>&rsaquo;</button>
+          aria-label="Next month"${this.max && nextStart > this.max ? " disabled" : ""}>&rsaquo;</button>
       </div>
       <div class="datepicker-grid">
         ${DOW.map((d) => `<span class="datepicker-dow">${d}</span>`).join("")}

@@ -43,12 +43,12 @@ def open_lock_modal(ctx):
     return None
 
 
-def reshape(ctx):
+def reshape_lock_modal(ctx):
     view = ctx.view
     if view.get("callback_id") != card.LOCK_CALLBACK:
         return None
 
-    channel_id, thread_ts = card.opened(view)
+    channel_id, thread_ts = card.parse_metadata(view)
     values = card.submitted_values(view.get("state") or {})
     current = live_lock(channel_id, thread_ts)
     if current and current["kind"] != guards.LOCK:
@@ -63,22 +63,22 @@ def reshape(ctx):
 
 
 @on_action(card.LOCK_DURATION, needs="thread.guard")
-def duration_picked(ctx):
-    return reshape(ctx)
+def reshape_lock_on_duration(ctx):
+    return reshape_lock_modal(ctx)
 
 
 @on_action(card.LOCK_EXTEND, needs="thread.guard")
-def extension_picked(ctx):
-    return reshape(ctx)
+def reshape_lock_on_extension(ctx):
+    return reshape_lock_modal(ctx)
 
 
 @on_action(card.UNLOCK, needs="thread.guard")
-def unlocked(ctx):
+def unlock_thread(ctx):
     view = ctx.view
     if view.get("callback_id") != card.LOCK_CALLBACK:
         return None
 
-    channel_id, thread_ts = card.opened(view)
+    channel_id, thread_ts = card.parse_metadata(view)
     current = live_lock(channel_id, thread_ts)
     lifted = None
     if current and current["kind"] == guards.LOCK:
@@ -110,7 +110,7 @@ def lock(ctx, channel_id, thread_ts, values):
         try:
             guards.warn(ctx.client, conn, guard_id, channel_id, thread_ts, guards.LOCK, notice=notice)
         except Exception as failure:
-            error_code = channels.refusal(failure)
+            error_code = channels.slack_error_code(failure)
             guards.finish(conn, guard_id, "failed", f"warning not posted: {error_code}")
         guards.refresh(conn)
 
@@ -143,14 +143,14 @@ def extend(ctx, channel_id, thread_ts, values):
 
 
 @on_view(card.LOCK_CALLBACK, needs="thread.guard", refuse_block=card.REASON)
-def confirmed(ctx):
+def submit_lock(ctx):
     values = card.submitted_values(ctx.view.get("state") or {})
     errors = card.lock_errors(values)
     if errors:
         return ctx.ack(response_action="errors", errors=errors)
 
     ctx.ack()
-    channel_id, thread_ts = card.opened(ctx.view)
+    channel_id, thread_ts = card.parse_metadata(ctx.view)
     if not channel_id or not thread_ts:
         return None
     if values["starting"]:

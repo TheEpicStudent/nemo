@@ -4,9 +4,9 @@ class FdClusterCardsTest < ActionDispatch::IntegrationTest
   include SeedsPipelineTables
 
   setup do
-    sign_in_as(hold_role!("UCARDBOSS", "community_manager"))
+    sign_in_as(grant_role!("UCARDBOSS", "community_manager"))
     cluster!(%w[UCARDR1 UCARDR2 UCARDR3 UCARDR4], ring: true)
-    cluster!(%w[UCARDE1 UCARDE2], gone: %w[UCARDE1])
+    cluster!(%w[UCARDE1 UCARDE2], deleted: %w[UCARDE1])
     snapshot!("UCARDE1", 10.days.ago)
     joined!("UCARDE1", 30.days.ago)
     joined!("UCARDE2", 3.days.ago)
@@ -15,12 +15,12 @@ class FdClusterCardsTest < ActionDispatch::IntegrationTest
     link!("UCARDR2", "UCARDR3", 6.0)
   end
 
-  def cluster!(user_ids, ring: false, conflict: false, gone: [])
+  def cluster!(user_ids, ring: false, conflict: false, deleted: [])
     user_ids.each do |user_id|
       member!(user_id)
-      as_pipeline("UPDATE fd.member SET is_deleted = true WHERE user_id = ?", user_id) if gone.include?(user_id)
+      as_pipeline("UPDATE fd.member SET is_deleted = true WHERE user_id = ?", user_id) if deleted.include?(user_id)
       as_pipeline("INSERT INTO fd.member_cluster (user_id, cluster_id, accounts, ring, active, conflict) VALUES (?, ?, ?, ?, ?, ?)",
-        user_id, user_ids.first, user_ids.size, ring, !gone.include?(user_id), conflict)
+        user_id, user_ids.first, user_ids.size, ring, !deleted.include?(user_id), conflict)
       seeded!("fd.member_cluster", "user_id", user_id)
     end
   end
@@ -46,7 +46,7 @@ class FdClusterCardsTest < ActionDispatch::IntegrationTest
     css_select("article.ccard").find { |one| one.at_css("a.ccard-link")["href"] == fd_cluster_path(cluster_id) }
   end
 
-  test "every cluster is a card with its graph and counts" do
+  test "clusters index renders each cluster card with map and counts" do
     get fd_clusters_path
     assert_response :success
 
@@ -59,7 +59,7 @@ class FdClusterCardsTest < ActionDispatch::IntegrationTest
     assert_match "Top signal: Signed in from the same home or office address", ring.text
   end
 
-  test "a join after a ban in the same cluster is evasion" do
+  test "clusters index evasion filter lists the cluster with a post-ban join" do
     get fd_clusters_path(filter: "evasion")
 
     assert_equal [fd_cluster_path("UCARDE1")], css_select("a.ccard-link").map { |link| link["href"] }
@@ -67,7 +67,7 @@ class FdClusterCardsTest < ActionDispatch::IntegrationTest
     assert_equal 1, card("UCARDE1").css("circle.mini-node.is-gone").size
   end
 
-  test "rings and conflicts filter the cards" do
+  test "clusters index filters ring and conflict cards" do
     get fd_clusters_path(filter: "ring")
     assert_equal [fd_cluster_path("UCARDR1")], css_select("a.ccard-link").map { |link| link["href"] }
 
@@ -77,9 +77,9 @@ class FdClusterCardsTest < ActionDispatch::IntegrationTest
     assert_select ".segmented a[aria-current=true]", "Conflicts"
   end
 
-  test "the clusters page needs member.links" do
-    move_capability!("firefighter", "member.links", false, by: "UCARDBOSS")
-    sign_in_as(hold_role!("UCARDFF", "firefighter"))
+  test "clusters index without member.links redirects" do
+    override_capability!("firefighter", "member.links", false, by: "UCARDBOSS")
+    sign_in_as(grant_role!("UCARDFF", "firefighter"))
 
     get fd_clusters_path
     assert_response :redirect

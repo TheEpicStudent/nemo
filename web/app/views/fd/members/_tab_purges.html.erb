@@ -2,7 +2,7 @@
   <div class="scroll">
     <table class="data-table">
       <thead>
-        <tr><th>Purge</th><th>Where</th><th>Progress</th><th>Asked</th></tr>
+        <tr><th>Purge</th><th>Scope</th><th>Progress</th><th>Requested</th></tr>
       </thead>
       <tbody>
         <% @purges.each do |purge| %>
@@ -11,7 +11,7 @@
               <%= link_to purge_scope(purge), purge_path(purge) %>
               <%= purge_state_chip(purge) %>
             </td>
-            <td><%= purge.channel_id ? channels[purge.channel_id] : "Every channel" %></td>
+            <td><%= purge.channel_id ? channels[purge.channel_id] : "All channels" %></td>
             <td class="sub2">
               <%= purge_progress(purge) %>
               <% if purge.error.present? %>

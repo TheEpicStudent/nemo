@@ -24,7 +24,7 @@ class Conn:
 
     def fetchone(self):
         sql, args = self.statements[-1]
-        if sql == memberguards.RELEASED_ALREADY:
+        if sql == memberguards.RELEASE_EVENT_EXISTS:
             return (1,) if self.released else None
         if "SET state = 'lifted'" in sql:
             return (7,) if self.lift_returns_row else None
@@ -62,13 +62,13 @@ def guard(**over):
     return row
 
 
-def test_a_lift_by_hand_is_swept_only_until_it_has_been_said():
+def test_lifted_not_notified_selects_lifted_nemo_guards_without_released_event():
     assert "state = 'lifted'" in memberguards.LIFTED_NOT_NOTIFIED
     assert "enforced_by = 'nemo'" in memberguards.LIFTED_NOT_NOTIFIED
     assert "e.verb = 'released'" in memberguards.LIFTED_NOT_NOTIFIED
 
 
-def test_somebody_whose_shush_was_lifted_in_the_dashboard_is_notified(monkeypatch):
+def test_sweep_lifted_shush_lifted_in_dashboard_notifies_member(monkeypatch):
     client = Slack()
     recorded = []
     monkeypatch.setattr(sweep.memberguards, "lifted_not_notified",
@@ -91,60 +91,60 @@ class FakeSession:
         return False
 
 
-def test_only_a_date_already_passed_is_swept():
+def test_lapsed_selects_live_guards_with_past_expiry():
     assert "expires_at <= now()" in memberguards.LAPSED
     assert "state = 'live'" in memberguards.LAPSED
     assert "expires_at IS NOT NULL" in memberguards.LAPSED, "endless ones never lapse"
 
 
-def test_lifting_one_that_ran_out_says_why_and_notifies_them():
+def test_lapse_expired_guard_lifts_records_release_and_notifies():
     conn, client = Conn(), Slack()
     assert sweep.lapse(client, conn, guard())
 
     lift_args = conn.args_for("SET state = 'lifted'")[0]
     assert lift_args[0] == "nemo"
-    assert lift_args[1] == sweep.LAPSED_BECAUSE
+    assert lift_args[1] == sweep.EXPIRED_REASON
     assert "released" in conn.verbs()
     assert "Your shush has ended" in client.posted[0]["text"]
 
 
-def test_a_ban_that_ran_out_says_they_can_come_back():
+def test_lapse_channel_ban_notice_names_channel():
     conn, client = Conn(), Slack()
     sweep.lapse(client, conn, guard(kind="channel_ban", channel_id=CHANNEL_ID))
     assert f"ban from <#{CHANNEL_ID}> has ended" in client.posted[0]["text"]
 
 
-def test_one_somebody_lifted_first_is_left_alone():
+def test_lapse_guard_already_lifted_returns_false_without_notice():
     conn, client = Conn(lift_returns_row=False), Slack()
     assert not sweep.lapse(client, conn, guard())
     assert conn.verbs() == []
     assert client.posted == []
 
 
-def test_a_kind_with_no_enforcement_still_lifts():
+def test_lapse_kind_without_enforcement_lifts_without_notice():
     conn, client = Conn(), Slack()
     assert sweep.lapse(client, conn, guard(kind="deactivate"))
     assert "released" in conn.verbs()
     assert client.posted == []
 
 
-def test_a_dropped_carry_waits_longer_each_time_it_fails():
-    assert "least(attempts, %s) * interval '1 minute'" in memberguards.DROPPED_AWHILE
+def test_failed_for_retry_backoff_grows_with_attempts_up_to_cap():
+    assert "least(attempts, %s) * interval '1 minute'" in memberguards.FAILED_FOR_RETRY
     assert memberguards.BACKOFF_CAP == 30
 
 
-def test_only_what_nemo_carries_is_retried():
-    assert "enforced_by = 'nemo'" in memberguards.DROPPED_AWHILE
-    assert "enforcement_status = 'failed'" in memberguards.DROPPED_AWHILE
+def test_failed_for_retry_selects_failed_nemo_guards():
+    assert "enforced_by = 'nemo'" in memberguards.FAILED_FOR_RETRY
+    assert "enforcement_status = 'failed'" in memberguards.FAILED_FOR_RETRY
 
 
-def test_retrying_goes_back_through_the_enforcement(monkeypatch):
+def test_sweep_failed_reenforces_failed_guards(monkeypatch):
     processed_ids = []
-    monkeypatch.setattr(shush, "take_up", lambda c, conn, guard_row: processed_ids.append(guard_row["id"]))
-    monkeypatch.setattr(memberguards, "dropped_awhile", lambda conn: [guard()])
+    monkeypatch.setattr(shush, "enforce", lambda c, conn, guard_row: processed_ids.append(guard_row["id"]))
+    monkeypatch.setattr(memberguards, "failed_for_retry", lambda conn: [guard()])
     monkeypatch.setattr(sweep, "session", _session(Conn()))
 
-    assert sweep.sweep_dropped(Slack()) == 1
+    assert sweep.sweep_failed(Slack()) == 1
     assert processed_ids == [7]
 
 
@@ -159,24 +159,24 @@ def _session(conn):
     return lambda: FakeSession()
 
 
-def test_the_nudge_names_who_what_when_and_the_case():
-    line = sweep.line_about(guard())
+def test_ending_line_includes_member_kind_date_and_case():
+    line = sweep.ending_line(guard())
     assert "<@U1>" in line
     assert "shush" in line
     assert "until 10 Mar" in line
     assert "(case 412)" in line
 
 
-def test_a_ban_in_the_nudge_names_its_channel():
-    line = sweep.line_about(guard(kind="channel_ban", channel_id=CHANNEL_ID))
+def test_ending_line_channel_ban_includes_channel():
+    line = sweep.ending_line(guard(kind="channel_ban", channel_id=CHANNEL_ID))
     assert f"channel ban in <#{CHANNEL_ID}>" in line
 
 
-def test_one_on_no_case_is_called_out_in_the_nudge():
-    assert sweep.line_about(guard(case_id=None)).endswith(", no case")
+def test_ending_line_without_case_ends_with_no_case():
+    assert sweep.ending_line(guard(case_id=None)).endswith(", no case")
 
 
-def test_the_nudge_goes_out_once_and_is_written_down(monkeypatch):
+def test_sweep_ending_posts_to_firehouse_and_records_notified_event(monkeypatch):
     conn = Conn()
     monkeypatch.setattr(memberguards, "ending_not_notified", lambda c, within: [guard()])
     monkeypatch.setattr(sweep.channel, "firehouse_channel", lambda c: LOG_CHANNEL_ID)
@@ -191,7 +191,7 @@ def test_the_nudge_goes_out_once_and_is_written_down(monkeypatch):
     assert recorded[6] == memberguards.ENDING
 
 
-def test_nothing_ending_says_nothing(monkeypatch):
+def test_sweep_ending_without_ending_guards_posts_nothing(monkeypatch):
     monkeypatch.setattr(memberguards, "ending_not_notified", lambda c, within: [])
     monkeypatch.setattr(sweep.channel, "firehouse_channel", lambda c: LOG_CHANNEL_ID)
     monkeypatch.setattr(sweep, "session", _session(Conn()))
@@ -201,39 +201,39 @@ def test_nothing_ending_says_nothing(monkeypatch):
     assert client.posted == []
 
 
-def test_the_same_guard_is_not_nudged_twice_in_a_day():
+def test_ending_not_notified_excludes_guards_notified_within_20_hours():
     assert "interval '20 hours'" in memberguards.ENDING_NOT_NOTIFIED
     assert "verb = 'notified'" in memberguards.ENDING_NOT_NOTIFIED
 
 
 @pytest.mark.parametrize("enforcement", [shush, channel_ban])
-def test_every_enforcement_can_be_let_go(enforcement):
+def test_lift_every_enforcement_posts_notice(enforcement):
     conn, client = Conn(), Slack()
     enforcement.lift(client, conn, guard(kind=enforcement.KIND, channel_id=CHANNEL_ID))
     assert client.posted, f"{enforcement.KIND} says nothing when it ends"
 
 
-def test_the_ending_horizon_falls_back_when_it_is_not_set():
-    assert sweep.expiring_soon(Conn()) == "36 hours"
+def test_ending_window_unset_setting_returns_default():
+    assert sweep.ending_window(Conn()) == "36 hours"
 
 
-def test_the_ending_horizon_is_read_from_the_setting():
-    assert sweep.expiring_soon(Conn(settings={"nemo.sweep_soon_hours": "12"})) == "12 hours"
+def test_ending_window_reads_setting():
+    assert sweep.ending_window(Conn(settings={"nemo.sweep_soon_hours": "12"})) == "12 hours"
 
 
-def test_an_horizon_outside_the_range_falls_back():
-    assert sweep.expiring_soon(Conn(settings={"nemo.sweep_soon_hours": "0"})) == "36 hours"
-    assert sweep.expiring_soon(Conn(settings={"nemo.sweep_soon_hours": "9999"})) == "36 hours"
-    assert sweep.expiring_soon(Conn(settings={"nemo.sweep_soon_hours": "sideways"})) == "36 hours"
+def test_ending_window_out_of_range_or_invalid_setting_returns_default():
+    assert sweep.ending_window(Conn(settings={"nemo.sweep_soon_hours": "0"})) == "36 hours"
+    assert sweep.ending_window(Conn(settings={"nemo.sweep_soon_hours": "9999"})) == "36 hours"
+    assert sweep.ending_window(Conn(settings={"nemo.sweep_soon_hours": "sideways"})) == "36 hours"
 
 
-def test_the_member_is_notified_unless_it_is_turned_off():
+def test_notifies_member_true_unless_setting_is_off():
     assert sweep.notifies_member(Conn()) is True
     assert sweep.notifies_member(Conn(settings={"nemo.sweep_tells_member": "on"})) is True
     assert sweep.notifies_member(Conn(settings={"nemo.sweep_tells_member": "off"})) is False
 
 
-def test_a_lapse_says_nothing_when_notifying_is_off():
+def test_lapse_notify_setting_off_posts_no_notice():
     conn = Conn(settings={"nemo.sweep_tells_member": "off"})
     client = Slack()
     sweep.lapse(client, conn, guard())
@@ -269,7 +269,7 @@ def test_release_lifted_claims_guard_row_before_releasing(monkeypatch):
 
     assert release_lifted_with(monkeypatch, conn, client) is True
     statements = [sql for sql, _ in conn.statements]
-    assert statements.index(memberguards.CLAIM_GUARD) < statements.index(memberguards.RELEASED_ALREADY)
+    assert statements.index(memberguards.CLAIM_GUARD) < statements.index(memberguards.RELEASE_EVENT_EXISTS)
     assert conn.verbs()[0] == memberguards.RELEASED
     assert "can post again" in client.posted[0]["text"]
 
@@ -282,7 +282,7 @@ def test_release_lifted_skips_guard_already_released(monkeypatch):
     assert client.posted == []
 
 
-def test_release_lifted_keeps_released_event_when_dm_fails(monkeypatch):
+def test_release_lifted_dm_failure_still_records_released_event(monkeypatch):
     conn = Conn()
 
     assert release_lifted_with(monkeypatch, conn, FailingSlack()) is True

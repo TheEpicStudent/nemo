@@ -9,7 +9,7 @@ module Fd
     NEEDS_EXPIRY = TABLE.select { |_key, row| row["expires"] == "required" }.keys.freeze
     NEEDS_CHANNEL = TABLE.select { |_key, row| row["channel"] == "required" }.keys.freeze
     TAKES_CHANNEL = TABLE.select { |_key, row| row["channel"].present? }.keys.freeze
-    WORST_FIRST = TABLE.sort_by { |_key, row| row.fetch("weight") }.map(&:first).freeze
+    SEVERITY_ORDER = TABLE.sort_by { |_key, row| row.fetch("weight") }.map(&:first).freeze
     FROM_THREAD_LOCK = TABLE.select { |_key, row| row["thread_lock"] }.keys.freeze
     ENFORCE = TABLE.transform_values { |row| row["enforce"] }.compact.freeze
     ENFORCEABLE = ENFORCE.keys.freeze

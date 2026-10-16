@@ -75,10 +75,10 @@ def app(monkeypatch):
     conn = Conn({"resolved_at IS NULL": (True,), "category_key FROM": (None,)})
 
     @contextlib.contextmanager
-    def one_session():
+    def fake_session():
         yield conn
 
-    monkeypatch.setattr(handlers, "session", one_session)
+    monkeypatch.setattr(handlers, "session", fake_session)
     monkeypatch.setattr(handlers.access, "may", lambda conn, user_id, capability, case=None: (True, None))
     monkeypatch.setattr(handlers, "live_actions", lambda conn, case_id: [])
     monkeypatch.setattr(handlers, "refresh_card", lambda client, conn, case_id: None)
@@ -93,7 +93,7 @@ def button_action(verb, case_id=23):
     return {"actions": [{"value": f"{verb}:{case_id}"}]}
 
 
-def test_a_pick_from_the_card_menu_opens_its_modal(app):
+def test_card_menu_selection_opens_modal_for_case(app):
     slack = Slack()
 
     app.actions[edit.MENU](Ack(), dict(ON_CARD, **select_action(edit.LOG_ACTION)), slack)
@@ -101,7 +101,7 @@ def test_a_pick_from_the_card_menu_opens_its_modal(app):
     assert slack.calls_to("views_open")[0]["view"]["private_metadata"] == "23"
 
 
-def test_more_opens_the_rest_of_the_case_actions(app):
+def test_card_menu_more_opens_view_with_people_violation_merge_buttons(app):
     slack = Slack()
 
     app.actions[edit.MENU](Ack(), dict(ON_CARD, **select_action(edit.MORE)), slack)
@@ -111,7 +111,7 @@ def test_more_opens_the_rest_of_the_case_actions(app):
     assert labels == ["People", "Set violation", "Merge"]
 
 
-def test_a_pick_inside_more_stacks_its_modal_on_top(app, monkeypatch):
+def test_more_view_merge_button_pushes_merge_modal(app, monkeypatch):
     monkeypatch.setattr(handlers, "mergeable", lambda conn, requested: [(23, None, "bob"),
                                                                         (25, "spam", None)])
     slack = Slack()
@@ -124,7 +124,7 @@ def test_a_pick_inside_more_stacks_its_modal_on_top(app, monkeypatch):
     assert slack.calls_to("views_open") == []
 
 
-def test_a_refusal_on_the_card_is_said_only_to_whoever_asked(app, monkeypatch):
+def test_card_menu_refusal_posts_ephemeral_and_opens_no_modal(app, monkeypatch):
     monkeypatch.setattr(handlers.access, "may", lambda conn, user_id, capability, case=None: (False, "no"))
     slack = Slack()
 
@@ -134,7 +134,7 @@ def test_a_refusal_on_the_card_is_said_only_to_whoever_asked(app, monkeypatch):
     assert slack.calls_to("views_open") == []
 
 
-def test_a_refusal_inside_more_is_shown_in_more(app, monkeypatch):
+def test_more_view_refusal_updates_view_with_message(app, monkeypatch):
     monkeypatch.setattr(handlers.access, "may", lambda conn, user_id, capability, case=None: (False, "no"))
     slack = Slack()
 
@@ -145,16 +145,16 @@ def test_a_refusal_inside_more_is_shown_in_more(app, monkeypatch):
     assert update["view"]["blocks"][0]["elements"][0]["text"] == "no"
 
 
-def test_claiming_from_the_menu_puts_you_on_the_case(app, monkeypatch):
+def test_card_menu_claim_records_claim_for_user(app, monkeypatch):
     claims = []
-    monkeypatch.setattr(handlers, "claimed", lambda conn, case_id, user_id: claims.append((case_id, user_id)))
+    monkeypatch.setattr(handlers, "record_claim", lambda conn, case_id, user_id: claims.append((case_id, user_id)))
 
     app.actions[edit.MENU](Ack(), dict(ON_CARD, **select_action(edit.CLAIM)), Slack())
 
     assert claims == [(23, "UME")]
 
 
-def test_the_old_buttons_still_work_on_cards_drawn_before(app):
+def test_log_action_legacy_button_value_opens_modal(app):
     slack = Slack()
 
     app.actions[edit.LOG_ACTION](Ack(), dict(ON_CARD, actions=[{"value": "23"}]), slack)
@@ -162,17 +162,17 @@ def test_the_old_buttons_still_work_on_cards_drawn_before(app):
     assert slack.calls_to("views_open")
 
 
-def merge_view_state(target_id, *fold):
-    selected_options = [{"value": str(one)} for one in fold]
+def merge_view_state(target_id, *duplicate_ids):
+    selected_options = [{"value": str(one)} for one in duplicate_ids]
     return {"state": {"values": {
         merge.TARGET: {merge.TARGET: {"selected_option": {"value": str(target_id)}}},
         merge.DUPLICATES: {merge.DUPLICATES: {"selected_options": selected_options}},
     }}}
 
 
-def test_merging_closes_the_rest_into_the_one_kept(app, monkeypatch):
+def test_merge_view_submit_merges_duplicates_into_target_and_clears_view(app, monkeypatch):
     notes = []
-    monkeypatch.setattr(handlers, "merge", lambda conn, target_id, fold, by: fold)
+    monkeypatch.setattr(handlers, "merge", lambda conn, target_id, duplicate_ids, by: duplicate_ids)
     monkeypatch.setattr(handlers, "post_merge_note",
                         lambda client, conn, target_id, closed, by: notes.append((target_id, closed, by)))
     ack = Ack()
@@ -183,7 +183,7 @@ def test_merging_closes_the_rest_into_the_one_kept(app, monkeypatch):
     assert notes == [(23, [25, 31], "UME")]
 
 
-def test_a_case_cannot_merge_into_itself(app):
+def test_merge_view_same_target_and_duplicate_returns_error(app):
     ack = Ack()
 
     app.views[merge.CALLBACK](ack, {"user": {"id": "UME"}}, merge_view_state(23, 23), Slack())
@@ -191,29 +191,29 @@ def test_a_case_cannot_merge_into_itself(app):
     assert ack.responses[0]["errors"] == {merge.DUPLICATES: "A case cannot be merged into itself."}
 
 
-def test_case_numbers_after_merge_are_kept_then_folded():
+def test_parse_case_ids_returns_target_and_duplicates():
     assert merge.parse_case_ids("23 25, #31") == (23, [25, 31])
     assert merge.parse_case_ids("") == (None, [])
     assert command.parse_command("merge 23 25") == ("merge", None, "23 25")
     assert command.NEEDED[command.MERGE] == "case.resolve"
 
 
-def test_a_merged_case_closes_as_a_duplicate_and_is_audited():
+def test_merge_sets_duplicate_of_on_duplicates_and_writes_audit_rows():
     conn = Conn({"duplicate_of = %s": ("2026-10-11",)})
 
     assert case_actions.merge(conn, 23, [31, 25], "UME") == [25, 31]
 
-    closing = [args for sql, args in conn.executed if "duplicate_of = %s" in sql]
-    assert closing == [(23, 25, 23), (23, 31, 23)]
-    audits = [args for sql, args in conn.executed if "audit" in sql.lower()]
-    assert len(audits) == 2
+    duplicate_updates = [args for sql, args in conn.executed if "duplicate_of = %s" in sql]
+    assert duplicate_updates == [(23, 25, 23), (23, 31, 23)]
+    audit_rows = [args for sql, args in conn.executed if "audit" in sql.lower()]
+    assert len(audit_rows) == 2
 
 
-def test_a_case_already_resolved_is_left_out_of_the_merge():
+def test_merge_resolved_case_returns_empty_list():
     assert case_actions.merge(Conn({}), 23, [25], "UME") == []
 
 
-def test_a_merge_is_told_in_both_threads(monkeypatch):
+def test_post_merge_note_posts_to_target_and_duplicate_cases(monkeypatch):
     posted_lines = []
     monkeypatch.setattr(channel, "post_line",
                         lambda client, conn, case_id, text: posted_lines.append((case_id, text)))
@@ -229,56 +229,56 @@ def resolve_view():
     return {"private_metadata": "23", "state": {"values": {}}}
 
 
-def test_a_resolve_that_tells_the_reporter_holds_its_line_for_after(app, monkeypatch):
-    hold_calls, echoed = [], []
+def test_resolve_view_with_reporter_notice_defers_resolution_log(app, monkeypatch):
+    pending_marks, log_posts = [], []
     monkeypatch.setattr(handlers.views.resolve, "submitted_values",
                         lambda state, live: {"resolution": "no_action", "member_note": None,
                                              "message": "thanks", "notify_reporter": True})
     monkeypatch.setattr(handlers.views.resolve, "validation_errors", lambda values: None)
     monkeypatch.setattr(handlers, "resolve", lambda conn, case_id, values, by: 1)
-    monkeypatch.setattr(handlers, "mark_resolution_echo_pending",
-                        lambda conn, case_id, by: hold_calls.append((case_id, by)))
-    monkeypatch.setattr(handlers, "post_resolution_echo", lambda *args: echoed.append(args))
+    monkeypatch.setattr(handlers, "mark_resolution_log_pending",
+                        lambda conn, case_id, by: pending_marks.append((case_id, by)))
+    monkeypatch.setattr(handlers, "post_resolution_log", lambda *args: log_posts.append(args))
 
     app.views[handlers.views.resolve.CALLBACK](Ack(), {"user": {"id": "UME"}}, resolve_view(), Slack())
 
-    assert hold_calls == [(23, "UME")]
-    assert echoed == []
+    assert pending_marks == [(23, "UME")]
+    assert log_posts == []
 
 
-def test_a_quiet_resolve_says_so_at_once(app, monkeypatch):
-    hold_calls, echoed = [], []
+def test_resolve_view_without_reporter_notice_posts_resolution_log(app, monkeypatch):
+    pending_marks, log_posts = [], []
     monkeypatch.setattr(handlers.views.resolve, "submitted_values",
                         lambda state, live: {"resolution": "no_action", "member_note": None,
                                              "message": None, "notify_reporter": False})
     monkeypatch.setattr(handlers.views.resolve, "validation_errors", lambda values: None)
     monkeypatch.setattr(handlers, "resolve", lambda conn, case_id, values, by: 0)
-    monkeypatch.setattr(handlers, "mark_resolution_echo_pending",
-                        lambda conn, case_id, by: hold_calls.append((case_id, by)))
-    monkeypatch.setattr(handlers, "resolution_echo_actions", lambda conn, case_id: [])
-    monkeypatch.setattr(handlers, "post_resolution_echo", lambda *args: echoed.append(args))
+    monkeypatch.setattr(handlers, "mark_resolution_log_pending",
+                        lambda conn, case_id, by: pending_marks.append((case_id, by)))
+    monkeypatch.setattr(handlers, "resolution_log_actions", lambda conn, case_id: [])
+    monkeypatch.setattr(handlers, "post_resolution_log", lambda *args: log_posts.append(args))
 
     app.views[handlers.views.resolve.CALLBACK](Ack(), {"user": {"id": "UME"}}, resolve_view(), Slack())
 
-    assert hold_calls == []
-    assert len(echoed) == 1
+    assert pending_marks == []
+    assert len(log_posts) == 1
 
 
-def test_a_held_line_goes_up_once_the_reporter_message_is_in(monkeypatch):
+def test_post_pending_resolutions_posts_only_due_cases(monkeypatch):
     from bot.nemo import case_channel
 
     posted = []
 
     @contextlib.contextmanager
-    def one_session():
+    def fake_session():
         yield Conn({})
 
-    monkeypatch.setattr(case_channel, "session", one_session)
-    monkeypatch.setattr(case_channel.case_actions, "pending_resolution_echoes", lambda conn: [23, 24])
-    monkeypatch.setattr(case_channel.case_actions, "resolution_echo_due",
+    monkeypatch.setattr(case_channel, "session", fake_session)
+    monkeypatch.setattr(case_channel.case_actions, "pending_resolution_logs", lambda conn: [23, 24])
+    monkeypatch.setattr(case_channel.case_actions, "resolution_log_due",
                         lambda conn, case_id: ("UME", "no_action", None) if case_id == 23 else None)
-    monkeypatch.setattr(case_channel.case_actions, "resolution_echo_actions", lambda conn, case_id: [])
-    monkeypatch.setattr(case_channel.channel, "post_resolution_echo",
+    monkeypatch.setattr(case_channel.case_actions, "resolution_log_actions", lambda conn, case_id: [])
+    monkeypatch.setattr(case_channel.channel, "post_resolution_log",
                         lambda client, conn, case_id, resolution, note, by, actions:
                         posted.append((case_id, resolution, by)))
 
@@ -287,6 +287,6 @@ def test_a_held_line_goes_up_once_the_reporter_message_is_in(monkeypatch):
     assert posted == [(23, "no_action", "UME")], "24 still waits on its reporter message"
 
 
-def test_the_line_is_due_only_when_no_reporter_message_is_left_to_echo():
-    assert "o.kind = 'outcome' AND o.echoed_at IS NULL" in case_actions.RESOLUTION_ECHO_DUE
-    assert "SET resolution_echo_by = NULL" in case_actions.RESOLUTION_ECHO_DUE
+def test_resolution_log_due_excludes_cases_with_pending_outcome_echo():
+    assert "o.kind = 'outcome' AND o.echoed_at IS NULL" in case_actions.RESOLUTION_LOG_DUE
+    assert "SET resolution_echo_by = NULL" in case_actions.RESOLUTION_LOG_DUE

@@ -45,6 +45,6 @@
   </div>
 <% else %>
   <div class="empty">
-    <p class="empty-title"><%= @query.groups_slow? ? "Too slow to group, narrow the range" : @query.empty_note %></p>
+    <p class="empty-title"><%= @query.groups_slow? ? "Grouping too slow" : @query.empty_note %></p>
   </div>
 <% end %>

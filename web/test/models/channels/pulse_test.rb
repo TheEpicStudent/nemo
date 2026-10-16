@@ -15,7 +15,7 @@ class Channels::PulseTest < ActiveSupport::TestCase
     Channels::Pulse.new(channel_id: "C1", from: Date.parse(from), to: Date.parse(to), rows: rows)
   end
 
-  test "a measure is the sum of the days in the range" do
+  test "member_messages and messages sum over the days in the range" do
     pulse = build([day("2026-09-01", member_messages: 10, messages: 12),
                    day("2026-09-02", member_messages: 5, messages: 6)])
 
@@ -23,43 +23,43 @@ class Channels::PulseTest < ActiveSupport::TestCase
     assert_equal 18, pulse.messages
   end
 
-  test "distinct authors are averaged over the days, never added up" do
+  test "posters_per_day averages authors over the days" do
     pulse = build([day("2026-09-01", authors: 10), day("2026-09-02", authors: 20)])
 
     assert_equal 15, pulse.posters_per_day
   end
 
-  test "an empty range has no average rather than a zero" do
+  test "posters_per_day is nil for an empty range" do
     assert_nil build([]).posters_per_day
   end
 
-  test "a share is nil when the denominator is empty" do
+  test "answered_share is nil for no rows and 50.0 for 2 of 4 questions" do
     assert_nil build([]).answered_share
     assert_equal 50.0, build([day("2026-09-01", questions: 4, questions_with_replies: 2)])
       .answered_share
   end
 
-  test "a daily share is nil on a day that carried no message" do
+  test "share_series is nil on days without messages" do
     pulse = build([day("2026-09-02", messages: 10, with_link: 4)])
 
     assert_equal [nil, 40.0, nil], pulse.share_series(:with_link)
   end
 
-  test "a daily share divides by that day alone" do
+  test "share_series divides each day by its own messages" do
     pulse = build([day("2026-09-01", messages: 4, substantive: 1),
                    day("2026-09-02", messages: 10, substantive: 9)])
 
     assert_equal [25.0, 90.0, nil], pulse.share_series(:substantive)
   end
 
-  test "labels line up one for one with the series" do
+  test "labels has one entry per series row starting at from" do
     pulse = build([day("2026-09-02", messages: 1)])
 
     assert_equal pulse.series.size, pulse.labels.size
     assert_equal "2026-09-01", pulse.labels.first
   end
 
-  test "the series carries a row for every day, including the silent ones" do
+  test "series has a row for every day including days without messages" do
     pulse = build([day("2026-09-02", member_messages: 5)])
     series = pulse.series
 
@@ -68,13 +68,13 @@ class Channels::PulseTest < ActiveSupport::TestCase
     assert_equal Date.parse("2026-09-01"), series.first.ds
   end
 
-  test "the series carries reactions for every day" do
+  test "series rows expose reactions per day" do
     pulse = build([day("2026-09-02", reactions: 7)])
 
     assert_equal [0, 7, 0], pulse.series.map(&:reactions)
   end
 
-  test "the prior window is the same length, ending the day before" do
+  test "prior covers the same number of days ending the day before from" do
     pulse = build([], from: "2026-09-08", to: "2026-09-14")
 
     assert_equal 7, pulse.days
@@ -82,21 +82,21 @@ class Channels::PulseTest < ActiveSupport::TestCase
     assert_equal Date.parse("2026-09-07"), pulse.prior.to
   end
 
-  test "change is nil when there is nothing to measure against" do
+  test "change is nil when the prior window has no rows" do
     pulse = build([day("2026-09-01", member_messages: 10)])
     pulse.prior.instance_variable_set(:@rows, [])
 
     assert_nil pulse.change(:member_messages)
   end
 
-  test "change reads as a percentage against the window before" do
+  test "change returns the percentage against the prior window" do
     pulse = build([day("2026-09-01", member_messages: 150)])
     pulse.prior.instance_variable_set(:@rows, [day("2026-08-29", member_messages: 100)])
 
     assert_equal 50.0, pulse.change(:member_messages)
   end
 
-  test "the posters change compares the daily average, not a sum" do
+  test "posters_change compares the daily average of authors" do
     pulse = build([day("2026-09-01", authors: 12), day("2026-09-02", authors: 18)])
     pulse.prior.instance_variable_set(:@rows, [day("2026-08-30", authors: 10)])
 
@@ -104,20 +104,20 @@ class Channels::PulseTest < ActiveSupport::TestCase
     assert_equal 50.0, pulse.posters_change
   end
 
-  test "the posters change is nil when either window is empty" do
+  test "posters_change is nil when the prior window has no rows" do
     pulse = build([day("2026-09-01", authors: 12)])
     pulse.prior.instance_variable_set(:@rows, [])
 
     assert_nil pulse.posters_change
   end
 
-  test "replies per thread needs a thread to have been started" do
+  test "replies_per_thread is nil without thread_roots" do
     assert_nil build([day("2026-09-01", replies_on_roots: 9)]).replies_per_thread
     assert_equal 3.0, build([day("2026-09-01", thread_roots: 3, replies_on_roots: 9)])
       .replies_per_thread
   end
 
-  test "average length is per message, not per day" do
+  test "average_length divides text_length_total by messages" do
     pulse = build([day("2026-09-01", messages: 2, text_length_total: 100),
                    day("2026-09-02", messages: 2, text_length_total: 300)])
 

@@ -2,7 +2,7 @@ from bot.nemo.views import action
 
 CALLBACK = "case_action_reverse"
 
-WHICH = "reverse_which"
+ACTION = "reverse_which"
 REASON = "reverse_reason"
 
 REASON_LIMIT = 500
@@ -11,8 +11,8 @@ NO_LABEL = " "
 
 
 def label_of(one):
-    ends = f", until {one['expires_at']:%-d %b}" if one.get("expires_at") else ""
-    return f"{action.label(one['type_key'])} on <@{one['target_user_id']}>{ends}"
+    end_suffix = f", until {one['expires_at']:%-d %b}" if one.get("expires_at") else ""
+    return f"{action.label(one['type_key'])} on <@{one['target_user_id']}>{end_suffix}"
 
 
 def option(one):
@@ -33,12 +33,12 @@ def build_view(case_id, live):
         "blocks": [
             {
                 "type": "input",
-                "block_id": WHICH,
+                "block_id": ACTION,
                 "label": {"type": "plain_text", "text": "Action"},
                 "element": {
                     "type": "static_select",
-                    "action_id": WHICH,
-                    "placeholder": {"type": "plain_text", "text": "pick one"},
+                    "action_id": ACTION,
+                    "placeholder": {"type": "plain_text", "text": "Select an action"},
                     "options": [option(one) for one in live],
                 },
             },
@@ -59,16 +59,16 @@ def build_view(case_id, live):
 
 def submitted_values(state):
     values = state.get("values", {})
-    which = (values.get(WHICH, {}).get(WHICH, {}).get("selected_option") or {}).get("value")
+    selected_id = (values.get(ACTION, {}).get(ACTION, {}).get("selected_option") or {}).get("value")
     return {
-        "action_id": int(which) if which else None,
+        "action_id": int(selected_id) if selected_id else None,
         "reason": (values.get(REASON, {}).get(REASON, {}).get("value") or "").strip(),
     }
 
 
 def validation_errors(values):
     if not values.get("action_id"):
-        return {WHICH: "Pick the action to reverse."}
+        return {ACTION: "Select an action"}
     if not values.get("reason"):
         return {REASON: "Add a reason."}
     return None

@@ -15,10 +15,10 @@ APPLIED_DM = "Hey <@{who}>, you've been shushed for {why}, {until}."
 
 IN_CHANNEL = "Your message was removed. You are shushed for {why}, {until}."
 
-OVER = "Your shush has ended. You can post again."
+LIFTED_DM = "Your shush has ended. You can post again."
 
 
-def take_up(client, conn, guard):
+def enforce(client, conn, guard):
     if not memberguards.mark_enforced(conn, guard["id"]):
         return False
 
@@ -31,7 +31,7 @@ def take_up(client, conn, guard):
 
 def lift(client, conn, guard, notify_member=True):
     if notify_member:
-        notify.dm_subject(client, conn, guard, OVER)
+        notify.dm_subject(client, conn, guard, LIFTED_DM)
     return True
 
 
@@ -39,7 +39,7 @@ def remove(client, conn, guard, channel_id, ts):
     try:
         guard_actions.remove(client, channel_id, ts)
     except Exception as failure:
-        memberguards.dropped(conn, guard["id"], str(failure))
+        memberguards.mark_failed(conn, guard["id"], str(failure))
         memberguards.record_enforcement(conn, guard["id"], guard["subject_id"], channel_id,
                               "failed", message_ts=ts, detail=str(failure)[:500])
         log.warning("nemo: shush %s could not remove %s in %s: %s",
@@ -61,7 +61,7 @@ def on_message(ctx):
     if channel_id == channel.firehouse_channel():
         return None
 
-    guard = memberguards.shushed(subject_id)
+    guard = memberguards.active_shush(subject_id)
     if guard is None:
         return None
 
@@ -70,6 +70,6 @@ def on_message(ctx):
             return None
         notify.post_ephemeral(ctx.client, channel_id, subject_id, IN_CHANNEL.format(
             why=guard["reason"], until=notify.ending(guard)), thread_ts=event.get("thread_ts"))
-        if notify.reset_threshold_met(conn, guard, DELETED):
+        if notify.should_reset_sessions(conn, guard, DELETED):
             notify.reset(conn, guard, "posting")
     return True

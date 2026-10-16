@@ -112,7 +112,7 @@ def lane(name, work, state, stopping, poll):
                 return
             except Exception as failure:
                 state[name] = f"failed, {type(failure).__name__}"
-                print(f"{WORKER}: the {name} lane failed, trying again after the poll: {failure}")
+                print(f"{WORKER}: {name} lane failed: {failure}")
             if stopping.wait(BUSY_POLL_SECONDS if processed else poll):
                 return
         state[name] = "stopped"
@@ -141,8 +141,8 @@ def serve():
         except SeededDeployment as error:
             print(f"{WORKER}: {error}")
             raise SystemExit(1) from error
-        for orphan, source in clear_stale_sessions(conn):
-            print(f"{WORKER}: swept run {orphan} ({source}), left running by an earlier boot")
+        for run_id, source in clear_stale_sessions(conn):
+            print(f"{WORKER}: abandoned run {run_id} ({source}) from an earlier boot")
 
     stopping = threading.Event()
     state = {name: "starting" for name, *_ in LANES}
@@ -153,7 +153,7 @@ def serve():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
-    print(f"{WORKER}: {len(LANES)} lane(s) running independently")
+    print(f"{WORKER}: {len(LANES)} lane(s) running")
     with heartbeat_loop(WORKER, lambda: note(state)):
         running = [lane(name, work, state, stopping, seconds(var, fallback))
                    for name, work, var, fallback in LANES]
@@ -164,7 +164,7 @@ def serve():
             with connect() as conn:
                 work.release_mine(conn)
         except Exception as failure:
-            print(f"{WORKER}: could not hand the claimed work back, {type(failure).__name__}: {failure}")
+            print(f"{WORKER}: could not release claimed work, {type(failure).__name__}: {failure}")
 
     print(f"{WORKER}: stopped")
     return 0

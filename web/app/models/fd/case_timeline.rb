@@ -75,7 +75,7 @@ module Fd
       parts << "no subject set" if subject_user_ids.empty?
       context = kase.subject_context
       if context.is_a?(Hash) && context["priors"]
-        parts << "at that moment: #{pluralize(context['priors'], 'prior')}"
+        parts << "#{pluralize(context['priors'], 'prior')} at the time"
       end
       parts
     end
@@ -131,7 +131,7 @@ module Fd
     def resolved_detail
       parts = ["by #{names[assignees.first&.user_id || kase.opened_by]}"]
       parts << "#{span(kase.resolved_at - kase.opened_at)} after opening"
-      parts << "the member was not told" if kase.member_note.blank?
+      parts << "no outcome sent" if kase.member_note.blank?
       parts.join(" · ")
     end
 
@@ -178,7 +178,7 @@ module Fd
       if action.targets_member? && !subject_user_ids.include?(action.target_user_id)
         parts << "on #{names[action.target_user_id]}"
       end
-      parts << "taken by #{names[action.decided_by]}"
+      parts << "decided by #{names[action.decided_by]}"
       unless action.performed_by_decider?
         parts << "performed by #{names[action.performed_by]}"
       end
@@ -203,9 +203,9 @@ module Fd
 
     ERASED = {
       "note" => "Note removed",
-      "participant" => "Taken off the case",
+      "participant" => "Participant removed",
       "thread" => "Thread detached",
-      "citation" => "Flag taken off"
+      "citation" => "Flag removed"
     }.freeze
 
     def erasure_entries

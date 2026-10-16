@@ -35,15 +35,15 @@ def dispatched_payloads(monkeypatch, notes):
     return payloads
 
 
-def test_a_channel_id_payload_reaches_the_listener(monkeypatch):
+def test_listen_channel_id_payload_is_dispatched_as_string(monkeypatch):
     payloads = dispatched_payloads(monkeypatch, [Note("fd_channel_guard", "C0BAHBV008Z")])
     assert payloads == [("fd_channel_guard", "C0BAHBV008Z")]
 
 
-def test_a_numeric_payload_still_arrives_as_a_number(monkeypatch):
+def test_listen_numeric_payload_is_dispatched_as_int(monkeypatch):
     payloads = dispatched_payloads(monkeypatch, [Note("fd_case_changed", "41")])
     assert payloads == [("fd_case_changed", 41)]
 
 
-def test_an_empty_payload_is_dropped(monkeypatch):
+def test_listen_empty_payload_is_not_dispatched(monkeypatch):
     assert dispatched_payloads(monkeypatch, [Note("fd_channel_guard", "")]) == []

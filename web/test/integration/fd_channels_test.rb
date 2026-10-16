@@ -2,7 +2,7 @@ require "test_helper"
 
 class FdChannelsTest < ActionDispatch::IntegrationTest
   setup do
-    @me = hold_role!("UME", "community_manager")
+    @me = grant_role!("UME", "community_manager")
     sign_in_as(@me)
     @channel = Analytics::DimChannel.where(archived: false).order(:channel_id).first
     skip "the corpus has no channel" if @channel.nil?
@@ -13,13 +13,13 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
       channel_id: @channel.channel_id, opened_by: "UME")
   end
 
-  test "a channel nobody guards still opens" do
+  test "channel show without guard returns success" do
     get fd_channel_path(@channel.channel_id)
 
     assert_response :success
   end
 
-  test "a guarded channel opens with its allow list" do
+  test "channel show with guard and allow returns success" do
     guard!.allows.create!(subject_id: "B0CACHET", label: "Cachet", added_by: "UME")
 
     get fd_channel_path(@channel.channel_id)
@@ -27,7 +27,7 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
-  def seat_nemo!(inside)
+  def join_nemo!(inside)
     ActiveRecord::Base.connection.execute(
       "INSERT INTO fd.channel_membership (channel_id, inside) " \
       "VALUES (#{ActiveRecord::Base.connection.quote(@channel.channel_id)}, #{inside}) " \
@@ -44,16 +44,16 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     )
   end
 
-  test "the channel page warns when nemo is not in the channel" do
-    seat_nemo!(false)
+  test "channel show with nemo outside renders not a member warning" do
+    join_nemo!(false)
 
     get fd_channel_path(@channel.channel_id)
 
     assert_select "p.sev-crit", "Nemo is not a member of this channel"
   end
 
-  test "the channel page asks for an invite when a private channel refused nemo" do
-    seat_nemo!(false)
+  test "channel show with join refused for invite renders invite note" do
+    join_nemo!(false)
     record_join!("refused", FdChannelsHelper::NEEDS_INVITE)
 
     get fd_channel_path(@channel.channel_id)
@@ -61,7 +61,7 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     assert_select "p.sev-crit", FdChannelsHelper::INVITE_NOTE
   end
 
-  test "the channel page says when nemo was removed" do
+  test "channel show with join then leave renders removed warning" do
     record_join!("joined", at: 1.hour.ago)
     record_join!("left")
 
@@ -70,8 +70,8 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     assert_select "p.sev-crit", "Nemo was removed from this channel"
   end
 
-  test "channel_seat_label outside channel with refused join shows refused_note" do
-    seat_nemo!(false)
+  test "channel_membership_label outside channel with refused join shows refused_note" do
+    join_nemo!(false)
     record_join!("refused", "is_archived")
 
     get fd_channel_path(@channel.channel_id)
@@ -79,7 +79,7 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     assert_select "p.sev-crit", "Join failed: is_archived"
   end
 
-  test "channel_seat_label without membership rows shows refused_note" do
+  test "channel_membership_label without membership rows shows refused_note" do
     record_join!("refused", "is_archived")
 
     get fd_channel_path(@channel.channel_id)
@@ -87,8 +87,8 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     assert_select "p.sev-crit", "Join failed: is_archived"
   end
 
-  test "the channel page shows no warning when nemo is in the channel" do
-    seat_nemo!(true)
+  test "channel show with nemo inside renders no warning" do
+    join_nemo!(true)
 
     get fd_channel_path(@channel.channel_id)
 
@@ -96,20 +96,20 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     assert_select "p.sev-warn", count: 0
   end
 
-  test "a channel we have never heard of does not raise" do
+  test "channel show with unknown channel id returns success" do
     get fd_channel_path("C0NOTHING")
 
     assert_response :success
   end
 
-  test "a signed out visitor cannot read the channels" do
+  test "channels index signed out redirects to login" do
     reset!
     get fd_channels_path
 
     assert_redirected_to login_path
   end
 
-  test "turning the guard on records who did it" do
+  test "channel guard create stores opened_by and creates audit entry" do
     post fd_channel_guard_path(@channel.channel_id, "bot_allowlist")
 
     guard = Fd::ChannelGuard.live_for(@channel.channel_id)
@@ -119,7 +119,7 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
       verb: "opened").exists?
   end
 
-  test "a channel cannot be guarded twice" do
+  test "channel guard create on guarded channel creates no row" do
     guard!
 
     assert_no_difference -> { Fd::ChannelGuard.count } do
@@ -127,7 +127,7 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "lifting keeps the allow list and the guard row" do
+  test "channel guard destroy sets state lifted and keeps allows" do
     guard = guard!
     guard.allows.create!(subject_id: "B0CACHET", added_by: "UME")
 
@@ -140,13 +140,13 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     assert_equal 1, guard.allows.count
   end
 
-  test "lifting a channel nobody guards changes nothing" do
+  test "channel guard destroy without guard creates no row" do
     delete fd_channel_guard_path(@channel.channel_id, "bot_allowlist")
 
     assert_equal 0, Fd::ChannelGuard.where(channel_id: @channel.channel_id).count
   end
 
-  test "allowing a bot records who vouched for it" do
+  test "channel allows create stores added_by and creates audit entry" do
     guard = guard!
 
     post fd_channel_allows_path(@channel.channel_id, "bot_allowlist"),
@@ -159,7 +159,7 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
       verb: "added").exists?
   end
 
-  test "allowing the same bot twice leaves one row" do
+  test "channel allows create twice with same subject creates one row" do
     guard = guard!
     2.times do
       post fd_channel_allows_path(@channel.channel_id, "bot_allowlist"), params: { subject_ids: ["B0CACHET"] }
@@ -168,7 +168,7 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     assert_equal 1, guard.allows.where(subject_id: "B0CACHET").count
   end
 
-  test "an id that is not a member id is refused" do
+  test "channel allows create with invalid subject id creates no row" do
     guard = guard!
 
     post fd_channel_allows_path(@channel.channel_id, "bot_allowlist"), params: { subject_ids: ["not-an-id"] }
@@ -176,13 +176,13 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     assert_equal 0, guard.allows.count
   end
 
-  test "nothing can be allowed on a channel nobody guards" do
+  test "channel allows create without guard creates no row" do
     post fd_channel_allows_path(@channel.channel_id, "bot_allowlist"), params: { subject_ids: ["B0CACHET"] }
 
     assert_equal 0, Fd::ChannelGuardAllow.count
   end
 
-  test "removing a bot takes it off the list and lands in the trail" do
+  test "channel allow destroy removes row and creates audit entry" do
     guard = guard!
     guard.allows.create!(subject_id: "B0CACHET", label: "Cachet", added_by: "UME")
 
@@ -193,15 +193,15 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
       verb: "removed").exists?
   end
 
-  test "the bot picker looks for bots, the member picker does not" do
-    bot = Fd::Member.live.where(is_bot: false).first
-    skip "the corpus has no member" if bot.nil?
+  test "member finder with bots: true excludes non-bot members" do
+    member = Fd::Member.live.where(is_bot: false).first
+    skip "the corpus has no member" if member.nil?
 
-    user_ids = Fd::MemberFinder.new(bot.name).suggest(limit: Fd::Member::LIMIT, bots: true)
-    assert_not_includes user_ids, bot.user_id
+    user_ids = Fd::MemberFinder.new(member.name).suggest(limit: Fd::Member::LIMIT, bots: true)
+    assert_not_includes user_ids, member.user_id
   end
 
-  test "what the guard did survives the guard being lifted" do
+  test "channel guard destroy keeps guard events" do
     guard = guard!
     guard.events.create!(channel_id: @channel.channel_id, subject_id: "B0ZAPIER", verb: "kicked")
 
@@ -212,9 +212,9 @@ class FdChannelsTest < ActionDispatch::IntegrationTest
     assert_equal 1, Fd::ChannelGuardEvent.where(channel_id: @channel.channel_id).count
   end
 
-  test "somebody without channel.guard cannot turn one on" do
-    firefighter = hold_role!("UFF9", "firefighter")
-    move_capability!("firefighter", "channel.guard", false, by: "UME")
+  test "channel guard create without channel.guard creates no guard" do
+    firefighter = grant_role!("UFF9", "firefighter")
+    override_capability!("firefighter", "channel.guard", false, by: "UME")
     sign_in_as(firefighter)
 
     post fd_channel_guard_path(@channel.channel_id, "bot_allowlist")

@@ -17,16 +17,16 @@ def label_of(user_id, role):
 
 
 def row(case_id, user_id, role, removable):
-    made = {"type": "section", "text": {"type": "mrkdwn", "text": label_of(user_id, role)[:150]}}
+    section = {"type": "section", "text": {"type": "mrkdwn", "text": label_of(user_id, role)[:150]}}
     if removable:
-        made["accessory"] = {
+        section["accessory"] = {
             "type": "button",
             "action_id": REMOVE,
             "text": {"type": "plain_text", "text": "Remove"},
             "style": "danger",
             "value": f"{user_id}:{role}:{case_id}",
         }
-    return made
+    return section
 
 
 def picker(block_id, label, placeholder):
@@ -50,9 +50,9 @@ def build_view(case_id, participants=(), assignees=(), can_people=True, can_assi
 
     blocks = rows + ([{"type": "divider"}] if rows else [])
     if can_people:
-        blocks.append(picker(WHO, "Subject", "who the case is about"))
+        blocks.append(picker(WHO, "Subject", "Select members"))
     if can_assign:
-        blocks.append(picker(ASSIGN, "Assign", "who to assign"))
+        blocks.append(picker(ASSIGN, "Assign", "Select members"))
 
     view = {
         "type": "modal",
@@ -76,7 +76,7 @@ def submitted_values(state):
     return {"subjects": selected_users(values, WHO), "assignees": selected_users(values, ASSIGN)}
 
 
-def removed(value):
+def parse_remove_value(value):
     user_id, role, case_id = (value or "").split(":", 2)
     return user_id, role, int(case_id) if case_id.isdigit() else None
 
@@ -85,4 +85,4 @@ def validation_errors(values, block_ids):
     if values.get("subjects") or values.get("assignees"):
         return None
     first = WHO if WHO in block_ids else ASSIGN
-    return {first: "Pick somebody first."}
+    return {first: "Select a member"}

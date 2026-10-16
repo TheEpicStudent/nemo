@@ -41,10 +41,10 @@ def link_target(url):
     return channel_id, f"{seconds}.{micros}", thread_of(query)
 
 
-RICHEST = ("forward", "unfurl", "link")
+KIND_PRECEDENCE = ("forward", "unfurl", "link")
 
 
-def points_at(share):
+def share_timestamps(share):
     target = link_target(share["permalink"]) if share["permalink"] else None
     return {share["source_ts"], target[1] if target else None} - {None}
 
@@ -53,28 +53,28 @@ def same_message(one, other):
     if one["source_channel_id"] != other["source_channel_id"]:
         return False
 
-    here, there = points_at(one), points_at(other)
-    if here and there:
-        return bool(here & there)
+    one_timestamps, other_timestamps = share_timestamps(one), share_timestamps(other)
+    if one_timestamps and other_timestamps:
+        return bool(one_timestamps & other_timestamps)
 
     return one["permalink"] == other["permalink"]
 
 
-def merge(into, share):
+def merge(target, share):
     for field, value in share.items():
         if field in ("kind", "is_reachable"):
             continue
-        if into.get(field) is None and value is not None:
-            into[field] = value
+        if target.get(field) is None and value is not None:
+            target[field] = value
 
-    into["is_reachable"] = into["is_reachable"] or share["is_reachable"]
-    into["kind"] = min(into["kind"], share["kind"], key=RICHEST.index)
+    target["is_reachable"] = target["is_reachable"] or share["is_reachable"]
+    target["kind"] = min(target["kind"], share["kind"], key=KIND_PRECEDENCE.index)
 
 
-def gather(out, share):
-    for already in out:
-        if same_message(already, share):
-            merge(already, share)
+def add_share(out, share):
+    for existing in out:
+        if same_message(existing, share):
+            merge(existing, share)
             return
     out.append(share)
 
@@ -101,7 +101,7 @@ def shares(event):
         if not url and not (channel_id and ts):
             continue
 
-        gather(
+        add_share(
             out,
             {
                 "kind": "forward" if forwarded else "unfurl",
@@ -124,7 +124,7 @@ def shares(event):
 
     for url in ARCHIVE_LINK.findall(event.get("text") or ""):
         channel_id, ts, parent = url[0], f"{url[1]}.{url[2]}", thread_of(url[3])
-        gather(
+        add_share(
             out,
             {
                 "kind": "link",
