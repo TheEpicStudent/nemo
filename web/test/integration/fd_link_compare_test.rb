@@ -52,6 +52,15 @@ class FdLinkCompareTest < ActionDispatch::IntegrationTest
     seeded!("fd.member_joins", "user_id", user_id)
   end
 
+  def slack_change!(user_id, action, at)
+    id = SecureRandom.uuid
+    as_pipeline(<<~SQL.squish, id, at, action, user_id, { id: id }.to_json)
+      INSERT INTO slack.audit_event (id, at, action, actor_kind, actor_id, entity_kind, entity_id, ours, payload, source_key)
+      VALUES (?::uuid, ?, ?, 'user', 'UCMPBOSS', 'user', ?, false, ?::jsonb, 'test')
+    SQL
+    seeded!("slack.audit_event", "id", id)
+  end
+
   def attribute(label)
     css_select(".cmp-grid .cmp-row").find { |row| row.at_css(".cmp-key")&.text&.squish == label }
   end
@@ -75,6 +84,30 @@ class FdLinkCompareTest < ActionDispatch::IntegrationTest
       "both sides share one data-v"
     assert_nil attribute("JA4"), "no JA4 row when neither account has one"
     assert_match "18 d apart", attribute("Joined").text
+  end
+
+  test "link compare without a snapshot takes the deactivation from the Slack audit log" do
+    as_pipeline("DELETE FROM fd.evidence_snapshot WHERE user_id = ?", DEACTIVATED)
+    slack_change!(DEACTIVATED, "user_deactivated", 5.days.ago)
+
+    get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE)
+
+    heads = css_select(".cmp-heads .cmp-head")
+    assert_match "by @UCMPBOSS", heads.first.text
+    assert_match(/Post-ban join\s+3 d after the ban/, heads.last.text.squish)
+    left = css_select(".cmp-log-row:not(.cmp-log-heads)").map { |row| row.css(".cmp-log-side")[0].text.squish }
+    assert_includes left, "Deactivated by @UCMPBOSS"
+  end
+
+  test "link compare ignores a Slack deactivation followed by a reactivation" do
+    as_pipeline("DELETE FROM fd.evidence_snapshot WHERE user_id = ?", DEACTIVATED)
+    slack_change!(DEACTIVATED, "user_deactivated", 5.days.ago)
+    slack_change!(DEACTIVATED, "user_reactivated", 4.days.ago)
+
+    get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE)
+
+    assert_no_match "after the ban", css_select(".cmp-heads").text
+    assert_select ".cmp-event.is-deactivated", count: 0
   end
 
   test "link compare renders shared JA3 row from anomaly events" do

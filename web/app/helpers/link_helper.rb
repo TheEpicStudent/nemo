@@ -40,10 +40,17 @@ module LinkHelper
     end)
   end
 
-  def link_pair(a, b)
+  def link_pair(a, b, deactivated: [])
     tag.span(class: "px-where") do
-      safe_join([member_face(a), tag.span(link_glyph, class: "sub2"), member_face(b)])
+      safe_join([link_side(a, deactivated.include?(a)), tag.span(link_glyph, class: "sub2"),
+                 link_side(b, deactivated.include?(b))])
     end
+  end
+
+  def link_side(user_id, deactivated)
+    return member_face(user_id) unless deactivated
+
+    safe_join([member_face(user_id, deactivated: true), tag.span("Deactivated", class: "state")])
   end
 
   def link_glyph

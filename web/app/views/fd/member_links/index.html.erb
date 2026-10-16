@@ -10,6 +10,14 @@
 <% end %>
 
 <% content_for :tab_tools do %>
+  <% if @list.view == Fd::LinkList::DEFAULT_VIEW %>
+    <span class="segmented">
+      <% Fd::LinkList::STATUSES.each do |key, label| %>
+        <%= link_to label, fd_links_path(@list.params_for(status: key)),
+              aria: { current: ("true" if @list.status == key) } %>
+      <% end %>
+    </span>
+  <% end %>
   <%= render layout: "shared/dropdown", locals: {
         label: "Signal", trigger_css: "btn",
         trigger: audit_filter_trigger("Signal", @list.signal_label) } do %>
@@ -57,7 +65,7 @@
             <tbody>
               <% @list.rows.each do |row| %>
                 <tr class="link-row">
-                  <td><%= link_pair(row.a_user_id, row.b_user_id) %></td>
+                  <td><%= link_pair(row.a_user_id, row.b_user_id, deactivated: row.deactivated_user_ids) %></td>
                   <td>
                     <%= link_band_state(row.score) %>
                     <% if row.label %><span class="sub2"><%= link_label_text(row.label) %></span><% end %>

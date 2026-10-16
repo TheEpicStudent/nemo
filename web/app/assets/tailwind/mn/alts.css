@@ -156,7 +156,7 @@
   }
   .ccard .card-head { gap: 10px; }
   .ccard .member-face { min-width: 0; }
-  .ccard .member-face.is-gone .row-avatar { filter: grayscale(1); opacity: 0.6; }
+  .member-face.is-gone .row-avatar { filter: grayscale(1); opacity: 0.6; }
   .ccard-link { color: var(--foreground); font-weight: 600; text-decoration: none; }
   .ccard-link::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
   .ccard-link:focus-visible { outline: none; }

@@ -42,12 +42,40 @@ class FdLinkListTest < ActionDispatch::IntegrationTest
     css_select(".link-table tbody tr").map { |row| row.css(".member-face").map { |face| face.text.squish.downcase } }
   end
 
+  def tab_counts
+    css_select("nav.views a.view").to_h { |tab| [tab.children.first.text.squish, tab.at_css(".view-count").text.to_i] }
+  end
+
   test "links index renders one view per band labelled and reviewed" do
     { "certain" => [%w[ulista ulistb]], "strong" => [%w[ulista ulistf]], "weak" => [%w[ulista ulistd]],
       "labelled" => [%w[ulista uliste]], "reviewed" => [%w[ulista ulistc]] }.each do |view, expected|
       get fd_links_path(view: view)
       assert_equal expected, pairs.map { |pair| pair.map { |face| face.delete_prefix("@") } }, view
     end
+  end
+
+  test "review view lists one deactivated pairs by default and every pair with status all" do
+    as_pipeline("UPDATE fd.member SET is_deleted = true WHERE user_id = ?", "ULISTB")
+
+    get fd_links_path
+    assert_equal [%w[ulista ulistb]], pairs.map { |pair| pair.map { |face| face.delete_prefix("@") } }
+    assert_select ".link-table .member-face.is-gone", count: 1, text: /ulistb/
+    assert_select ".link-table .state", text: "Deactivated", count: 1
+    assert_select ".views-tools .segmented a[aria-current=true]", text: "One deactivated"
+    assert_equal 1, tab_counts["Unreviewed"]
+
+    get fd_links_path(status: "all")
+    assert_equal [%w[ulista ulistb], %w[ulista ulistf]], pairs.map { |pair| pair.map { |face| face.delete_prefix("@") } }
+    assert_select ".views-tools .segmented a[aria-current=true]", text: "All"
+    assert_equal 2, tab_counts["Unreviewed"]
+    assert_select "turbo-frame#member-links-list[data-src=?]", fd_links_path(status: "all")
+  end
+
+  test "status toggle shows only on the review view" do
+    get fd_links_path(view: "certain", status: "all")
+
+    assert_select ".views-tools .segmented", count: 0
+    assert_select "turbo-frame#member-links-list[data-src=?]", fd_links_path(view: "certain")
   end
 
   test "links index omits a reviewed pair from its band and lists it under reviewed" do

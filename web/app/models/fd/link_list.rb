@@ -10,6 +10,9 @@ module Fd
       "sampled" => "Sampled"
     }.freeze
     DEFAULT_VIEW = "review".freeze
+    STATUSES = { "one_deactivated" => "One deactivated", "all" => "All" }.freeze
+    DEFAULT_STATUS = "one_deactivated".freeze
+    STATUS_CONDITIONS = { "one_deactivated" => "a.is_deleted <> b.is_deleted", "all" => "true" }.freeze
     LIVE_VARIANT = "live".freeze
     LIMIT = 100
 
@@ -22,7 +25,7 @@ module Fd
     }.freeze
 
     CONDITIONS = {
-      "review" => "l.score >= :strong AND a.is_deleted <> b.is_deleted AND v.a_user_id IS NULL",
+      "review" => "l.score >= :strong AND v.a_user_id IS NULL",
       "certain" => "l.score >= :certain AND v.a_user_id IS NULL",
       "strong" => "l.score >= :strong AND l.score < :certain AND v.a_user_id IS NULL",
       "weak" => "l.score < :strong AND l.label IS NULL AND v.a_user_id IS NULL",
@@ -48,6 +51,8 @@ module Fd
       def evidence = MemberLink.evidence_of(signals)
 
       def verdict_label = LinkVerdict::VERDICTS.fetch(verdict, verdict)
+
+      def deactivated_user_ids = [(a_user_id if a_deleted), (b_user_id if b_deleted)].compact
     end
 
     def self.band(score)
@@ -69,6 +74,11 @@ module Fd
     def view
       requested = @params[:view].to_s
       VIEWS.key?(requested) ? requested : DEFAULT_VIEW
+    end
+
+    def status
+      requested = @params[:status].to_s
+      view == DEFAULT_VIEW && STATUSES.key?(requested) ? requested : DEFAULT_STATUS
     end
 
     def signal
@@ -103,7 +113,7 @@ module Fd
                v.verdict, v.decided_by, v.decided_at, v.note,
                coalesce(a.is_deleted, false) AS a_deleted, coalesce(b.is_deleted, false) AS b_deleted
         FROM #{from_sql}
-        WHERE #{CONDITIONS.fetch(view)} #{signal_condition}
+        WHERE #{condition(view)} #{signal_condition}
         ORDER BY #{ORDER_PREFIX[view]} l.score DESC, l.a_user_id, l.b_user_id
         LIMIT :limit OFFSET :offset
       SQL
@@ -111,7 +121,7 @@ module Fd
 
     def view_counts
       @view_counts ||= begin
-        columns = CONDITIONS.except("sampled").map { |key, condition| "count(*) FILTER (WHERE #{condition}) AS #{key}" }
+        columns = CONDITIONS.keys.excluding("sampled").map { |key| "count(*) FILTER (WHERE #{condition(key)}) AS #{key}" }
         row = select_all("SELECT #{columns.join(', ')} FROM #{FROM}").first || {}
         sampled = select_all("SELECT count(*) AS sampled FROM #{from_sql} WHERE #{CONDITIONS.fetch('sampled')}").first || {}
         VIEWS.keys.index_with { |key| row.merge(sampled)[key].to_i }
@@ -124,20 +134,27 @@ module Fd
           "count(*) FILTER (WHERE l.signals ?| ARRAY[:#{group}]::text[]) AS #{group}"
         end
         binds = SIGNAL_GROUPS.keys.to_h { |group| [group.to_sym, LinkList.signal_names(group).presence || [""]] }
-        row = select_all("SELECT #{columns.join(', ')} FROM #{from_sql} WHERE #{CONDITIONS.fetch(view)}", binds).first || {}
+        row = select_all("SELECT #{columns.join(', ')} FROM #{from_sql} WHERE #{condition(view)}", binds).first || {}
         SIGNAL_GROUPS.keys.index_with { |group| row[group].to_i }
       end
     end
 
     def user_ids = rows.flat_map { |row| [row.a_user_id, row.b_user_id] }
 
-    def params_for(view: self.view, signal: self.signal, variant: self.variant, page: 1)
-      { view: (view unless view == DEFAULT_VIEW), signal: signal,
+    def params_for(view: self.view, status: self.status, signal: self.signal, variant: self.variant, page: 1)
+      { view: (view unless view == DEFAULT_VIEW),
+        status: (status if view == DEFAULT_VIEW && status != DEFAULT_STATUS), signal: signal,
         variant: (variant if view == "sampled" && variant != LIVE_VARIANT),
         page: (page if page > 1) }.compact
     end
 
     private
+
+    def condition(key)
+      return CONDITIONS.fetch(key) unless key == DEFAULT_VIEW
+
+      "#{CONDITIONS.fetch(key)} AND #{STATUS_CONDITIONS.fetch(status)}"
+    end
 
     def from_sql
       variant == LIVE_VARIANT ? FROM : FROM.sub("fd.member_link l", SHADOW_LINKS)

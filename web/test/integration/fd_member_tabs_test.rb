@@ -123,6 +123,29 @@ class FdMemberTabsTest < ActionDispatch::IntegrationTest
     assert_select ".member-hero-sub .state.state-good", "Active"
   end
 
+  test "member show hero renders Deactivated from the live member row before the dim sync" do
+    member_dim!(MEMBER_ID, claimed_at: 2.days.ago)
+    member!(MEMBER_ID)
+    as_pipeline("UPDATE fd.member SET is_deleted = true WHERE user_id = ?", MEMBER_ID)
+    as_pipeline("INSERT INTO fd.member_seen (user_id, last_login_at) VALUES (?, now())", MEMBER_ID)
+    seeded!("fd.member_seen", "user_id", MEMBER_ID)
+
+    get fd_member_path(MEMBER_ID)
+
+    assert_select ".member-hero-sub .state", "Deactivated"
+  end
+
+  test "member show hero renders Active from the live member row after a reactivation before the dim sync" do
+    member_dim!(MEMBER_ID, claimed_at: 2.days.ago, is_deleted: true)
+    member!(MEMBER_ID)
+    as_pipeline("INSERT INTO fd.member_seen (user_id, last_login_at) VALUES (?, now())", MEMBER_ID)
+    seeded!("fd.member_seen", "user_id", MEMBER_ID)
+
+    get fd_member_path(MEMBER_ID)
+
+    assert_select ".member-hero-sub .state.state-good", "Active"
+  end
+
   test "member show hero renders no state for an account claimed before sign-in recording" do
     member_dim!(MEMBER_ID, claimed_at: Time.utc(2024, 1, 1))
 

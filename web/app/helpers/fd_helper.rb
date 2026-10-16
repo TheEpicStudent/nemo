@@ -44,10 +44,10 @@ module FdHelper
       data: { turbo_frame: "person-drawer" }
   end
 
-  def member_face(user_id, small: false)
+  def member_face(user_id, small: false, deactivated: false)
     return "n/a" if user_id.blank?
 
-    tag.span(class: ["member-face", ("member-face-sm" if small)]) do
+    tag.span(class: ["member-face", ("member-face-sm" if small), ("is-gone" if deactivated)]) do
       safe_join([avatar(user_id), member_link(user_id)])
     end
   end

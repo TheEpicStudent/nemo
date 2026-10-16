@@ -35,6 +35,16 @@ module Fd
       FROM fd.evidence_snapshot WHERE user_id IN (:ids)
       ORDER BY user_id, deactivated_at DESC
     SQL
+    DEACTIVATIONS_SQL = <<~SQL.squish.freeze
+      SELECT user_id, deactivated_at, actor_id
+      FROM (
+        SELECT DISTINCT ON (entity_id) entity_id AS user_id, action, at AS deactivated_at, actor_id
+        FROM slack.audit_event
+        WHERE action IN ('user_deactivated', 'user_reactivated') AND entity_id IN (:ids)
+        ORDER BY entity_id, at DESC
+      ) latest_change
+      WHERE action = 'user_deactivated'
+    SQL
     MARKS_SQL = format(<<~SQL.squish, prefix: format(MemberTraits::PREFIX, ip: "ranked_login.ip")).freeze
       SELECT ranked_login.user_id, ranked_login.first_at, host(ranked_login.ip) AS ip, n.class AS network
       FROM (
@@ -106,11 +116,12 @@ module Fd
         joined = MemberJoin.where(user_id: ids).pluck(:user_id, :joined_at).to_h
         deactivated_ids = Member.where(user_id: ids, is_deleted: true).pluck(:user_id)
         snapshots = select_all(SNAPSHOTS_SQL, ids: ids).index_by { |row| row["user_id"] }
+        deactivations = select_all(DEACTIVATIONS_SQL, ids: ids).index_by { |row| row["user_id"] }
         ids.map do |user_id|
-          snapshot = snapshots[user_id] || {}
+          deactivation = snapshots[user_id] || deactivations[user_id] || {}
           Account.new(user_id: user_id, deactivated: deactivated_ids.include?(user_id), joined_at: joined[user_id],
-            deactivated_at: time(snapshot["deactivated_at"]), deactivated_by: snapshot["actor_id"],
-            deactivation_reason: snapshot["reason"], cases: Case.with_subject(user_id).count)
+            deactivated_at: time(deactivation["deactivated_at"]), deactivated_by: deactivation["actor_id"],
+            deactivation_reason: deactivation["reason"], cases: Case.with_subject(user_id).count)
         end
       end
     end
