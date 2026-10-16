@@ -188,9 +188,91 @@ def close_case_on_root_reaction(ctx):
     return case_id
 
 
+CASE_RESOLUTION = "SELECT resolution FROM fd.cases WHERE id = %s AND resolved_at IS NOT NULL"
+
+CASE_MESSAGES = """
+SELECT 'root', c.card_channel_id, c.card_thread_ts FROM fd.cases c
+WHERE c.id = %(case_id)s AND c.card_channel_id IS NOT NULL AND c.card_thread_ts IS NOT NULL
+UNION ALL
+SELECT 'card', c.card_channel_id, c.card_ts FROM fd.cases c
+WHERE c.id = %(case_id)s AND c.card_channel_id IS NOT NULL AND c.card_ts IS NOT NULL
+UNION ALL
+SELECT 'card', r.card_channel_id, r.forwarded_ts FROM fd.case_reports r
+WHERE r.case_id = %(case_id)s AND r.card_channel_id IS NOT NULL AND r.forwarded_ts IS NOT NULL
+"""
+
+
+def has_human_close_reaction(client, channel_id, ts, bot_user_id):
+    response = client.reactions_get(channel=channel_id, timestamp=ts, full=True)
+    for reaction in ((response or {}).get("message") or {}).get("reactions") or []:
+        if not is_close_reaction(plain(reaction.get("name"))):
+            continue
+        if any(user_id != bot_user_id for user_id in reaction.get("users") or []):
+            return True
+    return False
+
+
+def case_still_marked_closed(client, conn, case_id, bot_user_id):
+    react_channel_ids = channels.react_channels(conn)
+    for message_kind, channel_id, ts in conn.execute(CASE_MESSAGES, {"case_id": case_id}).fetchall():
+        if message_kind == "root" and channel_id not in react_channel_ids:
+            continue
+        if has_human_close_reaction(client, channel_id, ts, bot_user_id):
+            return True
+    return False
+
+
+def case_for_reaction(conn, channel_id, ts):
+    case_id = card_case(conn, channel_id, ts)
+    if case_id is None and channel_id in channels.react_channels(conn):
+        case_id = case_queue.case_for_root(conn, channel_id, ts)
+    return case_id
+
+
+def after_reopen(client, case_id, user_id):
+    with session() as conn:
+        channel.refresh_card(client, conn, case_id)
+        case_queue.refresh_card(client, conn, case_id)
+        channel.post_line(client, conn, case_id, views.lines.reopened(user_id, case_id))
+
+
 @on_event("reaction_removed", open_to_all=True)
-def ignore_reaction_removed(ctx):
-    return None
+def reopen_case_on_reaction_removed(ctx):
+    event = ctx.payload or {}
+    item = event.get("item") or {}
+    reaction = plain(event.get("reaction"))
+    who = event.get("user")
+    channel_id, ts = item.get("channel"), item.get("ts")
+    if item.get("type") != "message" or not is_close_reaction(reaction) or not who or not channel_id or not ts:
+        return None
+    bot_user_id = whoami.bot_user_id(ctx.client, "nemo")
+    if who == bot_user_id:
+        return None
+
+    with session() as conn:
+        case_id = case_for_reaction(conn, channel_id, ts)
+        if case_id is None:
+            return None
+        row = conn.execute(CASE_RESOLUTION, (case_id,)).fetchone()
+        if row is None or row[0] == "duplicate":
+            return None
+        allowed, _reason = access.may(conn, who, "case.reopen", case_id)
+        if not allowed:
+            log.info("nemo: %s removed a close reaction on case %s without case.reopen", who, case_id)
+            return None
+        try:
+            still_closed = case_still_marked_closed(ctx.client, conn, case_id, bot_user_id)
+        except Exception as failure:
+            log.warning("nemo: could not read the close reactions on case %s: %s", case_id, failure)
+            return None
+        if still_closed:
+            return None
+        if not case_actions.reopen(conn, case_id, who):
+            return None
+
+    after_reopen(ctx.client, case_id, who)
+    log.info("nemo: case %s reopened by %s removing %s", case_id, who, reaction)
+    return case_id
 
 
 def post_ban_prompt(client, conn, case_id, target):

@@ -85,6 +85,7 @@ settings:
       - message.channels
       - message.groups
       - reaction_added
+      - reaction_removed
       - team_join
       - user_change
   interactivity:
