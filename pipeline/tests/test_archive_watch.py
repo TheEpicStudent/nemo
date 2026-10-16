@@ -76,3 +76,38 @@ def test_archive_channel_message_hidden_direct_and_channelless_events_return_non
     assert archive_watch.archive_channel_message(event(channel="D1", channel_type="im", user="U1", ts=POSTED)) is None
     assert archive_watch.archive_channel_message(event(channel=None, user="U1", ts=POSTED)) is None
     assert calls == []
+
+
+def lock_failures(monkeypatch, failures):
+    attempts = []
+    sleeps = []
+
+    @contextmanager
+    def session():
+        yield "conn"
+
+    def posted(conn, channel_id, message):
+        attempts.append(message["ts"])
+        if len(attempts) <= failures:
+            raise archive_watch.LockNotAvailable("canceling statement due to lock timeout")
+        return True
+
+    monkeypatch.setattr(archive_watch, "session", session)
+    monkeypatch.setattr(archive_watch.archive, "from_event", posted)
+    monkeypatch.setattr(archive_watch.time, "sleep", sleeps.append)
+    return attempts, sleeps
+
+
+def test_archive_channel_message_retries_when_the_channel_is_locked(monkeypatch):
+    attempts, sleeps = lock_failures(monkeypatch, failures=2)
+
+    assert archive_watch.archive_channel_message(event(ts=POSTED, text="hi")) is True
+    assert attempts == [POSTED] * 3
+    assert sleeps == list(archive_watch.LOCK_RETRY_DELAYS_SECONDS)
+
+
+def test_archive_channel_message_gives_up_after_the_last_attempt(monkeypatch):
+    attempts, sleeps = lock_failures(monkeypatch, failures=10)
+
+    assert archive_watch.archive_channel_message(event(ts=POSTED, text="hi")) is None
+    assert len(attempts) == len(archive_watch.LOCK_RETRY_DELAYS_SECONDS) + 1
