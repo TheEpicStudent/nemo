@@ -123,14 +123,6 @@ module Fd
         end
     end
 
-    def member_ids_for_ip
-      return @member_ids_for_ip if defined?(@member_ids_for_ip)
-
-      addresses = of("ip")
-      @member_ids_for_ip =
-        addresses.empty? ? [] : LoginEvent.addressed.where(ip_condition(addresses)).distinct.pluck(:user_id)
-    end
-
     private
 
     def email_condition(emails, domains)
@@ -145,11 +137,6 @@ module Fd
         binds[:domains] = domains
       end
       [parts.join(" OR "), binds]
-    end
-
-    def ip_condition(addresses)
-      parts = addresses.map { |query| query.include?("/") ? "ip << ?::inet" : "ip = ?::inet" }
-      [parts.join(" OR "), *addresses]
     end
 
     QUOTED = /"([^"]*)"|(\S+)/

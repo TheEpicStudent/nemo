@@ -772,7 +772,7 @@ module Fd
     end
 
     def matched_user_ids
-      @matched_user_ids ||= (search.member_ids_for_email + search.member_ids_for_ip).uniq
+      @matched_user_ids ||= search.member_ids_for_email
     end
 
     def identity_lookup?
@@ -868,8 +868,7 @@ module Fd
         operator = term_value.include?("/") ? "<<" : "="
         "#{table}.ip #{operator} :ip_#{term_value.hash.abs}::inet"
       }
-      actor_match = matched_user_ids.any? ? " OR #{table}.actor_id IN (:matched_user_ids)" : ""
-      "AND ((#{conditions.join(' OR ')})#{actor_match})"
+      "AND (#{conditions.join(' OR ')})"
     end
 
     def actor_type_clause(actor_column, kind_column)
