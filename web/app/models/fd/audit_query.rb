@@ -47,7 +47,7 @@ module Fd
     SLACK = "slack".freeze
     READ = "read".freeze
     API = "api".freeze
-    ACCESS_LOG = "access_log".freeze
+    ACCESS_LOG = "access_logs".freeze
     SOURCES = [FIRE_ENGINE, SLACK, ACCESS_LOG, READ, API].freeze
     ACCESS_LOG_ACTION = "access_log_sign_in".freeze
     ACCESS_LOG_SHOW = "access_logs".freeze
@@ -698,7 +698,7 @@ module Fd
     SQL
 
     ACCESS_LOG_BRANCH = <<~SQL.freeze
-      SELECT 'access_log' AS source,
+      SELECT 'access_logs' AS source,
              'al-' || l.user_id || '-' || extract(epoch FROM l.hour)::bigint || '-' ||
                coalesce(host(l.ip), '') || '-' || coalesce(l.ua_id::text, '') AS id,
              l.last_at AS at, l.user_id AS actor_id, 'slack' AS actor_kind,
@@ -1174,7 +1174,7 @@ module Fd
       SELECT
         count(*) AS everything,
         count(*) FILTER (WHERE source = 'fire_engine') AS engine,
-        count(*) FILTER (WHERE source IN ('slack', 'access_log')) AS slack,
+        count(*) FILTER (WHERE source IN ('slack', 'access_logs')) AS slack,
         count(*) FILTER (WHERE source = 'read') AS reads,
         count(*) FILTER (WHERE source = 'api') AS api,
         0 AS refusals

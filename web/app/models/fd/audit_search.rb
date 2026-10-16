@@ -36,7 +36,7 @@ module Fd
                  "hosting" => "Hosting", "tor" => "Tor" }.freeze
     COUNTRY = /\A[a-z]{2}\z/i
 
-    SOURCES = %w[engine slack access_log read fire_engine].freeze
+    SOURCES = %w[engine slack access_logs read fire_engine].freeze
     ACTOR_TYPES = %w[nemo human nobody].freeze
 
     QUALIFIED = /\A([a-z_]+):(.+)\z/i
