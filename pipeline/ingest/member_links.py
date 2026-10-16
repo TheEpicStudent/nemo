@@ -137,7 +137,10 @@ WHERE e.ip IS NOT NULL
 SHARED_INDEX = "CREATE INDEX ON shared_ip (ip)"
 
 SAVE_SHARED_SQL = """
-WITH removed_ip AS (DELETE FROM fd.shared_ip WHERE ip NOT IN (SELECT ip FROM shared_ip))
+WITH removed_ip AS (
+    DELETE FROM fd.shared_ip saved
+    WHERE NOT EXISTS (SELECT 1 FROM shared_ip current_ip WHERE current_ip.ip = saved.ip)
+)
 INSERT INTO fd.shared_ip (ip) SELECT ip FROM shared_ip ON CONFLICT (ip) DO NOTHING
 """
 

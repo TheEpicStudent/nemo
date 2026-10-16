@@ -458,6 +458,11 @@ def test_upsert_and_sweep_sql_target_member_link_table():
     assert "DELETE FROM fd.member_link l" in links.SWEEP
 
 
+def test_save_shared_sql_removes_stale_ips_with_anti_join():
+    assert "NOT EXISTS (SELECT 1 FROM shared_ip current_ip WHERE current_ip.ip = saved.ip)" in links.SAVE_SHARED_SQL
+    assert "NOT IN" not in links.SAVE_SHARED_SQL
+
+
 def test_run_and_mark_shared_save_wholes_and_shared_for_live_lane():
     import inspect
 
