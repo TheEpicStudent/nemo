@@ -350,7 +350,7 @@ def escalate(guard_id, user_id, channel_id, thread_ts, messages):
 def sweep_strikes():
     needed = privileged.strikes_needed()
     with session() as conn:
-        over = guards.users_over_threshold(conn, needed)
+        over = guards.users_over_threshold(conn, needed, privileged.cap_per_guard(conn))
 
     escalated_count = 0
     for guard_id, user_id, messages, channel_id, thread_ts in over:

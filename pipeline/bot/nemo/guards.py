@@ -162,9 +162,14 @@ FROM fd.thread_guard_messages m
 JOIN fd.thread_guards g ON g.id = m.guard_id
 LEFT JOIN fd.thread_guard_strikes s
     ON s.guard_id = m.guard_id AND s.user_id = m.user_id
-WHERE s.reset_at IS NULL OR s.reset_outcome LIKE 'failed:%%'
+WHERE g.state IN ('warned', 'running')
+  AND (s.reset_at IS NULL OR s.reset_outcome LIKE 'failed:%%')
+  AND (%(cap)s = 0 OR (
+      SELECT count(*) FROM fd.thread_guard_strikes r
+      WHERE r.guard_id = m.guard_id AND r.reset_at IS NOT NULL AND r.reset_outcome IN ('reset', 'would')
+  ) < %(cap)s)
 GROUP BY m.guard_id, m.user_id, g.channel_id, g.thread_ts
-HAVING count(*) >= %s
+HAVING count(*) >= %(needed)s
 ORDER BY m.guard_id, m.user_id
 LIMIT 50
 """
@@ -333,8 +338,8 @@ def message_count(conn, guard_id, user_id):
     return conn.execute(MESSAGE_COUNT, (guard_id, user_id)).fetchone()[0]
 
 
-def users_over_threshold(conn, needed):
-    return conn.execute(USERS_OVER_THRESHOLD, (needed,)).fetchall()
+def users_over_threshold(conn, needed, cap):
+    return conn.execute(USERS_OVER_THRESHOLD, {"needed": needed, "cap": cap}).fetchall()
 
 
 def strike_count(conn, guard_id):
