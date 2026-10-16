@@ -3,7 +3,22 @@ module Fd
     self.table_name = "fd.infraction_categories"
     self.primary_key = "key"
 
+    LABEL_LENGTH = 80
+
     scope :ordered, -> { order(:position, :key) }
+    scope :active, -> { where(retired_at: nil) }
+
+    validates :label, presence: true, length: { maximum: LABEL_LENGTH }
+
+    def self.key_for(label)
+      base = label.to_s.downcase.gsub(/[^a-z0-9]+/, "_").gsub(/\A_+|_+\z/, "")
+      base = "category_#{base}" unless base.match?(/\A[a-z]/)
+      key = base
+      key = "#{base}_#{(2..).find { |n| !exists?(key: "#{base}_#{n}") }}" if exists?(key: base)
+      key
+    end
+
+    def self.next_position = (maximum(:position) || 0) + 1
 
     def self.all_ordered = Current.categories ||= ordered.to_a
 

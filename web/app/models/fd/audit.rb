@@ -35,7 +35,8 @@ module Fd
       "Authz::Grant" => "capability_grant",
       "Fd::ThreadTranscript" => "thread_transcript",
       "Fd::LinkVerdict" => "member_link_verdict",
-      "Fd::AuditSavedQuery" => "audit_query"
+      "Fd::AuditSavedQuery" => "audit_query",
+      "Fd::InfractionCategory" => "infraction_category"
     }.freeze
 
     VERBS = %w[
@@ -52,6 +53,7 @@ module Fd
       exported
       queued cancelled
       read
+      retired restored
     ].freeze
 
     REDACTED_COLUMNS = {

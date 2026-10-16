@@ -80,6 +80,14 @@ Rails.application.routes.draw do
     resources :tags, only: [:update, :destroy], path: "configuration/tags" do
       post :merge, on: :member
     end
+    resources :infraction_categories, only: [:create, :update], path: "configuration/categories",
+      param: :key do
+      member do
+        post :move
+        post :retire
+        post :restore
+      end
+    end
     post "configuration/responses/autoresponse", to: "responses#autoresponse",
          as: :configuration_autoresponse
     post "configuration/responses/unsub_shield", to: "responses#unsub_shield",

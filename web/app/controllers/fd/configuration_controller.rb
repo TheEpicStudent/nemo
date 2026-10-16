@@ -2,7 +2,7 @@ module Fd
   class ConfigurationController < BaseController
     permit "app.configure"
 
-    TABS = %w[automod domains responses tags].freeze
+    TABS = %w[automod domains responses categories tags].freeze
     LIST_LIMIT = 50
     TAG_LIMIT = 100
 
@@ -14,6 +14,7 @@ module Fd
       load_domains
       load_responses
       load_tags if @tab == "tags"
+      load_categories if @tab == "categories"
       @channels = ChannelNames.for(@matches.map(&:channel_id) + [@autoresponse_channel])
       @names = Names.for([@words.flat_map(&:people_named),
                           @retired.flat_map(&:people_named),
@@ -37,6 +38,13 @@ module Fd
       @tags = Tag.with_uses
         .order(Arel.sql("MAX(fd.case_tags.added_at) DESC NULLS LAST, fd.tags.name"))
         .limit(TAG_LIMIT).to_a
+    end
+
+    def load_categories
+      active, retired = InfractionCategory.ordered.to_a.partition { |category| !category.retired? }
+      @categories = active + retired
+      @active_count = active.size
+      @category_cases = Case.where.not(category_key: nil).group(:category_key).count
     end
 
     def load_responses

@@ -1,0 +1,95 @@
+<div class="stack">
+  <div class="card card-flush">
+    <div class="card-head">
+      <h2 class="card-title">Categories</h2>
+      <div class="card-tools">
+        <%= opens_modal "app.configure", "Add category", opens: "add-category", css: "btn btn-sm" %>
+      </div>
+    </div>
+
+    <div class="scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th>Key</th>
+            <th class="col-num">Cases</th>
+            <th class="col-num"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% categories.each_with_index do |category, index| %>
+            <tr>
+              <td>
+                <%= category.label %>
+                <% if category.retired? %><span class="sub2">Retired</span><% end %>
+              </td>
+              <td class="mono"><%= category.key %></td>
+              <td class="col-num"><%= link_to cases.fetch(category.key, 0), fd_cases_path(category: category.key) %></td>
+              <td class="col-num">
+                <div class="tag-actions">
+                  <% unless category.retired? %>
+                    <% if index.positive? %>
+                      <%= gated_button("app.configure", "Up",
+                            move_fd_infraction_category_path(category, direction: "up"),
+                            css: "btn btn-sm", method: :post) %>
+                    <% end %>
+                    <% if index < active_count - 1 %>
+                      <%= gated_button("app.configure", "Down",
+                            move_fd_infraction_category_path(category, direction: "down"),
+                            css: "btn btn-sm", method: :post) %>
+                    <% end %>
+                  <% end %>
+                  <%= opens_modal "app.configure", "Rename", opens: "rename-category-#{category.key}",
+                        css: "btn btn-sm" %>
+                  <% if category.retired? %>
+                    <%= gated_button("app.configure", "Restore", restore_fd_infraction_category_path(category),
+                          css: "btn btn-sm", method: :post) %>
+                  <% else %>
+                    <%= gated_button("app.configure", "Retire", retire_fd_infraction_category_path(category),
+                          css: "btn btn-sm btn-danger", method: :post) %>
+                  <% end %>
+                </div>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<%= render layout: "fd/modal", locals: { id: "add-category", title: "Add category" } do %>
+  <%= form_with url: fd_infraction_categories_path, method: :post, html: { autocomplete: "off" } do %>
+    <div class="modal-body">
+      <label class="field-label">
+        Label
+        <%= text_field_tag :label, nil, class: "input", id: nil, required: true,
+              maxlength: Fd::InfractionCategory::LABEL_LENGTH %>
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
+      <%= submit_tag "Add", class: "btn btn-primary" %>
+    </div>
+  <% end %>
+<% end %>
+
+<% categories.each do |category| %>
+  <%= render layout: "fd/modal", locals: { id: "rename-category-#{category.key}", title: "Rename category",
+        sub: category.key } do %>
+    <%= form_with url: fd_infraction_category_path(category), method: :patch, html: { autocomplete: "off" } do %>
+      <div class="modal-body">
+        <label class="field-label">
+          Label
+          <%= text_field_tag :label, category.label, class: "input", id: nil, required: true,
+                maxlength: Fd::InfractionCategory::LABEL_LENGTH %>
+        </label>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
+        <%= submit_tag "Rename", class: "btn btn-primary" %>
+      </div>
+    <% end %>
+  <% end %>
+<% end %>
