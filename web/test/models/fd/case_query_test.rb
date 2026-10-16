@@ -83,7 +83,7 @@ class Fd::CaseQueryTest < ActiveSupport::TestCase
 
   test "the title names the view, or reads as a sentence once filtering takes over" do
     assert_equal "Mine", query(view: "mine").title
-    assert_equal "Every case, spam", query(category: "spam").title
+    assert_equal "Every case, spam, mass pings or invites", query(category: "spam").title
     assert_equal "Open, older than five days and unassigned",
       query(status: "open", age: "5d", assignee: "nobody").title
   end

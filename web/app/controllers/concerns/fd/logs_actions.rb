@@ -171,7 +171,7 @@ module Fd
 
     def selected_category(kase)
       requested_category = params[:category_key].to_s
-      return requested_category if Case::CATEGORIES.include?(requested_category)
+      return requested_category if InfractionCategory.active_key?(requested_category)
 
       kase.category_key
     end

@@ -159,6 +159,7 @@ def live(monkeypatch):
     monkeypatch.setattr(guards, "refresh", lambda conn: 0)
     monkeypatch.setattr(guard_actions, "lift_lock",
                         lambda client, guard_id, by=None: state["lifted"].append((guard_id, by)) or guard_id)
+    monkeypatch.setattr(guard_actions, "update_lock_notice", lambda client, guard_id: None)
     return state
 
 

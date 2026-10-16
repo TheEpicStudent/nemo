@@ -1,5 +1,5 @@
 class Current < ActiveSupport::CurrentAttributes
-  attribute :moved, :flipped, :tuned, :effective_capabilities, :effective_roles
+  attribute :moved, :flipped, :tuned, :effective_capabilities, :effective_roles, :categories
 
   def role_permissions
     self.moved ||= Authz::Override.pluck(:role, :capability, :allowed)

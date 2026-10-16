@@ -217,7 +217,7 @@ def test_a_domain_the_web_adds_reaches_the_bot_without_waiting_for_a_sweep(monke
 
     watched, refreshed = {}, []
     monkeypatch.setattr(loop, "session", session_of)
-    for module in (loop.guards, loop.channelguards, loop.memberguards, loop.automod, loop.responses):
+    for module in (loop.guards, loop.channelguards, loop.memberguards, loop.automod, loop.responses, loop.categories):
         monkeypatch.setattr(module, "refresh", lambda conn: 0)
     monkeypatch.setattr(loop.screening, "refresh", lambda conn: refreshed.append(1) or 0)
     monkeypatch.setattr(loop.channel, "refresh_channels", lambda conn: None)

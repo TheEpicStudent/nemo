@@ -8,13 +8,7 @@ module Fd
     RESOLUTION_LABELS = RESOLUTION_TABLE.transform_values { |row| row.fetch("label") }.freeze
     CLOSE_REASONS = RESOLUTION_TABLE.select { |_key, row| row["pick"] }
       .sort_by { |_key, row| row["pick"] }.map(&:first).freeze
-    CATEGORY_LABELS = YAML.load_file(Rails.root.join("../db/categories.yml"))
-      .fetch("categories").freeze
-    CATEGORIES = CATEGORY_LABELS.keys.freeze
-
-    def self.category_label(key)
-      CATEGORY_LABELS.fetch(key) { key.to_s.tr("_", " ") }
-    end
+    def self.category_label(key) = InfractionCategory.label(key)
 
     has_many :threads, class_name: "Fd::CaseThread", foreign_key: :case_id,
       inverse_of: :kase, dependent: nil

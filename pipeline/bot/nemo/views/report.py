@@ -1,14 +1,12 @@
 import re
 
-import yaml
-
 from bot.core import richtext
 from bot.core.formatting import (
     escape,
     quote_text,
 )
+from bot.nemo import categories
 from bot.nemo.views import edit, lines, linked
-from lib.paths import CATEGORIES_FILE
 
 MENTION = re.compile(r"(<[@#][A-Z0-9][A-Z0-9]*(?:\|[^>]*)?>)")
 SLACK_BIT = re.compile(
@@ -21,16 +19,8 @@ RESOLVE = edit.RESOLVE
 REOPEN = edit.REOPEN
 OPEN = "case_open"
 
-LABELS = None
-
-
 def category_label(key):
-    global LABELS
-    if LABELS is None:
-        LABELS = yaml.safe_load(CATEGORIES_FILE.read_text())["categories"]
-    if not key:
-        return None
-    return LABELS.get(key, key.replace("_", " "))
+    return categories.label(key)
 
 
 def escape_but_slack(text):

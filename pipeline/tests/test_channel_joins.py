@@ -127,7 +127,7 @@ def test_app_setting_notify_starts_configured_joins(monkeypatch):
     started, watched = [], {}
     monkeypatch.setattr(loop, "session", lambda: session_of(Conn()))
     for module in (loop.guards, loop.channelguards, loop.memberguards, loop.automod,
-                   loop.responses, loop.screening):
+                   loop.responses, loop.screening, loop.categories):
         monkeypatch.setattr(module, "refresh", lambda conn: 0)
     monkeypatch.setattr(loop.channel, "refresh_channels", lambda conn: None)
     monkeypatch.setattr(loop.purge, "requeue_stranded", lambda conn: [])

@@ -1,7 +1,5 @@
-import yaml
-
 from bot.core import richtext
-from lib.paths import CATEGORIES_FILE
+from bot.nemo import categories as category_cache
 
 MENU = "case_more"
 MORE_ACTION = "case_more_pick"
@@ -29,14 +27,8 @@ NOTE_LIMIT = 5000
 TITLE_LIMIT = 24
 NO_LABEL = " "
 
-LABELS = None
-
-
 def categories():
-    global LABELS
-    if LABELS is None:
-        LABELS = yaml.safe_load(CATEGORIES_FILE.read_text())["categories"]
-    return LABELS
+    return category_cache.active()
 
 
 def option(text, value):

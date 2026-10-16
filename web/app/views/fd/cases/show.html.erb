@@ -286,8 +286,8 @@
       <div class="field-label">
         <span>What kind of thing it is</span>
         <%= render "shared/choice", name: :category_key,
-              chosen: category_label(Fd::Case::CATEGORIES.first),
-              options: Fd::Case::CATEGORIES.each_with_index.map { |key, i| {
+              chosen: category_label(Fd::InfractionCategory.active_keys.first),
+              options: Fd::InfractionCategory.active_keys.each_with_index.map { |key, i| {
                 value: key, label: category_label(key), current: i.zero? } } %>
       </div>
       <%= field_wrong(:category_key) %>

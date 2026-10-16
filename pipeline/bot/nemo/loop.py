@@ -5,7 +5,7 @@ import threading
 from bot.core import loops, session
 from bot.nemo import automod, channel, channelguards, channels, chat, guards, guard_actions
 from bot.nemo import enforcement, guard_notices, guard_removals, memberguards, case_queue
-from bot.nemo import bot_kicks, internal_log, join_requests, responses, screening
+from bot.nemo import bot_kicks, categories, internal_log, join_requests, responses, screening
 from bot.nemo.enforcement import purge, slowmode, sweep
 
 log = logging.getLogger("bot.nemo")
@@ -28,6 +28,7 @@ JOIN_REQUEST = "fd_channel_join_request"
 AUDIT_EVENT = "fd_audit_event"
 AUTOMOD_MATCH = "fd_automod_match"
 BOT_KICK = "fd_bot_kick"
+CATEGORY = "fd_infraction_category"
 FIRE_ENGINE_SOURCE = '"fire_engine"'
 
 DEFAULT_SECONDS = 300
@@ -206,6 +207,7 @@ def once(case_channel, channel_id=None):
         automod.refresh(conn)
         responses.refresh(conn)
         screening.refresh(conn)
+        categories.refresh(conn)
         channel.refresh_channels(conn)
         destroying = guards.pending(conn)
         lifting = guards.lifting(conn)
@@ -264,6 +266,7 @@ def start(case_channel, stopping, channel_id=None):
                  memberguards.refresh(conn), automod.refresh(conn))
         responses.refresh(conn)
         screening.refresh(conn)
+        categories.refresh(conn)
         channel.refresh_channels(conn)
         stranded = purge.requeue_stranded(conn)
     if stranded:
@@ -291,6 +294,9 @@ def start(case_channel, stopping, channel_id=None):
             wake_log()
         elif channel_name == BOT_KICK:
             wake_kicks()
+        elif channel_name == CATEGORY:
+            with session() as conn:
+                categories.refresh(conn)
         elif channel_name == GUARD_REMOVE:
             wake_removals()
         elif channel_name == CHAT:
@@ -342,7 +348,7 @@ def start(case_channel, stopping, channel_id=None):
                        (CASES, CHAT, OUTBOX, CONVERSATION, GUARD, CHANNEL_GUARD,
                         MEMBER_GUARD, APP_SETTING, AUTOMOD_WORD, PURGE,
                         GUARD_NOTICE, GUARD_REMOVE, JOIN_REQUEST, BLOCKED_DOMAIN,
-                        AUDIT_EVENT, AUTOMOD_MATCH, BOT_KICK),
+                        AUDIT_EVENT, AUTOMOD_MATCH, BOT_KICK, CATEGORY),
                        on_notify, stopping),
         loops.sweeping(NAME, every(), lambda: once(case_channel, channel_id), stopping),
         loops.sweeping(f"{NAME}-joins", every_join_sweep(), lambda: join_sweep(case_channel, stopping),

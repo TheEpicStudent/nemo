@@ -226,7 +226,7 @@ module Fd
     end
 
     def category_options
-      { "any" => "any" }.merge(Case::CATEGORIES.index_with { |key| Case.category_label(key) })
+      { "any" => "any" }.merge(InfractionCategory.labels)
     end
 
     private
@@ -263,7 +263,7 @@ module Fd
       when "who" then WHO.key?(raw)
       when "sort" then SORT.key?(raw)
       when "dir" then DIRS.include?(raw)
-      when "category" then raw == "any" || Case::CATEGORIES.include?(raw)
+      when "category" then raw == "any" || InfractionCategory.known_key?(raw)
       else false
       end
     end

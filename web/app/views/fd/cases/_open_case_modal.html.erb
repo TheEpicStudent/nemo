@@ -15,7 +15,7 @@
                     category_label(params[:category_key]) : "Not sure yet"),
                   options: [{ value: "", label: "Not sure yet",
                               current: params[:category_key].blank? }] +
-                    Fd::Case::CATEGORIES.map { |key| {
+                    Fd::InfractionCategory.active_keys.map { |key| {
                       value: key, label: category_label(key),
                       current: params[:category_key] == key } } %>
           </div>

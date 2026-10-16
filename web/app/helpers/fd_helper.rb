@@ -1008,7 +1008,7 @@ module FdHelper
   end
 
   def category_options
-    Fd::Case::CATEGORIES.map { |key| [category_label(key), key] }
+    Fd::InfractionCategory.active_keys.map { |key| [category_label(key), key] }
   end
 
   def note_byline(note)

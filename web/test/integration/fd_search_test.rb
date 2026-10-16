@@ -40,7 +40,7 @@ class FdSearchTest < ActionDispatch::IntegrationTest
 
     row = group("raid", "case")["rows"].first
     assert_equal "case #{kase.id}", row["title"]
-    assert_match(/spam · open/, row["sub"])
+    assert_match(/spam, mass pings or invites · open/, row["sub"])
     assert_equal fd_case_path(kase), row["url"]
   end
 

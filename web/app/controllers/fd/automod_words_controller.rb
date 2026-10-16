@@ -52,7 +52,7 @@ module Fd
 
     def selected_category
       requested = params[:category_key].to_s
-      requested if Case::CATEGORIES.include?(requested)
+      requested if InfractionCategory.active_key?(requested)
     end
 
     def validation_error

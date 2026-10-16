@@ -232,7 +232,7 @@ module Fd
     end
 
     def category_options
-      { "any" => "any" }.merge(Case::CATEGORIES.index_with { |key| Case.category_label(key) })
+      { "any" => "any" }.merge(InfractionCategory.labels)
     end
 
     private
@@ -271,7 +271,7 @@ module Fd
       when "resolved" then RESOLVED.key?(raw)
       when "sort" then SORT.key?(raw)
       when "dir" then DIRS.include?(raw)
-      when "category" then raw == "any" || Case::CATEGORIES.include?(raw)
+      when "category" then raw == "any" || InfractionCategory.known_key?(raw)
       when "tag" then raw == "any" || (raw.length <= Tag::NAME_LENGTH && raw.match?(Tag::NAME_SHAPE))
       when "assignee" then ASSIGNEE.key?(raw) || raw.match?(MEMBER_ID)
       when "subject" then raw == "anyone" || raw.match?(MEMBER_ID)

@@ -105,7 +105,7 @@ module Fd
     def update
       kase = Case.find(params[:id])
       requested_category = params[:category_key].to_s
-      unless Case::CATEGORIES.include?(requested_category)
+      unless InfractionCategory.active_key?(requested_category)
         wrong!(:category_key, "Pick one of these.")
         return redirect_to(fd_case_path(kase, do: "category"))
       end
@@ -202,7 +202,7 @@ module Fd
       unless subjects.all? { |id| id.match?(MEMBER_ID) }
         return "that does not look like a Slack member id"
       end
-      if params[:category_key].present? && !Case::CATEGORIES.include?(params[:category_key])
+      if params[:category_key].present? && !InfractionCategory.active_key?(params[:category_key])
         return "pick a category from the list"
       end
       return "say what happened" if params[:body].to_s.strip.blank?
