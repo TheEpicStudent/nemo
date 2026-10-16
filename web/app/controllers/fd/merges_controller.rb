@@ -137,30 +137,30 @@ module Fd
               "duplicate_of" => root
             })
         end
-        carry_tags(marked_ids, root)
-        carry_assignees(marked_ids, root)
+        copy_tags_to_target(marked_ids, root)
+        copy_assignees_to_target(marked_ids, root)
       end
 
       marked
     end
 
-    def carry_assignees(from_ids, root)
-      return if from_ids.empty?
+    def copy_assignees_to_target(source_case_ids, target_id)
+      return if source_case_ids.empty?
 
-      Case.find(root).take_assignees_from!(from_ids, by: current_account.user_id).each do |assignee|
-        audit(assignee, "attached", entity_id: root,
-          after: { "user_id" => assignee.user_id, "carried_from" => from_ids })
+      Case.find(target_id).copy_assignees_from!(source_case_ids, by: current_account.user_id).each do |assignee|
+        audit(assignee, "attached", entity_id: target_id,
+          after: { "user_id" => assignee.user_id, "source_case_ids" => source_case_ids })
       end
     end
 
-    def carry_tags(from_ids, root)
-      return if from_ids.empty?
+    def copy_tags_to_target(source_case_ids, target_id)
+      return if source_case_ids.empty?
 
-      carried = Case.find(root).take_tags_from!(from_ids, by: current_account.user_id)
-      return if carried.empty?
+      copied_tags = Case.find(target_id).copy_tags_from!(source_case_ids, by: current_account.user_id)
+      return if copied_tags.empty?
 
-      audit(CaseTag.new(case_id: root), "added", entity_id: root,
-        after: { "tags" => carried.map(&:name), "from" => from_ids })
+      audit(CaseTag.new(case_id: target_id), "added", entity_id: target_id,
+        after: { "tags" => copied_tags.map(&:name), "source_case_ids" => source_case_ids })
     end
 
     def outcome(marked, ids, root)

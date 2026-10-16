@@ -90,7 +90,7 @@ def test_reopen_of_open_case_leaves_reports_alone():
     assert conn.args_for(REOPEN_REPORTS) == []
 
 
-def test_slack_reopen_keeps_assignees():
+def test_slack_reopen_retains_assignees():
     conn = Conn({SLACK_REOPEN: ("action_taken",)}, closed_report_rows())
 
     case_actions.reopen(conn, CASE_ID, MODERATOR_ID)
@@ -101,17 +101,17 @@ def test_slack_reopen_keeps_assignees():
 MERGE = "SET resolved_at = now(), resolution = 'duplicate'"
 
 
-def test_merge_carries_assignees_to_the_surviving_case():
+def test_merge_copies_assignees_to_target():
     conn = Conn({MERGE: (CLOSED_AT,)}, {"INSERT INTO fd.case_assignees": [("UHELPER",)]})
 
     assert case_actions.merge(conn, CASE_ID, [42, 43], MODERATOR_ID) == [42, 43]
     assert conn.args_for("INSERT INTO fd.case_assignees") == [(CASE_ID, MODERATOR_ID, [42, 43])]
     attached = [args for args in conn.args_for(AUDIT_INSERT) if args[2] == "assignee"]
     assert [(args[3], args[4], args[6].obj) for args in attached] == \
-        [(CASE_ID, "attached", {"user_id": "UHELPER", "carried_from": [42, 43]})]
+        [(CASE_ID, "attached", {"user_id": "UHELPER", "source_case_ids": [42, 43]})]
 
 
-def test_merge_with_nothing_closed_carries_nothing():
+def test_merge_without_closed_duplicates_copies_no_assignees():
     conn = Conn({MERGE: None})
 
     assert case_actions.merge(conn, CASE_ID, [42], MODERATOR_ID) == []

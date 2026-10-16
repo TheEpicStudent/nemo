@@ -110,7 +110,7 @@ RETURNING resolution
 """
 
 
-CARRY_ASSIGNEES = """
+COPY_ASSIGNEES_TO_TARGET = """
 INSERT INTO fd.case_assignees (case_id, user_id, assigned_by)
 SELECT DISTINCT %s, a.user_id, %s FROM fd.case_assignees a
 WHERE a.case_id = ANY(%s)
@@ -458,18 +458,20 @@ def merge(conn, target_id, duplicate_ids, by):
             after={"resolved_at": str(row[0]), "resolution": "duplicate", "duplicate_of": target_id},
         )
         closed.append(case_id)
-    carry_assignees(conn, target_id, closed, by)
+    copy_assignees_to_target(conn, target_id, closed, by)
     return closed
 
 
-def carry_assignees(conn, target_id, case_ids, by):
-    if not case_ids:
+def copy_assignees_to_target(conn, target_id, source_case_ids, by):
+    if not source_case_ids:
         return []
-    carried = [row[0] for row in conn.execute(CARRY_ASSIGNEES, (target_id, by, list(case_ids))).fetchall()]
-    for user_id in carried:
+    copied_user_ids = [
+        row[0] for row in conn.execute(COPY_ASSIGNEES_TO_TARGET, (target_id, by, list(source_case_ids))).fetchall()
+    ]
+    for user_id in copied_user_ids:
         audit.record(conn, "assignee", target_id, "attached", by,
-                     after={"user_id": user_id, "carried_from": list(case_ids)})
-    return carried
+                     after={"user_id": user_id, "source_case_ids": list(source_case_ids)})
+    return copied_user_ids
 
 
 def settled_resolution(conn, case_id):

@@ -5,66 +5,66 @@ import re
 from bot.core import richtext
 from bot.nemo.views import lengths, report
 
-SNIPPET = 50
-EMPTY = "No open cases"
-REPORT = "Report"
-CARD = "Case card"
-SPECIAL = {"channel": "@channel", "here": "@here", "everyone": "@everyone"}
+SNIPPET_MAX_CHARS = 50
+EMPTY_TITLE = "No open cases"
+REPORT_LABEL = "Report"
+CARD_LABEL = "Case card"
+BROADCAST_MENTIONS = {"channel": "@channel", "here": "@here", "everyone": "@everyone"}
 
-TOKEN = re.compile(r"<([^<>]+)>")
-USER = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
-CHANNEL = re.compile(r"<#(C[A-Z0-9]+)(?:\|[^>]*)?>")
+SLACK_TOKEN = re.compile(r"<([^<>]+)>")
+USER_MENTION = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
+CHANNEL_MENTION = re.compile(r"<#(C[A-Z0-9]+)(?:\|[^>]*)?>")
 
 
-def mentioned(bodies):
-    users, channels = set(), set()
+def mention_ids(bodies):
+    user_ids, channel_ids = set(), set()
     for body in bodies:
-        users.update(USER.findall(body or ""))
-        channels.update(CHANNEL.findall(body or ""))
-    return sorted(users), sorted(channels)
+        user_ids.update(USER_MENTION.findall(body or ""))
+        channel_ids.update(CHANNEL_MENTION.findall(body or ""))
+    return sorted(user_ids), sorted(channel_ids)
 
 
-def token_text(token, names):
+def render_slack_token(token, names):
     target, _, label = token.partition("|")
     if target.startswith("@"):
         return label if label.startswith("@") else f"@{label or names.get(target[1:]) or target[1:]}"
     if target.startswith("#"):
         return f"#{label or names.get(target[1:]) or 'channel'}"
     if target.startswith("!"):
-        return SPECIAL.get(target[1:]) or label or ""
+        return BROADCAST_MENTIONS.get(target[1:]) or label or ""
     return label or target
 
 
-def plain(body, names):
-    text = TOKEN.sub(lambda match: token_text(match.group(1), names), body or "")
+def to_plain_text(body, names):
+    text = SLACK_TOKEN.sub(lambda match: render_slack_token(match.group(1), names), body or "")
     return " ".join(html.unescape(text).split())
 
 
-def snippet(body, names, limit=SNIPPET):
-    text = plain(body, names)
+def snippet(body, names, limit=SNIPPET_MAX_CHARS):
+    text = to_plain_text(body, names)
     if len(text) <= limit:
         return text
-    cut = text[:limit]
-    space = cut.rfind(" ")
-    return (cut[:space] if space > 0 else cut).rstrip() + "..."
+    truncated = text[:limit]
+    last_space = truncated.rfind(" ")
+    return (truncated[:last_space] if last_space > 0 else truncated).rstrip() + "..."
 
 
-def age(opened_at, now=None):
+def age_text(opened_at, now=None):
     seconds = int(((now or dt.datetime.now(dt.UTC)) - opened_at).total_seconds())
     return f"{lengths.span(seconds)} ago"
 
 
-def case_line(case, now=None):
+def case_elements(case, now=None):
     name = f"Case {case['case_id']}"
-    head = richtext.link(case["url"], name) if case["url"] else richtext.text_element(name)
-    head["text"] = name
-    head["style"] = {"bold": True}
-    info = "".join(f" · {part}" for part in (report.category_label(case["category_key"]),
-                                              age(case["opened_at"], now)) if part)
-    elements = [head]
+    case_link = richtext.link(case["url"], name) if case["url"] else richtext.text_element(name)
+    case_link["text"] = name
+    case_link["style"] = {"bold": True}
+    details = "".join(f" · {part}" for part in (report.category_label(case["category_key"]),
+                                                 age_text(case["opened_at"], now)) if part)
+    elements = [case_link]
     if not case["assignees"]:
-        return [*elements, richtext.text_element(info)]
-    elements.append(richtext.text_element(f"{info} · Assigned: "))
+        return [*elements, richtext.text_element(details)]
+    elements.append(richtext.text_element(f"{details} · Assigned: "))
     for index, user_id in enumerate(case["assignees"]):
         if index:
             elements.append(richtext.text_element(", "))
@@ -72,28 +72,29 @@ def case_line(case, now=None):
     return elements
 
 
-def entry_line(entry, names, is_report):
-    label = snippet(entry["body"], names) or (REPORT if is_report else CARD)
+def entry_elements(entry, names, has_reports):
+    label = snippet(entry["body"], names) or (REPORT_LABEL if has_reports else CARD_LABEL)
     if entry["url"]:
         return [{"type": "link", "url": entry["url"], "text": label}]
     return [richtext.text_element(label)]
 
 
-def bullets(lines, indent):
+def bullet_list(sections, indent):
     return {"type": "rich_text_list", "style": "bullet", "indent": indent,
-            "elements": [{"type": "rich_text_section", "elements": line} for line in lines]}
+            "elements": [{"type": "rich_text_section", "elements": section} for section in sections]}
 
 
-def build(total, cases, names, now=None, list_url=None):
+def build_message(total, cases, names, now=None, list_url=None):
     if not cases:
-        return {"text": EMPTY, "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": EMPTY}}]}
+        return {"text": EMPTY_TITLE, "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": EMPTY_TITLE}}]}
 
     title = f"Open cases ({total})"
     elements = [{"type": "rich_text_section", "elements": [richtext.text_element(title, {"bold": True})]}]
     for case in cases:
-        elements.append(bullets([case_line(case, now)], 0))
+        elements.append(bullet_list([case_elements(case, now)], 0))
         if case["entries"]:
-            elements.append(bullets([entry_line(one, names, case["is_report"]) for one in case["entries"]], 1))
+            elements.append(bullet_list(
+                [entry_elements(entry, names, case["has_reports"]) for entry in case["entries"]], 1))
 
     blocks = [{"type": "rich_text", "elements": elements}]
     if total > len(cases):

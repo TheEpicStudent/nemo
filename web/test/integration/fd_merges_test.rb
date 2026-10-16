@@ -47,7 +47,7 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_equal 0, @main.reload.threads.count
   end
 
-  test "assignees of the duplicates move to the main case" do
+  test "merge copies duplicate assignees to target" do
     @main.assign!("UKEEP")
     @dup_one.assign!("UKEEP")
     @dup_one.assign!("UONE")
@@ -59,7 +59,7 @@ class FdMergesTest < ActionDispatch::IntegrationTest
     assert_equal %w[UKEEP UONE UTWO], @main.reload.assignee_user_ids.sort
     entries = Fd::AuditEntry.where(entity_type: "assignee", entity_id: @main.id, verb: "attached")
     assert_equal %w[UONE UTWO], entries.map { |entry| entry.after["user_id"] }.sort
-    assert_equal [@dup_one.id, @dup_two.id], entries.first.after["carried_from"].sort
+    assert_equal [@dup_one.id, @dup_two.id], entries.first.after["source_case_ids"].sort
   end
 
   test "the main case is ignored even if it is ticked too" do

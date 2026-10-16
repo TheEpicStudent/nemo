@@ -228,18 +228,19 @@ module Fd
       assignee_user_ids.include?(user_id)
     end
 
-    def take_tags_from!(case_ids, by:)
-      held = CaseTag.where(case_id: id).select(:tag_id)
-      tag_ids = CaseTag.where(case_id: case_ids).where.not(tag_id: held).distinct.pluck(:tag_id)
+    def copy_tags_from!(source_case_ids, by:)
+      existing_tag_ids = CaseTag.where(case_id: id).select(:tag_id)
+      tag_ids = CaseTag.where(case_id: source_case_ids).where.not(tag_id: existing_tag_ids).distinct.pluck(:tag_id)
       return [] if tag_ids.empty?
 
       CaseTag.insert_all(tag_ids.map { |tag_id| { case_id: id, tag_id: tag_id, added_by: by } })
       Tag.where(id: tag_ids).order(:name).to_a
     end
 
-    def take_assignees_from!(case_ids, by:)
-      held = assignees.pluck(:user_id)
-      user_ids = CaseAssignee.where(case_id: case_ids).where.not(user_id: held).distinct.pluck(:user_id)
+    def copy_assignees_from!(source_case_ids, by:)
+      existing_user_ids = assignees.pluck(:user_id)
+      user_ids = CaseAssignee.where(case_id: source_case_ids).where.not(user_id: existing_user_ids)
+        .distinct.pluck(:user_id)
       user_ids.map { |user_id| assign!(user_id, by: by) }
     end
 

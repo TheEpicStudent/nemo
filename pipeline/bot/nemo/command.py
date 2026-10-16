@@ -485,7 +485,7 @@ def register(app):
                 answer = (message_only(problem) if problem
                           else purge_requests.proposed(conn, request, user_id))
             elif verb == QUEUE:
-                answer = open_cases.answer(conn)
+                answer = open_cases.build_reply(conn)
             elif verb == OPEN:
                 open_case_ids = case_actions.open_about(conn, target_id) if target_id else []
                 if open_case_ids:

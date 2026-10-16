@@ -10,64 +10,69 @@ CASE_URL = "https://fe.example/fd/cases/"
 REPORT_URL = "https://hackclub.slack.com/archives/C_FIRE/p1760000000000100"
 
 
-def case(case_id, category_key=None, hours=3, assignees=(), entries=None, is_report=True):
+def make_case(case_id, category_key=None, hours=3, assignees=(), entries=None, has_reports=True):
     return {"case_id": case_id, "category_key": category_key, "opened_at": NOW - dt.timedelta(hours=hours),
             "assignees": list(assignees), "url": f"{CASE_URL}{case_id}",
             "entries": entries if entries is not None else [{"body": "spam in #lounge", "url": REPORT_URL}],
-            "is_report": is_report}
+            "has_reports": has_reports}
 
 
-def rich_lists(answer):
-    return [one for one in answer["blocks"][0]["elements"] if one["type"] == "rich_text_list"]
+def rich_text_lists(message):
+    return [element for element in message["blocks"][0]["elements"] if element["type"] == "rich_text_list"]
 
 
-def test_build_nests_report_links_under_each_case():
-    answer = view.build(2, [case(4913, "spam", hours=76), case(4920, assignees=["UMOD", "UTWO"])], {}, now=NOW)
+def test_build_message_nests_entries_under_cases():
+    message = view.build_message(
+        2, [make_case(4913, "spam", hours=76), make_case(4920, assignees=["UMOD", "UTWO"])], {}, now=NOW)
 
-    assert answer["text"] == "Open cases (2)"
-    lists = rich_lists(answer)
-    assert [one["indent"] for one in lists] == [0, 1, 0, 1]
-    first = lists[0]["elements"][0]["elements"]
-    assert first[0] == {"type": "link", "url": f"{CASE_URL}4913", "text": "Case 4913", "style": {"bold": True}}
-    assert first[1]["text"] == " · Spam, mass pings or invites · 3d 4h ago"
+    assert message["text"] == "Open cases (2)"
+    lists = rich_text_lists(message)
+    assert [element["indent"] for element in lists] == [0, 1, 0, 1]
+    first_case = lists[0]["elements"][0]["elements"]
+    assert first_case[0] == {"type": "link", "url": f"{CASE_URL}4913", "text": "Case 4913", "style": {"bold": True}}
+    assert first_case[1]["text"] == " · Spam, mass pings or invites · 3d 4h ago"
     assert lists[1]["elements"][0]["elements"] == [{"type": "link", "url": REPORT_URL, "text": "spam in #lounge"}]
-    second = lists[2]["elements"][0]["elements"]
-    assert [one.get("text") or one.get("user_id") for one in second[1:]] == \
+    second_case = lists[2]["elements"][0]["elements"]
+    assert [element.get("text") or element.get("user_id") for element in second_case[1:]] == \
         [" · 3h 0m ago · Assigned: ", "UMOD", ", ", "UTWO"]
 
 
-def test_build_lists_each_report_and_names_empty_ones():
+def test_build_message_report_without_body_uses_report_label():
     entries = [{"body": None, "url": REPORT_URL}, {"body": "second report", "url": None}]
 
-    lists = rich_lists(view.build(1, [case(1, entries=entries)], {}, now=NOW))
+    lists = rich_text_lists(view.build_message(1, [make_case(1, entries=entries)], {}, now=NOW))
 
-    assert [line["elements"] for line in lists[1]["elements"]] == [
-        [{"type": "link", "url": REPORT_URL, "text": view.REPORT}],
+    assert [section["elements"] for section in lists[1]["elements"]] == [
+        [{"type": "link", "url": REPORT_URL, "text": view.REPORT_LABEL}],
         [{"type": "text", "text": "second report"}],
     ]
 
 
-def test_build_names_an_empty_case_card():
-    lists = rich_lists(view.build(1, [case(1, entries=[{"body": "", "url": REPORT_URL}], is_report=False)], {},
-                                  now=NOW))
+def test_build_message_card_without_body_uses_card_label():
+    case = make_case(1, entries=[{"body": "", "url": REPORT_URL}], has_reports=False)
 
-    assert lists[1]["elements"][0]["elements"][0]["text"] == view.CARD
+    lists = rich_text_lists(view.build_message(1, [case], {}, now=NOW))
 
-
-def test_build_without_entries_has_no_nested_list():
-    assert [one["indent"] for one in rich_lists(view.build(1, [case(1, entries=[])], {}, now=NOW))] == [0]
+    assert lists[1]["elements"][0]["elements"][0]["text"] == view.CARD_LABEL
 
 
-def test_build_shows_the_cap_and_the_fire_engine_link():
-    answer = view.build(61, [case(1)], {}, now=NOW, list_url="https://fe.example/fd/cases?view=attention")
+def test_build_message_without_entries_omits_nested_list():
+    lists = rich_text_lists(view.build_message(1, [make_case(1, entries=[])], {}, now=NOW))
 
-    assert answer["blocks"][1] == {"type": "context", "elements": [{"type": "mrkdwn", "text": "showing 1 of 61"}]}
-    assert answer["blocks"][2]["elements"][0]["url"] == "https://fe.example/fd/cases?view=attention"
+    assert [element["indent"] for element in lists] == [0]
 
 
-def test_build_with_nothing_open_is_a_bare_title():
-    assert view.build(0, [], {}) == {
-        "text": view.EMPTY, "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "No open cases"}}],
+def test_build_message_over_limit_shows_count_and_list_link():
+    message = view.build_message(61, [make_case(1)], {}, now=NOW, list_url="https://fe.example/fd/cases?view=attention")
+
+    assert message["blocks"][1] == {"type": "context", "elements": [{"type": "mrkdwn", "text": "showing 1 of 61"}]}
+    assert message["blocks"][2]["elements"][0]["url"] == "https://fe.example/fd/cases?view=attention"
+
+
+def test_build_message_without_cases_returns_empty_title():
+    assert view.build_message(0, [], {}) == {
+        "text": view.EMPTY_TITLE,
+        "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "No open cases"}}],
     }
 
 
@@ -80,17 +85,17 @@ def test_build_with_nothing_open_is_a_bare_title():
     ("x" * 60, "x" * 50 + "..."),
     (None, ""),
 ])
-def test_snippet_reads_slack_markup_as_plain_text(body, expected):
+def test_snippet_converts_slack_markup_and_truncates(body, expected):
     assert view.snippet(body, {"U1": "Ana", "C1": "lounge"}) == expected
 
 
-def test_mentioned_collects_users_and_channels():
-    assert view.mentioned(["<@U2> in <#C1|x>", "<@U1|a> <@U2>", None]) == (["U1", "U2"], ["C1"])
+def test_mention_ids_returns_user_and_channel_ids():
+    assert view.mention_ids(["<@U2> in <#C1|x>", "<@U1|a> <@U2>", None]) == (["U1", "U2"], ["C1"])
 
 
-class Conn:
-    def __init__(self, rows):
-        self.rows = rows
+class FakeConn:
+    def __init__(self, results):
+        self.results = results
         self.executed = []
 
     def execute(self, sql, args=None):
@@ -99,44 +104,44 @@ class Conn:
         return self
 
     def fetchone(self):
-        return self.rows[self.sql]
+        return self.results[self.sql]
 
     def fetchall(self):
-        return self.rows.get(self.sql, [])
+        return self.results.get(self.sql, [])
 
 
-def test_gather_takes_reports_or_falls_back_to_the_case_card(monkeypatch):
+def test_fetch_open_cases_uses_reports_or_card_opening(monkeypatch):
     monkeypatch.setattr(open_cases, "case_url", lambda case_id: f"{CASE_URL}{case_id}")
-    opened = NOW - dt.timedelta(days=1)
-    conn = Conn({
-        open_cases.OPEN_COUNT: (30,),
-        open_cases.OPEN_CASES: [(1, "spam", opened, None, None, None, ["UMOD"]),
-                                (2, None, opened, "C_FIRE", "1760000000.000200", None, []),
-                                (3, None, opened, None, None, None, [])],
-        open_cases.REPORTS: [(1, "first", "C_FIRE", "1760000000.000100"), (1, "second", "C_FIRE", None)],
-        open_cases.OPENINGS: [(2, "opened by hand")],
+    opened_at = NOW - dt.timedelta(days=1)
+    conn = FakeConn({
+        open_cases.OPEN_CASE_COUNT: (30,),
+        open_cases.OPEN_CASES: [(1, "spam", opened_at, None, None, None, ["UMOD"]),
+                                (2, None, opened_at, "C_FIRE", "1760000000.000200", None, []),
+                                (3, None, opened_at, None, None, None, [])],
+        open_cases.CASE_REPORTS: [(1, "first", "C_FIRE", "1760000000.000100"), (1, "second", "C_FIRE", None)],
+        open_cases.CARD_OPENING_BODIES: [(2, "opened by hand")],
     })
 
-    total, cases = open_cases.gather(conn)
+    total, cases = open_cases.fetch_open_cases(conn)
 
     assert total == 30
-    assert conn.executed[1][1] == (open_cases.LIMIT,)
+    assert conn.executed[1][1] == (open_cases.CASE_LIMIT,)
     assert conn.executed[2][1] == ([1, 2, 3], open_cases.REPORTS_PER_CASE)
     assert cases[0]["entries"] == [{"body": "first", "url": REPORT_URL}, {"body": "second", "url": None}]
-    assert cases[0]["is_report"] is True and cases[0]["assignees"] == ["UMOD"]
+    assert cases[0]["has_reports"] is True and cases[0]["assignees"] == ["UMOD"]
     assert cases[1]["entries"] == [{"body": "opened by hand",
                                     "url": "https://hackclub.slack.com/archives/C_FIRE/p1760000000000200"}]
-    assert cases[1]["is_report"] is False
+    assert cases[1]["has_reports"] is False
     assert cases[2]["entries"] == []
 
 
-def test_open_cases_query_is_oldest_first_and_capped():
+def test_open_cases_query_orders_oldest_first_with_limit():
     assert "WHERE c.resolved_at IS NULL" in open_cases.OPEN_CASES
     assert "ORDER BY c.opened_at, c.id" in open_cases.OPEN_CASES
-    assert "WHERE n <= %s" in open_cases.REPORTS
+    assert "WHERE report_index <= %s" in open_cases.CASE_REPORTS
 
 
-def test_queue_is_a_case_read_command():
+def test_parse_command_queue_requires_case_read():
     assert command.parse_command("queue") == (command.QUEUE, None, None)
     assert command.NEEDED[command.QUEUE] == "case.read"
     assert "/nemo queue" in command.helping.flat({"case.read"})

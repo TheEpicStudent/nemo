@@ -233,7 +233,7 @@ class FdResolutionsTest < ActionDispatch::IntegrationTest
     assert Fd::AuditEntry.exists?(entity_type: "case", entity_id: @kase.id, verb: "reopened")
   end
 
-  test "reopening keeps the assignees" do
+  test "reopen retains assignees" do
     @kase.assign!("UOTHER")
     @kase.assign!(@me.user_id)
     sign_in_as(@me)
