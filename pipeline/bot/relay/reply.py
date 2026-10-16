@@ -60,6 +60,8 @@ def submit_failed():
 
 REPORTER_DELETE = "Not removed. Deleted messages stay in your report."
 
+RECEIVE_FAILED = "Your message was not received. Send it again in a few minutes."
+
 EDITED_PREFIX = "Edited: "
 
 MEBIBYTE = 1024 * 1024

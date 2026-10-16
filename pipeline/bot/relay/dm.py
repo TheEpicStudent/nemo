@@ -2,7 +2,7 @@ import logging
 
 from bot.core import blobs, intake, session
 from bot.relay import consent, file_notices, intake_files
-from bot.relay.reply import RECEIVED_REACTION, REPORTER_DELETE, nemo_delayed, receipt, submit_failed
+from bot.relay.reply import RECEIVE_FAILED, RECEIVED_REACTION, REPORTER_DELETE, nemo_delayed, receipt, submit_failed
 
 log = logging.getLogger("bot.relay")
 
@@ -109,23 +109,27 @@ def register(app, on_submit=None):
             return on_deleted(event, client)
         if subtype not in CONTENT_SUBTYPES:
             return
-        with session() as conn:
-            trusted = event.get("user") in trusted_senders(conn)
-        if trusted:
-            return submit_trusted(event, client)
-        if event.get("bot_id"):
-            return
-
         thread_ts = intake.root_ts(event)
+        try:
+            with session() as conn:
+                trusted = event.get("user") in trusted_senders(conn)
+            if trusted:
+                return submit_trusted(event, client)
+            if event.get("bot_id"):
+                return
 
-        with session() as conn:
-            message_id, inserted = intake.record(conn, event)
-            conversation_id = intake.conversation(conn, event["channel"], thread_ts)
-            intake.rename_anonymous_files(conn, conversation_id)
-            handed_off, prompt_ts, saved_choice = conn.execute(
-                CONVERSATION_STATE, (consent.SUBTYPE, conversation_id)
-            ).fetchone()
-            prompt_blocks = None if handed_off else preview(conn, conversation_id, saved_choice)
+            with session() as conn:
+                message_id, inserted = intake.record(conn, event)
+                conversation_id = intake.conversation(conn, event["channel"], thread_ts)
+                intake.rename_anonymous_files(conn, conversation_id)
+                handed_off, prompt_ts, saved_choice = conn.execute(
+                    CONVERSATION_STATE, (consent.SUBTYPE, conversation_id)
+                ).fetchone()
+                prompt_blocks = None if handed_off else preview(conn, conversation_id, saved_choice)
+        except Exception:
+            log.exception("relay: could not store a message in %s", event.get("channel"))
+            post_receive_failed(client, event, thread_ts)
+            return
 
         if not inserted:
             return
@@ -203,6 +207,16 @@ def register(app, on_submit=None):
                 },
                 direction="outbound",
             )
+
+    def post_receive_failed(client, event, thread_ts):
+        if not event.get("user"):
+            return
+        try:
+            client.chat_postEphemeral(channel=event["channel"], user=event["user"],
+                                      thread_ts=thread_ts if thread_ts != event.get("ts") else None,
+                                      text=RECEIVE_FAILED)
+        except Exception as failure:
+            log.warning("relay: could not say the message was not received: %s", failure)
 
     def react_submitted_messages(client, conversation_id):
         with session() as conn:
