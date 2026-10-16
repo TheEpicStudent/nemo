@@ -69,6 +69,40 @@
 
   <div class="card card-flush">
     <div class="card-head">
+      <h2 class="card-title">Trusted senders</h2>
+      <% if may_grant? %>
+        <div class="card-tools">
+          <%= form_with url: admin_settings_trusted_senders_path, method: :post, class: "contents" do %>
+            <%= render "shared/combobox", name: :user_id, single: true, submit: true,
+                  trigger_css: "btn btn-sm", url: fd_member_search_path(bots: 1), trigger: "Add sender" %>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+
+    <% if @trusted_senders.any? %>
+      <div class="setlist">
+        <% @trusted_senders.each do |user_id| %>
+          <div class="setline">
+            <div class="setname"><%= member_face(user_id) %></div>
+            <% if may_grant? %>
+              <div class="setval">
+                <%= button_to "Remove", admin_settings_trusted_sender_path(user_id),
+                      method: :delete, class: "btn btn-sm", form: { class: "contents" } %>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="empty">
+        <p class="empty-title">No trusted senders</p>
+      </div>
+    <% end %>
+  </div>
+
+  <div class="card card-flush">
+    <div class="card-head">
       <h2 class="card-title">Guard expiry</h2>
       <% if may_grant? %>
         <div class="card-tools">

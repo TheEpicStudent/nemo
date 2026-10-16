@@ -267,4 +267,45 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
     assert_match(/from 0 to/, flash[:alert])
     assert_equal 0, Fd::AppSetting.where(key: ACCOUNT_KEYS).count
   end
+
+  test "trusted senders add stores the member and audits it" do
+    Fd::AppSetting.where(key: Fd::AppSetting::TRUSTED_SENDERS).delete_all
+
+    post admin_settings_trusted_senders_path, params: { user_id: "u0akqnskbk4" }
+
+    assert_redirected_to admin_settings_path
+    assert_equal ["U0AKQNSKBK4"], Fd::AppSetting.trusted_senders
+    assert Fd::AuditEntry.exists?(entity_type: "app_setting", verb: "tuned")
+  end
+
+  test "trusted senders add refuses a value that is not a member id" do
+    post admin_settings_trusted_senders_path, params: { user_id: "prometheus" }
+
+    assert_equal "PROMETHEUS is not a member id", flash[:alert]
+  end
+
+  test "trusted senders remove drops only that member" do
+    Fd::AppSetting.set_trusted_senders(%w[U0AKQNSKBK4 U0OTHER123], by: "UME")
+
+    delete admin_settings_trusted_sender_path("U0AKQNSKBK4")
+
+    assert_equal ["U0OTHER123"], Fd::AppSetting.trusted_senders
+  end
+
+  test "settings page lists trusted senders with a remove button" do
+    Fd::AppSetting.set_trusted_senders(%w[U0AKQNSKBK4], by: "UME")
+
+    get admin_settings_path
+
+    assert_select "h2.card-title", text: "Trusted senders"
+    assert_select "form[action='#{admin_settings_trusted_sender_path("U0AKQNSKBK4")}'] button", text: "Remove"
+  end
+
+  test "settings page without trusted senders shows a bare title" do
+    Fd::AppSetting.where(key: Fd::AppSetting::TRUSTED_SENDERS).delete_all
+
+    get admin_settings_path
+
+    assert_select ".empty-title", text: "No trusted senders"
+  end
 end

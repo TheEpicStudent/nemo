@@ -8,6 +8,7 @@ module Fd
     REPORTS = "nemo.reports_channel".freeze
     LOGS = "nemo.log_channel".freeze
     REACT_CHANNELS = "nemo.case_react_channels".freeze
+    TRUSTED_SENDERS = "relay.trusted_senders".freeze
 
     AUTORESPONSE_ON = "nemo.autoresponse_on".freeze
     AUTORESPONSE_EMOJI = "nemo.autoresponse_emoji".freeze
@@ -77,6 +78,17 @@ module Fd
 
     def self.case_react_channels
       value(REACT_CHANNELS).split(",").map(&:strip).reject(&:blank?)
+    end
+
+    def self.trusted_senders
+      value(TRUSTED_SENDERS).split(",").map(&:strip).reject(&:blank?)
+    end
+
+    def self.set_trusted_senders(user_ids, by:)
+      user_csv = Array(user_ids).map(&:to_s).map(&:strip).reject(&:blank?).uniq.join(",")
+      return where(key: TRUSTED_SENDERS).destroy_all && nil if user_csv.blank?
+
+      write(TRUSTED_SENDERS, user_csv, by: by)
     end
 
     def self.set_case_react_channels(ids, by:)

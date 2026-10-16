@@ -67,6 +67,15 @@ FORGET_CHOICE = """
 UPDATE fd.intake_conversations SET consent_choice = NULL WHERE id = %s
 """
 
+TRUSTED_SENDERS = "SELECT value FROM fd.app_settings WHERE key = 'relay.trusted_senders'"
+
+HANDED_OFF = "SELECT handed_off_at IS NOT NULL FROM fd.intake_conversations WHERE id = %s"
+
+
+def trusted_senders(conn):
+    row = conn.execute(TRUSTED_SENDERS).fetchone()
+    return {one.strip() for one in (row[0] if row else "").split(",") if one.strip()}
+
 
 def preview(conn, conversation_id, saved_choice=None):
     bodies = [row[0] for row in conn.execute(INBOUND_BODIES, (conversation_id,)).fetchall()]
@@ -88,6 +97,10 @@ def register(app, on_handoff=None):
             return on_deleted(event)
         if subtype not in CONTENT_SUBTYPES:
             return
+        with session() as conn:
+            trusted = event.get("user") in trusted_senders(conn)
+        if trusted:
+            return hand_off_trusted(event, client)
         if event.get("bot_id"):
             return
 
@@ -116,6 +129,28 @@ def register(app, on_handoff=None):
             return
 
         post_prompt(client, event["channel"], thread_ts, prompt_ts, prompt_blocks)
+
+    def hand_off_trusted(event, client):
+        with session() as conn:
+            message_id, inserted = intake.record(conn, event)
+            conversation_id = intake.conversation(conn, event["channel"], intake.root_ts(event))
+            handed_off = conn.execute(HANDED_OFF, (conversation_id,)).fetchone()[0]
+        if not inserted or handed_off:
+            return None
+        if on_handoff is None:
+            log.error("relay: nobody is taking reports, trusted conversation %s waits", conversation_id)
+            return None
+
+        try:
+            case_id = on_handoff(conversation_id, message_id, False)
+        except Exception:
+            log.exception("relay: trusted conversation %s could not be handed over", conversation_id)
+            return None
+        with session() as conn:
+            intake.close(conn, conversation_id, intake.TRUSTED_SENDER)
+        acknowledge(client, event["channel"], event["ts"])
+        log.info("relay: trusted sender %s opened case %s", event.get("user"), case_id)
+        return case_id
 
     def fetch_files(client):
         try:

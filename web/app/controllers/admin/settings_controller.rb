@@ -3,6 +3,7 @@ module Admin
     SOONEST = Fd::AppSetting::SOONEST
     MOST_STRIKES = Fd::AppSetting::MOST_STRIKES
     MOST_RESETS = Fd::AppSetting::MOST_RESETS
+    MEMBER_ID = /\A[UW][A-Z0-9]{2,}\z/
 
     def show
       @join_mode = Fd::AppSetting.join_mode
@@ -16,6 +17,7 @@ module Admin
       @reports_channel = Fd::AppSetting.reports_channel
       @log_channel = Fd::AppSetting.log_channel
       @react_channels = Fd::AppSetting.case_react_channels
+      @trusted_senders = Fd::AppSetting.trusted_senders
       configured_ids = ([@firehouse, @reports_channel, @log_channel] + @react_channels).compact.uniq
       @channels_by_id = Analytics::DimChannel.where(channel_id: configured_ids).index_by(&:channel_id)
       @seats = configured_ids.index_with { |channel_id| Fd::ChannelMembership.seat(channel_id) }
@@ -98,6 +100,25 @@ module Admin
       channel_ids = Fd::AppSetting.case_react_channels - [channel_id]
       audit_setting(Fd::AppSetting.set_case_react_channels(channel_ids, by: current_account.user_id))
       redirect_to admin_settings_path, notice: "##{name_of(channel_id)} removed from case reaction channels"
+    end
+
+    def add_trusted_sender
+      user_id = params[:user_id].to_s.strip.upcase
+      return redirect_with_alert("Select a member") if user_id.blank?
+      return redirect_with_alert("#{user_id} is not a member id") unless user_id.match?(MEMBER_ID)
+
+      user_ids = Fd::AppSetting.trusted_senders
+      return redirect_to admin_settings_path if user_ids.include?(user_id)
+
+      audit_setting(Fd::AppSetting.set_trusted_senders(user_ids + [user_id], by: current_account.user_id))
+      redirect_to admin_settings_path, notice: "@#{user_id} added to trusted senders"
+    end
+
+    def drop_trusted_sender
+      user_id = params[:user_id].to_s.strip
+      user_ids = Fd::AppSetting.trusted_senders - [user_id]
+      audit_setting(Fd::AppSetting.set_trusted_senders(user_ids, by: current_account.user_id))
+      redirect_to admin_settings_path, notice: "@#{user_id} removed from trusted senders"
     end
 
     private

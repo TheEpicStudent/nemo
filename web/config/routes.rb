@@ -180,6 +180,9 @@ Rails.application.routes.draw do
     post "settings/react_channels", to: "settings#add_react", as: :settings_react_channels
     delete "settings/react_channels/:channel_id", to: "settings#drop_react",
            as: :settings_react_channel
+    post "settings/trusted_senders", to: "settings#add_trusted_sender", as: :settings_trusted_senders
+    delete "settings/trusted_senders/:user_id", to: "settings#drop_trusted_sender",
+           as: :settings_trusted_sender
     resources :channels, only: [:index, :update], param: :channel_id do
       collection { get "search", as: :search }
       member { patch "activity" }

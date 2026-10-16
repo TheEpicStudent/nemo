@@ -1,16 +1,19 @@
 import logging
 
-from bot.core import audit, blobs, outbox, parse, session
+from bot.core import audit, blobs, intake, outbox, parse, session
 from bot.nemo import announce, answer, attachments, case_actions, channel, case_queue
 
 log = logging.getLogger("bot.nemo")
 
 WHO_TO_REACH = """
-SELECT c.id, c.channel_id, c.thread_ts, c.closed_at, c.report_id
+SELECT c.id, c.channel_id, c.thread_ts, c.closed_at, c.report_id, c.closed_by
 FROM fd.intake_messages m
 JOIN fd.intake_conversations c ON c.id = m.conversation_id
 WHERE m.mirrored_ts = %s
 """
+
+CLOSED_REFUSAL = "Not sent. The reporter's conversation is closed."
+CLOSED_REFUSALS = {intake.TRUSTED_SENDER: "Not sent. Replies are disabled for trusted senders."}
 
 FIRST_ANSWER = """
 UPDATE fd.case_reports SET first_replied_at = now()
@@ -82,10 +85,10 @@ class CaseChannel:
         if not row:
             log.info("nemo: thread %s is not a report thread", thread_ts)
             return None
-        conversation_id, _channel_id, _member_thread_ts, closed_at, report_id = row
+        conversation_id, _channel_id, _member_thread_ts, closed_at, report_id, closed_by = row
         if closed_at:
             log.info("nemo: conversation %s is closed, not queueing", conversation_id)
-            return self.refuse(at, sent_by, "Not sent. The reporter's conversation is closed.")
+            return self.refuse(at, sent_by, CLOSED_REFUSALS.get(closed_by, CLOSED_REFUSAL))
 
         with session() as conn:
             stored_files = self.store_outgoing_files(conn, files)

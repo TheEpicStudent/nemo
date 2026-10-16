@@ -4,6 +4,9 @@ from bot.core import parse
 from bot.core.identity import ensure_member
 
 
+TRUSTED_SENDER = "relay:trusted sender"
+
+
 def root_ts(event):
     return event.get("thread_ts") or event.get("ts")
 
