@@ -86,6 +86,7 @@ def start_loops(sides, stopping):
         from bot.nemo import loop as nemo_loop
 
         nemo_loop.start(sides[NEMO], stopping)
+        nemo_loop.start_missed_reaction_pass(sides[NEMO].client)
 
 
 def start(name, app, token):

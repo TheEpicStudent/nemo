@@ -5,7 +5,7 @@ import threading
 from bot.core import loops, session
 from bot.nemo import automod, channel, channelguards, channels, chat, guards, guard_actions
 from bot.nemo import enforcement, guard_notices, guard_removals, memberguards, case_queue
-from bot.nemo import bot_kicks, categories, internal_log, join_requests, responses, screening
+from bot.nemo import bot_kicks, categories, internal_log, join_requests, missed_reactions, responses, screening
 from bot.nemo.enforcement import purge, slowmode, sweep
 
 log = logging.getLogger("bot.nemo")
@@ -85,6 +85,15 @@ def join_configured(client):
 
 def start_configured_joins(client):
     threading.Thread(target=join_configured, args=(client,), name="nemo-configured-joins",
+                     daemon=True).start()
+
+
+def apply_missed_close_reactions(client):
+    apart(("applying missed close reactions", lambda: missed_reactions.apply_missed_close_reactions(client)))
+
+
+def start_missed_reaction_pass(client):
+    threading.Thread(target=apply_missed_close_reactions, args=(client,), name="nemo-missed-reactions",
                      daemon=True).start()
 
 
