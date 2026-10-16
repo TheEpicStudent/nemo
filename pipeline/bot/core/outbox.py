@@ -20,7 +20,7 @@ RETURNING id
 
 CLAIMED = """
 SELECT o.id, o.conversation_id, o.kind, o.body, o.mode, o.requested_by, o.attempts,
-       c.channel_id, c.thread_ts, c.closed_at, o.files
+       c.channel_id, c.thread_ts, c.closed_at, o.files, o.edits_outbox_id
 FROM fd.intake_outbox o
 JOIN fd.intake_conversations c ON c.id = o.conversation_id
 WHERE o.id = ANY(%s)
@@ -29,8 +29,24 @@ ORDER BY o.requested_at
 
 QUEUE = """
 INSERT INTO fd.intake_outbox
-    (conversation_id, kind, body, mode, requested_by, files, asked_in_channel, asked_at_ts)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    (conversation_id, kind, body, mode, requested_by, files, asked_in_channel, asked_at_ts,
+     edits_outbox_id)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+RETURNING id
+"""
+
+REPLY_AT = """
+SELECT o.id, o.conversation_id, o.mode, o.sent_at,
+       coalesce((SELECT e.body FROM fd.intake_outbox e WHERE e.edits_outbox_id = o.id
+                 ORDER BY e.id DESC LIMIT 1), o.body)
+FROM fd.intake_outbox o
+WHERE o.asked_in_channel = %s AND o.asked_at_ts = %s AND o.kind = 'reply'
+ORDER BY o.id LIMIT 1
+"""
+
+EDIT_UNSENT = """
+UPDATE fd.intake_outbox SET body = %s
+WHERE id = %s AND sent_at IS NULL AND failed_at IS NULL AND claimed_at IS NULL
 RETURNING id
 """
 
@@ -123,6 +139,7 @@ class QueuedMessage:
             self.thread_ts,
             self.closed_at,
             self.files,
+            self.edits_outbox_id,
         ) = row
 
     @property
@@ -148,12 +165,32 @@ def any_waiting(conn):
 
 
 def queue(conn, conversation_id, kind, body, requested_by, mode="signed",
-          files=None, requested_in=None, requested_at=None):
+          files=None, requested_in=None, requested_at=None, edits_outbox_id=None):
     return conn.execute(
         QUEUE,
         (conversation_id, kind, body, mode, requested_by,
-         Jsonb(files or []), requested_in, requested_at),
+         Jsonb(files or []), requested_in, requested_at, edits_outbox_id),
     ).fetchone()[0]
+
+
+def reply_at(conn, channel_id, ts):
+    return conn.execute(REPLY_AT, (channel_id, ts)).fetchone()
+
+
+def edit_reply(conn, channel_id, ts, body, edited_by):
+    row = reply_at(conn, channel_id, ts)
+    if row is None:
+        return None
+    outbox_id, conversation_id, mode, sent_at, current_body = row
+    if body == current_body:
+        return None
+    if sent_at is None and conn.execute(EDIT_UNSENT, (body, outbox_id)).fetchone():
+        return outbox_id
+    edit_id = queue(conn, conversation_id, "edit", body, edited_by, mode=mode,
+                    requested_in=channel_id, requested_at=ts, edits_outbox_id=outbox_id)
+    claim_echo(conn, edit_id)
+    echoed(conn, edit_id, None, "user")
+    return edit_id
 
 
 def to_echo(conn, case_id=None):

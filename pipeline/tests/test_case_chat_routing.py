@@ -117,3 +117,58 @@ def test_a_root_the_chat_table_would_refuse_is_left_alone(message, monkeypatch):
 
 def test_a_root_with_only_blocks_is_still_worth_keeping():
     assert reaction_watch.is_storable({"ts": "1.0", "user": "U1", "blocks": [{}]})
+
+
+class SlackCalls:
+    def __init__(self):
+        self.calls = []
+
+    def chat_postEphemeral(self, **kwargs):
+        self.calls.append(kwargs)
+
+
+class ClientCtx(Ctx):
+    def __init__(self, payload, client):
+        super().__init__(payload)
+        self.client = client
+
+
+DELETED = {"channel": "C_FIRE", "subtype": "message_deleted", "deleted_ts": "2.0",
+           "previous_message": {"user": "UFD", "thread_ts": "1.0", "ts": "2.0", "text": "?thanks"}}
+
+
+@pytest.mark.parametrize(("reply", "told"), [((10, 7, "signed", "2026-10-16", "thanks"), True), (None, False)])
+def test_deleting_a_delivered_reply_tells_the_moderator_it_stays(harness, monkeypatch, reply, told):
+    monkeypatch.setattr(handlers.chat, "delete", lambda conn, channel_id, ts: 5)
+    monkeypatch.setattr(handlers.outbox, "reply_at", lambda conn, channel_id, ts: reply)
+    client = SlackCalls()
+
+    message_handler().fn(ClientCtx(dict(DELETED), client))
+
+    expected = [{"channel": "C_FIRE", "user": "UFD", "thread_ts": "1.0", "text": handlers.views.edits.MODERATOR_DELETE}]
+    assert client.calls == (expected if told else [])
+
+
+def test_editing_a_reply_queues_the_new_text(harness, monkeypatch):
+    edited = []
+    monkeypatch.setattr(handlers.chat, "edit", lambda conn, channel_id, message: 5)
+    monkeypatch.setattr(handlers.outbox, "edit_reply",
+                        lambda conn, channel_id, ts, body, by: edited.append((channel_id, ts, body, by)) or 55)
+    changed = {"channel": "C_FIRE", "subtype": "message_changed",
+               "message": {"ts": "2.0", "user": "UFD", "text": "?thanks, looking now", "edited": {"user": "UFD"}}}
+
+    message_handler().fn(ClientCtx(changed, SlackCalls()))
+
+    assert edited == [("C_FIRE", "2.0", "thanks, looking now", "UFD")]
+
+
+def test_editing_chat_that_is_not_a_reply_queues_nothing(harness, monkeypatch):
+    edited = []
+    monkeypatch.setattr(handlers.chat, "edit", lambda conn, channel_id, message: 5)
+    monkeypatch.setattr(handlers.outbox, "edit_reply", lambda *args: edited.append(args))
+    changed = {"channel": "C_FIRE", "subtype": "message_changed",
+               "message": {"ts": "2.0", "user": "UFD", "text": "internal chat"}}
+
+    message_handler().fn(ClientCtx(changed, SlackCalls()))
+
+    assert edited == []

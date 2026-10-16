@@ -1,7 +1,7 @@
 import logging
 import re
 
-from bot.core import access, session
+from bot.core import access, outbox, session
 from bot.nemo import answer, views, chat, memberguards, surface, thread_commands
 from bot.nemo.case_actions import (
     CASE_CATEGORY,
@@ -551,9 +551,9 @@ def register(app, on_reply=None):
 
         subtype = event.get("subtype")
         if subtype == "message_changed":
-            return on_changed(event)
+            return on_changed(event, client)
         if subtype == "message_deleted":
-            return on_deleted(event)
+            return on_deleted(event, client)
         if event.get("bot_id") or subtype not in (None, "file_share"):
             return
 
@@ -648,22 +648,37 @@ def register(app, on_reply=None):
         if inserted:
             log.info("nemo: case %s heard us say something (%s)", case_id, chat_id)
 
-    def on_changed(event):
+    def on_changed(event, client):
         message = event.get("message") or {}
         if not message.get("ts") or message.get("subtype") == "bot_message":
             return
+        parsed_answer = answer.read(message.get("text"))
         with session() as conn:
             changed = chat.edit(conn, event["channel"], message)
+            edit_id = None
+            if parsed_answer and parsed_answer["body"].strip():
+                edit_id = outbox.edit_reply(conn, event["channel"], message["ts"], parsed_answer["body"],
+                                            (message.get("edited") or {}).get("user") or message.get("user"))
         if changed:
             log.info("nemo: chat %s was edited", changed)
+        if edit_id:
+            log.info("nemo: reply at %s was edited, outbox %s carries it", message["ts"], edit_id)
 
-    def on_deleted(event):
+    def on_deleted(event, client):
         if not event.get("deleted_ts"):
             return
         with session() as conn:
             deleted_id = chat.delete(conn, event["channel"], event["deleted_ts"])
+            reply = outbox.reply_at(conn, event["channel"], event["deleted_ts"])
         if deleted_id:
             log.info("nemo: chat %s was deleted in slack, the words are kept", deleted_id)
+        previous = event.get("previous_message") or {}
+        if reply and previous.get("user"):
+            try:
+                client.chat_postEphemeral(channel=event["channel"], user=previous["user"],
+                                          thread_ts=previous.get("thread_ts"), text=views.edits.MODERATOR_DELETE)
+            except Exception as failure:
+                log.warning("nemo: could not say the deletion was not forwarded: %s", failure)
 
     surface.bind(
         surface.EVENT, "message",

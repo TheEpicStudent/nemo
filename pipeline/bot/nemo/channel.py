@@ -7,6 +7,7 @@ from psycopg.types.json import Jsonb
 from bot.core import parse
 from bot.core.formatting import quote_text
 from bot.nemo import answer, views, attachments, channels, chat, profile
+from bot.nemo.views.activity import message_url
 
 log = logging.getLogger("bot.nemo")
 
@@ -656,9 +657,9 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
     post_header(client, conn, case, card_channel_id, ts)
     if case["message_id"]:
         conn.execute(
-            "UPDATE fd.intake_messages SET mirrored_ts = %s, mirrored_at = now() "
+            "UPDATE fd.intake_messages SET mirrored_ts = %s, mirrored_at = now(), shown_body = %s "
             "WHERE id = %s",
-            (ts, case["message_id"]),
+            (ts, case.get("body"), case["message_id"]),
         )
         try:
             unfurl(client, conn, case["message_id"], card_channel_id, ts)
@@ -736,9 +737,9 @@ def post_follow_up(client, conn, message_id, channel_id=None):
         return None
 
     conn.execute(
-        "UPDATE fd.intake_messages SET mirrored_ts = %s, mirrored_at = now() "
+        "UPDATE fd.intake_messages SET mirrored_ts = %s, mirrored_at = now(), shown_body = %s "
         "WHERE id = %s AND mirrored_ts IS NULL",
-        (ts, message_id),
+        (ts, body, message_id),
     )
     try:
         unfurl(client, conn, message_id, card_channel_id, forwarded)
@@ -746,6 +747,37 @@ def post_follow_up(client, conn, message_id, channel_id=None):
         log.warning("nemo: message %s's links would not unfurl: %s", message_id, failure)
     log.info("nemo: message %s carried into its card thread at %s", message_id, ts)
     return ts
+
+
+EDITS_WAITING = """
+SELECT m.id, m.mirrored_ts, coalesce(m.shown_body, first_revision.body), m.body,
+       r.forwarded_ts, r.card_channel_id
+FROM fd.intake_messages m
+JOIN fd.intake_conversations c ON c.id = m.conversation_id
+JOIN fd.case_reports r ON r.id = c.report_id
+LEFT JOIN fd.intake_revisions first_revision ON first_revision.message_id = m.id AND first_revision.seq = 0
+WHERE r.case_id = %s AND m.direction = 'inbound' AND m.deleted_at IS NULL
+  AND m.mirrored_ts IS NOT NULL AND r.forwarded_ts IS NOT NULL AND m.revision > 0
+  AND coalesce(m.body, '') IS DISTINCT FROM coalesce(m.shown_body, first_revision.body, '')
+ORDER BY m.posted_at, m.id
+"""
+
+SHOWN = "UPDATE fd.intake_messages SET shown_body = %s WHERE id = %s"
+
+
+def post_edit_notices(client, conn, case_id, channel_id=None):
+    posted_count = 0
+    for message_id, mirrored_ts, before, after, card_ts, stored_channel in conn.execute(
+        EDITS_WAITING, (case_id,)
+    ).fetchall():
+        card_channel_id = channel_or_firehouse(stored_channel, channel_id, conn)
+        notice = views.edits.edit_notice(message_url(card_channel_id, mirrored_ts, card_ts), before, after)
+        client.chat_postMessage(channel=card_channel_id, thread_ts=card_ts, unfurl_links=False,
+                                unfurl_media=False, **notice)
+        conn.execute(SHOWN, (after, message_id))
+        posted_count += 1
+        log.info("nemo: case %s noted an edit to message %s", case_id, message_id)
+    return posted_count
 
 
 def refresh_card(client, conn, case_id, channel_id=None):

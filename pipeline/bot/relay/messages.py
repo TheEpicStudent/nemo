@@ -3,6 +3,7 @@ import logging
 from bot.core import blobs, case, evidence, profiles, intake, outbox, session
 from bot.core.whoami import bot_user_id
 from bot.core.formatting import member_parts
+from bot.relay.reply import EDITED_PREFIX
 from bot.relay import file_notices, intake_files
 
 log = logging.getLogger("bot.relay")
@@ -38,6 +39,14 @@ def shared_at(file, channel_id):
             if shared_channel_id == channel_id and entries:
                 return entries[0].get("ts")
     return None
+
+
+EDITED_MESSAGE = """
+SELECT m.id, m.channel_id, m.ts, m.body
+FROM fd.intake_outbox o
+JOIN fd.intake_messages m ON m.id = o.message_id
+WHERE o.id = %s AND o.sent_at IS NOT NULL
+"""
 
 
 class MessageRelay:
@@ -94,6 +103,8 @@ class MessageRelay:
         return sent
 
     def deliver_message(self, conn, queued):
+        if queued.kind == "edit" and not queued.closed_at:
+            return self.deliver_edit(conn, queued)
         if queued.closed_at:
             outbox.mark_error(conn, queued.id, "the reporter's conversation is closed", True)
             log.info("relay: outbox %s is for a closed conversation", queued.id)
@@ -139,9 +150,35 @@ class MessageRelay:
             conn.execute(FIRST_ANSWER_FOR, (queued.conversation_id,))
         return True
 
-    def post_message(self, queued):
+    def deliver_edit(self, conn, queued):
+        row = conn.execute(EDITED_MESSAGE, (queued.edits_outbox_id,)).fetchone()
+        if row is None:
+            outbox.mark_error(conn, queued.id, "the edited reply was never sent", True)
+            return False
+        message_id, channel_id, ts, old_body = row
+        new_parts = member_parts(queued.body)
+        try:
+            if len(new_parts) == 1 and len(member_parts(old_body)) == 1:
+                self.client.chat_update(channel=channel_id, ts=ts, text=new_parts[0])
+                intake.edit(conn, channel_id, {"ts": ts, "text": queued.body})
+            else:
+                new_ts = self.post_message(queued, body=f"{EDITED_PREFIX}{queued.body}")
+                message_id, _ = intake.record(
+                    conn,
+                    {"channel": channel_id, "ts": new_ts, "thread_ts": queued.thread_ts,
+                     "text": f"{EDITED_PREFIX}{queued.body}"},
+                    direction="outbound", sent_by=queued.requested_by,
+                )
+        except Exception as failure:
+            outbox.mark_error(conn, queued.id, failure, queued.last_try)
+            log.warning("relay: edit %s did not go: %s", queued.id, failure)
+            return False
+        outbox.sent(conn, queued.id, message_id)
+        return True
+
+    def post_message(self, queued, body=None):
         first_ts = None
-        for index, part in enumerate(member_parts(queued.body)):
+        for index, part in enumerate(member_parts(queued.body if body is None else body)):
             try:
                 posted = self.client.chat_postMessage(
                     channel=queued.channel_id,

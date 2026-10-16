@@ -321,7 +321,7 @@ def test_posting_a_report_points_its_message_at_the_new_card(monkeypatch):
     ts = channel.post_report(Slack(), conn, 2, "CNEW")
 
     assert ts == "9.9"
-    assert conn.args_for("UPDATE fd.intake_messages")[0] == ("9.9", 3)
+    assert conn.args_for("UPDATE fd.intake_messages")[0] == ("9.9", None, 3)
 
 
 def test_rebuilding_a_card_in_a_new_channel_repoints_an_already_mirrored_message(monkeypatch):
@@ -333,7 +333,7 @@ def test_rebuilding_a_card_in_a_new_channel_repoints_an_already_mirrored_message
 
     channel.post_report(Slack(), conn, 2, "CNEW")
 
-    assert conn.args_for("UPDATE fd.intake_messages")[0] == ("9.9", 3)
+    assert conn.args_for("UPDATE fd.intake_messages")[0] == ("9.9", None, 3)
 
 
 def test_a_card_sitting_in_a_thread_can_name_its_case():

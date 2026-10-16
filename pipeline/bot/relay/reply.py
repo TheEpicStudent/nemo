@@ -56,6 +56,10 @@ def handoff_failed():
     ]
 
 
+REPORTER_DELETE = "Not removed. Deleted messages stay in your report."
+
+EDITED_PREFIX = "Edited: "
+
 MEBIBYTE = 1024 * 1024
 
 

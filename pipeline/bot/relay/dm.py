@@ -2,7 +2,7 @@ import logging
 
 from bot.core import blobs, intake, session
 from bot.relay import consent, file_notices, intake_files
-from bot.relay.reply import GOT_IT, nemo_is_behind, handoff_failed, receipt
+from bot.relay.reply import GOT_IT, REPORTER_DELETE, nemo_is_behind, handoff_failed, receipt
 
 log = logging.getLogger("bot.relay")
 
@@ -67,6 +67,12 @@ FORGET_CHOICE = """
 UPDATE fd.intake_conversations SET consent_choice = NULL WHERE id = %s
 """
 
+REPORTED_INBOUND = """
+SELECT 1 FROM fd.intake_messages m
+JOIN fd.intake_conversations c ON c.id = m.conversation_id
+WHERE m.id = %s AND m.direction = 'inbound' AND c.handed_off_at IS NOT NULL AND c.closed_at IS NULL
+"""
+
 TRUSTED_SENDERS = "SELECT value FROM fd.app_settings WHERE key = 'relay.trusted_senders'"
 
 HANDED_OFF = "SELECT handed_off_at IS NOT NULL FROM fd.intake_conversations WHERE id = %s"
@@ -94,7 +100,7 @@ def register(app, on_handoff=None):
         if subtype == "message_changed":
             return on_changed(event, client)
         if subtype == "message_deleted":
-            return on_deleted(event)
+            return on_deleted(event, client)
         if subtype not in CONTENT_SUBTYPES:
             return
         with session() as conn:
@@ -317,10 +323,18 @@ def register(app, on_handoff=None):
                 channel=event["channel"], ts=prompt_ts, text=consent.FALLBACK, blocks=prompt_blocks
             )
 
-    def on_deleted(event):
+    def on_deleted(event, client):
         if not event.get("deleted_ts"):
             return
         with session() as conn:
             deleted_id = intake.delete(conn, event["channel"], event["deleted_ts"])
+            reported = conn.execute(REPORTED_INBOUND, (deleted_id,)).fetchone() if deleted_id else None
         if deleted_id:
             log.info("relay: message %s was deleted", deleted_id)
+        previous = event.get("previous_message") or {}
+        if reported and previous.get("user"):
+            try:
+                client.chat_postEphemeral(channel=event["channel"], user=previous["user"],
+                                          thread_ts=previous.get("thread_ts"), text=REPORTER_DELETE)
+            except Exception as failure:
+                log.warning("relay: could not say the deletion was not forwarded: %s", failure)
