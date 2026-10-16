@@ -25,7 +25,9 @@ def nemo_delayed(conn):
     return row is None or not row[0]
 
 
-SUBMITTED = "Report sent"
+SUBMITTED = "Your report was sent to the Fire Department."
+
+THREAD_HINT = "Replies arrive in this thread · Reply here to add details"
 
 
 def receipt_text(case_id):
@@ -40,13 +42,13 @@ def receipt(case_id, anonymous, delayed=False):
         notes.append(ANONYMOUS)
     if delayed:
         notes.append(DELIVERY_DELAYED)
-    if notes:
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": note} for note in notes],
-            }
-        )
+    notes.append(THREAD_HINT)
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": note} for note in notes],
+        }
+    )
     return text, blocks
 
 

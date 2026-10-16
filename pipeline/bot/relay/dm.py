@@ -73,6 +73,12 @@ JOIN fd.intake_conversations c ON c.id = m.conversation_id
 WHERE m.id = %s AND m.direction = 'inbound' AND c.handed_off_at IS NOT NULL AND c.closed_at IS NULL
 """
 
+SUBMITTED_MESSAGES = """
+SELECT channel_id, ts FROM fd.intake_messages
+WHERE conversation_id = %s AND direction = 'inbound' AND deleted_at IS NULL
+ORDER BY posted_at, id
+"""
+
 TRUSTED_SENDERS = "SELECT value FROM fd.app_settings WHERE key = 'relay.trusted_senders'"
 
 HANDED_OFF = "SELECT handed_off_at IS NOT NULL FROM fd.intake_conversations WHERE id = %s"
@@ -198,6 +204,12 @@ def register(app, on_submit=None):
                 direction="outbound",
             )
 
+    def react_submitted_messages(client, conversation_id):
+        with session() as conn:
+            rows = conn.execute(SUBMITTED_MESSAGES, (conversation_id,)).fetchall()
+        for channel_id, ts in rows:
+            react_received(client, channel_id, ts)
+
     def react_received(client, channel_id, ts):
         try:
             client.reactions_add(channel=channel_id, timestamp=ts, name=RECEIVED_REACTION)
@@ -275,6 +287,7 @@ def register(app, on_submit=None):
 
         text, blocks = receipt(case_id, anonymous, delayed)
         client.chat_update(channel=channel_id, ts=prompt_ts, text=text, blocks=blocks)
+        react_submitted_messages(client, conversation_id)
 
     @app.action(consent.CANCEL)
     def on_cancel(ack, body, client):
