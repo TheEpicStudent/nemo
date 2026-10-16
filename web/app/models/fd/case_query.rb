@@ -327,6 +327,25 @@ module Fd
       )
     SQL
 
+    CATEGORY_COUNTS = <<~SQL.squish
+      WITH action_category AS (
+        SELECT DISTINCT a.case_id, a.category_key FROM fd.actions a
+        WHERE a.reversed_at IS NULL AND a.category_key IS NOT NULL
+      ),
+      case_category AS (
+        SELECT case_id, category_key FROM action_category
+        UNION
+        SELECT c.id, c.category_key FROM fd.cases c
+        WHERE c.category_key IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM action_category ac WHERE ac.case_id = c.id)
+      )
+      SELECT category_key, count(*) FROM case_category GROUP BY category_key
+    SQL
+
+    def self.category_counts
+      Case.connection.select_rows(CATEGORY_COUNTS).to_h { |key, count| [key, count.to_i] }
+    end
+
     def apply_category(scope)
       return scope if default?("category")
 

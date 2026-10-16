@@ -99,4 +99,29 @@ class FdInfractionCategoriesTest < ActionDispatch::IntegrationTest
 
     assert_nil category("adult").retired_at
   end
+
+  def log_action(kase, category_key, reversed: false)
+    Fd::Action.create!(case_id: kase.id, type_key: "warning", target_user_id: "USUB", decided_by: "UFF1",
+      performed_by: "UFF1", source_app: "fire_engine", category_key: category_key,
+      reversed_at: (Time.current if reversed), reversed_by: ("UFF1" if reversed))
+  end
+
+  test "categories tab counts cases the way the case list filters them" do
+    case_only = make_case(category_key: "nos")
+    action_only = make_case(category_key: nil)
+    log_action(action_only, "nos")
+    overridden = make_case(category_key: "nos")
+    log_action(overridden, "spam")
+    reversed_action = make_case(category_key: "nos")
+    log_action(reversed_action, "spam", reversed: true)
+
+    counts = Fd::CaseQuery.category_counts
+    listed = Fd::CaseQuery.new({ "category" => "nos" }).relation.pluck(:id)
+
+    assert_equal [case_only.id, action_only.id, reversed_action.id].sort, listed.sort
+    assert_equal listed.size, counts["nos"]
+    assert_equal 1, counts["spam"]
+    nos_count_text = Nokogiri::HTML(categories_tab).at_css("a[href='#{fd_cases_path(category: "nos")}']").text
+    assert_equal "3", nos_count_text
+  end
 end

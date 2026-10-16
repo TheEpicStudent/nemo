@@ -44,7 +44,7 @@ module Fd
       active, retired = InfractionCategory.ordered.to_a.partition { |category| !category.retired? }
       @categories = active + retired
       @active_count = active.size
-      @category_cases = Case.where.not(category_key: nil).group(:category_key).count
+      @category_cases = CaseQuery.category_counts
     end
 
     def load_responses
