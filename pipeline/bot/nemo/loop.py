@@ -5,7 +5,7 @@ import threading
 from bot.core import loops, session
 from bot.nemo import automod, channel, channelguards, channels, chat, guards, guard_actions
 from bot.nemo import enforcement, guard_notices, guard_removals, memberguards, case_queue
-from bot.nemo import internal_log, join_requests, responses, screening
+from bot.nemo import bot_kicks, internal_log, join_requests, responses, screening
 from bot.nemo.enforcement import purge, slowmode, sweep
 
 log = logging.getLogger("bot.nemo")
@@ -27,6 +27,7 @@ GUARD_REMOVE = "fd_guard_remove"
 JOIN_REQUEST = "fd_channel_join_request"
 AUDIT_EVENT = "fd_audit_event"
 AUTOMOD_MATCH = "fd_automod_match"
+BOT_KICK = "fd_bot_kick"
 FIRE_ENGINE_SOURCE = '"fire_engine"'
 
 DEFAULT_SECONDS = 300
@@ -242,6 +243,7 @@ def once(case_channel, channel_id=None):
         ("clearing unremoved guard artifacts", lambda: guard_actions.sweep_removals(client)),
         ("removing ended lock notices", lambda: guard_actions.remove_lock_warnings(client)),
         ("posting internal log lines", lambda: internal_log.drain(client)),
+        ("kicking bots taken off allow lists", lambda: bot_kicks.drain(client)),
         ("resetting sessions the guard has earned", guard_actions.sweep_strikes),
         ("lifting what has run out", lambda: sweep.sweep_lapsed(client)),
         ("lifting expired channel guards", lift_lapsed_channel_guards),
@@ -277,6 +279,7 @@ def start(case_channel, stopping, channel_id=None):
                                    stopping, settle=1.0, every=5.0)
     wake_lapses = loops.timed(f"{NAME}-lapses", lambda: lift_due(case_channel.client), stopping)
     wake_log = loops.draining(f"{NAME}-log", lambda: internal_log.drain(case_channel.client), stopping)
+    wake_kicks = loops.draining(f"{NAME}-kicks", lambda: bot_kicks.drain(case_channel.client), stopping)
 
     def on_notify(channel_name, payload):
         if channel_name == GUARD_NOTICE:
@@ -286,6 +289,8 @@ def start(case_channel, stopping, channel_id=None):
                 wake_log()
         elif channel_name == AUTOMOD_MATCH:
             wake_log()
+        elif channel_name == BOT_KICK:
+            wake_kicks()
         elif channel_name == GUARD_REMOVE:
             wake_removals()
         elif channel_name == CHAT:
@@ -337,7 +342,7 @@ def start(case_channel, stopping, channel_id=None):
                        (CASES, CHAT, OUTBOX, CONVERSATION, GUARD, CHANNEL_GUARD,
                         MEMBER_GUARD, APP_SETTING, AUTOMOD_WORD, PURGE,
                         GUARD_NOTICE, GUARD_REMOVE, JOIN_REQUEST, BLOCKED_DOMAIN,
-                        AUDIT_EVENT, AUTOMOD_MATCH),
+                        AUDIT_EVENT, AUTOMOD_MATCH, BOT_KICK),
                        on_notify, stopping),
         loops.sweeping(NAME, every(), lambda: once(case_channel, channel_id), stopping),
         loops.sweeping(f"{NAME}-joins", every_join_sweep(), lambda: join_sweep(case_channel, stopping),

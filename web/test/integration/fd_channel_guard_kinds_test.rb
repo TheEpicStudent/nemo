@@ -434,6 +434,28 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_equal 0, Fd::LiveGuards.new.total
   end
 
+  def queued_kicks
+    ActiveRecord::Base.connection.select_rows(
+      "SELECT channel_id, subject_id FROM fd.bot_kicks WHERE channel_id = #{ActiveRecord::Base.connection.quote(@id)}"
+    )
+  end
+
+  test "removing a bot from a live allow list queues a kick" do
+    guard!("bot_allowlist").allows.create!(subject_id: "B0BOT", added_by: "UME")
+
+    delete fd_channel_allow_path(@id, "bot_allowlist", "B0BOT")
+
+    assert_equal [[@id, "B0BOT"]], queued_kicks
+  end
+
+  test "removing an exemption queues no kick" do
+    guard!("slowmode", seconds: 30).allows.create!(subject_id: "USLOW", added_by: "UME")
+
+    delete fd_channel_allow_path(@id, "slowmode", "USLOW")
+
+    assert_empty queued_kicks
+  end
+
   test "somebody without channel.guard cannot turn a kind on" do
     drop_roles!("UME")
     hold_role!("UME", "gardener")

@@ -219,3 +219,12 @@ def test_destroy_notice_counts_the_messages(monkeypatch):
     guard_actions.post_destroy_notice(client, object(), "C1", THREAD, "UMOD", 42)
 
     assert posted[0]["text"] == "Thread destroyed · <#C1> · 42 messages · by <@UMOD> · <https://fe/archive|archive>"
+
+
+def test_bot_kick_notification_wakes_the_kick_drain(notify):
+    watched, woken = notify
+
+    watched["on_notify"](loop.BOT_KICK, "B1")
+
+    assert loop.BOT_KICK in watched["names"]
+    assert "nemo-kicks" in woken
