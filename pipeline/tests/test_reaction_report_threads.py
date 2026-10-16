@@ -75,15 +75,15 @@ def reaction_calls(monkeypatch):
     return calls
 
 
-def test_hourglass_on_report_thread_keeps_existing_case(reaction_calls):
+def test_open_reaction_on_report_thread_returns_existing_case(reaction_calls):
     reaction_calls["rows"][REPORT_THREAD_SQL] = (REPORT_CASE_ID,)
 
-    assert reaction_watch.opened(reaction("hourglass", REPORT_CARD_TS)) == REPORT_CASE_ID
+    assert reaction_watch.open_case_on_reaction(reaction("hourglass", REPORT_CARD_TS)) == REPORT_CASE_ID
     assert reaction_calls["opened"] == []
 
 
-def test_hourglass_on_plain_thread_opens_case(reaction_calls):
-    assert reaction_watch.opened(reaction("hourglass", REPORT_CARD_TS)) == NEW_CASE_ID
+def test_open_reaction_on_thread_without_case_opens_case(reaction_calls):
+    assert reaction_watch.open_case_on_reaction(reaction("hourglass", REPORT_CARD_TS)) == NEW_CASE_ID
     assert reaction_calls["opened"] == [MODERATOR_ID]
 
 
@@ -95,8 +95,68 @@ def test_ban_on_report_thread_reply_prompts_existing_case(reaction_calls):
     assert reaction_calls["opened"] == []
 
 
-def test_check_on_report_thread_reply_leaves_case_open(reaction_calls):
+def test_resolve_reaction_on_report_thread_reply_is_ignored(reaction_calls):
     reaction_calls["rows"][REPORT_THREAD_SQL] = (REPORT_CASE_ID,)
 
-    assert reaction_watch.closed(reaction("white_check_mark", REPLY_TS)) is None
+    assert reaction_watch.close_case_on_root_reaction(reaction("white_check_mark", REPLY_TS)) is None
     assert reaction_calls["closed"] == []
+
+
+CASE_THREAD_SQL = "AND card_thread_ts = %s"
+ROOT_TS = "200.000"
+REPLY_IN_CASE_THREAD_TS = "200.500"
+THREAD_CASE_ID = 31
+
+
+class RootTsConn(Conn):
+    def execute(self, sql, args=None):
+        self.last_sql = sql if not args or ROOT_TS in args else ""
+        return self
+
+
+@pytest.fixture
+def case_thread_calls(reaction_calls, monkeypatch):
+    reaction_calls["rows"][CASE_THREAD_SQL] = (THREAD_CASE_ID,)
+
+    @contextlib.contextmanager
+    def fake_session():
+        yield RootTsConn(reaction_calls["rows"])
+
+    def fail_root_lookup(*args):
+        raise AssertionError("root_of called")
+
+    monkeypatch.setattr(reaction_watch, "session", fake_session)
+    monkeypatch.setattr(reaction_watch, "root_of", fail_root_lookup)
+    monkeypatch.setattr(reaction_watch.case_actions, "close_quietly",
+                        lambda conn, case_id, resolution, by: reaction_calls["closed"].append(case_id)
+                        or (resolution or "no_action"))
+    return reaction_calls
+
+
+@pytest.mark.parametrize("reaction_name", ["white_check_mark", "white_tick", "check", "check-green", "x"])
+def test_close_reaction_on_case_thread_root_closes_case(case_thread_calls, reaction_name):
+    assert reaction_watch.close_case_on_root_reaction(reaction(reaction_name, ROOT_TS)) == THREAD_CASE_ID
+    assert case_thread_calls["closed"] == [THREAD_CASE_ID]
+
+
+@pytest.mark.parametrize("reaction_name", ["white_check_mark", "x"])
+def test_close_reaction_on_case_thread_reply_is_ignored(case_thread_calls, reaction_name):
+    assert reaction_watch.close_case_on_root_reaction(reaction(reaction_name, REPLY_IN_CASE_THREAD_TS)) is None
+    assert case_thread_calls["closed"] == []
+
+
+@pytest.mark.parametrize(("reaction_name", "is_resolve", "is_close"), [
+    ("white_check_mark", True, True),
+    ("heavy_check_mark", True, True),
+    ("ballot_box_with_check", True, True),
+    ("white_tick", True, True),
+    ("check", True, True),
+    ("check-green", True, True),
+    ("check-", False, False),
+    ("checkered_flag", False, False),
+    ("x", False, True),
+    ("eyes", False, False),
+])
+def test_reaction_name_classification(reaction_name, is_resolve, is_close):
+    assert reaction_watch.is_resolve_reaction(reaction_name) is is_resolve
+    assert reaction_watch.is_close_reaction(reaction_name) is is_close

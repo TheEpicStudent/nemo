@@ -166,31 +166,37 @@ def on_card(mark, user_id="UME"):
                 "item": {"type": "message", "channel": CHANNEL_ID, "ts": CARD}})
 
 
-def test_a_check_on_the_card_closes_by_what_happened(reaction_calls):
-    assert reaction_watch.closed_on_card(on_card("white_check_mark")) == 23
+def test_card_resolve_reaction_closes_case_without_resolution(reaction_calls):
+    assert reaction_watch.close_case_on_card_reaction(on_card("white_check_mark")) == 23
     assert reaction_calls["closed"] == [(23, None)]
     assert reaction_calls["after"] == ["no_action"]
 
 
-def test_an_x_on_the_card_closes_it_as_not_conduct(reaction_calls):
-    reaction_watch.closed_on_card(on_card("x"))
+@pytest.mark.parametrize("mark", ["white_tick", "check", "check-green"])
+def test_card_extra_resolve_reactions_close_case(reaction_calls, mark):
+    assert reaction_watch.close_case_on_card_reaction(on_card(mark)) == 23
+    assert reaction_calls["closed"] == [(23, None)]
+
+
+def test_card_x_reaction_closes_case_as_not_conduct(reaction_calls):
+    reaction_watch.close_case_on_card_reaction(on_card("x"))
     assert reaction_calls["closed"] == [(23, "not_conduct")]
 
 
-def test_nemos_own_marks_close_nothing(reaction_calls):
-    assert reaction_watch.closed_on_card(on_card("white_check_mark", user_id=BOT)) is None
+def test_card_reaction_by_nemo_is_ignored(reaction_calls):
+    assert reaction_watch.close_case_on_card_reaction(on_card("white_check_mark", user_id=BOT)) is None
     assert reaction_calls["closed"] == []
 
 
-def test_a_reaction_without_case_resolve_closes_nothing(reaction_calls, monkeypatch):
+def test_card_reaction_without_case_resolve_is_ignored(reaction_calls, monkeypatch):
     monkeypatch.setattr(reaction_watch.access, "may",
                         lambda conn, user_id, capability, case=None: (False, "no"))
-    assert reaction_watch.closed_on_card(on_card("x")) is None
+    assert reaction_watch.close_case_on_card_reaction(on_card("x")) is None
     assert reaction_calls["closed"] == []
 
 
-def test_other_reactions_on_the_card_are_left_alone(reaction_calls):
-    assert reaction_watch.closed_on_card(on_card("eyes")) is None
+def test_card_unrelated_reaction_is_ignored(reaction_calls):
+    assert reaction_watch.close_case_on_card_reaction(on_card("eyes")) is None
     assert reaction_calls["closed"] == []
 
 

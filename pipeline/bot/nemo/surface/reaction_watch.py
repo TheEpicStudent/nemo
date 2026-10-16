@@ -6,11 +6,11 @@ from bot.nemo.surface import on_event
 
 log = logging.getLogger("bot.nemo")
 
-OPENS = ("hourglass", "hourglass_flowing_sand", "hourglass_not_done")
-CLOSES = ("white_check_mark", "heavy_check_mark", "ballot_box_with_check")
-NOT_CONDUCT = channel.NOT_CONDUCT_MARKS
-ENDS = CLOSES + NOT_CONDUCT
-BANS = ("ban",)
+OPEN_REACTIONS = ("hourglass", "hourglass_flowing_sand", "hourglass_not_done")
+RESOLVE_REACTIONS = ("white_check_mark", "heavy_check_mark", "ballot_box_with_check", "white_tick", "check")
+RESOLVE_REACTION_PREFIX = "check-"
+NOT_CONDUCT_REACTIONS = channel.NOT_CONDUCT_MARKS
+BAN_REACTIONS = ("ban",)
 
 CARD_OF = """
 SELECT case_id FROM (
@@ -27,6 +27,20 @@ def plain(name):
     return (name or "").split("::")[0]
 
 
+def is_open_reaction(name):
+    return name in OPEN_REACTIONS
+
+
+def is_resolve_reaction(name):
+    return name in RESOLVE_REACTIONS or (
+        name.startswith(RESOLVE_REACTION_PREFIX) and len(name) > len(RESOLVE_REACTION_PREFIX)
+    )
+
+
+def is_close_reaction(name):
+    return is_resolve_reaction(name) or name in NOT_CONDUCT_REACTIONS
+
+
 def root_of(client, channel_id, ts):
     try:
         response = client.conversations_replies(
@@ -39,7 +53,7 @@ def root_of(client, channel_id, ts):
     return message.get("thread_ts") or message.get("ts") or ts, message
 
 
-def reaction_target(ctx, marks, needs):
+def reaction_target(ctx, matches, capability, resolve_root=True):
     event = ctx.payload or {}
     item = event.get("item") or {}
     if item.get("type") != "message":
@@ -49,7 +63,7 @@ def reaction_target(ctx, marks, needs):
     who = event.get("user")
     if not channel_id or not ts or not who:
         return None
-    if plain(event.get("reaction")) not in marks:
+    if not matches(plain(event.get("reaction"))):
         return None
     if who == whoami.bot_user_id(ctx.client, "nemo"):
         return None
@@ -57,11 +71,13 @@ def reaction_target(ctx, marks, needs):
     with session() as conn:
         if channel_id not in channels.react_channels(conn):
             return None
-        may, _why = access.may(conn, who, needs)
+        may, _why = access.may(conn, who, capability)
     if not may:
-        log.info("nemo: %s reacted in %s without %s", who, channel_id, needs)
+        log.info("nemo: %s reacted in %s without %s", who, channel_id, capability)
         return None
 
+    if not resolve_root:
+        return channel_id, ts, {}, who
     thread_ts, message = root_of(ctx.client, channel_id, ts)
     return channel_id, thread_ts, message, who
 
@@ -81,8 +97,8 @@ def store_root_message(conn, case_id, channel_id, message):
 
 
 @on_event("reaction_added", open_to_all=True)
-def opened(ctx):
-    target = reaction_target(ctx, OPENS, "case.open")
+def open_case_on_reaction(ctx):
+    target = reaction_target(ctx, is_open_reaction, "case.open")
     if target is None:
         return None
     channel_id, thread_ts, message, who = target
@@ -101,8 +117,8 @@ def opened(ctx):
     return case_id
 
 
-def closing_as(mark):
-    return "not_conduct" if mark in NOT_CONDUCT else None
+def resolution_for(reaction):
+    return "not_conduct" if reaction in NOT_CONDUCT_REACTIONS else None
 
 
 def after_resolve(client, case_id, resolution, who, echo=True):
@@ -122,12 +138,12 @@ def card_case(conn, channel_id, ts):
 
 
 @on_event("reaction_added", open_to_all=True)
-def closed_on_card(ctx):
+def close_case_on_card_reaction(ctx):
     event = ctx.payload or {}
     item = event.get("item") or {}
-    mark = plain(event.get("reaction"))
+    reaction = plain(event.get("reaction"))
     who = event.get("user")
-    if item.get("type") != "message" or mark not in ENDS or not who:
+    if item.get("type") != "message" or not is_close_reaction(reaction) or not who:
         return None
     if who == whoami.bot_user_id(ctx.client, "nemo"):
         return None
@@ -140,7 +156,7 @@ def closed_on_card(ctx):
         if not may:
             log.info("nemo: %s reacted on case %s without case.resolve", who, case_id)
             return None
-        resolution = case_actions.close_quietly(conn, case_id, closing_as(mark), who)
+        resolution = case_actions.close_quietly(conn, case_id, resolution_for(reaction), who)
 
     if resolution is None:
         log.info("nemo: case %s was already resolved", case_id)
@@ -151,18 +167,18 @@ def closed_on_card(ctx):
 
 
 @on_event("reaction_added", open_to_all=True)
-def closed(ctx):
-    target = reaction_target(ctx, ENDS, "case.resolve")
+def close_case_on_root_reaction(ctx):
+    target = reaction_target(ctx, is_close_reaction, "case.resolve", resolve_root=False)
     if target is None:
         return None
-    channel_id, thread_ts, _, who = target
-    mark = plain((ctx.payload or {}).get("reaction"))
+    channel_id, root_ts, _, who = target
+    reaction = plain((ctx.payload or {}).get("reaction"))
 
     with session() as conn:
-        case_id = case_queue.case_on(conn, channel_id, thread_ts)
+        case_id = case_queue.case_on(conn, channel_id, root_ts)
         if case_id is None:
             return None
-        resolution = case_actions.close_quietly(conn, case_id, closing_as(mark), who)
+        resolution = case_actions.close_quietly(conn, case_id, resolution_for(reaction), who)
 
     if resolution is None:
         log.info("nemo: case %s was already resolved", case_id)
@@ -198,7 +214,7 @@ def banned(ctx):
     event = ctx.payload or {}
     item = event.get("item") or {}
     who = event.get("user")
-    if item.get("type") != "message" or plain(event.get("reaction")) not in BANS or not who:
+    if item.get("type") != "message" or plain(event.get("reaction")) not in BAN_REACTIONS or not who:
         return None
     if who == whoami.bot_user_id(ctx.client, "nemo"):
         return None
