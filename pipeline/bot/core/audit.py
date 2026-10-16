@@ -1,3 +1,5 @@
+import json
+
 from psycopg.types.json import Jsonb
 
 SOURCE_APP = "nemo"
@@ -10,6 +12,10 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
+def encode(value):
+    return json.dumps(value, default=str)
+
+
 def record(conn, entity_type, entity_id, verb, actor, before=None, after=None,
            actor_kind="human", source_app=SOURCE_APP, subject_user_id=None):
     conn.execute(
@@ -20,8 +26,8 @@ def record(conn, entity_type, entity_id, verb, actor, before=None, after=None,
             entity_type,
             entity_id,
             verb,
-            Jsonb(before) if before else None,
-            Jsonb(after) if after else None,
+            Jsonb(before, dumps=encode) if before else None,
+            Jsonb(after, dumps=encode) if after else None,
             source_app,
             subject_user_id,
         ),
