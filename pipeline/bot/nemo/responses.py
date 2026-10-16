@@ -51,6 +51,13 @@ def setting(key):
         return (_settings.get(key) or "").strip()
 
 
+MEMBER = "{member}"
+
+
+def reply_for(user_id):
+    return (setting(AUTORESPONSE_BODY) or "").replace(MEMBER, f"<@{user_id}>")
+
+
 def on(key):
     return setting(key) == "on"
 

@@ -116,6 +116,28 @@ def test_the_reaction_is_answered(monkeypatch):
     assert client.posted[0]["text"] == BODY
 
 
+def test_the_reply_names_the_member_where_asked(monkeypatch):
+    load(**{responses.AUTORESPONSE_BODY: "Hi {member}, here is why. {member}"})
+    client = Slack()
+    monkeypatch.setattr(autoresponse, "session", lambda: _conn_context(Conn()))
+
+    autoresponse.reacted(Ctx(reacted(), client))
+
+    assert client.posted[0]["text"] == f"Hi <@{USER_ID}>, here is why. <@{USER_ID}>"
+
+
+def test_reply_for_leaves_other_braces_alone():
+    load(**{responses.AUTORESPONSE_BODY: "use {curly} as is, {member}"})
+
+    assert responses.reply_for("U9") == "use {curly} as is, <@U9>"
+
+
+def test_reply_for_before_the_settings_load_is_empty(monkeypatch):
+    monkeypatch.setattr(responses, "_loaded", False)
+
+    assert responses.reply_for("U9") == ""
+
+
 def test_a_skin_tone_still_matches(monkeypatch):
     load()
     client = Slack()

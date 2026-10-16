@@ -52,6 +52,10 @@
     @apply grid grid-cols-2 gap-2;
   }
 
+  .field-label > .field-vars {
+    @apply text-xs text-muted-foreground;
+  }
+
   .field-wrong, .wrong {
     @apply mt-1.5 block text-sm text-destructive;
   }

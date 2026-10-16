@@ -168,4 +168,9 @@ class FdResponsesTest < ActionDispatch::IntegrationTest
     assert_empty setting(Fd::AppSetting::AUTORESPONSE_BODY)
     assert_empty setting(Fd::AppSetting::UNSUB_SHIELD_LINK)
   end
+  test "the reply field lists the member variable" do
+    get fd_configuration_path(tab: "responses")
+
+    assert_select ".field-vars code", "{member}"
+  end
 end
