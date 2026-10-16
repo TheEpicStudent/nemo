@@ -252,10 +252,6 @@ def build_blocks(case_id, values, guard_status=None):
     key = values.get("type_key")
     built = [
         {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": f"*case {case_id}*"}],
-        },
-        {
             "type": "input",
             "block_id": TARGET,
             "dispatch_action": True,
