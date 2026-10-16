@@ -237,6 +237,12 @@ module Fd
       Tag.where(id: tag_ids).order(:name).to_a
     end
 
+    def take_assignees_from!(case_ids, by:)
+      held = assignees.pluck(:user_id)
+      user_ids = CaseAssignee.where(case_id: case_ids).where.not(user_id: held).distinct.pluck(:user_id)
+      user_ids.map { |user_id| assign!(user_id, by: by) }
+    end
+
     def assign!(user_id, by: nil)
       assignees.create!(user_id: user_id, assigned_by: by || user_id, assigned_at: Time.current)
     end

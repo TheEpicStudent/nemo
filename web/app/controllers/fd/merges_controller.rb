@@ -138,9 +138,19 @@ module Fd
             })
         end
         carry_tags(marked_ids, root)
+        carry_assignees(marked_ids, root)
       end
 
       marked
+    end
+
+    def carry_assignees(from_ids, root)
+      return if from_ids.empty?
+
+      Case.find(root).take_assignees_from!(from_ids, by: current_account.user_id).each do |assignee|
+        audit(assignee, "attached", entity_id: root,
+          after: { "user_id" => assignee.user_id, "carried_from" => from_ids })
+      end
     end
 
     def carry_tags(from_ids, root)

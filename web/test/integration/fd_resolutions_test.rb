@@ -233,7 +233,7 @@ class FdResolutionsTest < ActionDispatch::IntegrationTest
     assert Fd::AuditEntry.exists?(entity_type: "case", entity_id: @kase.id, verb: "reopened")
   end
 
-  test "reopening hands the case back to nobody" do
+  test "reopening keeps the assignees" do
     @kase.assign!("UOTHER")
     @kase.assign!(@me.user_id)
     sign_in_as(@me)
@@ -241,10 +241,7 @@ class FdResolutionsTest < ActionDispatch::IntegrationTest
 
     delete fd_case_resolution_path(@kase)
 
-    assert_empty @kase.reload.assignee_user_ids, "whoever had it is not on the hook again"
-    entry = Fd::AuditEntry.where(entity_type: "case", entity_id: @kase.id, verb: "reopened").last
-    assert_equal %w[UOTHER UME], entry.before["assignees"], "the record says who was let go"
-    assert_empty entry.after["assignees"]
+    assert_equal %w[UOTHER UME], @kase.reload.assignee_user_ids
   end
 
   test "reopening reopens the reports the resolution closed" do

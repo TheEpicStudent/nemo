@@ -40,17 +40,14 @@ module Fd
 
       return redirect_with_alert("Case #{@case.id} is already open") unless @case.resolved?
 
-      assignee_ids = @case.assignee_user_ids
       previous_state = { "resolved_at" => @case.resolved_at, "resolution" => @case.resolution,
-                         "duplicate_of" => @case.duplicate_of, "assignees" => assignee_ids }
+                         "duplicate_of" => @case.duplicate_of }
 
       writing do
         @case.update!(resolved_at: nil, resolution: nil, duplicate_of: nil, updated_at: @now)
-        @case.assignees.destroy_all
         reopen_reports
         audit(@case, "reopened", before: previous_state,
-          after: { "resolved_at" => nil, "resolution" => nil, "duplicate_of" => nil,
-                   "assignees" => [] })
+          after: { "resolved_at" => nil, "resolution" => nil, "duplicate_of" => nil })
       end
 
       redirect_to fd_case_path(@case), notice: "Case #{@case.id} reopened"

@@ -11,7 +11,6 @@ CLOSED_AT = dt.datetime(2026, 10, 1, 12, 0, tzinfo=dt.UTC)
 
 CASE_RESOLUTION = "SELECT resolved_at, resolution, duplicate_of"
 SLACK_REOPEN = "RETURNING resolution"
-CLEAR_ASSIGNEES = "DELETE FROM fd.case_assignees"
 REOPEN_REPORTS = "UPDATE fd.case_reports r"
 AUDIT_INSERT = "INSERT INTO fd.audit"
 
@@ -47,7 +46,7 @@ class Conn:
 
 
 def closed_report_rows():
-    return {REOPEN_REPORTS: [(REPORT_ID, CLOSED_AT, MODERATOR_ID)], CLEAR_ASSIGNEES: []}
+    return {REOPEN_REPORTS: [(REPORT_ID, CLOSED_AT, MODERATOR_ID)]}
 
 
 def test_reporter_reopen_clears_closed_reports():
@@ -78,7 +77,7 @@ def test_reopen_reports_audits_previous_closure():
 
 
 def test_reopen_without_closed_reports_writes_no_report_audit():
-    conn = Conn({SLACK_REOPEN: ("no_action",)}, {REOPEN_REPORTS: [], CLEAR_ASSIGNEES: []})
+    conn = Conn({SLACK_REOPEN: ("no_action",)}, {REOPEN_REPORTS: []})
 
     assert case_actions.reopen(conn, CASE_ID, MODERATOR_ID) is True
     assert conn.report_audits() == []
@@ -89,3 +88,31 @@ def test_reopen_of_open_case_leaves_reports_alone():
 
     assert core_case.reopen(conn, CASE_ID, REPORTER_ID) is None
     assert conn.args_for(REOPEN_REPORTS) == []
+
+
+def test_slack_reopen_keeps_assignees():
+    conn = Conn({SLACK_REOPEN: ("action_taken",)}, closed_report_rows())
+
+    case_actions.reopen(conn, CASE_ID, MODERATOR_ID)
+
+    assert not [sql for sql, _args in conn.executed if "case_assignees" in sql]
+
+
+MERGE = "SET resolved_at = now(), resolution = 'duplicate'"
+
+
+def test_merge_carries_assignees_to_the_surviving_case():
+    conn = Conn({MERGE: (CLOSED_AT,)}, {"INSERT INTO fd.case_assignees": [("UHELPER",)]})
+
+    assert case_actions.merge(conn, CASE_ID, [42, 43], MODERATOR_ID) == [42, 43]
+    assert conn.args_for("INSERT INTO fd.case_assignees") == [(CASE_ID, MODERATOR_ID, [42, 43])]
+    attached = [args for args in conn.args_for(AUDIT_INSERT) if args[2] == "assignee"]
+    assert [(args[3], args[4], args[6].obj) for args in attached] == \
+        [(CASE_ID, "attached", {"user_id": "UHELPER", "carried_from": [42, 43]})]
+
+
+def test_merge_with_nothing_closed_carries_nothing():
+    conn = Conn({MERGE: None})
+
+    assert case_actions.merge(conn, CASE_ID, [42], MODERATOR_ID) == []
+    assert conn.args_for("INSERT INTO fd.case_assignees") == []

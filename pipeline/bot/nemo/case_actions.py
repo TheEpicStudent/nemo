@@ -110,8 +110,12 @@ RETURNING resolution
 """
 
 
-CLEAR_ASSIGNEES = """
-DELETE FROM fd.case_assignees WHERE case_id = %s RETURNING user_id
+CARRY_ASSIGNEES = """
+INSERT INTO fd.case_assignees (case_id, user_id, assigned_by)
+SELECT DISTINCT %s, a.user_id, %s FROM fd.case_assignees a
+WHERE a.case_id = ANY(%s)
+ON CONFLICT (case_id, user_id) DO NOTHING
+RETURNING user_id
 """
 
 
@@ -255,12 +259,11 @@ def reopen(conn, case_id, by):
     if row is None:
         return False
 
-    cleared_assignees = [one[0] for one in conn.execute(CLEAR_ASSIGNEES, (case_id,)).fetchall()]
     reopen_reports(conn, case_id, by)
     audit.record(
         conn, "case", case_id, "reopened", by,
-        before={"resolution": row[0], "assignees": cleared_assignees},
-        after={"resolved_at": None, "resolution": None, "assignees": []},
+        before={"resolution": row[0]},
+        after={"resolved_at": None, "resolution": None},
     )
     return True
 
@@ -455,7 +458,18 @@ def merge(conn, target_id, duplicate_ids, by):
             after={"resolved_at": str(row[0]), "resolution": "duplicate", "duplicate_of": target_id},
         )
         closed.append(case_id)
+    carry_assignees(conn, target_id, closed, by)
     return closed
+
+
+def carry_assignees(conn, target_id, case_ids, by):
+    if not case_ids:
+        return []
+    carried = [row[0] for row in conn.execute(CARRY_ASSIGNEES, (target_id, by, list(case_ids))).fetchall()]
+    for user_id in carried:
+        audit.record(conn, "assignee", target_id, "attached", by,
+                     after={"user_id": user_id, "carried_from": list(case_ids)})
+    return carried
 
 
 def settled_resolution(conn, case_id):
