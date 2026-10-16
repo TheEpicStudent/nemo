@@ -27,7 +27,7 @@ features:
   slash_commands:
     - command: /nemo
       description: Look up members, add notes, open cases, set slow mode, purge messages
-      usage_hint: help | lookup @member | note @member | open @member | shush @member 3d | unshush @member | channelban @member #channel 3d | unban @member #channel | slowmode #channel 30s 2h | purge #channel 50 | 3864
+      usage_hint: help | queue | lookup @member | note @member | open @member | shush @member 3d | unshush @member | channelban @member #channel 3d | unban @member #channel | slowmode #channel 30s 2h | purge #channel 50 | 3864
       should_escape: true
 
 oauth_config:

@@ -16,6 +16,7 @@ LOOKUP = (
     (
         ("case.read", "/nemo lookup @member", "their record"),
         ("case.read", "/nemo 3864", "show case 3864"),
+        ("case.read", "/nemo queue", "open cases"),
     ),
 )
 

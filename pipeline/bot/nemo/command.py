@@ -4,7 +4,16 @@ import re
 
 from bot.core import access, audit, richtext, session
 from bot.core.formatting import short_end
-from bot.nemo import case_actions, case_queue, channel, channelguards, memberguards, purge_requests, record
+from bot.nemo import (
+    case_actions,
+    case_queue,
+    channel,
+    channelguards,
+    memberguards,
+    open_cases,
+    purge_requests,
+    record,
+)
 from bot.nemo.views import help as helping
 from bot.nemo.views import merge, queued, report
 from bot.nemo.views import slowmode as slowcard
@@ -22,11 +31,12 @@ UNSHUSH = "unshush"
 UNBAN = "unban"
 PURGE = "purge"
 SLOWMODE = "slowmode"
+QUEUE = "queue"
 OPEN_RECORD = "open_record"
 OFF = "off"
 
 ABOUT_SOMEBODY = (LOOKUP, NOTE, SHUSH, CHANNEL_BAN, UNSHUSH, UNBAN)
-VERBS = (*ABOUT_SOMEBODY, OPEN, MERGE, PURGE, SLOWMODE)
+VERBS = (*ABOUT_SOMEBODY, OPEN, MERGE, PURGE, SLOWMODE, QUEUE)
 NEEDS_WORDS = (NOTE, OPEN, SHUSH, CHANNEL_BAN, SLOWMODE)
 
 WHO = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
@@ -289,6 +299,7 @@ NEEDED = {
     UNSHUSH: "member.guard",
     UNBAN: "member.guard",
     SLOWMODE: "channel.guard",
+    QUEUE: "case.read",
     "case": "case.read",
 }
 
@@ -473,6 +484,8 @@ def register(app):
                     target_id, body, command.get("channel_id"))
                 answer = (message_only(problem) if problem
                           else purge_requests.proposed(conn, request, user_id))
+            elif verb == QUEUE:
+                answer = open_cases.answer(conn)
             elif verb == OPEN:
                 open_case_ids = case_actions.open_about(conn, target_id) if target_id else []
                 if open_case_ids:

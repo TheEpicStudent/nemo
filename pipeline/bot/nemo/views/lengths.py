@@ -49,17 +49,20 @@ def ends(expires_at):
     return f"ends {short_end(expires_at)}" if expires_at else "no end date"
 
 
+def span(seconds):
+    seconds = max(seconds, 0)
+    if seconds >= 86400:
+        return f"{seconds // 86400}d {seconds % 86400 // 3600}h"
+    if seconds >= 3600:
+        return f"{seconds // 3600}h {seconds % 3600 // 60}m"
+    return f"{max(seconds // 60, 1)}m"
+
+
 def remaining(expires_at, now=None):
     if not expires_at:
         return "no end date"
-    seconds = max(int((expires_at - (now or dt.datetime.now(dt.UTC))).total_seconds()), 0)
-    if seconds >= 86400:
-        left = f"{seconds // 86400}d {seconds % 86400 // 3600}h"
-    elif seconds >= 3600:
-        left = f"{seconds // 3600}h {seconds % 3600 // 60}m"
-    else:
-        left = f"{max(seconds // 60, 1)}m"
-    return f"ends in {left} · {short_end(expires_at)}"
+    seconds = int((expires_at - (now or dt.datetime.now(dt.UTC))).total_seconds())
+    return f"ends in {span(seconds)} · {short_end(expires_at)}"
 
 
 def end_from(key, until, start=None, now=None):
