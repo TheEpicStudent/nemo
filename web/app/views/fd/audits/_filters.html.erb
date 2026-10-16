@@ -5,7 +5,8 @@
 <% after = search.first_value("after") %>
 <% last = search.first_value("last") %>
 <% actor_type = search.first_value("is") %>
-<% high_volume = search.first_value("show") == "high_volume" %>
+<% high_volume = search.of("show").include?("high_volume") %>
+<% access_logs = search.of("show").include?(Fd::AuditQuery::ACCESS_LOG_SHOW) %>
 <div class="audit-filters">
   <% if @query.may_slack? %>
     <%= render layout: "shared/dropdown", locals: {
@@ -63,8 +64,19 @@
     <%= render layout: "shared/dropdown", locals: {
           label: "High-volume actions", trigger_css: "btn",
           trigger: audit_filter_trigger("High-volume", high_volume ? "Shown" : "Hidden") } do %>
-      <%= link_to "Hidden", fd_audit_path(@query.set_params("show")), aria: { current: ("true" unless high_volume) } %>
-      <%= link_to "Shown", fd_audit_path(@query.set_params("show", "high_volume")), aria: { current: ("true" if high_volume) } %>
+      <%= link_to "Hidden", fd_audit_path(@query.show_params("high_volume", false)), aria: { current: ("true" unless high_volume) } %>
+      <%= link_to "Shown", fd_audit_path(@query.show_params("high_volume", true)), aria: { current: ("true" if high_volume) } %>
+    <% end %>
+
+    <% unless @query.access_log_subject? %>
+      <%= render layout: "shared/dropdown", locals: {
+            label: "Access logs", trigger_css: "btn",
+            trigger: audit_filter_trigger("Access logs", access_logs ? "Shown" : "Hidden") } do %>
+        <%= link_to "Hidden", fd_audit_path(@query.show_params(Fd::AuditQuery::ACCESS_LOG_SHOW, false)),
+              aria: { current: ("true" unless access_logs) } %>
+        <%= link_to "Shown", fd_audit_path(@query.show_params(Fd::AuditQuery::ACCESS_LOG_SHOW, true)),
+              aria: { current: ("true" if access_logs) } %>
+      <% end %>
     <% end %>
   <% end %>
 </div>

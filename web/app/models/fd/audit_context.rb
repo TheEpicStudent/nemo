@@ -18,6 +18,17 @@ module Fd
       LIMIT 1
     SQL
 
+    ACCESS_LOG_CONTEXT_SQL = <<~SQL.squish.freeze
+      SELECT u.ua, u.app, u.os, n.country, n.network, n.class AS kind,
+             (SELECT count(DISTINCT x.user_id) FROM fd.login_event x WHERE x.ip = l.ip) AS accounts
+      FROM fd.login_event l
+      LEFT JOIN slack.user_agent u ON u.id = l.ua_id
+      LEFT JOIN fd.ip_network n
+        ON n.ip_prefix = network(set_masklen(l.ip, CASE WHEN family(l.ip) = 4 THEN 24 ELSE 64 END))
+      WHERE #{AuditQuery::ACCESS_LOG_KEY}
+      LIMIT 1
+    SQL
+
     def initialize(row, query)
       @row = row
       @query = query
@@ -90,7 +101,16 @@ module Fd
     def context_row
       return @context_row if defined?(@context_row)
 
-      @context_row = row.slack? && row.id.to_s.match?(UUID) ? lookup : nil
+      @context_row = if row.slack? && row.id.to_s.match?(UUID)
+        lookup
+      elsif row.access_log?
+        access_log_lookup
+      end
+    end
+
+    def access_log_lookup
+      key = AuditQuery.access_log_key(row.id)
+      key && ApplicationRecord.connection.select_one(ApplicationRecord.sanitize_sql([ACCESS_LOG_CONTEXT_SQL, key]))
     end
 
     def lookup

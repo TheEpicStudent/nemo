@@ -6,7 +6,7 @@ module AuditHelper
     ["about", "Actor or target"], %w[actor Actor], %w[by Actor], ["action", "Event type"], ["category", "Event category"],
     ["network", "Network class"], ["country", "Country code"], %w[in Channel], ["is", "Actor type"],
     %w[source Log], ["app", "App ID"], ["session", "Session ID"], ["last", "Time window"],
-    %w[after From], %w[before Until], ["show", "High-volume events"]
+    %w[after From], %w[before Until], ["show", "Optional events"]
   ].freeze
   IDENTITY_QUERY_KEYS = [["ip", "Source IP"], ["email", "Account email"], ["domain", "Email domain"]].freeze
   NAMED_TOKENS = { "actor" => "actor ", "about" => "about ", "channel" => "in " }.freeze
@@ -84,7 +84,7 @@ module AuditHelper
       "by" => [%w[me You]],
       "last" => WINDOWS.map { |label, key| [key, label] },
       "source" => Fd::AuditQuery::SOURCES.map { |key| [key, FdHelper::AUDIT_SOURCE.fetch(key, key)] },
-      "show" => [["high_volume", "Previews, downloads and list edits"]]
+      "show" => [["high_volume", "Previews, downloads and list edits"], ["access_logs", "Access log sign-ins"]]
     }
   end
 

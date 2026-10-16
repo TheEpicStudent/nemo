@@ -214,7 +214,7 @@ module FdHelper
     "#{((part.to_f / total) * 100).round(1)}% of the workspace"
   end
 
-  AUDIT_SOURCE = { "fire_engine" => "Fire Engine", "slack" => "Slack",
+  AUDIT_SOURCE = { "fire_engine" => "Fire Engine", "slack" => "Slack", "access_log" => "Slack access log",
                    "read" => "Fire Engine", "api" => "API" }.freeze
 
   def audit_raw(row)

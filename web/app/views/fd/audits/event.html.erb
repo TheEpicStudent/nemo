@@ -21,13 +21,15 @@
           <div class="side-dim mono"><%= @context.actor_email %></div>
         <% end %>
       </dd>
-      <dt>Target</dt>
-      <dd>
-        <%= audit_about(@row) %>
-        <% if @context.entity_name.present? %>
-          <div class="side-dim"><%= @context.entity_name %></div>
-        <% end %>
-      </dd>
+      <% unless @row.access_log? %>
+        <dt>Target</dt>
+        <dd>
+          <%= audit_about(@row) %>
+          <% if @context.entity_name.present? %>
+            <div class="side-dim"><%= @context.entity_name %></div>
+          <% end %>
+        </dd>
+      <% end %>
       <% if @row.ip.present? %>
         <dt>IP</dt>
         <dd class="mono"><%= @row.ip %></dd>

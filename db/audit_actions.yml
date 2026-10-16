@@ -21,6 +21,10 @@ actions:
     category: sign_ins
     label: Signed out
     sentence: "{actor} signed out"
+  access_log_sign_in:
+    category: sign_ins
+    label: Access log sign-in
+    sentence: "{actor} signed in"
   anomaly:
     category: sign_ins
     label: Unusual activity

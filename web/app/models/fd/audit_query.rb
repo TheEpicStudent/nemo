@@ -14,6 +14,8 @@ module Fd
 
       def api? = source == API
 
+      def access_log? = source == ACCESS_LOG
+
       def changed_keys
         ((after || {}).keys | (before || {}).keys).sort
       end
@@ -45,7 +47,14 @@ module Fd
     SLACK = "slack".freeze
     READ = "read".freeze
     API = "api".freeze
-    SOURCES = [FIRE_ENGINE, SLACK, READ, API].freeze
+    ACCESS_LOG = "access_log".freeze
+    SOURCES = [FIRE_ENGINE, SLACK, ACCESS_LOG, READ, API].freeze
+    ACCESS_LOG_ACTION = "access_log_sign_in".freeze
+    ACCESS_LOG_SHOW = "access_logs".freeze
+    ACCESS_LOG_SUBJECTS = %w[ip actor about email domain].freeze
+    ACCESS_LOG_ID = /\Aal-([UW][A-Z0-9]{2,})-(\d+)-([0-9a-f.:]*)-(\d*)\z/i
+    ACCESS_LOG_KEY = "l.user_id = :key_user_id AND l.source = 'access_logs' AND l.hour = to_timestamp(:key_hour) " \
+                     "AND l.ip IS NOT DISTINCT FROM :key_ip::inet AND l.ua_id IS NOT DISTINCT FROM :key_ua_id::int".freeze
 
     LIMIT = 100
     MEMBER_ID = /\A[UW][A-Z0-9]{2,}\z/
@@ -65,7 +74,7 @@ module Fd
     VIEW_SOURCES = {
       "everything" => SOURCES,
       "engine" => [FIRE_ENGINE],
-      "slack" => [SLACK],
+      "slack" => [SLACK, ACCESS_LOG],
       "reads" => [READ],
       "api" => [API],
       "refusals" => [FIRE_ENGINE]
@@ -79,7 +88,7 @@ module Fd
     NO_VIEW = "none".freeze
 
     HELP = {
-      "86.12.44.9" => "IP address and its users",
+      "86.12.44.9" => "IP address",
       "86.12.44.0/24" => "IP range",
       "kid@school.example" => "email address",
       "domain:throwaway.example" => "email domain",
@@ -90,6 +99,7 @@ module Fd
       "network:vpn" => "network class: stable, rotating, vpn, hosting, tor",
       "country:DE" => "country, from the IP address",
       "show:high_volume" => "previews, downloads, list edits",
+      "show:access_logs" => "access log sign-ins",
       "in:#ask" => "channel",
       "source:slack" => "log source",
       "is:nemo" => "bot actor",
@@ -116,6 +126,14 @@ module Fd
 
     def self.view_for(source)
       VIEW_SOURCES.key(Array(source)) || "everything"
+    end
+
+    def self.access_log_key(id)
+      match = ACCESS_LOG_ID.match(id.to_s)
+      return nil unless match
+
+      { key_user_id: match[1], key_hour: match[2].to_i, key_ip: match[3].presence,
+        key_ua_id: match[4].presence&.to_i }
     end
 
     def initialize(params = {}, actor: nil)
@@ -170,7 +188,7 @@ module Fd
     def may_see?(source)
       case source
       when FIRE_ENGINE then may_engine?
-      when SLACK then may_slack?
+      when SLACK, ACCESS_LOG then may_slack?
       else true
       end
     end
@@ -233,7 +251,7 @@ module Fd
       return nil unless live_push?
 
       {
-        "sources" => selected_sources,
+        "sources" => selected_sources - [ACCESS_LOG],
         "actions" => (view == "refusals" ? ["refused"] : watched_actions).presence,
         "actors" => search.of("actor").presence,
         "subjects" => search.of("about").presence
@@ -306,6 +324,15 @@ module Fd
       params = scope_params
       remaining.any? ? params.merge(TERM_KEY => remaining.join(" ")) : params
     end
+
+    def show_params(value, shown)
+      remaining = terms.reject { |query_term| query_term.kind == "show" && query_term.value == value }
+        .map { |query_term| search.label_for(query_term) }
+      remaining << "show:#{value}" if shown
+      remaining.any? ? scope_params.merge(TERM_KEY => remaining.join(" ")) : scope_params
+    end
+
+    def access_log_subject? = ACCESS_LOG_SUBJECTS.any? { |kind| search.of(kind).any? }
 
     def rows
       @rows ||= paged_rows
@@ -670,6 +697,23 @@ module Fd
       SELECT action FROM slack.audit_view_action
     SQL
 
+    ACCESS_LOG_BRANCH = <<~SQL.freeze
+      SELECT 'access_log' AS source,
+             'al-' || l.user_id || '-' || extract(epoch FROM l.hour)::bigint || '-' ||
+               coalesce(host(l.ip), '') || '-' || coalesce(l.ua_id::text, '') AS id,
+             l.last_at AS at, l.user_id AS actor_id, 'slack' AS actor_kind,
+             'access_log_sign_in' AS verb, NULL::text AS entity_kind, NULL::text AS entity_id,
+             NULL::text AS entity_ref, NULL::text AS subject_id,
+             NULL::jsonb AS before, NULL::jsonb AS after,
+             jsonb_strip_nulls(jsonb_build_object('sign_ins', l.hits, 'first_at', l.first_at,
+               'last_at', l.last_at, 'ua', u.ua)) AS detail,
+             host(l.ip) AS ip, NULL::text AS channel, NULL::text AS app, NULL::text AS session
+      FROM fd.login_event l
+      LEFT JOIN slack.user_agent u ON u.id = l.ua_id
+      WHERE l.source = 'access_logs' AND l.last_at >= :since
+        ACCESS_LOG_WHERE
+    SQL
+
     READ_BRANCH = <<~SQL.freeze
       SELECT 'read' AS source, 'r' || l.id::text AS id, l.looked_at AS at,
              l.actor_id AS actor_id, 'human' AS actor_kind, 'read' AS verb,
@@ -845,7 +889,31 @@ module Fd
       @view_actions ||= ApplicationRecord.connection.select_values(VIEW_ACTIONS)
     end
 
-    def high_volume? = search.first_value("show") == "high_volume"
+    def high_volume? = search.of("show").include?("high_volume")
+
+    def access_logs?
+      search.of("show").include?(ACCESS_LOG_SHOW) || search.of("action").include?(ACCESS_LOG_ACTION) ||
+        access_log_subject?
+    end
+
+    def access_log_where
+      parts = []
+      parts << "AND l.user_id IN (:actors)" if search.of("actor").any?
+      parts << "AND l.user_id IN (:subjects)" if search.of("about").any?
+      parts << "AND '#{ACCESS_LOG_ACTION}' IN (:actions)" if search.of("action").any?
+      parts << "AND '#{ACCESS_LOG_ACTION}' IN (:category_actions)" if search.of("category").any?
+      parts << "AND false" if search.of("channel").any? || search.of("app").any? || search.of("session").any?
+      parts << "AND false" if search.text?
+      parts << ip_clause("l") if search.of("ip").any?
+      parts << network_clause("l") if network_filter?
+      if identity_lookup? && search.of("ip").empty?
+        parts << (matched_user_ids.any? ? "AND l.user_id IN (:matched_user_ids)" : "AND false")
+      end
+      parts << "AND false" if %w[nemo nobody].include?(search.first_value("is"))
+      parts << "AND l.last_at >= :after" if from_at
+      parts << "AND l.last_at < :before" if upto_at
+      parts.compact.join("\n")
+    end
 
     def slack_views? = high_volume? || search.of("action").intersect?(view_actions)
 
@@ -907,6 +975,9 @@ module Fd
       if selected_sources.include?(SLACK)
         selects << SLACK_BRANCH.sub("SLACK_WHERE", slack_where)
         selects << SLACK_VIEW_BRANCH.sub("SLACK_VIEW_WHERE", slack_view_where) if slack_views?
+      end
+      if selected_sources.include?(ACCESS_LOG) && access_logs?
+        selects << ACCESS_LOG_BRANCH.sub("ACCESS_LOG_WHERE", access_log_where)
       end
       selects << READ_BRANCH.sub("READ_WHERE", read_where) if selected_sources.include?(READ)
       if selected_sources.include?(API)
@@ -1103,7 +1174,7 @@ module Fd
       SELECT
         count(*) AS everything,
         count(*) FILTER (WHERE source = 'fire_engine') AS engine,
-        count(*) FILTER (WHERE source = 'slack') AS slack,
+        count(*) FILTER (WHERE source IN ('slack', 'access_log')) AS slack,
         count(*) FILTER (WHERE source = 'read') AS reads,
         count(*) FILTER (WHERE source = 'api') AS api,
         0 AS refusals
@@ -1135,6 +1206,8 @@ module Fd
     end
 
     def find_row(source, id)
+      return find_access_log_row(id) if source == ACCESS_LOG
+
       branch = case source
       when FIRE_ENGINE then ENGINE_BRANCH.sub("ENGINE_WHERE", "AND a.id::text = :id")
       when SLACK then "#{SLACK_BRANCH.sub('SLACK_WHERE', 'AND e.id::text = :id')}\n" \
@@ -1144,6 +1217,17 @@ module Fd
       end
       row = ApplicationRecord.connection.select_all(
         ApplicationRecord.sanitize_sql([branch, binds.merge(id: id, since: Time.zone.at(0))])
+      ).first
+      row && build_row(row)
+    end
+
+    def find_access_log_row(id)
+      key = self.class.access_log_key(id)
+      return nil if key.nil?
+
+      branch = ACCESS_LOG_BRANCH.sub("ACCESS_LOG_WHERE", "AND #{ACCESS_LOG_KEY}")
+      row = ApplicationRecord.connection.select_all(
+        ApplicationRecord.sanitize_sql([branch, binds.merge(key).merge(since: Time.zone.at(0))])
       ).first
       row && build_row(row)
     end

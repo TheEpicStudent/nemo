@@ -36,7 +36,7 @@ module Fd
                  "hosting" => "Hosting", "tor" => "Tor" }.freeze
     COUNTRY = /\A[a-z]{2}\z/i
 
-    SOURCES = %w[engine slack read fire_engine].freeze
+    SOURCES = %w[engine slack access_log read fire_engine].freeze
     ACTOR_TYPES = %w[nemo human nobody].freeze
 
     QUALIFIED = /\A([a-z_]+):(.+)\z/i
@@ -231,13 +231,15 @@ module Fd
       Term.new(kind: kind, value: normalized, label: "#{kind} #{normalized}")
     end
 
-    SHOW_VALUES = { "high_volume" => "high_volume", "high-volume" => "high_volume", "busy" => "high_volume" }.freeze
+    SHOW_VALUES = { "high_volume" => "high_volume", "high-volume" => "high_volume", "busy" => "high_volume",
+                    "access_logs" => "access_logs", "access-logs" => "access_logs", "access_log" => "access_logs" }.freeze
+    SHOW_LABELS = { "high_volume" => "high-volume actions", "access_logs" => "access log sign-ins" }.freeze
 
     def show_term(query)
       value = SHOW_VALUES[query.downcase]
       return nil if value.nil?
 
-      Term.new(kind: "show", value: value, label: "high-volume actions")
+      Term.new(kind: "show", value: value, label: SHOW_LABELS.fetch(value))
     end
 
     def category_term(query)
