@@ -2,7 +2,7 @@ import logging
 
 from bot.core import blobs, case, evidence, profiles, intake, outbox, session
 from bot.core.whoami import bot_user_id
-from bot.core.formatting import to_member
+from bot.core.formatting import member_parts
 from bot.relay import intake_files
 
 log = logging.getLogger("bot.relay")
@@ -135,15 +135,24 @@ class MessageRelay:
         return True
 
     def post_message(self, queued):
-        posted = self.client.chat_postMessage(
-            channel=queued.channel_id,
-            thread_ts=queued.thread_ts,
-            text=to_member(queued.body),
-            unfurl_links=False,
-            unfurl_media=False,
-            **self.display_identity(queued),
-        )
-        return posted.get("ts")
+        first_ts = None
+        for index, part in enumerate(member_parts(queued.body)):
+            try:
+                posted = self.client.chat_postMessage(
+                    channel=queued.channel_id,
+                    thread_ts=queued.thread_ts,
+                    text=part,
+                    unfurl_links=False,
+                    unfurl_media=False,
+                    **self.display_identity(queued),
+                )
+            except Exception:
+                if first_ts is None:
+                    raise
+                log.exception("relay: outbox %s stopped after part %s", queued.id, index)
+                break
+            first_ts = first_ts or posted.get("ts")
+        return first_ts
 
     def store_sent_files(self, conn, message_id, uploaded):
         for seq, one in enumerate(uploaded):

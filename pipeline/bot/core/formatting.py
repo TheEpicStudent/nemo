@@ -5,7 +5,8 @@ LINK = re.compile(r"(<https?://[^\s<>]+?(?:\|[^>]*)?>)")
 
 QUOTE_LIMIT = 2400
 CUT = "\n[truncated; the full text is on the case page]"
-REPORTER_CUT = "\n[truncated]"
+MEMBER_PART_LIMIT = 3000
+SPLIT_POINTS = ("\n\n", "\n", " ")
 
 
 def escape(text):
@@ -28,8 +29,37 @@ def quote_text(body, cut=CUT):
     return text
 
 
-def to_member(body):
-    return escape_but_links(quote_text(body, REPORTER_CUT))
+def split_point(window, limit):
+    for separator in SPLIT_POINTS:
+        at = window.rfind(separator)
+        if at > limit // 2:
+            return at
+    return limit
+
+
+def outside_token(window, cut):
+    opened = window.rfind("<", 0, cut)
+    if opened > 0 and opened > window.rfind(">", 0, cut):
+        return opened
+    return cut
+
+
+def split_text(text, limit=MEMBER_PART_LIMIT):
+    parts = []
+    rest = text
+    while len(rest) > limit:
+        window = rest[:limit]
+        cut = outside_token(window, split_point(window, limit))
+        parts.append(rest[:cut].rstrip())
+        rest = rest[cut:].lstrip()
+    if rest:
+        parts.append(rest)
+    return parts
+
+
+def member_parts(body):
+    text = (body or "").strip()
+    return [escape_but_links(part) for part in split_text(text)] if text else []
 
 
 def short_date(value, today=None):

@@ -1,4 +1,4 @@
-from bot.core.formatting import quote_text, to_member
+from bot.core.formatting import member_parts, quote_text
 from bot.nemo import attachments, channel
 from bot.nemo.views import edit, report
 
@@ -41,7 +41,7 @@ def stub_file_body(monkeypatch, kind):
 
 def test_a_bodyless_report_says_nothing_in_its_place():
     assert quote_text("") == ""
-    assert to_member(None) == ""
+    assert member_parts(None) == []
 
 
 def test_a_bodyless_report_has_no_empty_quote_to_reject():
