@@ -102,7 +102,7 @@ Rails.application.routes.draw do
     end
     resources :link_verdicts, only: [:create], path: "links/verdicts"
     resources :members, only: [:index, :show] do
-      resources :notes, only: [:create, :destroy], controller: "member_notes"
+      resources :notes, only: [:create, :update, :destroy], controller: "member_notes"
       resources :guards, only: [:create, :update, :destroy], controller: "member_guards"
       resource :standing, only: [:show], controller: "member_standings"
       resource :logins, only: [:show], controller: "member_logins"
@@ -130,7 +130,7 @@ Rails.application.routes.draw do
       resources :replies, only: [:create]
       resources :chats, only: [:create]
       resource :chat_log, only: [:show]
-      resources :notes, only: [:create, :destroy]
+      resources :notes, only: [:create, :update, :destroy]
       resources :actions, only: [:create, :update]
       resources :reversals, only: [:create]
       resources :participants, only: [:create, :destroy]

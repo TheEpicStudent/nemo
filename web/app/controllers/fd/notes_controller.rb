@@ -1,5 +1,7 @@
 module Fd
   class NotesController < BaseController
+    include ManagesNotes
+
     MAX_LENGTH = 5_000
 
     permit "case.note"
@@ -29,50 +31,46 @@ module Fd
       redirect_to back_to(kase, standing, about), notice: notice_for(kase, standing, about)
     end
 
-    def destroy
+    def update
       kase = Case.find(params[:case_id])
-      now = Time.current
-      removed = false
-      about = on_this_page(kase).find_by(id: params[:id])&.subject_user_id
-      standing = about.present?
+      note = on_this_page(kase).visible.find_by(id: params[:id])
+      return redirect_to(fd_case_path(kase, tab: "notes"), alert: "Note not found") if note.nil?
 
-      writing do
-        rows = on_this_page(kase)
-          .where(id: params[:id], deleted_at: nil, author: current_account.user_id)
-          .update_all(deleted_at: now, deleted_by: current_account.user_id, updated_at: now)
-        next if rows.zero?
-
-        removed = true
-        note = Note.find(params[:id])
-        audit(note, "deleted",
-          before: { "deleted_at" => nil },
-          after: {
-            "deleted_at" => note.deleted_at,
-            "deleted_by" => note.deleted_by,
-            "body" => note.body
-          })
+      about = note.subject_user_id
+      body = Mentions.normalise(params[:body].to_s.strip)
+      error = note_body_error(body, :edit_body)
+      if error
+        return redirect_to(back_to(kase, about.present?, about, do: "edit-note-#{note.id}"),
+          alert: (error unless flash[:field_error]))
       end
 
-      if removed
-        flash[:detail] = "It stays in the audit trail, but nobody will see it on the case again."
-        redirect_to back_to(kase, standing, about), notice: "Note removed"
+      notice = edit_note(note, body) ? "Note updated" : "No changes"
+      redirect_to back_to(kase, about.present?, about), notice: notice
+    end
+
+    def destroy
+      kase = Case.find(params[:case_id])
+      note = on_this_page(kase).visible.find_by(id: params[:id])
+      about = note&.subject_user_id
+
+      if note && remove_note(note)
+        redirect_to back_to(kase, about.present?, about), notice: "Note removed"
       else
-        redirect_to back_to(kase, standing, about),
-          alert: "Only the author of a note can remove it"
+        redirect_to back_to(kase, about.present?, about), alert: "Note not found"
       end
     end
 
     private
 
-    def back_to(kase, standing, about)
-      return fd_case_path(kase, tab: "people", person: about) if standing
-      return fd_case_path(kase, tab: "report") if params[:from] == "report"
+    def back_to(kase, standing, about, **extra)
+      return fd_case_path(kase, tab: "people", person: about, **extra) if standing
+      return fd_case_path(kase, tab: "report", **extra) if params[:from] == "report"
 
-      fd_case_path(kase, tab: "notes")
+      fd_case_path(kase, tab: "notes", **extra)
     end
 
     def on_this_page(kase)
-      Note.where(case_id: kase.id)
+      Note.where(case_id: kase.family_ids)
         .or(Note.standing.where(subject_user_id: kase.subject_user_ids))
     end
 

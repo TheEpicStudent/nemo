@@ -92,11 +92,10 @@ capabilities:
     events: [case_tag/added, case_tag/removed, tag/added]
 
   case.note:
-    label: Write a note and delete their own
+    label: Write, edit and remove case notes
     area: case
-    record_scope: author
     locked: true
-    events: [note/noted, note/deleted]
+    events: [note/noted, note/edited, note/deleted]
 
   case.people:
     label: Add and remove case participants
@@ -151,9 +150,10 @@ capabilities:
     events: [thread_guard/opened, thread_guard/lifted, member/session_reset]
 
   member.note:
-    label: Write a standing note about a member
+    label: Write, edit and remove member notes
     area: member
     locked: true
+    events: [note/noted, note/edited, note/deleted]
 
   member.guard:
     label: Apply a shush or channel ban with no case attached

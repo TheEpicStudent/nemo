@@ -15,6 +15,12 @@ module Fd
       text.gsub(TYPED) { "<@#{Regexp.last_match(1)}>" }
     end
 
+    def self.editable(text)
+      return text if text.blank?
+
+      text.gsub(SLACK) { "@#{Regexp.last_match(1)}" }
+    end
+
     def self.ids(text)
       return [] if text.blank?
 

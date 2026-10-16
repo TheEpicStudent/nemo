@@ -28,8 +28,9 @@
             </div>
             <span class="evrow-right">
               <span class="evwhen"><%= entry.at.strftime("%-d %b") %></span>
-              <% if entry.ref.is_a?(Fd::Note) %>
-                <%= render "note_remove", user_id: @user_id, note: entry.ref %>
+              <% if entry.ref.is_a?(Fd::Note) && entry.ref.standing? %>
+                <%= render "fd/notes/buttons", note: entry.ref, capability: "member.note",
+                      path: fd_member_note_path(@user_id, entry.ref) %>
               <% end %>
             </span>
           </div>
@@ -39,4 +40,8 @@
   </div>
 <% else %>
   <div class="empty"><p class="empty-title">No history</p></div>
+<% end %>
+
+<% @entries.map(&:ref).grep(Fd::Note).select(&:standing?).each do |note| %>
+  <%= render "fd/notes/edit_modal", note: note, url: fd_member_note_path(@user_id, note) %>
 <% end %>

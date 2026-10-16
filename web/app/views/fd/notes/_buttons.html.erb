@@ -1,0 +1,3 @@
+<%= opens_modal capability, "Edit", opens: "edit-note-#{note.id}", css: "btn btn-sm" %>
+<%= gated_button capability, "Remove", path, method: :delete, css: "btn btn-sm",
+      form: { data: { turbo_frame: "_top", turbo_confirm: "Remove this note?" } } %>

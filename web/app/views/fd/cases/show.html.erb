@@ -176,7 +176,8 @@
                 <span class="sub"><%= note_byline(note) %></span>
               </span>
               <span class="lrow-right">
-                <%= render "note_remove", kase: @case, note: note %>
+                <%= render "fd/notes/buttons", note: note, capability: "case.note",
+                      path: fd_case_note_path(@case, note) %>
               </span>
             </div>
           <% end %>
@@ -327,6 +328,11 @@
 
 <%= render "add_person_modal", kase: @case %>
 <%= render "assign_modal", kase: @case %>
+
+<% @notes.each do |note| %>
+  <%= render "fd/notes/edit_modal", note: note, url: fd_case_note_path(@case, note),
+        search_url: fd_member_search_path(case_id: @case.id) %>
+<% end %>
 
 <%= render layout: "fd/modal", locals: { id: "add-note", title: "Add a note",
       open: params[:do] == "note" } do %>

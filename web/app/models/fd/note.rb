@@ -31,7 +31,11 @@ module Fd
     end
 
     def edited?
-      updated_at.present? && created_at.present? && updated_at > created_at
+      edited_at.present?
+    end
+
+    def edit!(body, by:, at: Time.current)
+      update!(body: body, edited_at: at, edited_by: by, updated_at: at)
     end
   end
 end

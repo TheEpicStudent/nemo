@@ -77,16 +77,60 @@ class FdMemberRecordTest < ActionDispatch::IntegrationTest
     assert_no_match(/self harm/, entry.after.to_json)
   end
 
-  test "I can remove my own standing note and nobody else's" do
+  test "member note remove works on notes by other authors" do
     post fd_member_notes_path(SUBJECT), params: { body: "mine to remove" }
     own_note = Fd::Note.for_subject(SUBJECT).sole
     other_note = Fd::Note.create!(subject_user_id: SUBJECT, body: "not mine", author: "UFF9")
 
     delete fd_member_note_path(SUBJECT, other_note)
-    assert_nil other_note.reload.deleted_at
-    assert_match(/Only the author of a note can remove it/, flash[:alert])
+    assert_not_nil other_note.reload.deleted_at
+    assert_equal "Note removed", flash[:notice]
 
     delete fd_member_note_path(SUBJECT, own_note)
     assert_not_nil own_note.reload.deleted_at
+  end
+
+  test "member note update edits the body and marks it edited" do
+    note = Fd::Note.create!(subject_user_id: SUBJECT, body: "spoke to tehm", author: "UFF9")
+
+    patch fd_member_note_path(SUBJECT, note), params: { body: "spoke to them @U0ABCDEF12" }
+
+    assert_redirected_to fd_member_path(SUBJECT)
+    assert_equal "Note updated", flash[:notice]
+    note.reload
+    assert_equal "spoke to them <@U0ABCDEF12>", note.body
+    assert_equal "UFF9", note.author
+    assert note.edited?
+    entry = Fd::AuditEntry.where(entity_type: "note", entity_id: note.id, verb: "edited").sole
+    assert_no_match(/spoke to/, entry.to_json)
+  end
+
+  test "member note update with blank body reopens the edit modal" do
+    note = Fd::Note.create!(subject_user_id: SUBJECT, body: "keep", author: "UFF9")
+
+    patch fd_member_note_path(SUBJECT, note), params: { body: " " }
+
+    assert_redirected_to fd_member_path(SUBJECT, do: "edit-note-#{note.id}")
+    assert_equal "Enter the note", flash[:field_error]["message"]
+    assert_equal "keep", note.reload.body
+  end
+
+  test "member history shows edit and remove on standing notes by other authors" do
+    note = Fd::Note.create!(subject_user_id: SUBJECT, body: "not mine", author: "UFF9")
+
+    get fd_member_path(SUBJECT)
+
+    assert_select "button[data-modal-open='edit-note-#{note.id}']", text: "Edit"
+    assert_select "form[action='#{fd_member_note_path(SUBJECT, note)}'] button", text: "Remove"
+    assert_select "[data-modal-id-value='edit-note-#{note.id}'] textarea[name='body']", text: "not mine"
+  end
+
+  test "member note update on another member is not found" do
+    note = Fd::Note.create!(subject_user_id: "UOTHER99", body: "keep", author: "UFF9")
+
+    patch fd_member_note_path(SUBJECT, note), params: { body: "changed" }
+
+    assert_equal "Note not found", flash[:alert]
+    assert_equal "keep", note.reload.body
   end
 end

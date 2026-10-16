@@ -123,16 +123,78 @@ class FdNotesTest < ActionDispatch::IntegrationTest
     assert_equal "UME", note.deleted_by
     assert_equal "wrote this in haste", note.body, "the row stays, only the visibility changes"
     assert_match(/Note removed/i, flash[:notice])
-    assert_match(/stays in the audit trail/, flash[:detail])
   end
 
-  test "I cannot remove somebody else's note" do
+  test "case note remove works on notes by other authors" do
     note = Fd::Note.create!(case_id: @kase.id, body: "not mine", author: "UFF9")
-    sign_in_as(@me)
+    sign_in_as(hold_role!("UFIRE", "firefighter"))
     delete fd_case_note_path(@kase, note)
 
-    assert_nil note.reload.deleted_at
-    assert_match(/Only the author of a note can remove it/, flash[:alert])
+    assert_equal "UFIRE", note.reload.deleted_by
+    assert_equal "Note removed", flash[:notice]
+  end
+
+  test "case note update edits the body and keeps the author" do
+    note = Fd::Note.create!(case_id: @kase.id, body: "spoke to tehm", author: "UFF9")
+    sign_in_as(hold_role!("UFIRE", "firefighter"))
+    patch fd_case_note_path(@kase, note), params: { body: "spoke to them" }
+
+    assert_redirected_to fd_case_path(@kase, tab: "notes")
+    assert_equal "Note updated", flash[:notice]
+    note.reload
+    assert_equal ["spoke to them", "UFF9", "UFIRE"], [note.body, note.author, note.edited_by]
+    assert Fd::AuditEntry.exists?(entity_type: "note", entity_id: note.id, verb: "edited", actor_user_id: "UFIRE")
+  end
+
+  test "case note update without changes writes no audit entry" do
+    note = Fd::Note.create!(case_id: @kase.id, body: "same", author: "UFF9")
+    sign_in_as(@me)
+    patch fd_case_note_path(@kase, note), params: { body: "same" }
+
+    assert_equal "No changes", flash[:notice]
+    assert_not note.reload.edited?
+    assert_not Fd::AuditEntry.exists?(entity_type: "note", entity_id: note.id, verb: "edited")
+  end
+
+  test "case note update with blank body reopens the edit modal" do
+    note = Fd::Note.create!(case_id: @kase.id, body: "keep", author: "UFF9")
+    sign_in_as(@me)
+    patch fd_case_note_path(@kase, note), params: { body: "" }
+
+    assert_redirected_to fd_case_path(@kase, tab: "notes", do: "edit-note-#{note.id}")
+    assert_equal "keep", note.reload.body
+  end
+
+  test "case note update on another case is not found" do
+    other = make_case(subject: "UELSE", opened_at: 1.day.ago)
+    note = Fd::Note.create!(case_id: other.id, body: "keep", author: "UFF9")
+    sign_in_as(@me)
+    patch fd_case_note_path(@kase, note), params: { body: "changed" }
+
+    assert_equal "Note not found", flash[:alert]
+    assert_equal "keep", note.reload.body
+  end
+
+  test "case note update without case note capability is refused" do
+    note = Fd::Note.create!(case_id: @kase.id, body: "keep", author: "UFF9")
+    move_capability!("firefighter", "case.note", false)
+    sign_in_as(hold_role!("UFIRE", "firefighter"))
+    patch fd_case_note_path(@kase, note), params: { body: "changed" }
+
+    assert_equal "keep", note.reload.body
+  end
+
+  test "case notes tab shows edit and remove for every note and the edited marker" do
+    note = Fd::Note.create!(case_id: @kase.id, body: "by someone else <@U0ABCDEF12>", author: "UFF9")
+    note.edit!("by someone else <@U0ABCDEF12>", by: "UFF9")
+    sign_in_as(hold_role!("UFIRE", "firefighter"))
+    get fd_case_path(@kase, tab: "notes")
+
+    assert_select "button[data-modal-open='edit-note-#{note.id}']", text: "Edit"
+    assert_select "form[action='#{fd_case_note_path(@kase, note)}'] button", text: "Remove"
+    assert_select "[data-modal-id-value='edit-note-#{note.id}'] textarea[name='body']",
+      text: "by someone else @U0ABCDEF12"
+    assert_select ".lrow .sub", text: /edited/
   end
 
   test "a note belonging to another case cannot be removed through this one" do

@@ -1,5 +1,7 @@
 module Fd
   class MemberNotesController < BaseController
+    include ManagesNotes
+
     permit "member.note"
 
     def create
@@ -22,33 +24,29 @@ module Fd
         notice: "Noted; it now follows them to every case"
     end
 
-    def destroy
+    def update
       user_id = params[:member_id].to_s.upcase
-      now = Time.current
-      removed = false
+      note = Note.for_subject(user_id).visible.find_by(id: params[:id])
+      return redirect_to(fd_member_path(user_id), alert: "Note not found") if note.nil?
 
-      writing do
-        rows = Note.for_subject(user_id)
-          .where(id: params[:id], deleted_at: nil, author: current_account.user_id)
-          .update_all(deleted_at: now, deleted_by: current_account.user_id, updated_at: now)
-        next if rows.zero?
-
-        removed = true
-        note = Note.find(params[:id])
-        audit(note, "deleted",
-          before: { "deleted_at" => nil },
-          after: {
-            "deleted_at" => note.deleted_at,
-            "deleted_by" => note.deleted_by,
-            "body" => note.body
-          })
+      body = Mentions.normalise(params[:body].to_s.strip)
+      error = note_body_error(body, :edit_body)
+      if error
+        return redirect_to(fd_member_path(user_id, do: "edit-note-#{note.id}"),
+          alert: (error unless flash[:field_error]))
       end
 
-      if removed
-        flash[:detail] = "It stays in the audit trail, but it no longer follows them to a case."
+      redirect_to fd_member_path(user_id), notice: edit_note(note, body) ? "Note updated" : "No changes"
+    end
+
+    def destroy
+      user_id = params[:member_id].to_s.upcase
+      note = Note.for_subject(user_id).visible.find_by(id: params[:id])
+
+      if note && remove_note(note)
         redirect_to fd_member_path(user_id), notice: "Note removed"
       else
-        redirect_to fd_member_path(user_id), alert: "Only the author of a note can remove it"
+        redirect_to fd_member_path(user_id), alert: "Note not found"
       end
     end
 

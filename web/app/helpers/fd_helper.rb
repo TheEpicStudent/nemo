@@ -1021,7 +1021,9 @@ module FdHelper
   end
 
   def note_byline(note)
-    safe_join([member_face(note.author, small: true), on_day(note.created_at)], " · ")
+    parts = [member_face(note.author, small: true), on_day(note.created_at)]
+    parts << "edited" if note.edited?
+    safe_join(parts, " · ")
   end
 
   def action_option_label(action)
@@ -1524,6 +1526,7 @@ module FdHelper
     "case/categorised" => "Set what kind of thing",
     "note/noted" => "Wrote a note on",
     "note/deleted" => "Deleted a note on",
+    "note/edited" => "Edited a note on",
     "participant/attached" => "Added somebody to",
     "participant/detached" => "Took somebody off",
     "assignee/attached" => "Assigned",

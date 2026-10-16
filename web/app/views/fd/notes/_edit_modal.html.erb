@@ -1,0 +1,18 @@
+<%= render layout: "fd/modal", locals: { id: "edit-note-#{note.id}", title: "Edit note",
+      open: params[:do] == "edit-note-#{note.id}" } do %>
+  <%= form_with url: url, method: :patch, html: { autocomplete: "off" } do %>
+    <div class="modal-body">
+      <label class="field-label">
+        Note
+        <%= render "fd/mention_field", name: :body,
+              value: submitted_value(:edit_body, Fd::Mentions.editable(note.body)), rows: 4,
+              url: local_assigns[:search_url] || fd_member_search_path, placeholder: nil %>
+      </label>
+      <%= field_wrong(:edit_body) %>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
+      <%= submit_tag "Save", class: "btn btn-primary" %>
+    </div>
+  <% end %>
+<% end %>
