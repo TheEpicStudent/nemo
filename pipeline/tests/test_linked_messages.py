@@ -180,7 +180,7 @@ def conversation(*rows, shares=()):
     }
 
 
-def test_numbers_run_on_across_the_report_and_its_follow_ups():
+def test_numbers_run_across_card_pre_send_and_follow_up_messages():
     conn = Conn(conversation(
         (1, f"<{LINK}> and <{LINK}>", at(-5), CARD, None),
         (2, f"before it went up <{OTHER}>", at(-1), None, None),
@@ -191,8 +191,8 @@ def test_numbers_run_on_across_the_report_and_its_follow_ups():
 
     numbers = channel.numbers(conn, 7)
 
-    assert sorted(numbers) == [1, 3, 5], "only what reaches the thread is counted"
-    assert [numbers[one]["start"] for one in (1, 3, 5)] == [1, 3, 4]
+    assert sorted(numbers) == [1, 2, 3, 5]
+    assert [numbers[one]["start"] for one in (1, 2, 3, 5)] == [1, 3, 4, 5]
 
 
 def unfurl_setup(state, *rows):
@@ -350,3 +350,10 @@ def test_a_forwarded_picture_is_uploaded_once(monkeypatch):
     slack = Uploading()
     assert channel.forwarded_files(slack, conn, 80)["F1"]["id"] == "FUP1"
     assert slack.posted == [], "an image already up is reused"
+
+
+def test_follow_up_queries_take_every_message_but_the_card_one():
+    for sql in (channel.FOLLOW_UPS_WAITING, channel.FOLLOW_UPS_ANYWHERE):
+        assert "m.posted_at > c.handed_off_at" not in sql
+        assert "m.id <> (" in sql and "first_inbound.direction = 'inbound'" in sql
+        assert "m.deleted_at IS NULL" in sql and "m.mirrored_ts IS NULL" in sql

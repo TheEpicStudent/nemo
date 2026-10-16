@@ -531,9 +531,7 @@ def numbers(conn, conversation_id):
     numberings = {}
     start = 1
     rows = conn.execute(INBOUND_MESSAGES, (conversation_id,)).fetchall()
-    for at, (message_id, text, posted_at, mirrored, deleted, handed_off) in enumerate(rows):
-        if at and not (handed_off and posted_at > handed_off):
-            continue
+    for at, (message_id, text, _posted_at, mirrored, deleted, _handed_off) in enumerate(rows):
         if at and deleted and not mirrored:
             continue
         numberings[message_id] = views.linked.numbering(text, shares.get(message_id), start)
@@ -835,6 +833,15 @@ coalesce(btrim(m.body), '') <> '' OR EXISTS (
 )
 """
 
+NOT_CARD_MESSAGE = """
+m.id <> (
+    SELECT first_inbound.id FROM fd.intake_messages first_inbound
+    WHERE first_inbound.conversation_id = c.id AND first_inbound.direction = 'inbound'
+    ORDER BY first_inbound.posted_at, first_inbound.id
+    LIMIT 1
+)
+"""
+
 FOLLOW_UPS_WAITING = f"""
 SELECT m.id
 FROM fd.intake_messages m
@@ -842,7 +849,7 @@ JOIN fd.intake_conversations c ON c.id = m.conversation_id
 JOIN fd.case_reports r ON r.id = c.report_id
 WHERE r.case_id = %s AND m.direction = 'inbound' AND m.mirrored_ts IS NULL
   AND m.deleted_at IS NULL AND c.handed_off_at IS NOT NULL
-  AND m.posted_at > c.handed_off_at AND ({HAS_UNMIRRORED_CONTENT})
+  AND {NOT_CARD_MESSAGE} AND ({HAS_UNMIRRORED_CONTENT})
 ORDER BY m.posted_at, m.id
 """
 
@@ -853,7 +860,7 @@ FROM fd.intake_messages m
 JOIN fd.intake_conversations c ON c.id = m.conversation_id
 JOIN fd.case_reports r ON r.id = c.report_id
 WHERE m.direction = 'inbound' AND m.mirrored_ts IS NULL AND m.deleted_at IS NULL
-  AND c.handed_off_at IS NOT NULL AND m.posted_at > c.handed_off_at
+  AND c.handed_off_at IS NOT NULL AND {NOT_CARD_MESSAGE}
   AND ({HAS_UNMIRRORED_CONTENT})
 LIMIT 100
 """
