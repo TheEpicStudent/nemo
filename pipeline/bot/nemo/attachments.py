@@ -1,11 +1,8 @@
 import logging
 import time
-import urllib.error
-import urllib.request
 
-from bot.core import blobs
+from bot.core import blobs, slack_files
 
-TIMEOUT = 30
 IN_BLOCKS = ("image/png", "image/jpeg", "image/jpg", "image/gif")
 FILE_INDEX_DELAY = 1.0
 
@@ -156,15 +153,8 @@ def attachment_summary(files):
 
 
 def fetch(url, token, limit):
-    if not blobs.slack_url(url):
-        log.warning("nemo: %s is not an https slack url, not asking for it", url)
+    body, state, error = slack_files.download(url, token, limit)
+    if state != "stored":
+        log.warning("nemo: could not fetch a file: %s %s", state, error or "")
         return None
-
-    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
-    try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-            body = response.read(limit + 1)
-            return body if len(body) <= limit else None
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
-        log.warning("nemo: could not fetch %s: %s", url, error)
-        return None
+    return body

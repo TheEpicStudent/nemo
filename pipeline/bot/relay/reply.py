@@ -1,3 +1,5 @@
+from bot.core.formatting import escape
+
 ANONYMOUSLY = "sent anonymously"
 
 GOT_IT = "white_check_mark"
@@ -52,3 +54,26 @@ def handoff_failed():
     return HANDOFF_FAILED, [
         {"type": "section", "text": {"type": "mrkdwn", "text": HANDOFF_FAILED}}
     ]
+
+
+MEBIBYTE = 1024 * 1024
+
+
+def file_label(name):
+    return escape(name or "file")
+
+
+def file_too_large(name, limit_bytes):
+    return f"Not sent: {file_label(name)} (over {limit_bytes // MEBIBYTE} MiB). Send a smaller file or a link."
+
+
+def file_not_media(name):
+    return f"Not sent: {file_label(name)} (only images and videos are accepted)."
+
+
+def file_external(name):
+    return f"Not sent: {file_label(name)} (only files uploaded to Slack are accepted)."
+
+
+def file_not_downloaded(name):
+    return f"Not sent: {file_label(name)} (could not be downloaded). Send it again or send a link."

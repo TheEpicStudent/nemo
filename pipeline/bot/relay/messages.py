@@ -3,7 +3,7 @@ import logging
 from bot.core import blobs, case, evidence, profiles, intake, outbox, session
 from bot.core.whoami import bot_user_id
 from bot.core.formatting import member_parts
-from bot.relay import intake_files
+from bot.relay import file_notices, intake_files
 
 log = logging.getLogger("bot.relay")
 
@@ -65,13 +65,18 @@ class MessageRelay:
 
     def fetch_attachments(self, conversation_id):
         try:
-            return intake_files.drain(self.client.token)
+            stored = intake_files.drain(self.client.token)
         except Exception:
             log.exception(
                 "relay: could not keep the files of conversation %s, they stay pending",
                 conversation_id,
             )
-            return 0
+            stored = 0
+        try:
+            file_notices.post_notices(self.client)
+        except Exception:
+            log.exception("relay: could not tell reporters about files that were not sent")
+        return stored
 
     def deliver(self, conversation_id=None):
         with session() as conn:

@@ -1,35 +1,12 @@
 import logging
-import urllib.error
-import urllib.request
 
-from bot.core import blobs, session
+from bot.core import blobs, session, slack_files
 
 log = logging.getLogger("bot.relay")
 
-TIMEOUT = 30
-
 
 def download(url, token, limit):
-    if not blobs.slack_url(url):
-        return None, "refused", "the file url is not an https slack url"
-
-    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
-    try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-            kind = response.headers.get("Content-Type")
-            declared = response.headers.get("Content-Length")
-            if declared and int(declared) > limit:
-                return None, "too_large", f"{declared} bytes is over the {limit} byte limit"
-            body = response.read(limit + 1)
-            if len(body) > limit:
-                return None, "too_large", f"over the {limit} byte limit"
-            state, error = blobs.verdict(response.status, kind, len(body), limit)
-            return (body if state == "stored" else None), state, error
-    except urllib.error.HTTPError as http_error:
-        state, error = blobs.verdict(http_error.code, None, 0, limit)
-        return None, state, error
-    except (urllib.error.URLError, TimeoutError, OSError) as network_error:
-        return None, "failed", f"could not reach slack: {network_error}"
+    return slack_files.download(url, token, limit)
 
 
 def drain(token, limit=20):
@@ -38,6 +15,11 @@ def drain(token, limit=20):
         rows = blobs.waiting(conn, limit)
 
     for file_id, slack_id, url, size, mimetype in rows:
+        if not blobs.is_media_type(mimetype):
+            with session() as conn:
+                blobs.mark_failed(conn, file_id, "refused", blobs.NOT_MEDIA)
+            log.info("relay: %s is %s, not an image or video", slack_id, mimetype)
+            continue
         if blobs.exceeds_limit(size):
             with session() as conn:
                 blobs.mark_failed(conn, file_id, "too_large", f"{size} bytes, we do not ask for it")
@@ -45,9 +27,12 @@ def drain(token, limit=20):
             continue
 
         body, state, error = download(url, token, blobs.cap())
+        detected = blobs.media_type(body) if state == "stored" else None
+        if state == "stored" and detected is None:
+            state, error = "refused", blobs.NOT_MEDIA
         with session() as conn:
             if state == "stored":
-                blobs.store_blob(conn, file_id, body, mimetype)
+                blobs.store_blob(conn, file_id, body, detected)
                 stored_count += 1
             else:
                 blobs.mark_failed(conn, file_id, state, error)

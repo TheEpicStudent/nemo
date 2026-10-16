@@ -6,6 +6,48 @@ DEFAULT_CAP = 25 * 1024 * 1024
 HTML = ("text/html", "application/xhtml+xml")
 SLACK_HOSTS = (".slack.com", ".slack-edge.com", ".slack-files.com")
 
+NOT_MEDIA = "not an image or video"
+NOT_SLACK_URL = "the file url is not an https slack url"
+HTML_BODY = "Slack returned HTML instead of file content"
+
+MEDIA_TYPES = frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic", "image/heif",
+    "video/mp4", "video/quicktime", "video/webm",
+})
+HEIF_BRANDS = frozenset({b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1", b"heim", b"heis"})
+QUICKTIME_BRANDS = frozenset({b"qt  "})
+MP4_BRANDS = frozenset({
+    b"isom", b"iso2", b"iso4", b"iso5", b"iso6", b"mp41", b"mp42", b"avc1", b"M4V ", b"M4VP",
+    b"dash", b"3gp4", b"3gp5", b"3gp6", b"3g2a", b"f4v ", b"MSNV",
+})
+
+
+def is_media_type(mimetype):
+    return (mimetype or "").split(";")[0].strip().lower() in MEDIA_TYPES
+
+
+def media_type(body):
+    head = bytes(body[:32]) if body else b""
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head.startswith(b"\x1a\x45\xdf\xa3"):
+        return "video/webm"
+    if head[4:8] == b"ftyp":
+        brand = head[8:12]
+        if brand in HEIF_BRANDS:
+            return "image/heic"
+        if brand in QUICKTIME_BRANDS:
+            return "video/quicktime"
+        if brand in MP4_BRANDS:
+            return "video/mp4"
+    return None
+
 
 def slack_url(url):
     try:
@@ -55,7 +97,7 @@ def verdict(status, content_type, size, limit=None):
     if status != 200:
         return "failed", f"Slack returned {status}"
     if (content_type or "").split(";")[0].strip().lower() in HTML:
-        return "refused", "Slack returned HTML instead of file content"
+        return "refused", HTML_BODY
     if size is not None and size > limit:
         return "too_large", f"{size} bytes is over the {limit} byte limit"
     if not size:

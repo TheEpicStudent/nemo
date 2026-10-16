@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import blobs, intake, session
-from bot.relay import consent, intake_files
+from bot.relay import consent, file_notices, intake_files
 from bot.relay.reply import GOT_IT, nemo_is_behind, handoff_failed, receipt
 
 log = logging.getLogger("bot.relay")
@@ -155,10 +155,15 @@ def register(app, on_handoff=None):
 
     def fetch_files(client):
         try:
-            return intake_files.drain(client.token)
+            stored = intake_files.drain(client.token)
         except Exception:
             log.exception("relay: could not keep the files, they stay pending")
-            return 0
+            stored = 0
+        try:
+            file_notices.post_notices(client)
+        except Exception:
+            log.exception("relay: could not tell reporters about files that were not sent")
+        return stored
 
     def post_prompt(client, channel_id, thread_ts, prompt_ts, blocks):
         if prompt_ts:
