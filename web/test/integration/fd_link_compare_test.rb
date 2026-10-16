@@ -38,6 +38,17 @@ class FdLinkCompareTest < ActionDispatch::IntegrationTest
     seeded!("fd.member_trait", "user_id", user_id)
   end
 
+  def trait_at!(user_id, kind, value, last_seen)
+    as_pipeline("INSERT INTO fd.member_trait (user_id, kind, value, first_seen, last_seen) VALUES (?, ?, ?, ?, ?) " \
+                "ON CONFLICT DO NOTHING", user_id, kind, value, last_seen, last_seen)
+    seeded!("fd.member_trait", "user_id", user_id)
+  end
+
+  def agent!(ua, app, os)
+    as_pipeline("INSERT INTO slack.user_agent (ua, app, os) VALUES (?, ?, ?) " \
+                "ON CONFLICT (md5(ua)) DO UPDATE SET app = EXCLUDED.app RETURNING id", ua, app, os).first.values.first.to_s
+  end
+
   def login!(user_id, ip, at)
     as_pipeline(<<~SQL.squish, user_id, at, ip, at, at)
       INSERT INTO fd.login_event (user_id, source, hour, ip, first_at, last_at)
@@ -108,6 +119,29 @@ class FdLinkCompareTest < ActionDispatch::IntegrationTest
 
     assert_no_match "after the ban", css_select(".cmp-heads").text
     assert_select ".cmp-event.is-deactivated", count: 0
+  end
+
+  test "link compare lists shared values before newer unshared ones and counts client accounts" do
+    shared_agent = agent!("Mozilla/5.0 (X11; Linux x86_64; rv:145.0) Gecko/20100101 Firefox/145.0 UCMP", "Firefox 145.0", "Linux")
+    [DEACTIVATED, ACTIVE].each_with_index do |user_id, side|
+      trait_at!(user_id, "ip", "81.2.69.10", 90.days.ago)
+      trait_at!(user_id, "ua_id", shared_agent, 90.days.ago)
+      Fd::MemberTraits::VALUES_SHOWN.times do |n|
+        trait_at!(user_id, "ip", "81.2.#{70 + side}.#{n + 1}", (n + 1).hours.ago)
+        trait_at!(user_id, "ua_id", agent!("UCMP #{user_id} #{n}", "Slack iOS 26.#{side}.#{n}", "iOS"), (n + 1).hours.ago)
+      end
+    end
+
+    get fd_link_compare_path(a: DEACTIVATED, b: ACTIVE)
+
+    ip = attribute("IP")
+    assert_equal Fd::MemberTraits::VALUES_SHOWN * 2, ip.css(".cmp-value").size
+    assert_equal 2, ip.css(".cmp-value.is-shared").count { |value| value.text.include?("81.2.69.10") }
+    client = attribute("Client")
+    assert_equal Fd::MemberTraits::VALUES_SHOWN * 2, client.css(".cmp-value").size
+    assert_equal ["Firefox 145.0 · Linux"] * 2, client.css(".cmp-value.is-shared").map { |value| value.text.squish }
+    assert_match "2 accounts", client.css(".cmp-line").first.text
+    refute client.at_css(".cmp-match .cmp-no")
   end
 
   test "link compare renders shared JA3 row from anomaly events" do

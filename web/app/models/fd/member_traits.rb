@@ -18,7 +18,12 @@ module Fd
     SQL
     AGENTS_SQL = <<~SQL.squish.freeze
       SELECT id, ua, app, os FROM slack.user_agent WHERE id IN (:ids)
-      ORDER BY array_position(ARRAY[:ids]::int[], id)
+    SQL
+    CLIENT_ACCOUNTS_SQL = <<~SQL.squish.freeze
+      SELECT agent.label, count(DISTINCT t.user_id) AS account_count
+      FROM unnest(ARRAY[:labels]::text[], ARRAY[:ua_ids]::text[]) AS agent(label, ua_id)
+      JOIN fd.member_trait t ON t.kind = 'ua_id' AND t.value = agent.ua_id
+      GROUP BY agent.label
     SQL
     CHANNELS_SQL = <<~SQL.squish.freeze
       SELECT user_id, channel_id FROM (
@@ -48,36 +53,35 @@ module Fd
     end
 
     def ips(user_id)
-      addresses = traits(user_id, "ip").first(VALUES_SHOWN)
+      addresses = shown(user_id, "ip")
       return [] if addresses.empty?
 
       networks = select_all(IP_SQL, ips: addresses.select { |address| address?(address) }.presence || ["0.0.0.0"])
         .index_by { |row| row["ip"] }
       addresses.map do |address|
         network = networks[address] || {}
-        account_count = [network["account_count"].to_i, 1].max
         kind = network["class"] && AuditSearch::NETWORKS.fetch(network["class"], network["class"])
-        note = [network["network"], kind, "#{account_count} #{'account'.pluralize(account_count)}"].compact_blank.join(" · ")
+        note = [network["network"], kind, account_note(network["account_count"].to_i)].compact_blank.join(" · ")
         Value.new(key: address, text: (address if identity?), note: note)
       end
     end
 
     def clients(user_id)
-      agent_ids = traits(user_id, "ua_id").first(VALUES_SHOWN).map(&:to_i)
-      return [] if agent_ids.empty?
+      agent_ids_by_label = client_agent_ids(user_id)
+      return [] if agent_ids_by_label.empty?
 
-      select_all(AGENTS_SQL, ids: agent_ids).map do |row|
-        label = [row["app"], row["os"]].compact_blank.join(" · ").presence || row["ua"].to_s.truncate(60)
-        Value.new(key: label, text: label)
-      end.uniq(&:key)
+      other_labels = other_ids(user_id).flat_map { |other_id| client_agent_ids(other_id).keys }
+      labels = shared_first(agent_ids_by_label.keys, other_labels)
+      account_counts = client_account_counts(agent_ids_by_label.slice(*labels))
+      labels.map { |label| Value.new(key: label, text: label, note: account_note(account_counts[label])) }
     end
 
     def ja4(user_id)
-      traits(user_id, "ja4").first(VALUES_SHOWN).map { |value| Value.new(key: value, text: value) }
+      shown(user_id, "ja4").map { |value| Value.new(key: value, text: value) }
     end
 
     def ja3(user_id)
-      traits(user_id, "ja3").first(VALUES_SHOWN).map { |value| Value.new(key: value, text: value) }
+      shown(user_id, "ja3").map { |value| Value.new(key: value, text: value) }
     end
 
     def channels(user_id)
@@ -96,6 +100,49 @@ module Fd
     def traits(user_id, kind)
       @traits ||= select_all(TRAITS_SQL, ids: @ids).group_by { |row| [row["user_id"], row["kind"]] }
       @traits.fetch([user_id, kind], []).map { |row| row["value"] }
+    end
+
+    def shown(user_id, kind)
+      shared_first(traits(user_id, kind), other_ids(user_id).flat_map { |other_id| traits(other_id, kind) })
+    end
+
+    def shared_first(values, other_values)
+      shared = values & other_values
+      (shared + (values - shared)).first(VALUES_SHOWN)
+    end
+
+    def other_ids(user_id) = @ids - [user_id]
+
+    def client_agent_ids(user_id)
+      @client_agent_ids ||= {}
+      @client_agent_ids[user_id] ||= traits(user_id, "ua_id").filter_map do |agent_id|
+        agent = agents[agent_id.to_i]
+        [agent_label(agent), agent_id] if agent
+      end.group_by(&:first).transform_values { |pairs| pairs.map(&:last) }
+    end
+
+    def agents
+      @agents ||= begin
+        agent_ids = @ids.flat_map { |user_id| traits(user_id, "ua_id") }.map(&:to_i).uniq
+        agent_ids.empty? ? {} : select_all(AGENTS_SQL, ids: agent_ids).index_by { |row| row["id"].to_i }
+      end
+    end
+
+    def agent_label(agent)
+      [agent["app"], agent["os"]].compact_blank.join(" · ").presence || agent["ua"].to_s.truncate(60)
+    end
+
+    def client_account_counts(agent_ids_by_label)
+      pairs = agent_ids_by_label.flat_map { |label, agent_ids| agent_ids.map { |agent_id| [label, agent_id] } }
+      select_all(CLIENT_ACCOUNTS_SQL, labels: pairs.map(&:first), ua_ids: pairs.map(&:last))
+        .to_h { |row| [row["label"], row["account_count"].to_i] }
+    end
+
+    def account_note(account_count)
+      return nil if account_count.nil?
+
+      account_count = [account_count, 1].max
+      "#{account_count} #{'account'.pluralize(account_count)}"
     end
 
     def address?(value)
