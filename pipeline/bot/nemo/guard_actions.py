@@ -58,11 +58,12 @@ def archive_url(channel_id, thread_ts):
     return channel.app_url(f"/cdn/destroy/{channel_id}_{thread_ts}")
 
 
-def post_destroy_notice(client, conn, channel_id, thread_ts, by):
-    notice = f"<@{by}> destroyed a thread in <#{channel_id}>."
+def post_destroy_notice(client, conn, channel_id, thread_ts, by, deleted=0):
+    noun = "message" if deleted == 1 else "messages"
+    notice = f"Thread destroyed · <#{channel_id}> · {deleted} {noun} · by <@{by}>"
     url = archive_url(channel_id, thread_ts)
     if url:
-        notice += f"\nArchive: {url}"
+        notice += f" · <{url}|archive>"
 
     log_channel_id = channel.log_channel(conn)
     if not log_channel_id:
@@ -195,7 +196,7 @@ def destroy(client, guard_id):
         guards.finish(conn, gid, "failed" if failed else "done", failed, None)
         guards.refresh(conn)
         if not failed:
-            post_destroy_notice(client, conn, channel_id, thread_ts, by)
+            post_destroy_notice(client, conn, channel_id, thread_ts, by, deleted)
 
     log.info("nemo: guard %s destroyed %s message(s)%s", gid, deleted,
              f", stopped on {failed}" if failed else "")

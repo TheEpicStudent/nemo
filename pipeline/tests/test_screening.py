@@ -204,15 +204,37 @@ def test_one_row_per_member_so_a_replayed_join_cannot_double_up():
     assert "ON CONFLICT (user_id) DO NOTHING" in screening.SCREENED
 
 
-def test_a_domain_the_web_adds_reaches_the_bot_without_waiting_for_a_sweep():
-    import pathlib
+def test_a_domain_the_web_adds_reaches_the_bot_without_waiting_for_a_sweep(monkeypatch):
+    import contextlib
+    import threading
+    from types import SimpleNamespace
 
     from bot.nemo import loop
 
-    loop_source = pathlib.Path(loop.__file__).read_text()
+    @contextlib.contextmanager
+    def session_of():
+        yield object()
+
+    watched, refreshed = {}, []
+    monkeypatch.setattr(loop, "session", session_of)
+    for module in (loop.guards, loop.channelguards, loop.memberguards, loop.automod, loop.responses):
+        monkeypatch.setattr(module, "refresh", lambda conn: 0)
+    monkeypatch.setattr(loop.screening, "refresh", lambda conn: refreshed.append(1) or 0)
+    monkeypatch.setattr(loop.channel, "refresh_channels", lambda conn: None)
+    monkeypatch.setattr(loop.purge, "requeue_stranded", lambda conn: [])
+    monkeypatch.setattr(loop.loops, "draining", lambda *args, **kwargs: (lambda: None))
+    monkeypatch.setattr(loop.loops, "timed", lambda *args, **kwargs: (lambda: None))
+    monkeypatch.setattr(loop.loops, "sweeping", lambda *args, **kwargs: None)
+    monkeypatch.setattr(loop.loops, "watching", lambda name, names, on_notify, stopping:
+                        watched.update(names=names, on_notify=on_notify))
+
+    loop.start(SimpleNamespace(client=None), threading.Event())
+    refreshed.clear()
+    watched["on_notify"](loop.BLOCKED_DOMAIN, "")
+
     assert loop.BLOCKED_DOMAIN == "fd_blocked_domain"
-    assert "BLOCKED_DOMAIN)" in loop_source, "the loop must LISTEN for it"
-    assert "elif channel_name == BLOCKED_DOMAIN:" in loop_source
+    assert loop.BLOCKED_DOMAIN in watched["names"]
+    assert refreshed == [1]
 
 
 def test_the_join_watcher_asks_slack_for_the_address_the_event_leaves_out():
