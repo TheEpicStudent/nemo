@@ -17,11 +17,21 @@ def test_merged_with_url_builder_links_each_case():
     def url(case_id):
         return f"https://fire.example/fd/cases/{case_id}"
 
-    assert lines.merged("UME", [25], 39, url) == (
-        "<@UME> merged case <https://fire.example/fd/cases/25|25> into case "
-        "<https://fire.example/fd/cases/39|39>"
-    )
-    assert lines.merged("UME", [25, 31], 39) == "<@UME> merged cases 25 and 31 into case 39"
+    assert lines.merged("UME", [25], 39, url) == [
+        (39, "<@UME> merged case <https://fire.example/fd/cases/25|25> into case "
+             "<https://fire.example/fd/cases/39|39> (this case)"),
+        (25, "<@UME> merged case <https://fire.example/fd/cases/25|25> (this case) into case "
+             "<https://fire.example/fd/cases/39|39>"),
+    ]
+
+
+def test_merged_with_several_duplicates_lists_all_on_target_and_one_on_each_duplicate():
+    assert lines.merged("UME", [25, 31, 40], 39) == [
+        (39, "<@UME> merged cases 25, 31 and 40 into case 39 (this case)"),
+        (25, "<@UME> merged case 25 (this case) into case 39"),
+        (31, "<@UME> merged case 31 (this case) into case 39"),
+        (40, "<@UME> merged case 40 (this case) into case 39"),
+    ]
 
 
 def test_lines_format_header_resolution_reopen_note_and_assignment_errors():

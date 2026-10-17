@@ -351,10 +351,10 @@ def post_line(client, conn, case_id, text):
 def post_merge_note(client, conn, target_id, closed, by):
     if not closed:
         return None
-    text = views.lines.merged(by, closed, target_id, case_url)
-    for case_id in (target_id, *closed):
+    entries = views.lines.merged(by, closed, target_id, case_url)
+    for case_id, text in entries:
         post_line(client, conn, case_id, text)
-    return text
+    return entries
 
 
 SET_HEADER_TS = """

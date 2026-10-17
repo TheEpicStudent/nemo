@@ -138,8 +138,11 @@ def test_post_merge_note_posts_to_target_and_duplicate_cases(monkeypatch):
 
     channel.post_merge_note(None, None, 39, [25, 31], "UME")
 
-    text = "<@UME> merged cases 25 and 31 into case 39"
-    assert posted_lines == [(39, text), (25, text), (31, text)]
+    assert posted_lines == [
+        (39, "<@UME> merged cases 25 and 31 into case 39 (this case)"),
+        (25, "<@UME> merged case 25 (this case) into case 39"),
+        (31, "<@UME> merged case 31 (this case) into case 39"),
+    ]
 
 
 def test_post_pending_resolutions_posts_only_due_cases(monkeypatch):

@@ -127,7 +127,6 @@ def test_announcement_lines_fire_engine_rows_return_thread_lines(monkeypatch):
 
     announcements = announce.announcement_lines(conn, rows)
 
-    merge_text = "<@UFE> merged cases 25 and 31 into case 39"
     assert announcements == [
         (39, "<@UFE> claimed case 39"),
         (39, "<@UFE> assigned case 39 to <@UA> and <@UB>"),
@@ -135,7 +134,9 @@ def test_announcement_lines_fire_engine_rows_return_thread_lines(monkeypatch):
         (39, "<@UFE> unassigned themselves from case 39"),
         (39, "<@UFE> added a note: spoke to them"),
         (39, "<@UFE> reopened case 39"),
-        (39, merge_text), (25, merge_text), (31, merge_text),
+        (39, "<@UFE> merged cases 25 and 31 into case 39 (this case)"),
+        (25, "<@UFE> merged case 25 (this case) into case 39"),
+        (31, "<@UFE> merged case 31 (this case) into case 39"),
     ]
 
 

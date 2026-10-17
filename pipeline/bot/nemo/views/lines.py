@@ -29,13 +29,20 @@ def number(case_id, url=None):
     return f"<{url}|{case_id}>" if url else str(case_id)
 
 
+THIS_CASE = "(this case)"
+
+
 def merged(actor, duplicate_ids, target_id, url_of=lambda case_id: None):
+    target = number(target_id, url_of(target_id))
     numbers = [number(one, url_of(one)) for one in duplicate_ids]
     if len(numbers) == 1:
         listed = f"case {numbers[0]}"
     else:
         listed = "cases " + ", ".join(numbers[:-1]) + f" and {numbers[-1]}"
-    return f"<@{actor}> merged {listed} into case {number(target_id, url_of(target_id))}"
+    entries = [(target_id, f"<@{actor}> merged {listed} into case {target} {THIS_CASE}")]
+    for case_id, linked in zip(duplicate_ids, numbers):
+        entries.append((case_id, f"<@{actor}> merged case {linked} {THIS_CASE} into case {target}"))
+    return entries
 
 
 def resolved(actor, case_id, label=None):

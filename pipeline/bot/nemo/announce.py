@@ -73,8 +73,7 @@ def merge_lines(actor, rows):
             duplicates_by_target.setdefault(int(after["duplicate_of"]), []).append(row[3])
     out = []
     for primary_id, duplicate_ids in duplicates_by_target.items():
-        text = lines.merged(actor, sorted(duplicate_ids), primary_id, channel.case_url)
-        out += [(case_id, text) for case_id in (primary_id, *sorted(duplicate_ids))]
+        out += lines.merged(actor, sorted(duplicate_ids), primary_id, channel.case_url)
     return out
 
 
