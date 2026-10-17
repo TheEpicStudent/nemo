@@ -2,47 +2,66 @@ import datetime as dt
 
 from bot.core.formatting import short_end
 
-CUSTOM = "custom"
-DURATIONS = {
-    "15m": ("15 minutes", dt.timedelta(minutes=15)),
-    "30m": ("30 minutes", dt.timedelta(minutes=30)),
-    "1h": ("1 hour", dt.timedelta(hours=1)),
-    "2h": ("2 hours", dt.timedelta(hours=2)),
-    "6h": ("6 hours", dt.timedelta(hours=6)),
-    "12h": ("12 hours", dt.timedelta(hours=12)),
-    "24h": ("24 hours", dt.timedelta(hours=24)),
-}
+END_OF_DAY = dt.time(23, 59, 59)
+
+DATE_SUFFIX = "_date"
+TIME_SUFFIX = "_time"
 
 
 def plain(text):
     return {"type": "plain_text", "text": text}
 
 
-def options(prefix=""):
-    return [{"text": plain(f"{prefix}{label}"), "value": key}
-            for key, (label, _length) in DURATIONS.items()] + \
-        [{"text": plain("Custom end"), "value": CUSTOM}]
+def initial_of(at, tz=dt.UTC):
+    if not at:
+        return None, None
+    local = at.astimezone(tz)
+    return local.date().isoformat(), local.strftime("%H:%M")
 
 
-def picker(block_id, label, placeholder, optional, prefix=""):
-    return {"type": "input", "block_id": block_id, "optional": optional, "dispatch_action": True,
-            "label": plain(label),
-            "element": {"type": "static_select", "action_id": block_id,
-                        "placeholder": plain(placeholder), "options": options(prefix)}}
+def end_row(block_id, label, initial=(None, None), error=None, date_action=None, time_action=None):
+    date_element = {"type": "datepicker", "action_id": date_action or f"{block_id}{DATE_SUFFIX}",
+                    "placeholder": plain("Select a date")}
+    time_element = {"type": "timepicker", "action_id": time_action or f"{block_id}{TIME_SUFFIX}",
+                    "placeholder": plain("Select a time")}
+    if initial[0]:
+        date_element["initial_date"] = initial[0]
+    if initial[1]:
+        time_element["initial_time"] = initial[1]
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{label}*"}},
+        {"type": "actions", "block_id": block_id, "elements": [date_element, time_element]},
+    ]
+    if error:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": error}]})
+    return blocks
 
 
-def end_picker(block_id):
-    return {"type": "input", "block_id": block_id, "label": plain("End"),
-            "element": {"type": "datetimepicker", "action_id": block_id}}
+def picked(values, block_id, date_action=None, time_action=None):
+    row = values.get(block_id, {})
+    return (row.get(date_action or f"{block_id}{DATE_SUFFIX}", {}).get("selected_date"),
+            row.get(time_action or f"{block_id}{TIME_SUFFIX}", {}).get("selected_time"))
 
 
-def selected_value(values, block_id):
-    return (values.get(block_id, {}).get(block_id, {}).get("selected_option") or {}).get("value")
+def end_at(date_text, time_text, tz=dt.UTC):
+    if not date_text:
+        return None
+    clock = dt.time.fromisoformat(time_text) if time_text else END_OF_DAY
+    return dt.datetime.combine(dt.date.fromisoformat(date_text), clock, tz).astimezone(dt.UTC)
 
 
-def selected_datetime(values, block_id):
-    picked = values.get(block_id, {}).get(block_id, {}).get("selected_date_time")
-    return dt.datetime.fromtimestamp(picked, dt.UTC) if picked else None
+def end_error(date_text, time_text, at, required=False, after=None, now=None):
+    if time_text and not date_text:
+        return "Select a date for the end time."
+    if required and not date_text:
+        return "Select the end date."
+    if at is None:
+        return None
+    if at <= (now or dt.datetime.now(dt.UTC)):
+        return "Select a time in the future."
+    if after and at <= after:
+        return "Select a time after the current end."
+    return None
 
 
 def ends(expires_at):
@@ -63,22 +82,3 @@ def remaining(expires_at, now=None):
         return "with no end date"
     seconds = int((expires_at - (now or dt.datetime.now(dt.UTC))).total_seconds())
     return f"until {short_end(expires_at)} ({span(seconds)} left)"
-
-
-def end_from(key, until, start=None, now=None):
-    now = now or dt.datetime.now(dt.UTC)
-    if key == CUSTOM:
-        return until
-    if key in DURATIONS:
-        return max(start or now, now) + DURATIONS[key][1]
-    return None
-
-
-def end_errors(key, until, block_id, now=None):
-    if key != CUSTOM:
-        return None
-    if not until:
-        return {block_id: "Select the end."}
-    if until <= (now or dt.datetime.now(dt.UTC)):
-        return {block_id: "Select a time in the future."}
-    return None

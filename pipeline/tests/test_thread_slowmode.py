@@ -1,10 +1,11 @@
 import contextlib
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from bot.core.formatting import short_end
-from bot.nemo import channelguards, guards, userbots
+from bot.nemo import channelguards, guards, profile, userbots
 from bot.nemo.enforcement import slowmode
 from bot.nemo.surface import thread_slowmode
 from bot.nemo.views import slowmode as card
@@ -14,8 +15,8 @@ THREAD = "1700000000.000000"
 TS = "1700000000.000100"
 USER_ID = "U1"
 MOD = "UMOD"
-NOW = dt.datetime(2026, 10, 16, 9, 30, tzinfo=dt.UTC)
-END = dt.datetime(2026, 10, 17, 14, 30, tzinfo=dt.UTC)
+NOW = dt.datetime(2027, 10, 16, 9, 30, tzinfo=dt.UTC)
+END = dt.datetime(2027, 10, 17, 14, 30, tzinfo=dt.UTC)
 
 
 def current(**over):
@@ -26,7 +27,7 @@ def current(**over):
 
 
 def submission(**over):
-    row = {"starting": True, "duration": "1h", "extend": None, "until": None, "seconds": "30",
+    row = {"starting": True, "end_date": None, "end_time": None, "seconds": "30",
            "reason": "Heated argument", "exempt": []}
     row.update(over)
     return row
@@ -36,81 +37,87 @@ def block_ids(view):
     return [block.get("block_id") for block in view["blocks"]]
 
 
-def test_build_view_new_has_optional_duration_without_default():
+def end_row_elements(view):
+    return next(block for block in view["blocks"] if block.get("block_id") == card.END)["elements"]
+
+
+def test_build_view_new_has_empty_end_row_and_default_fields():
     view = card.build_view(CHANNEL_ID, THREAD)
-    duration = view["blocks"][0]["element"]
+    date_element, time_element = end_row_elements(view)
 
-    assert block_ids(view) == [card.DURATION, card.SECONDS, card.REASON, card.EXEMPT]
+    assert block_ids(view) == [None, card.END, card.SECONDS, card.REASON, card.EXEMPT]
+    assert view["blocks"][0]["text"]["text"] == "*End, optional*"
     assert view["submit"]["text"] == "Enable"
-    assert view["blocks"][0]["optional"] is True
-    assert duration["placeholder"]["text"] == "No end"
-    assert "initial_option" not in duration
-    assert [one["value"] for one in duration["options"]] == [*card.DURATIONS, card.CUSTOM]
+    assert (date_element["type"], time_element["type"]) == ("datepicker", "timepicker")
+    assert "initial_date" not in date_element and "initial_time" not in time_element
+    assert card.is_extending(view) is False
 
 
-def test_build_view_custom_adds_until_block():
-    assert block_ids(card.build_view(CHANNEL_ID, THREAD, custom=True))[:2] == [card.DURATION, card.UNTIL]
+def test_build_view_existing_shows_status_and_prefills_end_in_viewer_zone():
+    view = card.build_view(CHANNEL_ID, THREAD, current(), ZoneInfo("Europe/Athens"), now=NOW)
+    date_element, time_element = end_row_elements(view)
 
-
-def test_build_view_existing_shows_remaining_time_and_extend_block():
-    view = card.build_view(CHANNEL_ID, THREAD, current(), now=NOW)
-
-    assert block_ids(view)[1:] == [card.EXTEND, card.SECONDS, card.REASON, card.EXEMPT]
+    assert block_ids(view) == [None, None, card.END, card.SECONDS, card.REASON, card.EXEMPT]
     assert view["submit"]["text"] == "Save"
     assert view["blocks"][0]["text"]["text"] == \
         f"*Enabled* until {short_end(END)} (1d 5h left), set by <@{MOD}>"
     assert view["blocks"][0]["accessory"]["action_id"] == card.DISABLE
-    assert view["blocks"][3]["element"]["initial_value"] == "Heated argument"
-    assert view["blocks"][4]["element"]["initial_users"] == ["UEXEMPT"]
+    assert (date_element["initial_date"], time_element["initial_time"]) == ("2027-10-17", "17:30")
+    assert view["blocks"][4]["element"]["initial_value"] == "Heated argument"
+    assert view["blocks"][5]["element"]["initial_users"] == ["UEXEMPT"]
+    assert card.is_extending(view) is True
 
 
-def test_submitted_values_custom_duration_returns_until_and_fields():
+def test_build_view_keeps_entered_values_and_shows_end_error():
+    entered = submission(end_date="2027-10-20", end_time="09:00", seconds="45", reason="raid", exempt=["UA"])
+    view = card.build_view(CHANNEL_ID, THREAD, values=entered, end_error="Select a time in the future.")
+    date_element, time_element = end_row_elements(view)
+
+    assert (date_element["initial_date"], time_element["initial_time"]) == ("2027-10-20", "09:00")
+    assert view["blocks"][2]["elements"][0]["text"] == "Select a time in the future."
+    assert view["blocks"][-3]["element"]["initial_value"] == "45"
+    assert view["blocks"][-2]["element"]["initial_value"] == "raid"
+    assert view["blocks"][-1]["element"]["initial_users"] == ["UA"]
+
+
+def test_submitted_values_reads_end_row_and_fields():
     state = {"values": {
-        card.DURATION: {card.DURATION: {"selected_option": {"value": card.CUSTOM}}},
-        card.UNTIL: {card.UNTIL: {"selected_date_time": int(END.timestamp())}},
+        card.END: {card.END + "_date": {"selected_date": "2027-10-20"}, card.END + "_time": {"selected_time": "09:15"}},
         card.SECONDS: {card.SECONDS: {"value": "45"}},
         card.REASON: {card.REASON: {"value": "  Heated argument "}},
         card.EXEMPT: {card.EXEMPT: {"selected_users": ["UEXEMPT"]}},
     }}
 
     assert card.submitted_values(state) == {
-        "starting": True, "duration": card.CUSTOM, "extend": None, "until": END, "seconds": "45",
+        "starting": True, "end_date": "2027-10-20", "end_time": "09:15", "seconds": "45",
         "reason": "Heated argument", "exempt": ["UEXEMPT"]}
 
 
-def test_submitted_values_existing_view_is_not_starting():
-    state = {"values": {card.EXTEND: {card.EXTEND: {"selected_option": None}}}}
-
-    assert card.submitted_values(state)["starting"] is False
+def test_submitted_values_extending_view_is_not_starting():
+    assert card.submitted_values({"values": {}}, extending=True)["starting"] is False
 
 
 @pytest.mark.parametrize(("over", "errors"), [
     ({}, None),
-    ({"duration": None}, None),
-    ({"duration": card.CUSTOM}, {card.UNTIL: "Select the end."}),
-    ({"duration": card.CUSTOM, "until": NOW - dt.timedelta(minutes=1)},
-     {card.UNTIL: "Select a time in the future."}),
+    ({"end_date": "2027-10-20"}, None),
+    ({"end_time": "09:00"}, {card.END: "Select a date for the end time."}),
+    ({"end_date": "2027-10-15"}, {card.END: "Select a time in the future."}),
     ({"seconds": "0"}, {card.SECONDS: "Enter 1 to 3600 seconds."}),
     ({"seconds": "3601"}, {card.SECONDS: "Enter 1 to 3600 seconds."}),
     ({"seconds": "fast"}, {card.SECONDS: "Enter 1 to 3600 seconds."}),
     ({"reason": ""}, {card.REASON: "Add a reason."}),
-    ({"starting": False, "duration": None}, None),
 ])
 def test_validation_errors_invalid_field_returns_block_error(over, errors):
-    assert card.validation_errors(submission(**over), NOW) == errors
+    assert card.validation_errors(submission(**over), dt.UTC, NOW) == errors
 
 
-@pytest.mark.parametrize(("over", "row", "expected"), [
-    ({}, None, NOW + dt.timedelta(hours=1)),
-    ({"duration": None}, None, None),
-    ({"duration": None}, current(), None),
-    ({"duration": card.CUSTOM, "until": END}, None, END),
-    ({"starting": False, "extend": "1h"}, current(), END + dt.timedelta(hours=1)),
-    ({"starting": False}, current(), END),
-    ({"starting": False, "extend": "30m"}, current(expires_at=None), NOW + dt.timedelta(minutes=30)),
+@pytest.mark.parametrize(("over", "tz", "expected"), [
+    ({}, dt.UTC, None),
+    ({"end_date": "2027-10-17", "end_time": "14:30"}, dt.UTC, END),
+    ({"end_date": "2027-10-17", "end_time": "17:30"}, ZoneInfo("Europe/Athens"), END),
 ])
-def test_new_end_returns_start_or_extended_end(over, row, expected):
-    assert card.new_end(submission(**over), row, NOW) == expected
+def test_new_end_reads_picked_date_and_time_in_viewer_zone(over, tz, expected):
+    assert card.new_end(submission(**over), tz) == expected
 
 
 def test_notice_includes_cooldown_and_end():
@@ -324,15 +331,13 @@ class SurfaceCtx:
         self.ephemerals.append(message)
 
 
-def submitted_view(seconds="30", reason="Heated argument", duration="1h", extend=None):
-    duration_state = {card.EXTEND: {card.EXTEND: {"selected_option": extend and {"value": extend}}}} \
-        if duration is None else \
-        {card.DURATION: {card.DURATION: {"selected_option": {"value": duration}}}}
+def submitted_view(seconds="30", reason="Heated argument", end_date="2027-10-18", end_time="10:00",
+                   extending=False):
     return {
         "id": "V1", "hash": "H1", "callback_id": card.CALLBACK,
-        "private_metadata": card.metadata(CHANNEL_ID, THREAD),
+        "private_metadata": card.metadata(CHANNEL_ID, THREAD, extend=extending),
         "state": {"values": {
-            **duration_state,
+            card.END: {card.END + "_date": {"selected_date": end_date}, card.END + "_time": {"selected_time": end_time}},
             card.SECONDS: {card.SECONDS: {"value": seconds}},
             card.REASON: {card.REASON: {"value": reason}},
             card.EXEMPT: {card.EXEMPT: {"selected_users": ["UEXEMPT"]}},
@@ -353,39 +358,58 @@ def guard_calls(monkeypatch):
                         lambda conn, guard_id, ids, by: calls["allows"].append((guard_id, ids)))
     monkeypatch.setattr(channelguards, "lift", lambda conn, guard_id, by: calls["lifted"].append(guard_id) or CHANNEL_ID)
     monkeypatch.setattr(channelguards, "refresh", lambda conn: 0)
+    monkeypatch.setattr(profile, "timezone", lambda client, user_id: dt.UTC)
     return calls
 
 
-def test_submit_slowmode_new_opens_guard_and_posts_notice(guard_calls):
+def test_submit_slowmode_new_opens_guard_with_picked_end_and_posts_notice(guard_calls):
     ctx = SurfaceCtx(submitted_view())
-    before = dt.datetime.now(dt.UTC)
 
     assert thread_slowmode.submit_slowmode(ctx) == 9
     (channel_id, thread_ts, seconds, by, reason, ends), = guard_calls["opened"]
     assert (channel_id, thread_ts, seconds, by, reason) == (CHANNEL_ID, THREAD, 30, MOD, "Heated argument")
-    assert before + dt.timedelta(hours=1) <= ends <= dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+    assert ends == dt.datetime(2027, 10, 18, 10, 0, tzinfo=dt.UTC)
     assert guard_calls["allows"] == [(9, ["UEXEMPT"])]
     assert ctx.client.posted[0]["text"] == f"*Slow mode enabled* with 30s cooldown until {short_end(ends)}"
     assert ctx.ephemerals == []
 
 
-def test_submit_slowmode_existing_extends_without_notice(guard_calls):
-    guard_calls["row"] = current()
-    ctx = SurfaceCtx(submitted_view(seconds="60", duration=None, extend="2h"))
+def test_submit_slowmode_new_without_end_has_no_end_date(guard_calls):
+    ctx = SurfaceCtx(submitted_view(end_date=None, end_time=None))
 
     thread_slowmode.submit_slowmode(ctx)
 
-    assert guard_calls["updates"] == [(60, MOD, "Heated argument", END + dt.timedelta(hours=2))]
+    assert guard_calls["opened"][0][-1] is None
+
+
+def test_submit_slowmode_existing_updates_end_without_notice(guard_calls):
+    guard_calls["row"] = current()
+    ctx = SurfaceCtx(submitted_view(seconds="60", extending=True))
+
+    thread_slowmode.submit_slowmode(ctx)
+
+    assert guard_calls["updates"] == [
+        (60, MOD, "Heated argument", dt.datetime(2027, 10, 18, 10, 0, tzinfo=dt.UTC))]
     assert ctx.client.posted == []
     assert ctx.ephemerals == []
 
 
 def test_submit_slowmode_ended_guard_returns_none_with_message(guard_calls):
-    ctx = SurfaceCtx(submitted_view(duration=None, extend="1h"))
+    ctx = SurfaceCtx(submitted_view(extending=True))
 
     assert thread_slowmode.submit_slowmode(ctx) is None
     assert guard_calls["opened"] == []
     assert ctx.ephemerals == ["Slow mode already ended"]
+
+
+def test_submit_slowmode_past_end_redraws_modal_with_error(guard_calls):
+    ctx = SurfaceCtx(submitted_view(end_date="2020-01-01"))
+
+    thread_slowmode.submit_slowmode(ctx)
+
+    assert guard_calls["opened"] == []
+    assert ctx.ack_calls[0]["response_action"] == "update"
+    assert ctx.ack_calls[0]["view"]["blocks"][2]["elements"][0]["text"] == "Select a time in the future."
 
 
 def test_submit_slowmode_notice_failure_lifts_guard(guard_calls):
@@ -481,12 +505,3 @@ def test_post_notices_failure_requeues_below_three_attempts(monkeypatch, attempt
 def test_claim_notices_selects_live_guards_with_notice_wanted():
     assert "WHERE notice_wanted AND state = 'live'" in slowmode.CLAIM_NOTICES
     assert "FOR UPDATE SKIP LOCKED" in slowmode.CLAIM_NOTICES
-
-
-@pytest.mark.parametrize(("duration", "has_end"), [(card.CUSTOM, True), ("1h", False)])
-def test_reshape_slowmode_on_duration_shows_until_only_for_custom(guard_calls, duration, has_end):
-    ctx = SurfaceCtx(submitted_view(duration=duration))
-
-    thread_slowmode.reshape_slowmode_on_duration(ctx)
-
-    assert (card.UNTIL in block_ids(ctx.client.updated[0]["view"])) is has_end

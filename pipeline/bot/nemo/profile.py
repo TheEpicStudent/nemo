@@ -1,8 +1,11 @@
+import datetime as dt
 import logging
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 log = logging.getLogger("bot.nemo")
 
 PROFILE_CACHE = {}
+ZONE_CACHE = {}
 
 IMAGES = ("image_192", "image_72", "image_48", "image_512", "image_original")
 
@@ -32,3 +35,21 @@ def profile(client, user_id):
 
 def name(client, user_id):
     return profile(client, user_id)["name"]
+
+
+def timezone(client, user_id):
+    if user_id in ZONE_CACHE:
+        return ZONE_CACHE[user_id]
+
+    zone = dt.UTC
+    try:
+        name = client.users_info(user=user_id)["user"].get("tz")
+        zone = ZoneInfo(name) if name else dt.UTC
+    except ZoneInfoNotFoundError:
+        zone = dt.UTC
+    except Exception as failure:
+        log.warning("nemo: could not read the time zone of %s: %s", user_id, failure)
+        return dt.UTC
+
+    ZONE_CACHE[user_id] = zone
+    return zone

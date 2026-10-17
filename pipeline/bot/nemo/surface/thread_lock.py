@@ -1,9 +1,8 @@
 import logging
 
 from bot.core import session
-from bot.nemo import channels, guard_actions, guards
+from bot.nemo import channels, guard_actions, guards, profile
 from bot.nemo.views import guard as card
-from bot.nemo.views import lengths
 from bot.nemo.surface import on_action, on_shortcut, on_view
 
 log = logging.getLogger("bot.nemo")
@@ -24,10 +23,10 @@ def live_lock(channel_id, thread_ts):
         return guards.live_on_thread(conn, channel_id, thread_ts)
 
 
-def view_for(channel_id, thread_ts, current, custom=False):
+def view_for(channel_id, thread_ts, current, tz, values=None, end_error=None):
     if current:
-        return card.locked_view(channel_id, thread_ts, current, custom=custom)
-    return card.lock_view(channel_id, thread_ts, custom=custom)
+        return card.locked_view(channel_id, thread_ts, current, tz, values, end_error)
+    return card.lock_view(channel_id, thread_ts, values, end_error)
 
 
 @on_shortcut(SHORTCUT, needs="thread.guard")
@@ -39,37 +38,9 @@ def open_lock_modal(ctx):
     if current and current["kind"] == guards.DESTROY:
         return ctx.post_ephemeral(BEING_DESTROYED)
 
-    ctx.client.views_open(trigger_id=ctx.trigger_id, view=view_for(ctx.channel_id, ctx.thread_ts, current))
+    tz = profile.timezone(ctx.client, ctx.user_id)
+    ctx.client.views_open(trigger_id=ctx.trigger_id, view=view_for(ctx.channel_id, ctx.thread_ts, current, tz))
     return None
-
-
-def reshape_lock_modal(ctx):
-    view = ctx.view
-    if view.get("callback_id") != card.LOCK_CALLBACK:
-        return None
-
-    channel_id, thread_ts = card.parse_metadata(view)
-    values = card.submitted_values(view.get("state") or {})
-    current = live_lock(channel_id, thread_ts)
-    if current and current["kind"] != guards.LOCK:
-        return None
-    custom = card.lock_key(values) == lengths.CUSTOM
-    try:
-        ctx.client.views_update(view_id=view["id"], hash=view.get("hash"),
-                                view=view_for(channel_id, thread_ts, current, custom=custom))
-    except Exception as failure:
-        log.warning("nemo: could not reshape the lock modal: %s", failure)
-    return None
-
-
-@on_action(card.LOCK_DURATION, needs="thread.guard")
-def reshape_lock_on_duration(ctx):
-    return reshape_lock_modal(ctx)
-
-
-@on_action(card.LOCK_EXTEND, needs="thread.guard")
-def reshape_lock_on_extension(ctx):
-    return reshape_lock_modal(ctx)
 
 
 @on_action(card.UNLOCK, needs="thread.guard")
@@ -93,8 +64,8 @@ def unlock_thread(ctx):
     return lifted
 
 
-def lock(ctx, channel_id, thread_ts, values):
-    expires_at = card.lock_end(values)
+def lock(ctx, channel_id, thread_ts, values, tz):
+    expires_at = card.lock_end(values, tz)
     with session() as conn:
         guard_id = guards.open_guard(
             conn, guards.LOCK, channel_id, thread_ts, ctx.user_id, values["reason"],
@@ -123,12 +94,12 @@ def lock(ctx, channel_id, thread_ts, values):
     return guard_id
 
 
-def extend(ctx, channel_id, thread_ts, values):
+def extend(ctx, channel_id, thread_ts, values, tz):
     with session() as conn:
         current = guards.live_on_thread(conn, channel_id, thread_ts)
         if not current or current["kind"] != guards.LOCK:
             return ctx.post_ephemeral(ALREADY_ENDED, channel_id, thread_ts)
-        expires_at = card.lock_end(values, current)
+        expires_at = card.lock_end(values, tz)
         guard_id = guards.extend(conn, current, expires_at, ctx.user_id)
         guards.refresh(conn)
 
@@ -141,15 +112,22 @@ def extend(ctx, channel_id, thread_ts, values):
 
 @on_view(card.LOCK_CALLBACK, needs="thread.guard", refuse_block=card.REASON)
 def submit_lock(ctx):
-    values = card.submitted_values(ctx.view.get("state") or {})
-    errors = card.lock_errors(values)
-    if errors:
+    extending = card.is_extending(ctx.view)
+    values = card.submitted_values(ctx.view.get("state") or {}, extending)
+    channel_id, thread_ts = card.parse_metadata(ctx.view)
+    tz = profile.timezone(ctx.client, ctx.user_id)
+    current = live_lock(channel_id, thread_ts) if extending and channel_id and thread_ts else None
+    errors = card.lock_errors(values, tz, current)
+    if errors and card.END in errors:
+        if not extending or current:
+            return ctx.ack(response_action="update",
+                           view=view_for(channel_id, thread_ts, current, tz, values, errors[card.END]))
+    elif errors:
         return ctx.ack(response_action="errors", errors=errors)
 
     ctx.ack()
-    channel_id, thread_ts = card.parse_metadata(ctx.view)
     if not channel_id or not thread_ts:
         return None
     if values["starting"]:
-        return lock(ctx, channel_id, thread_ts, values)
-    return extend(ctx, channel_id, thread_ts, values)
+        return lock(ctx, channel_id, thread_ts, values, tz)
+    return extend(ctx, channel_id, thread_ts, values, tz)

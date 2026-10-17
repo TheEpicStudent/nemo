@@ -1,9 +1,10 @@
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 import yaml
 
 from bot.core.formatting import short_date, short_end
-from bot.nemo.views import edit
+from bot.nemo.views import edit, lengths
 from lib.paths import ACTIONS_FILE
 
 CALLBACK = "case_action_log"
@@ -38,7 +39,6 @@ DEFAULT_ENFORCEMENT = {
 REASON_LIMIT = 2000
 
 REQUIRED = "required"
-END_OF_DAY = dt.time(23, 59, 59)
 
 TABLE = None
 
@@ -112,9 +112,8 @@ def expiry(values):
     on = values.get("expires_on")
     if not on:
         return None
-    at = values.get("expires_time")
-    hour_minute = dt.time.fromisoformat(at) if at else END_OF_DAY
-    return dt.datetime.combine(dt.date.fromisoformat(on), hour_minute, dt.timezone.utc)
+    zone = ZoneInfo(values["timezone"]) if values.get("timezone") else dt.UTC
+    return lengths.end_at(on, values.get("expires_time"), zone)
 
 
 def format_date(at):
@@ -248,7 +247,7 @@ def initial_values(subjects=(), category=None):
     }
 
 
-def build_blocks(case_id, values, guard_status=None):
+def build_blocks(case_id, values, guard_status=None, end_error=None):
     key = values.get("type_key")
     built = [
         {
@@ -285,39 +284,10 @@ def build_blocks(case_id, values, guard_status=None):
     built += existing_guard_blocks(guard_status)
 
     if takes_expiry(key):
-        built.append(
-            {
-                "type": "input",
-                "block_id": UNTIL,
-                "optional": not needs_expiry(key),
-                "label": {"type": "plain_text", "text": "End date"},
-                "element": {
-                    "type": "datepicker",
-                    "action_id": UNTIL,
-                    **(
-                        {"initial_date": values["expires_on"]}
-                        if values.get("expires_on")
-                        else {}
-                    ),
-                },
-            }
-        )
-        built.append(
-            {
-                "type": "input",
-                "block_id": UNTIL_TIME,
-                "optional": True,
-                "label": {"type": "plain_text", "text": "End time (UTC)"},
-                "element": {
-                    "type": "timepicker",
-                    "action_id": UNTIL_TIME,
-                    **(
-                        {"initial_time": values["expires_time"]}
-                        if values.get("expires_time")
-                        else {}
-                    ),
-                },
-            }
+        built += lengths.end_row(
+            UNTIL, "End" if needs_expiry(key) else "End, optional",
+            (values.get("expires_on"), values.get("expires_time")), end_error,
+            date_action=UNTIL, time_action=UNTIL_TIME,
         )
 
     if takes_channel(key):
@@ -373,7 +343,7 @@ def build_blocks(case_id, values, guard_status=None):
     return built
 
 
-def build_view(case_id, subjects=(), category=None, values=None, guard_status=None):
+def build_view(case_id, subjects=(), category=None, values=None, guard_status=None, end_error=None):
     return {
         "type": "modal",
         "callback_id": CALLBACK,
@@ -381,7 +351,7 @@ def build_view(case_id, subjects=(), category=None, values=None, guard_status=No
         "title": {"type": "plain_text", "text": "Log action"},
         "submit": {"type": "plain_text", "text": "Log"},
         "close": {"type": "plain_text", "text": "Cancel"},
-        "blocks": build_blocks(case_id, values or initial_values(subjects, category), guard_status),
+        "blocks": build_blocks(case_id, values or initial_values(subjects, category), guard_status, end_error),
     }
 
 
@@ -430,7 +400,7 @@ def submitted_values(view_state):
             (values.get(KIND, {}).get(KIND, {}).get("selected_option") or {}).get("value")
         ),
         "expires_on": values.get(UNTIL, {}).get(UNTIL, {}).get("selected_date"),
-        "expires_time": values.get(UNTIL_TIME, {}).get(UNTIL_TIME, {}).get("selected_time"),
+        "expires_time": values.get(UNTIL, {}).get(UNTIL_TIME, {}).get("selected_time"),
         "channel_id": values.get(WHERE, {}).get(WHERE, {}).get("selected_conversation"),
         "enforcement": (
             (values.get(ENFORCEMENT, {}).get(ENFORCEMENT, {}).get("selected_option") or {}).get("value")

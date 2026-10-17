@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import access, outbox, session
-from bot.nemo import answer, views, chat, memberguards, surface, thread_commands
+from bot.nemo import answer, views, chat, memberguards, profile, surface, thread_commands
 from bot.nemo.case_actions import (
     CASE_CATEGORY,
     mark_resolution_log_pending,
@@ -82,6 +82,7 @@ def register(app, on_reply=None):
         case_id = int(view["private_metadata"])
         user_id = body["user"]["id"]
         values = views.action.submitted_values(view["state"])
+        values["timezone"] = getattr(profile.timezone(client, user_id), "key", "UTC")
 
         with session() as conn:
             guard_status = guard_status_for(conn, case_id, values)
@@ -94,6 +95,12 @@ def register(app, on_reply=None):
             )
 
         errors = views.action.validation_errors(values)
+        if errors and views.action.UNTIL in errors:
+            return ack(
+                response_action="update",
+                view=views.action.build_view(case_id, values=values, guard_status=guard_status,
+                                             end_error=errors[views.action.UNTIL]),
+            )
         if errors:
             return ack(response_action="errors", errors=errors)
 

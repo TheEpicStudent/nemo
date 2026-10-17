@@ -10,7 +10,6 @@ CHANNEL_ID = "C0PRIVATE"
 THREAD_TS = "1700000000.000100"
 MODERATOR_ID = "UMODERATOR"
 GUARD_ID = 5
-LOCK_UNTIL = 4102444800
 
 
 class SlackApiFailure(Exception):
@@ -46,9 +45,9 @@ def fake_session():
 def lock_submission(client):
     view = card.lock_view(CHANNEL_ID, THREAD_TS)
     view["state"] = {"values": {
-        card.LOCK_DURATION: {card.LOCK_DURATION: {"selected_option": {"value": "custom"}}},
         card.REASON: {card.REASON: {"value": "raid"}},
-        card.UNTIL: {card.UNTIL: {"selected_date_time": LOCK_UNTIL}},
+        card.END: {card.END + "_date": {"selected_date": "2100-01-01"},
+                   card.END + "_time": {"selected_time": "00:00"}},
     }}
     body = {"user": {"id": MODERATOR_ID}, "view": view}
     return Ctx(None, body, client, lambda **kwargs: None)

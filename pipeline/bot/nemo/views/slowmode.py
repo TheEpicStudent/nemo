@@ -6,9 +6,7 @@ from bot.nemo.views import lengths
 CALLBACK = "thread_slowmode"
 DISABLED_CALLBACK = "thread_slowmode_disabled"
 
-UNTIL = "slowmode_until"
-DURATION = "slowmode_duration"
-EXTEND = "slowmode_extend"
+END = "slowmode_end"
 SECONDS = "slowmode_seconds"
 REASON = "slowmode_reason"
 EXEMPT = "slowmode_exempt"
@@ -20,12 +18,19 @@ MIN_SECONDS = 1
 MAX_SECONDS = 3600
 DEFAULT_SECONDS = 30
 
-CUSTOM = lengths.CUSTOM
-DURATIONS = lengths.DURATIONS
+
+def metadata(channel_id, thread_ts, extend=False):
+    values = {"channel_id": channel_id, "thread_ts": thread_ts}
+    if extend:
+        values["extend"] = True
+    return json.dumps(values)
 
 
-def metadata(channel_id, thread_ts):
-    return json.dumps({"channel_id": channel_id, "thread_ts": thread_ts})
+def is_extending(view):
+    try:
+        return bool(json.loads(view.get("private_metadata") or "{}").get("extend"))
+    except ValueError:
+        return False
 
 
 def parse_metadata(view):
@@ -47,18 +52,6 @@ def summary(seconds, expires_at):
 
 
 plain = lengths.plain
-
-
-def duration_block():
-    return lengths.picker(DURATION, "Duration", "No end", optional=True)
-
-
-def extend_block():
-    return lengths.picker(EXTEND, "Extend by", "Select", optional=True, prefix="+")
-
-
-def until_block():
-    return lengths.end_picker(UNTIL)
 
 
 def seconds_block(seconds=None):
@@ -99,19 +92,21 @@ def status_block(current, now=None):
     }
 
 
-def build_view(channel_id, thread_ts, current=None, custom=False, now=None):
-    blocks = [status_block(current, now), extend_block()] if current else [duration_block()]
-    if custom:
-        blocks.append(until_block())
-    blocks += [
-        seconds_block(current and current["seconds"]),
-        reason_block(current and current["reason"]),
-        exempt_block(current["exempt"] if current else ()),
-    ]
+def build_view(channel_id, thread_ts, current=None, tz=dt.UTC, values=None, end_error=None, now=None):
+    values = values or {}
+    initial = (values.get("end_date"), values.get("end_time"))
+    if current and not any(initial):
+        initial = lengths.initial_of(current["expires_at"], tz)
+    seconds = values.get("seconds") or (current and current["seconds"])
+    reason = values.get("reason") or (current and current["reason"])
+    exempt = values["exempt"] if "exempt" in values else (current["exempt"] if current else ())
+    blocks = [status_block(current, now)] if current else []
+    blocks += lengths.end_row(END, "End, optional", initial, end_error)
+    blocks += [seconds_block(seconds), reason_block(reason), exempt_block(exempt)]
     return {
         "type": "modal",
         "callback_id": CALLBACK,
-        "private_metadata": metadata(channel_id, thread_ts),
+        "private_metadata": metadata(channel_id, thread_ts, extend=bool(current)),
         "title": plain(TITLE),
         "submit": plain("Save" if current else "Enable"),
         "close": plain("Cancel"),
@@ -129,13 +124,13 @@ def disabled_view():
     }
 
 
-def submitted_values(state):
+def submitted_values(state, extending=False):
     values = state.get("values", {})
+    end_date, end_time = lengths.picked(values, END)
     return {
-        "starting": EXTEND not in values,
-        "duration": lengths.selected_value(values, DURATION),
-        "extend": lengths.selected_value(values, EXTEND),
-        "until": lengths.selected_datetime(values, UNTIL),
+        "starting": not extending,
+        "end_date": end_date,
+        "end_time": end_time,
         "seconds": values.get(SECONDS, {}).get(SECONDS, {}).get("value"),
         "reason": (values.get(REASON, {}).get(REASON, {}).get("value") or "").strip(),
         "exempt": values.get(EXEMPT, {}).get(EXEMPT, {}).get("selected_users") or [],
@@ -150,29 +145,17 @@ def parse_seconds(values):
     return seconds if MIN_SECONDS <= seconds <= MAX_SECONDS else None
 
 
-def length_key(values):
-    return values["duration"] if values["starting"] else values["extend"]
+def new_end(values, tz=dt.UTC):
+    return lengths.end_at(values["end_date"], values["end_time"], tz)
 
 
-def new_end(values, current=None, now=None):
-    key = length_key(values)
-    start = None if values["starting"] or not current else current["expires_at"]
-    ends = lengths.end_from(key, values["until"], start, now)
-    if ends or values["starting"]:
-        return ends
-    return current["expires_at"] if current else None
-
-
-def validation_errors(values, now=None):
-    now = now or dt.datetime.now(dt.UTC)
-    errors = lengths.end_errors(length_key(values), values["until"], UNTIL, now)
-    if errors:
-        return errors
+def validation_errors(values, tz=dt.UTC, now=None):
     if parse_seconds(values) is None:
         return {SECONDS: f"Enter {MIN_SECONDS} to {MAX_SECONDS} seconds."}
     if not values["reason"]:
         return {REASON: "Add a reason."}
-    return None
+    message = lengths.end_error(values["end_date"], values["end_time"], new_end(values, tz), now=now)
+    return {END: message} if message else None
 
 
 def notice(seconds, expires_at):

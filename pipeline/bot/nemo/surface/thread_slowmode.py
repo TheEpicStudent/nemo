@@ -1,7 +1,8 @@
+import datetime as dt
 import logging
 
 from bot.core import session
-from bot.nemo import channelguards, channels
+from bot.nemo import channelguards, channels, profile
 from bot.nemo.surface import on_action, on_shortcut, on_view
 from bot.nemo.views import slowmode as card
 
@@ -23,19 +24,20 @@ def open_slowmode_modal(ctx):
 
     with session() as conn:
         current = channelguards.slowmode_row(conn, ctx.channel_id, ctx.thread_ts)
+    tz = profile.timezone(ctx.client, ctx.user_id)
     ctx.client.views_open(
         trigger_id=ctx.trigger_id,
-        view=card.build_view(ctx.channel_id, ctx.thread_ts, current),
+        view=card.build_view(ctx.channel_id, ctx.thread_ts, current, tz),
     )
     return None
 
 
-def apply_slowmode(conn, channel_id, thread_ts, values, by):
+def apply_slowmode(conn, channel_id, thread_ts, values, by, tz=dt.UTC):
     seconds = card.parse_seconds(values)
     current = channelguards.slowmode_row(conn, channel_id, thread_ts)
     if current is None and not values["starting"]:
         return None, None, ALREADY_OFF
-    values["expires_at"] = card.new_end(values, current)
+    values["expires_at"] = card.new_end(values, tz)
     if current:
         guard_id = channelguards.update_slowmode(
             conn, current, seconds, by, values["reason"], values["expires_at"])
@@ -67,48 +69,26 @@ def post_notice(ctx, guard_id, channel_id, thread_ts, values):
     return True
 
 
-def reshape_slowmode_modal(ctx, block_id):
-    view = ctx.view
-    if view.get("callback_id") != card.CALLBACK:
-        return None
-
-    channel_id, thread_ts = card.parse_metadata(view)
-    values = card.submitted_values(view.get("state") or {})
-    custom = values["duration" if block_id == card.DURATION else "extend"] == card.CUSTOM
-    with session() as conn:
-        current = channelguards.slowmode_row(conn, channel_id, thread_ts)
-    try:
-        ctx.client.views_update(view_id=view["id"], hash=view.get("hash"),
-                                view=card.build_view(channel_id, thread_ts, current, custom=custom))
-    except Exception as failure:
-        log.warning("nemo: could not reshape the slow mode modal: %s", failure)
-    return None
-
-
-@on_action(card.DURATION, needs="thread.guard")
-def reshape_slowmode_on_duration(ctx):
-    return reshape_slowmode_modal(ctx, card.DURATION)
-
-
-@on_action(card.EXTEND, needs="thread.guard")
-def reshape_slowmode_on_extension(ctx):
-    return reshape_slowmode_modal(ctx, card.EXTEND)
-
-
 @on_view(card.CALLBACK, needs="thread.guard", refuse_block=card.REASON)
 def submit_slowmode(ctx):
-    values = card.submitted_values(ctx.view.get("state") or {})
-    errors = card.validation_errors(values)
+    values = card.submitted_values(ctx.view.get("state") or {}, card.is_extending(ctx.view))
+    channel_id, thread_ts = card.parse_metadata(ctx.view)
+    tz = profile.timezone(ctx.client, ctx.user_id)
+    errors = card.validation_errors(values, tz)
+    if errors and card.END in errors:
+        with session() as conn:
+            current = channelguards.slowmode_row(conn, channel_id, thread_ts)
+        return ctx.ack(response_action="update",
+                       view=card.build_view(channel_id, thread_ts, current, tz, values, errors[card.END]))
     if errors:
         return ctx.ack(response_action="errors", errors=errors)
 
     ctx.ack()
-    channel_id, thread_ts = card.parse_metadata(ctx.view)
     if not channel_id or not thread_ts:
         return None
 
     with session() as conn:
-        guard_id, current, refusal = apply_slowmode(conn, channel_id, thread_ts, values, ctx.user_id)
+        guard_id, current, refusal = apply_slowmode(conn, channel_id, thread_ts, values, ctx.user_id, tz)
 
     if refusal:
         return ctx.post_ephemeral(refusal, channel_id, thread_ts)

@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 
 from bot.core import richtext
@@ -8,11 +9,9 @@ LOCK_CALLBACK = "thread_lock"
 UNLOCKED_CALLBACK = "thread_unlocked"
 
 REASON = "guard_reason"
-UNTIL = "guard_until"
 NOTE = "guard_note"
 NOTE_TEXT = "guard_note_text"
-LOCK_DURATION = "lock_duration"
-LOCK_EXTEND = "lock_extend"
+END = "lock_end"
 UNLOCK = "lock_off"
 LOCK_TITLE = "Lock thread"
 
@@ -23,8 +22,18 @@ TITLE_LIMIT = 24
 SIGN_OUT_NOTE = "Sign-out on repeated posts"
 
 
-def metadata(channel_id, thread_ts):
-    return json.dumps({"channel_id": channel_id, "thread_ts": thread_ts})
+def metadata(channel_id, thread_ts, extend=False):
+    values = {"channel_id": channel_id, "thread_ts": thread_ts}
+    if extend:
+        values["extend"] = True
+    return json.dumps(values)
+
+
+def is_extending(view):
+    try:
+        return bool(json.loads(view.get("private_metadata") or "{}").get("extend"))
+    except ValueError:
+        return False
 
 
 def parse_metadata(view):
@@ -115,11 +124,11 @@ def destroy_view(channel_id, thread_ts, values=None):
     }
 
 
-def lock_modal(channel_id, thread_ts, submit, blocks):
+def lock_modal(channel_id, thread_ts, submit, blocks, extend=False):
     return {
         "type": "modal",
         "callback_id": LOCK_CALLBACK,
-        "private_metadata": metadata(channel_id, thread_ts),
+        "private_metadata": metadata(channel_id, thread_ts, extend),
         "title": lengths.plain(LOCK_TITLE),
         "submit": lengths.plain(submit),
         "close": lengths.plain("Cancel"),
@@ -127,11 +136,10 @@ def lock_modal(channel_id, thread_ts, submit, blocks):
     }
 
 
-def lock_view(channel_id, thread_ts, custom=False):
-    blocks = [lengths.picker(LOCK_DURATION, "Duration", "No end", optional=True)]
-    if custom:
-        blocks.append(lengths.end_picker(UNTIL))
-    blocks.append(reason_block())
+def lock_view(channel_id, thread_ts, values=None, end_error=None):
+    values = values or {}
+    blocks = lengths.end_row(END, "End, optional", (values.get("end_date"), values.get("end_time")), end_error)
+    blocks.append(reason_block(values.get("reason")))
     return lock_modal(channel_id, thread_ts, "Lock", blocks)
 
 
@@ -151,14 +159,12 @@ def lock_status_block(current, now=None):
     }
 
 
-def locked_view(channel_id, thread_ts, current, custom=False, now=None):
-    blocks = [
-        lock_status_block(current, now),
-        lengths.picker(LOCK_EXTEND, "Extend by", "Select", optional=False, prefix="+"),
-    ]
-    if custom:
-        blocks.append(lengths.end_picker(UNTIL))
-    return lock_modal(channel_id, thread_ts, "Save", blocks)
+def locked_view(channel_id, thread_ts, current, tz=dt.UTC, values=None, end_error=None, now=None):
+    initial = lengths.initial_of(current["expires_at"], tz)
+    if values and (values.get("end_date") or values.get("end_time")):
+        initial = (values.get("end_date"), values.get("end_time"))
+    blocks = [lock_status_block(current, now), *lengths.end_row(END, "New end", initial, end_error)]
+    return lock_modal(channel_id, thread_ts, "Save", blocks, extend=True)
 
 
 def unlocked_view():
@@ -171,15 +177,15 @@ def unlocked_view():
     }
 
 
-def submitted_values(state):
+def submitted_values(state, extending=False):
     values = state.get("values", {})
     checked_options = values.get(NOTE, {}).get(NOTE, {}).get("selected_options") or []
+    end_date, end_time = lengths.picked(values, END)
     return {
         "reason": (values.get(REASON, {}).get(REASON, {}).get("value") or "").strip(),
-        "starting": LOCK_EXTEND not in values,
-        "duration": lengths.selected_value(values, LOCK_DURATION),
-        "extend": lengths.selected_value(values, LOCK_EXTEND),
-        "until": lengths.selected_datetime(values, UNTIL),
+        "starting": not extending,
+        "end_date": end_date,
+        "end_time": end_time,
         "note": bool(checked_options),
         "note_body": values.get(NOTE_TEXT, {}).get(NOTE_TEXT, {}).get("rich_text_value"),
     }
@@ -210,21 +216,18 @@ def lock_removal_notice(expires_at, body):
     return {"text": text, "blocks": blocks}
 
 
-def lock_key(values):
-    return values["duration"] if values["starting"] else values["extend"]
+def lock_end(values, tz=dt.UTC):
+    return lengths.end_at(values["end_date"], values["end_time"], tz)
 
 
-def lock_errors(values, now=None):
+def lock_errors(values, tz=dt.UTC, current=None, now=None):
     if values["starting"] and not values["reason"]:
         return {REASON: "Add a reason."}
-    if not values["starting"] and values["extend"] not in (*lengths.DURATIONS, lengths.CUSTOM):
-        return {LOCK_EXTEND: "Select how long to extend."}
-    return lengths.end_errors(lock_key(values), values["until"], UNTIL, now)
-
-
-def lock_end(values, current=None, now=None):
-    start = None if values["starting"] or not current else current["expires_at"]
-    return lengths.end_from(lock_key(values), values["until"], start, now)
+    message = lengths.end_error(
+        values["end_date"], values["end_time"], lock_end(values, tz),
+        required=not values["starting"], after=current and current["expires_at"], now=now,
+    )
+    return {END: message} if message else None
 
 
 def validation_errors(values):

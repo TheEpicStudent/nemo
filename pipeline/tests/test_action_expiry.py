@@ -26,23 +26,44 @@ def test_takes_expiry_needs_expiry_read_actions_table(key, takes, needs):
     assert (action.takes_expiry(key), action.needs_expiry(key)) == (takes, needs)
 
 
-def test_build_blocks_shush_end_date_is_optional_with_time():
+def label_before_end_row(blocks):
+    return blocks[[one.get("block_id") for one in blocks].index(action.UNTIL) - 1]["text"]["text"]
+
+
+def test_build_blocks_shush_has_optional_end_date_and_time_in_one_row():
     blocks = action.build_blocks(1, submission())
+    row = block(blocks, action.UNTIL)
 
-    assert block(blocks, action.UNTIL)["optional"] is True
-    assert block(blocks, action.UNTIL_TIME)["element"]["type"] == "timepicker"
-    assert block(blocks, action.UNTIL_TIME)["optional"] is True
-
-
-def test_build_blocks_temp_ban_end_date_is_required():
-    assert block(action.build_blocks(1, submission(type_key="temp_ban")), action.UNTIL)["optional"] is False
+    assert row["type"] == "actions"
+    assert [(one["type"], one["action_id"]) for one in row["elements"]] == [
+        ("datepicker", action.UNTIL), ("timepicker", action.UNTIL_TIME)]
+    assert label_before_end_row(blocks) == "*End, optional*"
 
 
-def test_build_blocks_warning_omits_end_blocks():
-    blocks = action.build_blocks(1, submission(type_key="warning"))
+def test_build_blocks_temp_ban_end_is_labelled_required():
+    assert label_before_end_row(action.build_blocks(1, submission(type_key="temp_ban"))) == "*End*"
 
-    assert block(blocks, action.UNTIL) is None
-    assert block(blocks, action.UNTIL_TIME) is None
+
+def test_build_blocks_keeps_entered_end_and_shows_end_error():
+    blocks = action.build_blocks(1, submission(expires_on="2026-10-20", expires_time="14:30"),
+                                 end_error="A temporary ban needs an end date.")
+    date_element, time_element = block(blocks, action.UNTIL)["elements"]
+
+    assert (date_element["initial_date"], time_element["initial_time"]) == ("2026-10-20", "14:30")
+    assert blocks[[one.get("block_id") for one in blocks].index(action.UNTIL) + 1]["elements"][0]["text"] == \
+        "A temporary ban needs an end date."
+
+
+def test_build_blocks_warning_omits_end_row():
+    assert block(action.build_blocks(1, submission(type_key="warning")), action.UNTIL) is None
+
+
+def test_submitted_values_reads_end_date_and_time_from_the_row():
+    state = {"values": {action.UNTIL: {action.UNTIL: {"selected_date": "2026-10-20"},
+                                       action.UNTIL_TIME: {"selected_time": "14:30"}}}}
+    values = action.submitted_values(state)
+
+    assert (values["expires_on"], values["expires_time"]) == ("2026-10-20", "14:30")
 
 
 @pytest.mark.parametrize(("values", "expected"), [
@@ -52,6 +73,12 @@ def test_build_blocks_warning_omits_end_blocks():
 ])
 def test_expiry_combines_date_and_time_in_utc(values, expected):
     assert action.expiry(values) == expected
+
+
+def test_expiry_reads_picked_time_in_the_moderator_zone():
+    values = {"expires_on": "2026-10-20", "expires_time": "17:30", "timezone": "Europe/Athens"}
+
+    assert action.expiry(values) == dt.datetime(2026, 10, 20, 14, 30, tzinfo=dt.UTC)
 
 
 def test_validation_errors_shush_without_end_is_valid():

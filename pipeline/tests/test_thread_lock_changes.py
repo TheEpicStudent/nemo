@@ -1,19 +1,19 @@
 import contextlib
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from bot.core.formatting import short_end
-from bot.nemo import guard_actions, guards
+from bot.nemo import guard_actions, guards, profile
 from bot.nemo.surface import thread_destroy, thread_lock
 from bot.nemo.views import guard as card
-from bot.nemo.views import lengths
 
 CHANNEL_ID = "C1"
 THREAD = "1700000000.000000"
 MOD = "UMOD"
-NOW = dt.datetime(2026, 10, 16, 9, 30, tzinfo=dt.UTC)
-END = dt.datetime(2026, 10, 17, 14, 30, tzinfo=dt.UTC)
+NOW = dt.datetime(2027, 10, 16, 9, 30, tzinfo=dt.UTC)
+END = dt.datetime(2027, 10, 17, 14, 30, tzinfo=dt.UTC)
 
 
 def lock_row(**over):
@@ -23,8 +23,11 @@ def lock_row(**over):
     return row
 
 
+ATHENS = ZoneInfo("Europe/Athens")
+
+
 def values(**over):
-    row = {"reason": "Heated argument", "starting": True, "duration": None, "extend": None, "until": None,
+    row = {"reason": "Heated argument", "starting": True, "end_date": None, "end_time": None,
            "note": False, "note_body": None}
     row.update(over)
     return row
@@ -34,63 +37,92 @@ def block_ids(view):
     return [block.get("block_id") for block in view["blocks"]]
 
 
-def test_lock_view_has_optional_duration_and_reason_blocks():
+def end_row_elements(view):
+    return next(block for block in view["blocks"] if block.get("block_id") == card.END)["elements"]
+
+
+def test_lock_view_has_end_row_and_reason_blocks():
     view = card.lock_view(CHANNEL_ID, THREAD)
 
-    assert block_ids(view) == [card.LOCK_DURATION, card.REASON]
-    assert view["blocks"][0]["optional"] is True
-    assert view["blocks"][0]["element"]["placeholder"]["text"] == "No end"
+    assert block_ids(view) == [None, card.END, card.REASON]
+    assert [one["type"] for one in end_row_elements(view)] == ["datepicker", "timepicker"]
+    assert view["blocks"][0]["text"]["text"] == "*End, optional*"
     assert view["submit"]["text"] == "Lock"
+    assert card.is_extending(view) is False
 
 
-def test_lock_view_custom_adds_until_block():
-    assert block_ids(card.lock_view(CHANNEL_ID, THREAD, custom=True)) == [card.LOCK_DURATION, card.UNTIL, card.REASON]
+def test_lock_view_keeps_entered_values_and_shows_end_error():
+    view = card.lock_view(CHANNEL_ID, THREAD, values(end_date="2027-10-20", end_time="09:00"),
+                          end_error="Select a time in the future.")
+
+    date_element, time_element = end_row_elements(view)
+    assert (date_element["initial_date"], time_element["initial_time"]) == ("2027-10-20", "09:00")
+    assert view["blocks"][2]["elements"][0]["text"] == "Select a time in the future."
+    assert view["blocks"][-1]["element"]["initial_value"] == "Heated argument"
 
 
-def test_locked_view_shows_status_reason_and_required_extend():
-    view = card.locked_view(CHANNEL_ID, THREAD, lock_row(), now=NOW)
+def test_locked_view_shows_status_and_prefills_current_end_in_viewer_zone():
+    view = card.locked_view(CHANNEL_ID, THREAD, lock_row(), ATHENS, now=NOW)
 
     assert view["blocks"][0]["text"]["text"] == (
         f"*Locked* until {short_end(END)} (1d 5h left) for *Heated argument*, set by <@{MOD}>")
     assert view["blocks"][0]["accessory"]["action_id"] == card.UNLOCK
-    assert view["blocks"][1]["block_id"] == card.LOCK_EXTEND
-    assert view["blocks"][1]["optional"] is False
+    assert view["blocks"][1]["text"]["text"] == "*New end*"
+    date_element, time_element = end_row_elements(view)
+    assert (date_element["initial_date"], time_element["initial_time"]) == ("2027-10-17", "17:30")
     assert view["submit"]["text"] == "Save"
+    assert card.is_extending(view) is True
 
 
-def test_submitted_values_lock_picker_returns_duration_and_reason():
+def test_locked_view_prefers_entered_end_over_current_end():
+    view = card.locked_view(CHANNEL_ID, THREAD, lock_row(), ATHENS, values(end_date="2027-10-25", end_time="08:00"))
+
+    date_element, time_element = end_row_elements(view)
+    assert (date_element["initial_date"], time_element["initial_time"]) == ("2027-10-25", "08:00")
+
+
+def test_submitted_values_reads_end_row_and_reason():
     state = {"values": {
-        card.LOCK_DURATION: {card.LOCK_DURATION: {"selected_option": {"value": "2h"}}},
+        card.END: {card.END + "_date": {"selected_date": "2027-10-20"}, card.END + "_time": {"selected_time": "09:15"}},
         card.REASON: {card.REASON: {"value": " raid "}},
     }}
 
     picked = card.submitted_values(state)
 
-    assert (picked["starting"], picked["duration"], picked["reason"], picked["until"]) == (True, "2h", "raid", None)
+    assert (picked["starting"], picked["end_date"], picked["end_time"], picked["reason"]) == (
+        True, "2027-10-20", "09:15", "raid")
+    assert card.submitted_values(state, extending=True)["starting"] is False
 
 
 @pytest.mark.parametrize(("over", "errors"), [
     ({}, None),
+    ({"end_date": "2027-10-20"}, None),
     ({"reason": ""}, {card.REASON: "Add a reason."}),
-    ({"duration": lengths.CUSTOM}, {card.UNTIL: "Select the end."}),
-    ({"duration": lengths.CUSTOM, "until": NOW - dt.timedelta(minutes=1)},
-     {card.UNTIL: "Select a time in the future."}),
-    ({"starting": False, "reason": ""}, {card.LOCK_EXTEND: "Select how long to extend."}),
-    ({"starting": False, "reason": "", "extend": "1h"}, None),
+    ({"end_time": "09:00"}, {card.END: "Select a date for the end time."}),
+    ({"end_date": "2027-10-15"}, {card.END: "Select a time in the future."}),
+    ({"starting": False, "reason": ""}, {card.END: "Select the end date."}),
+    ({"starting": False, "reason": "", "end_date": "2027-10-20"}, None),
 ])
-def test_lock_errors_validates_reason_extend_and_end(over, errors):
-    assert card.lock_errors(values(**over), NOW) == errors
+def test_lock_errors_validates_reason_and_end(over, errors):
+    assert card.lock_errors(values(**over), dt.UTC, now=NOW) == errors
 
 
-@pytest.mark.parametrize(("over", "current", "expected"), [
-    ({}, None, None),
-    ({"duration": "1h"}, None, NOW + dt.timedelta(hours=1)),
-    ({"duration": lengths.CUSTOM, "until": END}, None, END),
-    ({"starting": False, "extend": "2h"}, lock_row(), END + dt.timedelta(hours=2)),
-    ({"starting": False, "extend": "30m"}, lock_row(expires_at=None), NOW + dt.timedelta(minutes=30)),
+def test_lock_errors_extend_must_end_after_current_end():
+    earlier = values(starting=False, end_date="2027-10-17", end_time="10:00")
+    later = values(starting=False, end_date="2027-10-18", end_time="10:00")
+
+    assert card.lock_errors(earlier, dt.UTC, lock_row(), NOW) == {card.END: "Select a time after the current end."}
+    assert card.lock_errors(later, dt.UTC, lock_row(), NOW) is None
+
+
+@pytest.mark.parametrize(("over", "tz", "expected"), [
+    ({}, dt.UTC, None),
+    ({"end_date": "2027-10-17", "end_time": "14:30"}, dt.UTC, END),
+    ({"end_date": "2027-10-17", "end_time": "17:30"}, ATHENS, END),
+    ({"end_date": "2027-10-17"}, dt.UTC, dt.datetime(2027, 10, 17, 23, 59, 59, tzinfo=dt.UTC)),
 ])
-def test_lock_end_starts_now_or_extends_current_end(over, current, expected):
-    assert card.lock_end(values(**over), current, NOW) == expected
+def test_lock_end_reads_picked_date_and_time_in_viewer_zone(over, tz, expected):
+    assert card.lock_end(values(**over), tz) == expected
 
 
 class Client:
@@ -141,10 +173,11 @@ def session_of(conn=None):
     yield conn
 
 
-def locked_submission(extend="1h"):
+def locked_submission(end_date="2027-10-18", end_time="14:30"):
     view = card.locked_view(CHANNEL_ID, THREAD, lock_row())
     view.update(id="V1", hash="H1")
-    view["state"] = {"values": {card.LOCK_EXTEND: {card.LOCK_EXTEND: {"selected_option": extend and {"value": extend}}}}}
+    view["state"] = {"values": {card.END: {
+        card.END + "_date": {"selected_date": end_date}, card.END + "_time": {"selected_time": end_time}}}}
     return view
 
 
@@ -160,6 +193,7 @@ def live(monkeypatch):
     monkeypatch.setattr(guard_actions, "lift_lock",
                         lambda client, guard_id, by=None: state["lifted"].append((guard_id, by)) or guard_id)
     monkeypatch.setattr(guard_actions, "update_lock_notice", lambda client, guard_id: None)
+    monkeypatch.setattr(profile, "timezone", lambda client, user_id: dt.UTC)
     return state
 
 
@@ -190,18 +224,19 @@ def test_unlock_thread_lifts_lock_and_updates_view(live):
     assert ctx.ephemeral_messages == ["Thread unlocked"]
 
 
-def test_submit_lock_extend_moves_end_and_confirms(live):
-    ctx = SurfaceCtx(locked_submission("2h"))
+def test_submit_lock_extend_moves_end_to_picked_time(live):
+    ctx = SurfaceCtx(locked_submission("2027-10-18", "16:30"))
 
     thread_lock.submit_lock(ctx)
 
-    assert live["extended"] == [(5, END + dt.timedelta(hours=2), MOD)]
+    assert live["extended"] == [(5, dt.datetime(2027, 10, 18, 16, 30, tzinfo=dt.UTC), MOD)]
+    assert ctx.acked == [{}]
     assert ctx.ephemeral_messages == []
 
 
 def test_submit_lock_extend_after_lock_ended_is_refused(live):
     live["row"] = None
-    ctx = SurfaceCtx(locked_submission("2h"))
+    ctx = SurfaceCtx(locked_submission())
 
     thread_lock.submit_lock(ctx)
 
@@ -209,24 +244,35 @@ def test_submit_lock_extend_after_lock_ended_is_refused(live):
     assert ctx.ephemeral_messages == ["Lock already ended"]
 
 
-def test_submit_lock_extend_without_choice_acks_errors(live):
-    ctx = SurfaceCtx(locked_submission(None))
+def test_submit_lock_extend_without_date_redraws_modal_with_error(live):
+    ctx = SurfaceCtx(locked_submission(None, None))
 
     thread_lock.submit_lock(ctx)
 
-    assert ctx.acked == [{"response_action": "errors", "errors": {card.LOCK_EXTEND: "Select how long to extend."}}]
+    assert live["extended"] == []
+    assert ctx.acked[0]["response_action"] == "update"
+    assert ctx.acked[0]["view"]["blocks"][3]["elements"][0]["text"] == "Select the end date."
 
 
-def test_reshape_lock_on_duration_custom_adds_until_block(live):
+def test_submit_lock_extend_before_current_end_redraws_modal_with_error(live):
+    ctx = SurfaceCtx(locked_submission("2027-10-17", "10:00"))
+
+    thread_lock.submit_lock(ctx)
+
+    assert live["extended"] == []
+    assert ctx.acked[0]["view"]["blocks"][3]["elements"][0]["text"] == "Select a time after the current end."
+
+
+def test_submit_lock_start_with_missing_reason_acks_input_error(live):
     live["row"] = None
     view = card.lock_view(CHANNEL_ID, THREAD)
     view.update(id="V1", hash="H1")
-    view["state"] = {"values": {card.LOCK_DURATION: {card.LOCK_DURATION: {"selected_option": {"value": "custom"}}}}}
+    view["state"] = {"values": {card.REASON: {card.REASON: {"value": ""}}}}
     ctx = SurfaceCtx(view)
 
-    thread_lock.reshape_lock_on_duration(ctx)
+    thread_lock.submit_lock(ctx)
 
-    assert card.UNTIL in block_ids(ctx.client.updated[0]["view"])
+    assert ctx.acked == [{"response_action": "errors", "errors": {card.REASON: "Add a reason."}}]
 
 
 class WarningConn:
