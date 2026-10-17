@@ -22,28 +22,27 @@ def session_of(conn=None):
     yield conn
 
 
-def test_lock_notice_with_end_returns_end_reason_and_signature():
-    notice = card.lock_notice(END, "Heated argument", MOD)
+def test_lock_notice_with_end_returns_end_and_reason():
+    notice = card.lock_notice(END, "Heated argument")
 
     assert notice["text"] == f"*Thread locked* · ends {short_end(END)} · Reason: Heated argument"
-    assert notice["blocks"][1]["elements"][0]["text"] == f"Fire Department · <@{MOD}>"
+    assert len(notice["blocks"]) == 1
 
 
 def test_lock_notice_signs_out_true_appends_sign_out_warning():
-    notice = card.lock_notice(None, "raid", MOD, signs_out=True)
+    notice = card.lock_notice(None, "raid", signs_out=True)
 
     assert notice["text"] == "*Thread locked* · no end date · Reason: raid"
-    assert notice["blocks"][1]["elements"][0]["text"] == \
-        f"Fire Department · <@{MOD}> · Repeated replies sign you out of Slack"
+    assert notice["blocks"][1]["elements"][0]["text"] == card.SIGNS_OUT
 
 
 @pytest.mark.parametrize(("mode", "warns"), [(privileged.ON, True), (privileged.LOG, False), (privileged.OFF, False)])
 def test_guard_actions_lock_notice_sign_out_warning_follows_privileged_mode(monkeypatch, mode, warns):
     monkeypatch.setattr(privileged, "mode", lambda conn=None: mode)
 
-    text = guard_actions.lock_notice(object(), END, "raid", MOD)["blocks"][1]["elements"][0]["text"]
+    notice = guard_actions.lock_notice(object(), END, "raid")
 
-    assert text.endswith(card.SIGNS_OUT) is warns
+    assert (len(notice["blocks"]) > 1) is warns
 
 
 def test_lock_removal_notice_quotes_deleted_reply():
@@ -100,7 +99,7 @@ class Conn:
 
 def test_warn_lock_posts_notice_and_adds_lock_reaction():
     client = Slack()
-    notice = card.lock_notice(END, "raid", MOD)
+    notice = card.lock_notice(END, "raid")
 
     assert guards.warn(client, Conn(), 5, CHANNEL_ID, THREAD, guards.LOCK, notice=notice) == "1700000000.000500"
     assert client.posted[0]["blocks"] == notice["blocks"]
@@ -134,7 +133,7 @@ def test_remove_lock_warnings_deletes_notice_and_removes_reaction(monkeypatch):
 
 def test_update_lock_notice_live_lock_updates_message_with_new_end(monkeypatch):
     row = {"channel_id": CHANNEL_ID, "warned_ts": "1700000000.000500", "expires_at": END,
-           "reason": "raid", "opened_by": MOD}
+           "reason": "raid"}
     monkeypatch.setattr(guard_actions, "session", lambda: session_of(object()))
     monkeypatch.setattr(guards, "lock_notice_row", lambda conn, guard_id: row)
     monkeypatch.setattr(privileged, "mode", lambda conn=None: privileged.OFF)

@@ -61,7 +61,7 @@ def finish_calls(monkeypatch):
     monkeypatch.setattr(guards, "open_guard", lambda *args, **kwargs: GUARD_ID)
     monkeypatch.setattr(guards, "refresh", lambda conn: 0)
     monkeypatch.setattr(guard_actions, "lock_notice",
-                        lambda conn, expires_at, reason, by: {"text": "*Thread locked*"})
+                        lambda conn, expires_at, reason: {"text": "*Thread locked*"})
     monkeypatch.setattr(
         guards, "finish",
         lambda conn, guard_id, state, error=None, sha=None, by=None: calls.append((guard_id, state, error)),

@@ -193,14 +193,12 @@ def note_text(values):
 SIGNS_OUT = "Repeated replies sign you out of Slack"
 
 
-def lock_notice(expires_at, reason, by, signs_out=False):
+def lock_notice(expires_at, reason, signs_out=False):
     text = f"*Thread locked* · {lengths.ends(expires_at)} · Reason: {reason}"
-    signature = f"Fire Department · <@{by}>" + (f" · {SIGNS_OUT}" if signs_out else "")
-    return {
-        "text": text,
-        "blocks": [section_block(text),
-                   {"type": "context", "elements": [{"type": "mrkdwn", "text": signature}]}],
-    }
+    blocks = [section_block(text)]
+    if signs_out:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": SIGNS_OUT}]})
+    return {"text": text, "blocks": blocks}
 
 
 def lock_removal_notice(expires_at, body):

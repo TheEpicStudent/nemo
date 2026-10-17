@@ -106,7 +106,7 @@ def lock(ctx, channel_id, thread_ts, values):
     ctx.join(channel_id)
     error_code = None
     with session() as conn:
-        notice = guard_actions.lock_notice(conn, expires_at, values["reason"], ctx.user_id)
+        notice = guard_actions.lock_notice(conn, expires_at, values["reason"])
         try:
             guards.warn(ctx.client, conn, guard_id, channel_id, thread_ts, guards.LOCK, notice=notice)
         except Exception as failure:

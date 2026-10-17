@@ -867,8 +867,13 @@ def test_move_audit_events_migration_copies_rows_before_dropping_and_renaming():
     assert "SECURITY DEFINER" in after_drop
 
 
+NOT_STORED_ACTIONS = frozenset({"access_log_sign_in"})
+
+
 def test_move_audit_events_migration_includes_category_for_every_catalogued_action():
     sql = (pathlib.Path(__file__).parents[2] / "db" / "migrations"
            / "0192_move_audit_events.sql").read_text()
     for action, definition in audit_actions.catalogue()["actions"].items():
+        if action in NOT_STORED_ACTIONS:
+            continue
         assert f"('{action}', '{definition['category']}')" in sql

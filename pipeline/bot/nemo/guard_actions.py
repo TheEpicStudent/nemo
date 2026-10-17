@@ -257,8 +257,8 @@ def remove_lock_warnings(client):
     return removed_count
 
 
-def lock_notice(conn, expires_at, reason, by):
-    return card.lock_notice(expires_at, reason, by, signs_out=privileged.mode(conn) == privileged.ON)
+def lock_notice(conn, expires_at, reason):
+    return card.lock_notice(expires_at, reason, signs_out=privileged.mode(conn) == privileged.ON)
 
 
 def update_lock_notice(client, guard_id):
@@ -266,7 +266,7 @@ def update_lock_notice(client, guard_id):
         row = guards.lock_notice_row(conn, guard_id)
         if row is None:
             return None
-        notice = lock_notice(conn, row["expires_at"], row["reason"], row["opened_by"])
+        notice = lock_notice(conn, row["expires_at"], row["reason"])
     try:
         client.chat_update(channel=row["channel_id"], ts=row["warned_ts"], **notice)
     except Exception as failure:

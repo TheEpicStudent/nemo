@@ -50,7 +50,7 @@ RETURNING id
 LOCK_REACTION = "lock"
 
 LOCK_NOTICE = """
-SELECT channel_id, warned_ts, expires_at, reason, opened_by FROM fd.thread_guards
+SELECT channel_id, warned_ts, expires_at, reason FROM fd.thread_guards
 WHERE id = %s AND kind = 'lock' AND state IN ('warned', 'running') AND warned_ts IS NOT NULL
 """
 
@@ -261,7 +261,7 @@ def lock_notice_row(conn, guard_id):
     row = conn.execute(LOCK_NOTICE, (guard_id,)).fetchone()
     if row is None:
         return None
-    return dict(zip(("channel_id", "warned_ts", "expires_at", "reason", "opened_by"), row))
+    return dict(zip(("channel_id", "warned_ts", "expires_at", "reason"), row))
 
 
 def case_of(conn, channel_id, thread_ts):
