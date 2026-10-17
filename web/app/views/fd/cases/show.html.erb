@@ -310,9 +310,10 @@
       <div class="field-label">
         <span>Category</span>
         <%= render "shared/choice", name: :category_key,
-              chosen: category_label(Fd::InfractionCategory.active_keys.first),
+              chosen: category_label(@case.category_key.presence || Fd::InfractionCategory.active_keys.first),
               options: Fd::InfractionCategory.active_keys.each_with_index.map { |key, i| {
-                value: key, label: category_label(key), current: i.zero? } } %>
+                value: key, label: category_label(key),
+                current: @case.category_key.present? ? key == @case.category_key : i.zero? } } %>
       </div>
       <%= field_wrong(:category_key) %>
     </div>

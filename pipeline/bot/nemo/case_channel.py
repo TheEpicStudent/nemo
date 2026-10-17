@@ -4,7 +4,7 @@ import time
 from psycopg.errors import LockNotAvailable
 
 from bot.core import audit, blobs, intake, outbox, parse, session
-from bot.nemo import announce, answer, attachments, case_actions, channel, case_queue
+from bot.nemo import announce, answer, attachments, case_actions, case_cards, channel, case_queue
 
 log = logging.getLogger("bot.nemo")
 
@@ -55,6 +55,7 @@ class CaseChannel:
             ("edit notices", channel.post_edit_notices),
             ("queue card", case_queue.post_missing_card),
             ("thread card", case_queue.refresh_card),
+            ("case card posts", case_cards.refresh),
         ):
             try:
                 result = self.run_step(work, case_id)

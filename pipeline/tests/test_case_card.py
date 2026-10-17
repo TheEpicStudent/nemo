@@ -59,7 +59,7 @@ def stub_posting_identity(monkeypatch):
 def case_rows(card_ts=None, reported=False, opening=None):
     return {
         "SELECT id, category_key": (41, None, None, None, card_ts, None, "UOPENER", None, None,
-                                    None),
+                                    None, None),
         "FOR UPDATE": (card_ts,),
         "NOT EXISTS (SELECT 1 FROM fd.case_reports": None if reported or card_ts else (1,),
         "mirrored_as = 'card'": opening,
@@ -126,17 +126,17 @@ def test_post_missing_card_with_opening_message_posts_quote_as_opener():
     assert card_post["username"] == "UOPENER"
     assert [b["type"] for b in card_post["blocks"]] == ["rich_text"]
     assert "kept posting invite links" in str(card_post["blocks"][0])
-    assert header["thread_ts"] == "9.9" and header["text"] == "Case 41"
+    assert header["thread_ts"] == "9.9" and header["text"] == "Case 41, open"
     assert conn.args_for("UPDATE fd.case_chat SET mirrored_ts") == [("9.9", 7)]
 
 
-def test_post_missing_card_without_opening_message_posts_section_block():
+def test_post_missing_card_without_opening_message_posts_case_card():
     conn, slack = Conn(case_rows()), Slack()
 
     case_queue.post_missing_card(slack, conn, 41)
 
     assert "username" not in slack.posted[0]
-    assert [b["type"] for b in slack.posted[0]["blocks"]] == ["section"]
+    assert [b["type"] for b in slack.posted[0]["blocks"]] == ["card"]
     assert conn.args_for("UPDATE fd.case_chat SET mirrored_ts") == []
 
 
@@ -160,7 +160,7 @@ def test_post_with_thread_ts_adds_no_reaction():
 def resolved_thread_rows(resolution="no_action"):
     rows = case_rows(card_ts="8.8")
     rows["SELECT id, category_key"] = (41, None, "2026-10-11", "C1", "8.8", "old", "UOPENER",
-                                       resolution, THREAD, None)
+                                       resolution, THREAD, None, None)
     return rows
 
 

@@ -1,6 +1,6 @@
 import logging
 
-from bot.nemo import views
+from bot.nemo import card_facts, views
 from bot.nemo.channel import (
     ASSIGNEES,
     SUBJECTS,
@@ -21,7 +21,7 @@ log = logging.getLogger("bot.nemo")
 
 CASE = """
 SELECT id, category_key, resolved_at, card_channel_id, card_ts, card_digest, opened_by,
-       resolution, card_thread_ts, card_header_ts
+       resolution, card_thread_ts, card_header_ts, card_header_digest
 FROM fd.cases WHERE id = %s
 """
 
@@ -58,7 +58,7 @@ WHERE c.id = %s AND c.card_ts IS NULL
 
 SET_CARD = """
 UPDATE fd.cases SET card_channel_id = %s, card_thread_ts = %s, card_ts = %s,
-                    card_digest = %s, updated_at = now()
+                    card_digest = %s, card_header_digest = %s, updated_at = now()
 WHERE id = %s AND card_ts IS NULL
 """
 
@@ -107,6 +107,7 @@ def fetch_case(conn, case_id):
         "resolution": row[7],
         "card_thread_ts": row[8],
         "card_header_ts": row[9],
+        "card_header_digest": row[10],
         "url": case_url(row[0]),
     }
     case["subjects"] = [one[0] for one in conn.execute(SUBJECTS, (case_id,)).fetchall()]
@@ -119,27 +120,60 @@ def fetch_case(conn, case_id):
 
 
 SET_HEADER_TS = """
-UPDATE fd.cases SET card_header_ts = %s WHERE id = %s AND card_header_ts IS NULL
+UPDATE fd.cases SET card_header_ts = %s, card_header_digest = %s
+WHERE id = %s AND card_header_ts IS NULL
+"""
+
+SET_HEADER_DIGEST = """
+UPDATE fd.cases SET card_header_digest = %s WHERE id = %s
 """
 
 
 def post_header(client, conn, case, channel_id, card_ts):
     if case.get("card_header_ts") or not views.queued.needs_header(case):
         return None
+    card_facts.enrich(client, conn, case, case_url)
     try:
         sent = client.chat_postMessage(
             channel=channel_id,
             thread_ts=card_ts,
-            text=f"Case {case['case_id']}",
-            blocks=views.report.header_blocks(case),
             unfurl_links=False,
             unfurl_media=False,
+            **views.case_card.render(case),
         )
     except Exception as failure:
         log.warning("nemo: case %s has no header in its thread: %s", case["case_id"], failure)
         return None
-    conn.execute(SET_HEADER_TS, (sent["ts"], case["case_id"]))
+    conn.execute(SET_HEADER_TS, (sent["ts"], views.case_card.digest(case), case["case_id"]))
     return sent["ts"]
+
+
+def sync_header(client, conn, case):
+    extra = {}
+    if views.queued.needs_header(case):
+        if case["card_thread_ts"]:
+            return None
+        if not case.get("card_header_ts"):
+            return post_header(client, conn, case, case["card_channel_id"], case["card_ts"])
+        target_ts = case["card_header_ts"]
+    else:
+        target_ts = case["card_ts"]
+        extra["metadata"] = views.queued.metadata(case)
+
+    card_facts.enrich(client, conn, case, case_url)
+    digest = views.case_card.digest(case)
+    if digest == case.get("card_header_digest"):
+        return target_ts
+    try:
+        client.chat_update(channel=case["card_channel_id"], ts=target_ts, **extra,
+                           **views.case_card.render(case))
+    except Exception as failure:
+        if not is_foreign_message_error(failure):
+            raise
+        log.warning("nemo: case %s keeps its header as it was, slack would not edit it: %s",
+                    case["case_id"], failure)
+    conn.execute(SET_HEADER_DIGEST, (digest, case["case_id"]))
+    return target_ts
 
 
 def post_thread_extras(client, conn, case, channel_id, card_ts):
@@ -163,6 +197,8 @@ def post(client, conn, case_id, channel_id, thread_ts=None):
         log.info("nemo: case %s went up while we were asking, leaving it", case_id)
         return row[0]
 
+    if not views.queued.needs_header(case):
+        card_facts.enrich(client, conn, case, case_url)
     built = views.queued.build_blocks(case)
     sent = client.chat_postMessage(
         channel=channel_id,
@@ -175,7 +211,9 @@ def post(client, conn, case_id, channel_id, thread_ts=None):
         **author_fields(client, case),
     )
     conn.execute(
-        SET_CARD, (channel_id, thread_ts, sent["ts"], card_state(mark_key(case, thread_ts)), case_id)
+        SET_CARD,
+        (channel_id, thread_ts, sent["ts"], card_state(mark_key(case, thread_ts)),
+         None if views.queued.needs_header(case) else views.case_card.digest(case), case_id),
     )
     mark(client, channel_id, thread_ts, sent["ts"], case, is_new=True)
     if not thread_ts:
@@ -192,28 +230,28 @@ def refresh_card(client, conn, case_id, channel_id=None):
         return None
 
     state = card_state(mark_key(case, case["card_thread_ts"]))
-    if state == case["card_digest"]:
-        return case["card_ts"]
+    if state != case["card_digest"]:
+        if has_legacy_digest(case["card_digest"]):
+            try:
+                client.chat_update(
+                    channel=case["card_channel_id"],
+                    ts=case["card_ts"],
+                    text=views.queued.fallback(case),
+                    blocks=views.queued.build_blocks(case),
+                )
+            except Exception as failure:
+                log.warning("nemo: case %s keeps its card as it was, slack would not edit it: %s",
+                            case_id, failure)
+                if is_foreign_message_error(failure):
+                    conn.execute(SET_CARD_DIGEST, (state, case_id))
+                return case["card_ts"]
 
-    if has_legacy_digest(case["card_digest"]):
-        try:
-            client.chat_update(
-                channel=case["card_channel_id"],
-                ts=case["card_ts"],
-                text=views.queued.fallback(case),
-                blocks=views.queued.build_blocks(case),
-            )
-        except Exception as failure:
-            log.warning("nemo: case %s keeps its card as it was, slack would not edit it: %s",
-                        case_id, failure)
-            if is_foreign_message_error(failure):
-                conn.execute(SET_CARD_DIGEST, (state, case_id))
-            return case["card_ts"]
+        conn.execute(SET_CARD_DIGEST, (state, case_id))
+        mark(client, case["card_channel_id"], case["card_thread_ts"], case["card_ts"], case)
+        if not case["card_thread_ts"]:
+            unfurl_opening(client, conn, case["case_id"], case["card_channel_id"], case["card_ts"])
 
-    conn.execute(SET_CARD_DIGEST, (state, case_id))
-    mark(client, case["card_channel_id"], case["card_thread_ts"], case["card_ts"], case)
-    if not case["card_thread_ts"]:
-        post_thread_extras(client, conn, case, case["card_channel_id"], case["card_ts"])
+    sync_header(client, conn, case)
     return case["card_ts"]
 
 

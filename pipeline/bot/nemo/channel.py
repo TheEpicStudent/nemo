@@ -6,7 +6,7 @@ from psycopg.types.json import Jsonb
 
 from bot.core import parse, whoami
 from bot.core.formatting import quote_text
-from bot.nemo import answer, views, attachments, channels, chat, profile
+from bot.nemo import answer, views, attachments, card_facts, channels, chat, profile
 from bot.nemo.views.activity import message_url
 
 log = logging.getLogger("bot.nemo")
@@ -15,7 +15,7 @@ log = logging.getLogger("bot.nemo")
 CASE = """
 SELECT c.id, c.category_key, c.resolved_at,
        r.id, r.is_anonymous, r.reporter_user_id, r.body, r.forwarded_ts, r.received_at,
-       v.id, r.card_digest, c.resolution, r.card_channel_id, r.header_ts
+       v.id, r.card_digest, c.resolution, r.card_channel_id, r.header_ts, r.header_digest
 FROM fd.cases c
 JOIN fd.case_reports r ON r.case_id = c.id
 LEFT JOIN fd.intake_conversations v ON v.report_id = r.id
@@ -358,27 +358,56 @@ def post_merge_note(client, conn, target_id, closed, by):
 
 
 SET_HEADER_TS = """
-UPDATE fd.case_reports SET header_ts = %s WHERE id = %s AND header_ts IS NULL
+UPDATE fd.case_reports SET header_ts = %s, header_digest = %s WHERE id = %s AND header_ts IS NULL
+"""
+
+SET_HEADER_DIGEST = """
+UPDATE fd.case_reports SET header_digest = %s WHERE id = %s
 """
 
 
 def post_header(client, conn, case, card_channel_id, thread_ts):
     if case.get("header_ts") or not views.report.needs_header(case):
         return None
+    card_facts.enrich(client, conn, case, case_url)
     try:
         sent = client.chat_postMessage(
             channel=card_channel_id,
             thread_ts=thread_ts,
-            text=f"Case {case['case_id']}",
-            blocks=views.report.header_blocks(case),
             unfurl_links=False,
             unfurl_media=False,
+            **views.case_card.render(case),
         )
     except Exception as failure:
         log.warning("nemo: case %s has no header in its thread: %s", case["case_id"], failure)
         return None
-    conn.execute(SET_HEADER_TS, (sent["ts"], case["report_id"]))
+    conn.execute(SET_HEADER_TS, (sent["ts"], views.case_card.digest(case), case["report_id"]))
     return sent["ts"]
+
+
+def sync_header(client, conn, case, card_channel_id):
+    extra = {}
+    if views.report.needs_header(case):
+        if not case.get("header_ts"):
+            return post_header(client, conn, case, card_channel_id, case["forwarded_ts"])
+        target_ts = case["header_ts"]
+    else:
+        target_ts = case["forwarded_ts"]
+        extra["metadata"] = views.report.metadata(case)
+
+    card_facts.enrich(client, conn, case, case_url)
+    digest = views.case_card.digest(case)
+    if digest == case.get("header_digest"):
+        return target_ts
+    try:
+        client.chat_update(channel=card_channel_id, ts=target_ts, **extra, **views.case_card.render(case))
+    except Exception as failure:
+        if not is_foreign_message_error(failure):
+            raise
+        log.warning("nemo: case %s keeps its header as it was, slack would not edit it: %s",
+                    case["case_id"], failure)
+    conn.execute(SET_HEADER_DIGEST, (digest, case["report_id"]))
+    return target_ts
 
 
 def read_linked(client, channel_id, ts, thread_ts=None):
@@ -495,6 +524,7 @@ def fetch_case(conn, case_id):
         "resolution": row[11],
         "card_channel_id": row[12],
         "header_ts": row[13],
+        "header_digest": row[14],
         "url": case_url(row[0]),
         "shares": [],
         "message_id": None,
@@ -659,6 +689,8 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
         log.info("nemo: case %s went up while we were asking, leaving it", case_id)
         return row[0]
 
+    if not views.report.needs_header(case):
+        card_facts.enrich(client, conn, case, case_url)
     built = views.report.build_blocks(case)
     sent = client.chat_postMessage(
         channel=card_channel_id,
@@ -674,8 +706,9 @@ def post_report(client, conn, case_id, channel_id=None, thread_ts=None):
 
     conn.execute(
         "UPDATE fd.case_reports SET forwarded_ts = %s, card_digest = %s, card_channel_id = %s, "
-        "card_rendered_at = now() WHERE id = %s AND forwarded_ts IS NULL",
-        (ts, card_state(card_mark(case)), card_channel_id, case["report_id"]),
+        "header_digest = %s, card_rendered_at = now() WHERE id = %s AND forwarded_ts IS NULL",
+        (ts, card_state(card_mark(case)), card_channel_id,
+         None if views.report.needs_header(case) else views.case_card.digest(case), case["report_id"]),
     )
     mark_card(client, card_channel_id, ts, case, is_new=True)
     post_header(client, conn, case, card_channel_id, ts)
@@ -812,30 +845,29 @@ def refresh_card(client, conn, case_id, channel_id=None):
         return post_report(client, conn, case_id, channel_id)
 
     state = card_state(card_mark(case))
-    if state == case["card_digest"]:
-        return case["forwarded_ts"]
-
     card_channel_id = card_channel(case, channel_id, conn)
-    if has_legacy_digest(case["card_digest"]):
-        try:
-            client.chat_update(
-                channel=card_channel_id,
-                ts=case["forwarded_ts"],
-                text=views.report.fallback(case),
-                blocks=views.report.build_blocks(case),
-            )
-        except Exception as failure:
-            if not is_foreign_message_error(failure):
-                raise
-            log.warning("nemo: case %s keeps its card as it was, slack would not edit it: %s",
-                        case_id, failure)
-            conn.execute(SET_CARD_DIGEST, (state, case["report_id"]))
-            return case["forwarded_ts"]
+    if state != case["card_digest"]:
+        if has_legacy_digest(case["card_digest"]):
+            try:
+                client.chat_update(
+                    channel=card_channel_id,
+                    ts=case["forwarded_ts"],
+                    text=views.report.fallback(case),
+                    blocks=views.report.build_blocks(case),
+                )
+            except Exception as failure:
+                if not is_foreign_message_error(failure):
+                    raise
+                log.warning("nemo: case %s keeps its card as it was, slack would not edit it: %s",
+                            case_id, failure)
+                conn.execute(SET_CARD_DIGEST, (state, case["report_id"]))
+                return case["forwarded_ts"]
 
-    conn.execute(SET_CARD_DIGEST, (state, case["report_id"]))
-    mark_card(client, card_channel_id, case["forwarded_ts"], case)
-    post_header(client, conn, case, card_channel_id, case["forwarded_ts"])
-    log.info("nemo: case %s is now %s", case_id, state)
+        conn.execute(SET_CARD_DIGEST, (state, case["report_id"]))
+        mark_card(client, card_channel_id, case["forwarded_ts"], case)
+        log.info("nemo: case %s is now %s", case_id, state)
+
+    sync_header(client, conn, case, card_channel_id)
     return case["forwarded_ts"]
 
 

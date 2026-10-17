@@ -39,13 +39,24 @@ class FdCasePageTest < ActionDispatch::IntegrationTest
       verb: "categorised").count
   end
 
-  test "update with category_key keeps an existing category and sets alert" do
+  test "update with category_key replaces an existing category and audits the change" do
     kase = make_case(category_key: "spam")
 
     patch fd_case_path(kase), params: { category_key: "harassment_general" }
 
-    assert_equal "spam", kase.reload.category_key
-    assert_match(/already has a category/, flash[:alert])
+    assert_equal "harassment_general", kase.reload.category_key
+    entry = Fd::AuditEntry.where(entity_type: "case", entity_id: kase.id, verb: "categorised").first
+    assert_equal({ "category_key" => "spam" }, entry.before)
+    assert_equal({ "category_key" => "harassment_general" }, entry.after)
+  end
+
+  test "update with the current category_key writes nothing" do
+    kase = make_case(category_key: "spam")
+
+    patch fd_case_path(kase), params: { category_key: "spam" }
+
+    assert_redirected_to fd_case_path(kase)
+    assert_equal 0, Fd::AuditEntry.where(entity_type: "case", entity_id: kase.id, verb: "categorised").count
   end
 
   test "claim on a case assigned to another user adds me to the assignees" do

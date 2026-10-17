@@ -310,6 +310,8 @@ def stub_report_views(monkeypatch):
     monkeypatch.setattr(channel.views.report, "build_blocks", lambda case: [])
     monkeypatch.setattr(channel.views.report, "fallback", lambda case: "fallback")
     monkeypatch.setattr(channel.views.report, "metadata", lambda case: {})
+    monkeypatch.setattr(channel.card_facts, "enrich", lambda *args, **kwargs: None)
+    monkeypatch.setattr(channel.views.case_card, "digest", lambda case: "digest")
     monkeypatch.setattr(channel.attachments, "share", lambda *args, **kwargs: None)
 
 

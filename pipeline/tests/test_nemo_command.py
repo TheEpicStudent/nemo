@@ -113,7 +113,7 @@ def test_fallback_text_lists_shush_only_with_member_guard():
 REPORT_CASE = "JOIN fd.case_reports r ON r.case_id = c.id"
 QUEUE_CASE = "SELECT id, category_key"
 OPENING_SQL = "mirrored_as = 'card'"
-ACTION_COUNT = "FROM fd.actions"
+ACTION_COUNT = "SELECT count(*) FROM fd.actions"
 
 
 class Conn:
@@ -136,12 +136,12 @@ class Conn:
 
 
 def queue_case_row(case_id):
-    return (case_id, None, None, "C_FIRE", "5.5", None, "UOPENER", None, None, None)
+    return (case_id, None, None, "C_FIRE", "5.5", None, "UOPENER", None, None, None, None)
 
 
 def report_case_row(case_id, body):
     return (case_id, None, None, 3, True, None, body, "1.1", None, None, None, None, "C_FIRE",
-            None)
+            None, None)
 
 
 def test_case_reply_queue_case_includes_opening_text():

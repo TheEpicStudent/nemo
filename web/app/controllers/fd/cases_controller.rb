@@ -109,11 +109,9 @@ module Fd
         field_error!(:category_key, "Select a category")
         return redirect_to(fd_case_path(kase, do: "category"))
       end
-      if kase.category_key.present?
-        return redirect_to(fd_case_path(kase), alert: "This case already has a category")
-      end
-
       previous_category = kase.category_key
+      return redirect_to(fd_case_path(kase)) if previous_category == requested_category
+
       writing do
         kase.update!(category_key: requested_category)
         audit(kase, "categorised",

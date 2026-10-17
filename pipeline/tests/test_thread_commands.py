@@ -56,7 +56,6 @@ def harness(monkeypatch):
                         lambda conn, user, body, by: recorded["member"].append((user, body)))
     monkeypatch.setattr(commands.privileged, "delete_message",
                         lambda channel_id, ts, max_retries=2: recorded["deleted"].append(ts))
-    monkeypatch.setattr(commands.channel, "case_url", lambda case_id: None)
     recorded["conn"] = conn
     return recorded
 
@@ -132,7 +131,7 @@ def test_run_note_saves_case_note_or_member_note(harness):
     assert harness["noted"] == ["spoke to them"]
     assert harness["member"] == [("UA", "keeps doing this")]
     assert case == member == {"say": [], "react": "white_check_mark", "retain": True,
-                              "refused": None}
+                              "refused": None, "card": None}
     assert commands.run("!note", "<@UA>", 39, "UME")["refused"].startswith("Usage")
 
 
@@ -175,6 +174,21 @@ def test_reply_successful_command_posts_message_and_deletes_command(harness):
     assert harness["deleted"] == ["2.0"]
 
 
+def test_reply_case_posts_card_in_thread_and_deletes_command(harness, monkeypatch):
+    posted = []
+    monkeypatch.setattr(commands.case_cards, "post",
+                        lambda client, conn, case_id, channel_id, thread_ts, by: posted.append(
+                            (case_id, channel_id, thread_ts, by)))
+    slack = Slack()
+    event = {"channel": CHANNEL_ID, "ts": "100.100", "user": "UME"}
+
+    commands.reply(slack, event, THREAD, commands.run("!case", "", 39, "UME"))
+
+    assert posted == [(39, CHANNEL_ID, THREAD, "UME")]
+    assert slack.calls_to("chat_postMessage") == []
+    assert harness["deleted"] == ["100.100"]
+
+
 def test_reply_note_adds_reaction_and_keeps_message(harness):
     slack = Slack()
     event = {"channel": CHANNEL_ID, "ts": "2.0", "user": "UME"}
@@ -197,5 +211,7 @@ def test_delete_command_failed_delete_adds_x_reaction(monkeypatch):
     assert slack.calls_to("reactions_add")[0]["name"] == "x"
 
 
-def test_run_case_returns_case_header_line(harness):
-    assert commands.run("!case", "", 39, "UME")["say"] == ["Case 39"]
+def test_run_case_asks_for_the_case_card_instead_of_a_line(harness):
+    outcome = commands.run("!case", "", 39, "UME")
+
+    assert outcome["say"] == [] and outcome["card"] == 39

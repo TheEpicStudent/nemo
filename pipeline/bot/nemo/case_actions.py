@@ -91,6 +91,14 @@ RETURNING resolution
 """
 
 
+SET_CATEGORY = """
+UPDATE fd.cases c SET category_key = %s, updated_at = now()
+FROM (SELECT category_key FROM fd.cases WHERE id = %s FOR UPDATE) previous
+WHERE c.id = %s AND c.category_key IS DISTINCT FROM %s
+RETURNING previous.category_key
+"""
+
+
 COPY_ASSIGNEES_TO_TARGET = """
 INSERT INTO fd.case_assignees (case_id, user_id, assigned_by)
 SELECT DISTINCT %s, a.user_id, %s FROM fd.case_assignees a
@@ -208,6 +216,18 @@ def reopen(conn, case_id, by):
         conn, "case", case_id, "reopened", by,
         before={"resolution": row[0]},
         after={"resolved_at": None, "resolution": None},
+    )
+    return True
+
+
+def set_category(conn, case_id, category_key, by):
+    row = conn.execute(SET_CATEGORY, (category_key, case_id, case_id, category_key)).fetchone()
+    if row is None:
+        return False
+
+    audit.record(
+        conn, "case", case_id, "categorised", by,
+        before={"category_key": row[0]}, after={"category_key": category_key},
     )
     return True
 

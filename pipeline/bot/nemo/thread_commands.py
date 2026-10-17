@@ -2,7 +2,7 @@ import logging
 import re
 
 from bot.core import access, privileged, richtext, session
-from bot.nemo import answer, case_actions, channel, chat
+from bot.nemo import answer, case_actions, case_cards, chat
 from bot.nemo.views import lines
 
 log = logging.getLogger("bot.nemo")
@@ -29,8 +29,8 @@ def parse_command(text):
     return parts[0].lower(), parts[1].strip() if len(parts) > 1 else ""
 
 
-def accepted_outcome(say=(), react=None, retain=False):
-    return {"say": list(say), "react": react, "retain": retain, "refused": None}
+def accepted_outcome(say=(), react=None, retain=False, card=None):
+    return {"say": list(say), "react": react, "retain": retain, "refused": None, "card": card}
 
 
 def refused_outcome(text):
@@ -50,7 +50,7 @@ def current_assignees(conn, case_id):
 
 
 def case_link(conn, case_id, user_id, args):
-    return accepted_outcome(say=[lines.header(case_id, channel.case_url(case_id))])
+    return accepted_outcome(card=case_id)
 
 
 def claim(conn, case_id, user_id, args):
@@ -154,6 +154,9 @@ def reply(client, event, thread_ts, outcome):
                                     unfurl_links=False, unfurl_media=False)
         except Exception as failure:
             log.warning("nemo: the thread did not hear %r: %s", text[:60], failure)
+    if outcome.get("card"):
+        with session() as conn:
+            case_cards.post(client, conn, outcome["card"], channel_id, thread_ts, event.get("user"))
     if outcome["react"]:
         try:
             client.reactions_add(channel=channel_id, timestamp=ts, name=outcome["react"])

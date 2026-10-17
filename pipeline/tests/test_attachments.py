@@ -48,7 +48,7 @@ def test_build_blocks_empty_body_omits_rich_text_quote():
     built = report.build_blocks({"case_id": 1, "body": "", "files": [], "shares": []})
     kinds = [block["type"] for block in built]
     assert "rich_text" not in kinds, "an empty quote is invalid blocks"
-    assert kinds[0] == "section"
+    assert kinds[0] == "card"
 
 
 def test_share_image_uploads_privately_and_posts_image_block(monkeypatch):
@@ -169,15 +169,14 @@ def test_build_blocks_excludes_reporter_subject_and_category_text():
         assert excluded not in text
 
 
-def test_header_blocks_with_url_links_case_number():
-    case = {"case_id": 2, "url": CASE_URL}
-    assert report.header_blocks(case)[0]["text"]["text"] == f"<{CASE_URL}|Case 2>"
-    assert report.header_blocks({"case_id": 2})[0]["text"]["text"] == "Case 2"
+def test_header_blocks_render_case_card_titled_with_number_and_state():
+    assert report.header_blocks({"case_id": 2})[0]["title"]["text"] == "Case 2, open"
 
 
 def test_build_blocks_empty_body_returns_header_blocks():
     built = card(body="", blocks=None, url=CASE_URL)
-    assert built == report.header_blocks({"case_id": 2, "url": CASE_URL})
+    assert built == report.header_blocks(
+        {"case_id": 2, "subjects": ["UBOB"], "assignees": [], "category_key": "bullying"})
     assert not report.needs_header({"case_id": 2, "body": "", "shares": []})
 
 

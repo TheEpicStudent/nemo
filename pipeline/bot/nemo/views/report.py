@@ -6,7 +6,7 @@ from bot.core.formatting import (
     quote_text,
 )
 from bot.nemo import categories
-from bot.nemo.views import lines, linked
+from bot.nemo.views import case_card, linked
 
 MENTION = re.compile(r"(<[@#][A-Z0-9][A-Z0-9]*(?:\|[^>]*)?>)")
 SLACK_BIT = re.compile(
@@ -52,8 +52,7 @@ def body(case):
 
 
 def header_blocks(case):
-    text = lines.header(case["case_id"], case.get("url"))
-    return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+    return case_card.blocks(case)
 
 
 def build_blocks(case):

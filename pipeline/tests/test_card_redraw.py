@@ -88,7 +88,7 @@ def test_card_channel_queries_use_report_card_channel_id():
 
 def staff_case(card_ts="8.8"):
     return {"SELECT id, category_key": (41, None, None, "C_FIRE", card_ts, "old", "UME", None, None,
-                                        None)}
+                                        None, None)}
 
 
 def test_case_queue_refresh_card_refusal_keeps_card_and_marks_digest(monkeypatch):

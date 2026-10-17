@@ -5,6 +5,7 @@ import re
 from bot.core import access, audit, richtext, session
 from bot.core.formatting import short_end
 from bot.nemo import (
+    card_facts,
     case_actions,
     case_queue,
     channel,
@@ -363,9 +364,11 @@ def case_opened_text(case_id, user_id):
 def case_reply(conn, case_id):
     case = channel.fetch_case(conn, case_id)
     if case:
+        card_facts.enrich(None, conn, case, channel.case_url)
         return {"text": f"Case {case_id}", "blocks": report.build_blocks(case)}
     case = case_queue.fetch_case(conn, case_id)
     if case:
+        card_facts.enrich(None, conn, case, channel.case_url)
         return {"text": f"Case {case_id}", "blocks": queued.build_blocks(case)}
     return message_only(f"Case {case_id} not found")
 

@@ -18,6 +18,7 @@ from bot.nemo.surface import (
     automod_watch,  # noqa: F401
     autoresponse,  # noqa: F401
     bot_watch,  # noqa: F401
+    case_card,  # noqa: F401
     channel_watch,  # noqa: F401
     join_watch,  # noqa: F401
     message_activity,  # noqa: F401
