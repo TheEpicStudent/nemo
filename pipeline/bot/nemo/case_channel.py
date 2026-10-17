@@ -1,9 +1,14 @@
 import logging
+import time
+
+from psycopg.errors import LockNotAvailable
 
 from bot.core import audit, blobs, intake, outbox, parse, session
 from bot.nemo import announce, answer, attachments, case_actions, channel, case_queue
 
 log = logging.getLogger("bot.nemo")
+
+LOCK_RETRY_DELAYS_SECONDS = (0.5, 2.0)
 
 REPORT_CONVERSATION = """
 SELECT c.id, c.channel_id, c.thread_ts, c.closed_at, c.report_id, c.closed_by
@@ -29,6 +34,16 @@ class CaseChannel:
         with session() as conn:
             return channel.refresh_card(self.client, conn, case_id)
 
+    def run_step(self, work, case_id):
+        for delay in (*LOCK_RETRY_DELAYS_SECONDS, None):
+            try:
+                with session() as conn:
+                    return work(self.client, conn, case_id)
+            except LockNotAvailable:
+                if delay is None:
+                    raise
+                time.sleep(delay)
+
     def sync_case(self, case_id):
         card = None
         for name, work in (
@@ -42,8 +57,7 @@ class CaseChannel:
             ("thread card", case_queue.refresh_card),
         ):
             try:
-                with session() as conn:
-                    result = work(self.client, conn, case_id)
+                result = self.run_step(work, case_id)
                 if name == "case card":
                     card = result
             except Exception:
