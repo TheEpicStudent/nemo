@@ -10,14 +10,14 @@ def test_receipt_names_the_fire_department_and_hints_at_the_thread():
     text, blocks = reply.receipt(12, anonymous=False)
 
     assert text == "Your report was sent to the Fire Department."
-    assert [one["text"] for one in blocks[1]["elements"]] == [reply.THREAD_HINT]
+    assert blocks[1]["elements"] == [{"type": "mrkdwn", "text": reply.THREAD_HINT}]
 
 
 def test_receipt_lists_anonymous_and_delay_before_the_hint():
     _text, blocks = reply.receipt(12, anonymous=True, delayed=True)
 
-    assert [one["text"] for one in blocks[1]["elements"]] == \
-        [reply.ANONYMOUS, reply.DELIVERY_DELAYED, reply.THREAD_HINT]
+    assert blocks[1]["elements"] == [{"type": "mrkdwn", "text":
+        f"{reply.ANONYMOUS} - {reply.DELIVERY_DELAYED} - {reply.THREAD_HINT}"}]
 
 
 class FakeConn:

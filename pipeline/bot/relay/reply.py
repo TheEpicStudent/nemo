@@ -31,6 +31,8 @@ SENDING = "Sending"
 
 THREAD_HINT = "Replies arrive in this thread · Reply here to add details"
 
+NOTE_SEPARATOR = " - "
+
 
 def receipt_text(case_id):
     return SUBMITTED
@@ -48,7 +50,7 @@ def receipt(case_id, anonymous, delayed=False):
     blocks.append(
         {
             "type": "context",
-            "elements": [{"type": "mrkdwn", "text": note} for note in notes],
+            "elements": [{"type": "mrkdwn", "text": NOTE_SEPARATOR.join(notes)}],
         }
     )
     return text, blocks
