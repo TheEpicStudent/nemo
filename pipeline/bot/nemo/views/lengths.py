@@ -46,7 +46,7 @@ def selected_datetime(values, block_id):
 
 
 def ends(expires_at):
-    return f"ends {short_end(expires_at)}" if expires_at else "no end date"
+    return f"until {short_end(expires_at)}" if expires_at else "with no end date"
 
 
 def span(seconds):
@@ -60,9 +60,9 @@ def span(seconds):
 
 def remaining(expires_at, now=None):
     if not expires_at:
-        return "no end date"
+        return "with no end date"
     seconds = int((expires_at - (now or dt.datetime.now(dt.UTC))).total_seconds())
-    return f"ends in {span(seconds)} · {short_end(expires_at)}"
+    return f"until {short_end(expires_at)} ({span(seconds)} left)"
 
 
 def end_from(key, until, start=None, now=None):

@@ -150,8 +150,8 @@ def test_confirm_by_requester_marks_queued_records_audit_and_returns_summary(stu
     stub["conn"] = Conn(proposal())
 
     answer = purge_requests.confirm(12, "UME")
-    assert answer == (f"Purging the last 50 messages in <#{CURRENT_CHANNEL_ID}>, with their thread replies "
-                      "· Result in <#CLOG>")
+    assert answer == (f"Purging the last 50 messages in <#{CURRENT_CHANNEL_ID}>, with their thread replies"
+                      ", result in <#CLOG>")
     assert purge_requests.MARK_QUEUED in stub["conn"].executed
     assert audit.RECORD in stub["conn"].executed
 

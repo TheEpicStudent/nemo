@@ -16,7 +16,7 @@ def quote(text):
 
 
 def edit_notice(url, before, after):
-    head = f"{EDITED} · <{url}|message>" if url else EDITED
+    head = f"{EDITED}: <{url}|message>" if url else EDITED
     return {
         "text": EDITED,
         "blocks": [

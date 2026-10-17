@@ -129,12 +129,12 @@ def post_notices(client):
         claimed = conn.execute(CLAIM_NOTICES, (NOTICES_PER_PASS,)).fetchall()
 
     posted = 0
-    for guard_id, channel_id, thread_ts, settings, expires_at, opened_by, attempts in claimed:
+    for guard_id, channel_id, thread_ts, settings, expires_at, _opened_by, attempts in claimed:
         seconds = int((settings or {}).get("seconds") or 0)
         try:
             sent = client.chat_postMessage(channel=channel_id, thread_ts=thread_ts or None,
                                            unfurl_links=False,
-                                           **card.notice(seconds, expires_at, opened_by))
+                                           **card.notice(seconds, expires_at))
         except Exception as failure:
             log.warning("nemo: slow mode %s notice not posted in %s (try %s): %s",
                         guard_id, channel_id, attempts, failure)

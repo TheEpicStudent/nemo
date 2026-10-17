@@ -12,7 +12,7 @@ SHORTCUT = "slowmode_thread"
 NOT_A_THREAD = "That message is not a thread."
 ALREADY_ON = "Slow mode already enabled"
 ALREADY_OFF = "Slow mode already ended"
-NOT_POSTED = "Slow mode not enabled · Nemo could not post in this thread ({error_code})"
+NOT_POSTED = "Slow mode not enabled: Nemo could not post in this thread ({error_code})"
 DISABLED = "Slow mode disabled"
 
 
@@ -54,7 +54,7 @@ def post_notice(ctx, guard_id, channel_id, thread_ts, values):
     try:
         ctx.client.chat_postMessage(
             channel=channel_id, thread_ts=thread_ts, unfurl_links=False,
-            **card.notice(card.parse_seconds(values), values["expires_at"], ctx.user_id),
+            **card.notice(card.parse_seconds(values), values["expires_at"]),
         )
     except Exception as failure:
         error_code = channels.slack_error_code(failure)
@@ -116,10 +116,6 @@ def submit_slowmode(ctx):
         return None
 
     verb = "updated" if current else "enabled"
-    ctx.post_ephemeral(
-        card.confirmation(verb, card.parse_seconds(values), values["expires_at"], values["reason"]),
-        channel_id, thread_ts,
-    )
     log.info("nemo: %s %s thread slow mode %s on %s", ctx.user_id, verb, guard_id, thread_ts)
     return guard_id
 

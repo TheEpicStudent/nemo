@@ -10,7 +10,7 @@ TEXT_LIMIT = 75
 
 def label(case_id, category_key, names):
     parts = [str(case_id), edit.category_label(category_key) if category_key else None, names]
-    return " · ".join(part for part in parts if part)[:TEXT_LIMIT]
+    return ", ".join(part for part in parts if part)[:TEXT_LIMIT]
 
 
 def option(one):

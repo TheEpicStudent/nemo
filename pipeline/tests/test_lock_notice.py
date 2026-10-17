@@ -25,14 +25,14 @@ def session_of(conn=None):
 def test_lock_notice_with_end_returns_end_and_reason():
     notice = card.lock_notice(END, "Heated argument")
 
-    assert notice["text"] == f"*Thread locked* · ends {short_end(END)} · Reason: Heated argument"
+    assert notice["text"] == f"*Thread locked* until {short_end(END)} for *Heated argument*"
     assert len(notice["blocks"]) == 1
 
 
 def test_lock_notice_signs_out_true_appends_sign_out_warning():
     notice = card.lock_notice(None, "raid", signs_out=True)
 
-    assert notice["text"] == "*Thread locked* · no end date · Reason: raid"
+    assert notice["text"] == "*Thread locked* with no end date for *raid*"
     assert notice["blocks"][1]["elements"][0]["text"] == card.SIGNS_OUT
 
 
@@ -48,7 +48,7 @@ def test_guard_actions_lock_notice_sign_out_warning_follows_privileged_mode(monk
 def test_lock_removal_notice_quotes_deleted_reply():
     notice = card.lock_removal_notice(END, "but nobody answered")
 
-    assert notice["text"] == f"*Thread locked* · ends {short_end(END)}"
+    assert notice["text"] == f"*Thread locked* until {short_end(END)}"
     assert notice["blocks"][1]["elements"][0]["elements"][0]["text"] == "but nobody answered"
 
 
@@ -141,7 +141,7 @@ def test_update_lock_notice_live_lock_updates_message_with_new_end(monkeypatch):
 
     assert guard_actions.update_lock_notice(client, 5) == "1700000000.000500"
     assert client.updated[0]["ts"] == "1700000000.000500"
-    assert client.updated[0]["text"] == f"*Thread locked* · ends {short_end(END)} · Reason: raid"
+    assert client.updated[0]["text"] == f"*Thread locked* until {short_end(END)} for *raid*"
 
 
 def test_update_lock_notice_without_live_lock_returns_none(monkeypatch):
@@ -191,7 +191,7 @@ def test_delete_guarded_thread_message_in_lock_sends_ephemeral_with_reply_text(s
 
     ephemeral_call = client.ephemeral[0]
     assert (ephemeral_call["user"], ephemeral_call["thread_ts"]) == (USER_ID, THREAD)
-    assert ephemeral_call["text"] == f"*Thread locked* · ends {short_end(END)}"
+    assert ephemeral_call["text"] == f"*Thread locked* until {short_end(END)}"
     assert ephemeral_call["blocks"][1]["elements"][0]["elements"][0]["text"] == "but nobody answered"
 
 

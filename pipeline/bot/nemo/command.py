@@ -67,7 +67,7 @@ TEXT_USAGE = {
     OPEN: "Add a summary: */nemo open @member summary*",
     SHUSH: "Add a reason: */nemo shush @member 3d reason*",
     CHANNEL_BAN: "Add a reason: */nemo channelban @member #channel 3d reason*",
-    SLOWMODE: "Usage: */nemo slowmode #channel 30s 2h reason* · */nemo slowmode #channel off*",
+    SLOWMODE: "Usage: */nemo slowmode #channel 30s 2h reason* or */nemo slowmode #channel off*",
 }
 
 DURATION_USAGE_TEMPLATE = (
@@ -196,12 +196,10 @@ def apply_slowmode(conn, request, by):
     seconds, expires_at, reason = request["seconds"], request["expires_at"], request["reason"]
     if current:
         channelguards.update_slowmode(conn, current, seconds, by, reason, expires_at)
-        verb = "updated"
     else:
         channelguards.open_slowmode(conn, channel_id, channelguards.CHANNEL_WIDE, seconds, by, reason,
                                     expires_at, notice_wanted=True)
-        verb = "enabled"
-    return slowcard.confirmation(verb, seconds, expires_at, reason, channel_id)
+    return None
 
 
 def extract_channel(body):
@@ -241,7 +239,7 @@ def lookup_message(member_record, names=None):
     blocks = [
         {
             "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*<@{user_id}>*  ·  {record.in_force_line(member_record['in_force'])}"},
+            "text": {"type": "mrkdwn", "text": f"*<@{user_id}>*: {record.in_force_line(member_record['in_force'])}"},
         },
         {
             "type": "context",
@@ -359,7 +357,7 @@ def unban(conn, user_id, body, by):
 
 def case_opened_text(case_id, user_id):
     text = f"*Case {case_id}* opened"
-    return f"{text} · <@{user_id}>" if user_id else text
+    return f"{text} by <@{user_id}>" if user_id else text
 
 
 def case_reply(conn, case_id):
@@ -477,7 +475,8 @@ def register(app):
                 answer = message_only(unban(conn, target_id, body, user_id))
             elif verb == SLOWMODE:
                 request, problem = slowmode_request(body, command.get("channel_id"))
-                answer = message_only(problem or apply_slowmode(conn, request, user_id))
+                answer_text = problem or apply_slowmode(conn, request, user_id)
+                answer = message_only(answer_text) if answer_text else None
             elif verb == PURGE:
                 request, problem = purge_requests.parse_request(
                     target_id, body, command.get("channel_id"))
@@ -496,4 +495,4 @@ def register(app):
                 answer = case_reply(conn, target_id)
 
         log.info("nemo: %s ran %s on %s", user_id, verb, target_id)
-        return respond(**answer)
+        return respond(**answer) if answer else None

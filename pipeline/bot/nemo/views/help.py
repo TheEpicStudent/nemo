@@ -89,7 +89,7 @@ SECTIONS = (LOOKUP, NOTES, GUARDS, SLOWMODE, PURGE, THREAD, CARD)
 
 
 def line(command, note):
-    return f"> `{command}` · {note}"
+    return f"> `{command}` - {note}"
 
 
 def section(title, rows, capabilities):

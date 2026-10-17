@@ -25,7 +25,7 @@ def default_message():
 def by_line(resolution, by, case_id=None):
     resolution_label = None if resolution == "action_taken" else label(resolution)
     if case_id is None:
-        return f"Resolved by <@{by}>" + (f" · {resolution_label}" if resolution_label else "")
+        return f"Resolved by <@{by}>" + (f", {resolution_label}" if resolution_label else "")
     return lines.resolved(by, case_id, resolution_label)
 
 

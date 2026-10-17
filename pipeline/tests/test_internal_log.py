@@ -24,13 +24,13 @@ BAN = ("channel_ban", "U1", "C1", "spam", None, None)
 
 
 @pytest.mark.parametrize(("row", "made", "line"), [
-    (SHUSH, entry("opened"), f"Shush · <@U1> · ends {short_end(END)} · Reason: spam · by <@UMOD>"),
-    (BAN, entry("opened"), "Channel ban · <@U1> · <#C1> · no end date · Reason: spam · by <@UMOD>"),
-    (SHUSH, entry("extended"), f"Shush extended · <@U1> · ends {short_end(END)} · by <@UMOD>"),
+    (SHUSH, entry("opened"), f"<@U1> shushed until {short_end(END)} for *spam* by <@UMOD>"),
+    (BAN, entry("opened"), "<@U1> banned from <#C1> with no end date for *spam* by <@UMOD>"),
+    (SHUSH, entry("extended"), f"<@U1> shush extended to {short_end(END)} by <@UMOD>"),
     (SHUSH, entry("lifted", after={"lift_reason": "appeal upheld"}),
-     "Shush lifted · <@U1> · Reason: appeal upheld · by <@UMOD>"),
+     "Shush lifted for <@U1> for *appeal upheld* by <@UMOD>"),
     (BAN, entry("lifted", actor="nemo", after={"lift_reason": internal_log.EXPIRED_REASON}),
-     "Channel ban ended · <@U1> · <#C1>"),
+     "Channel ban ended for <@U1> from <#C1>"),
     (SHUSH, entry("attached"), None),
 ])
 def test_member_line_formats_guard_change_per_verb(row, made, line):
@@ -44,14 +44,15 @@ GATE = ("account_age", "C1", "", {"min_age_days": 7}, None, None)
 
 @pytest.mark.parametrize(("row", "made", "line"), [
     (SLOW, entry("opened", entity_type="channel_guard"),
-     f"Slow mode enabled · <#C1> · 30s cooldown · ends {short_end(END)} · threads · Reason: Heated · by <@UMOD>"),
+     f"Slow mode enabled on <#C1> with 30s cooldown until {short_end(END)} and threads "
+     f"for *Heated* by <@UMOD>"),
     (THREAD_SLOW, entry("opened", entity_type="channel_guard"),
-     f"Slow mode enabled · <#C1> · {THREAD_LINK} · 2m cooldown · no end date · Reason: Heated · by <@UMOD>"),
-    (GATE, entry("opened", entity_type="channel_guard"), "New-account gate enabled · <#C1> · 7 days · by <@UMOD>"),
+     f"Slow mode enabled on <#C1> {THREAD_LINK} with 2m cooldown and no end date for *Heated* by <@UMOD>"),
+    (GATE, entry("opened", entity_type="channel_guard"), "New-account gate enabled on <#C1> with 7 days by <@UMOD>"),
     (SLOW, entry("extended", entity_type="channel_guard"),
-     f"Slow mode extended · <#C1> · ends {short_end(END)} · by <@UMOD>"),
-    (SLOW, entry("lifted", entity_type="channel_guard"), "Slow mode disabled · <#C1> · by <@UMOD>"),
-    (SLOW, entry("lifted", actor="system", entity_type="channel_guard"), "Slow mode ended · <#C1>"),
+     f"Slow mode extended on <#C1> to {short_end(END)} by <@UMOD>"),
+    (SLOW, entry("lifted", entity_type="channel_guard"), "Slow mode disabled on <#C1> by <@UMOD>"),
+    (SLOW, entry("lifted", actor="system", entity_type="channel_guard"), "Slow mode ended on <#C1>"),
 ])
 def test_channel_line_formats_guard_change_per_verb(row, made, line):
     assert internal_log.channel_line(made, row) == line
@@ -62,8 +63,10 @@ def test_allow_line_formats_added_and_removed_exemptions():
     removed = entry("removed", before={"subject_id": "B1"}, entity_type="channel_allow")
     bots = ("bot_allowlist", "C1", "", {}, None, None)
 
-    assert internal_log.allow_line(added, SLOW) == "Exemption added · <@U2> · Slow mode · <#C1> · by <@UMOD>"
-    assert internal_log.allow_line(removed, bots) == "Bot removed from allow list · <@B1> · <#C1> · by <@UMOD>"
+    assert internal_log.allow_line(added, SLOW) == \
+        "Exemption from Slow mode added on <#C1> for <@U2> by <@UMOD>"
+    assert internal_log.allow_line(removed, bots) == \
+        "Bot removed from the allow list on <#C1> for <@B1> by <@UMOD>"
 
 
 LOCK = ("lock", "C1", THREAD, "raid", END, "running", None)
@@ -71,13 +74,13 @@ LOCK = ("lock", "C1", THREAD, "raid", END, "running", None)
 
 @pytest.mark.parametrize(("row", "made", "line"), [
     (LOCK, entry("opened", entity_type="thread_guard"),
-     f"Thread locked · <#C1> · {THREAD_LINK} · ends {short_end(END)} · Reason: raid · by <@UMOD>"),
+     f"Lock on <#C1> {THREAD_LINK} until {short_end(END)} for *raid* by <@UMOD>"),
     (LOCK, entry("extended", entity_type="thread_guard"),
-     f"Lock extended · <#C1> · {THREAD_LINK} · ends {short_end(END)} · by <@UMOD>"),
+     f"Lock on <#C1> {THREAD_LINK} extended to {short_end(END)} by <@UMOD>"),
     (LOCK[:5] + ("done", None), entry("lifted", entity_type="thread_guard"),
-     f"Thread unlocked · <#C1> · {THREAD_LINK} · by <@UMOD>"),
+     f"Lock on <#C1> {THREAD_LINK} unlocked by <@UMOD>"),
     (LOCK[:5] + ("done", None), entry("lifted", actor="system", entity_type="thread_guard"),
-     f"Lock ended · <#C1> · {THREAD_LINK}"),
+     f"Lock on <#C1> {THREAD_LINK} ended"),
     (LOCK[:5] + ("done", internal_log.REPLACED_BY_DESTROY), entry("lifted", entity_type="thread_guard"), None),
     (LOCK[:5] + ("failed", "warning not posted"), entry("lifted", actor="system", entity_type="thread_guard"), None),
     (("destroy",) + LOCK[1:], entry("opened", entity_type="thread_guard"), None),
@@ -90,7 +93,7 @@ def test_automod_line_formats_message_link_and_quote():
     match = (3, "badword", "U1", "C1", "https://hackclub.slack.com/archives/C1/p1", "a badword here")
 
     assert internal_log.automod_line(match) == \
-        'Automod · "badword" · <@U1> · <#C1> · <https://hackclub.slack.com/archives/C1/p1|message>\n> a badword here'
+        'Automod matched "badword" from <@U1> in <#C1> (<https://hackclub.slack.com/archives/C1/p1|message>)\n> a badword here'
 
 
 class Conn:
@@ -146,7 +149,7 @@ def test_drain_posts_lines_and_moves_cursor(monkeypatch):
     client = Slack()
 
     assert drain_with(monkeypatch, conn, client) == 3
-    assert [one["text"].split(" · ")[0] for one in client.posted] == ["Shush", 'Automod']
+    assert [one["text"].split()[0] for one in client.posted] == ["<@U1>", "Automod"]
     assert all(one["channel"] == "CLOGS" for one in client.posted)
     assert conn.cursor_moves == [(11, "audit"), (12, "audit"), (4, "automod")]
 
@@ -154,7 +157,7 @@ def test_drain_posts_lines_and_moves_cursor(monkeypatch):
 def test_drain_with_failed_post_does_not_move_cursor(monkeypatch):
     conn = Conn(AUDIT_ROWS[:1], rows={internal_log.MEMBER_GUARD: SHUSH})
 
-    assert drain_with(monkeypatch, conn, Slack(fails_on="Shush")) == 0
+    assert drain_with(monkeypatch, conn, Slack(fails_on="shushed")) == 0
     assert conn.cursor_moves == []
 
 
@@ -218,7 +221,8 @@ def test_post_destroy_notice_includes_message_count(monkeypatch):
 
     guard_actions.post_destroy_notice(client, object(), "C1", THREAD, "UMOD", 42)
 
-    assert posted[0]["text"] == "Thread destroyed · <#C1> · 42 messages · by <@UMOD> · <https://fe/archive|archive>"
+    assert posted[0]["text"] == \
+        "Thread in <#C1> destroyed by <@UMOD> (42 messages, <https://fe/archive|archive>)"
 
 
 def test_loop_bot_kick_notification_wakes_kick_drain(loop_listener):

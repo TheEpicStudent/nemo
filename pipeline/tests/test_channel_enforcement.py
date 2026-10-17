@@ -216,7 +216,7 @@ def test_slowmode_on_message_inside_interval_removes_and_notifies(monkeypatch):
 
     assert slowmode.on_message(Ctx(message(), client)) is True
     assert removed == [(CHANNEL_ID, TS)]
-    assert client.ephemeral[0]["text"] == "*Slow mode* · next message in 12s"
+    assert client.ephemeral[0]["text"] == "*Slow mode*: next message in 12s"
 
 
 def test_slowmode_on_message_exempt_member_skips_clock(monkeypatch):

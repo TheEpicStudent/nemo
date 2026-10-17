@@ -139,8 +139,8 @@ def lock_status_block(current, now=None):
     return {
         "type": "section",
         "text": {"type": "mrkdwn",
-                 "text": f"*Locked* · {lengths.remaining(current['expires_at'], now)} · "
-                         f"set by <@{current['opened_by']}>"},
+                 "text": f"*Locked* {lengths.remaining(current['expires_at'], now)} "
+                         f"for *{current['reason']}*, set by <@{current['opened_by']}>"},
         "accessory": {
             "type": "button", "action_id": UNLOCK, "style": "danger", "text": lengths.plain("Unlock"),
             "confirm": {"title": lengths.plain("Unlock thread"),
@@ -154,7 +154,6 @@ def lock_status_block(current, now=None):
 def locked_view(channel_id, thread_ts, current, custom=False, now=None):
     blocks = [
         lock_status_block(current, now),
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Reason: {current['reason']}"}]},
         lengths.picker(LOCK_EXTEND, "Extend by", "Select", optional=False, prefix="+"),
     ]
     if custom:
@@ -194,7 +193,7 @@ SIGNS_OUT = "Repeated replies sign you out of Slack"
 
 
 def lock_notice(expires_at, reason, signs_out=False):
-    text = f"*Thread locked* · {lengths.ends(expires_at)} · Reason: {reason}"
+    text = f"*Thread locked* {lengths.ends(expires_at)} for *{reason}*"
     blocks = [section_block(text)]
     if signs_out:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": SIGNS_OUT}]})
@@ -202,7 +201,7 @@ def lock_notice(expires_at, reason, signs_out=False):
 
 
 def lock_removal_notice(expires_at, body):
-    text = f"*Thread locked* · {lengths.ends(expires_at)}"
+    text = f"*Thread locked* {lengths.ends(expires_at)}"
     blocks = [section_block(text)]
     if body:
         blocks.append({"type": "rich_text", "elements": [{

@@ -42,7 +42,7 @@ def quote(body, blocks=None):
 def headline(case):
     name = f"Case {case['case_id']}"
     label = category_label(case.get("category_key"))
-    return f"{name} · {label}" if label else name
+    return f"{name}: {label}" if label else name
 
 
 def body(case):

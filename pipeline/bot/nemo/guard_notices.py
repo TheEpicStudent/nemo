@@ -43,7 +43,7 @@ def footer(channel_id, link=None, app_id=None):
         (channel.channel_url(channel_id), "Fire Engine"),
     )
     parts = [f"<{url}|{name}>" for url, name in links if url]
-    return "\n" + "  ·  ".join(parts) if parts else ""
+    return "\n" + ", ".join(parts) if parts else ""
 
 
 def plural(count, one, many):

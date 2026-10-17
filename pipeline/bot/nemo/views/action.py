@@ -164,7 +164,7 @@ def footnote(guard):
         parts.append("not enforced")
     elif guard.get("enforcement_status") == "pending":
         parts.append("pending")
-    return "  ·  ".join(parts)
+    return ", ".join(parts)
 
 
 def existing_guard_blocks(guard_status):
@@ -399,7 +399,7 @@ def log_blocks(values, by, channel_name=None):
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": f"Against <@{values['target_user_id']}> · logged by <@{by}>",
+                "text": f"Against <@{values['target_user_id']}>, logged by <@{by}>",
             }],
         },
         {"type": "divider"},

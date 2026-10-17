@@ -251,7 +251,7 @@ def test_waiting_sql_excludes_card_message():
 def test_parse_command_open_without_member_returns_none_member():
     assert command.parse_command("open a raid in the lounge") == ("open", None, "a raid in the lounge")
     assert command.case_opened_text(5, None) == "*Case 5* opened"
-    assert command.case_opened_text(5, "UBOB") == "*Case 5* opened · <@UBOB>"
+    assert command.case_opened_text(5, "UBOB") == "*Case 5* opened by <@UBOB>"
 
 
 def test_parse_command_lookup_requires_member():

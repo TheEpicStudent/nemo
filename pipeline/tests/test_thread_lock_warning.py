@@ -111,5 +111,5 @@ def test_submit_lock_warning_posted_returns_guard_id_without_finishing(monkeypat
 
     assert thread_lock.submit_lock(lock_submission(client)) == GUARD_ID
     assert finish_calls == []
-    assert [one["text"] for one in client.ephemerals] == ["Thread locked · ends 1 Jan 2100, 00:00 UTC · Reason: raid"]
+    assert client.ephemerals == []
     assert client.messages == []

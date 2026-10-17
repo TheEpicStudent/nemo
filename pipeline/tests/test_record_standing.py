@@ -56,7 +56,7 @@ def test_counts_sql_counts_live_and_lifting_guards():
 
 def test_format_counts_labels_each_count():
     line = record.format_counts({"subject_case_count": 1, "case_count": 2, "active_guard_count": 1, "reversed_action_count": 0})
-    assert line == "1 as subject  ·  2 cases  ·  1 active"
+    assert line == "1 as subject, 2 cases, 1 active"
     assert record.format_counts({"subject_case_count": 1, "case_count": 1, "active_guard_count": 0, "reversed_action_count": 2}) == (
-        "1 as subject  ·  1 case  ·  0 active  ·  2 reversed")
+        "1 as subject, 1 case, 0 active, 2 reversed")
     assert "action" not in line

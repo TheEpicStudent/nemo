@@ -32,14 +32,14 @@ def posted_line(author_id, channel_id, ts):
     when = int(float(ts))
     stamp = f"<!date^{when}^{{date_short}} at {{time}}|{when}>"
     who = f"<@{author_id}>" if author_id else "somebody"
-    return f"{who} · {stamp} · <#{channel_id}>"
+    return f"{who} on {stamp} in <#{channel_id}>"
 
 
 def channel_share_line(viewers, channel_members):
     if not channel_members:
         return ""
     share = round(100 * viewers / channel_members)
-    return f" · {share}% of the channel"
+    return f" ({share}% of the channel)"
 
 
 def replies_line(archived_message):
@@ -54,7 +54,7 @@ def replies_line(archived_message):
 
 def clients_line(clients):
     parts = [f"{share}% {label}" for label, count, share in clients if share is not None and count]
-    return " · ".join(parts) if parts else "no viewer breakdown yet"
+    return ", ".join(parts) if parts else "no viewer breakdown yet"
 
 
 def first_line(curves):

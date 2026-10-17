@@ -248,7 +248,7 @@ def test_apply_slowmode_new_opens_guard_with_notice(channel_guard_calls):
     reply = command.apply_slowmode(object(), request_for(), "UMOD")
 
     assert channel_guard_calls["opened"] == [((CHANNEL_ID, "", 30, "UMOD", "heated", None), {"notice_wanted": True})]
-    assert reply == f"Slow mode enabled in <#{CHANNEL_ID}> · 30s cooldown · no end date · Reason: heated"
+    assert reply is None
 
 
 def test_apply_slowmode_existing_row_updates_guard(channel_guard_calls):
@@ -257,7 +257,7 @@ def test_apply_slowmode_existing_row_updates_guard(channel_guard_calls):
     reply = command.apply_slowmode(object(), request_for(seconds=120), "UMOD")
 
     assert channel_guard_calls["updated"] == [(120, "UMOD", "heated", None)]
-    assert reply.startswith(f"Slow mode updated in <#{CHANNEL_ID}> · 2m cooldown")
+    assert reply is None
 
 
 def test_apply_slowmode_off_lifts_guard_or_reports_none(channel_guard_calls):

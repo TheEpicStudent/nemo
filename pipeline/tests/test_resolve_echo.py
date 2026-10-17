@@ -37,13 +37,13 @@ def test_log_blocks_no_action_without_case_id_names_disposition_in_byline():
     blocks = resolve.log_blocks("no_action", None, MOD)
     assert blocks == [{
         "type": "context",
-        "elements": [{"type": "mrkdwn", "text": f"Resolved by <@{MOD}> · No action needed"}],
+        "elements": [{"type": "mrkdwn", "text": f"Resolved by <@{MOD}>, No action needed"}],
     }]
 
 
 def test_log_blocks_with_case_id_names_case_in_byline():
     blocks = resolve.log_blocks("no_action", None, MOD, case_id=23)
-    assert blocks[0]["elements"][0]["text"] == f"<@{MOD}> resolved case 23 · No action needed"
+    assert blocks[0]["elements"][0]["text"] == f"<@{MOD}> resolved case 23: No action needed"
     blocks = resolve.log_blocks("action_taken", None, MOD, case_id=23)
     assert blocks[0]["elements"][0]["text"] == f"<@{MOD}> resolved case 23"
 

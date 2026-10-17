@@ -16,7 +16,7 @@ ALREADY_LOCKED = "Thread already locked"
 ALREADY_ENDED = "Lock already ended"
 UNLOCKED = "Thread unlocked"
 
-WARNING_NOT_POSTED = "Thread not locked · Nemo could not post in this thread ({error_code}) · /invite @nemo"
+WARNING_NOT_POSTED = "Thread not locked: Nemo could not post in this thread ({error_code}), /invite @nemo"
 
 
 def live_lock(channel_id, thread_ts):
@@ -119,8 +119,6 @@ def lock(ctx, channel_id, thread_ts, values):
         ctx.post_ephemeral_or_dm(WARNING_NOT_POSTED.format(error_code=error_code), channel_id, thread_ts)
         return None
 
-    ctx.post_ephemeral(f"Thread locked · {lengths.ends(expires_at)} · Reason: {values['reason']}",
-                       channel_id, thread_ts)
     log.info("nemo: %s locked %s until %s (guard %s)", ctx.user_id, thread_ts, expires_at, guard_id)
     return guard_id
 
@@ -137,7 +135,6 @@ def extend(ctx, channel_id, thread_ts, values):
     if guard_id is None:
         return ctx.post_ephemeral(ALREADY_ENDED, channel_id, thread_ts)
     guard_actions.update_lock_notice(ctx.client, guard_id)
-    ctx.post_ephemeral(f"Lock extended · {lengths.ends(expires_at)}", channel_id, thread_ts)
     log.info("nemo: %s extended lock %s to %s", ctx.user_id, guard_id, expires_at)
     return guard_id
 

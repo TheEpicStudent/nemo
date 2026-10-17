@@ -24,10 +24,10 @@ OUTCOME_FOR_EFFECT = {FLAG: FLAGGED, HOLD: SHUSHED, DEACTIVATE: DEACTIVATED}
 SHUSH_DAYS = 7
 
 OUTCOME_NOTICES = {
-    FLAGGED: "Email on {domain} · flagged",
-    SHUSHED: "Email on {domain} · shushed",
-    DEACTIVATED: "Email on {domain} · deactivated",
-    FAILED: "Email on {domain} · shush or deactivation failed",
+    FLAGGED: "Email on {domain} flagged",
+    SHUSHED: "Email on {domain} shushed",
+    DEACTIVATED: "Email on {domain} deactivated",
+    FAILED: "Email on {domain} shush or deactivation failed",
 }
 
 ACTIVE_DOMAINS = """
@@ -121,7 +121,7 @@ def post_to_internal_log(client, conn, user_id, domain, outcome):
     try:
         client.chat_postMessage(
             channel=log_channel_id,
-            text=f"<@{user_id}> joined · {OUTCOME_NOTICES[outcome].format(domain=domain)}",
+            text=f"<@{user_id}> joined: {OUTCOME_NOTICES[outcome].format(domain=domain)}",
             unfurl_links=False,
         )
     except Exception as failure:  # noqa: BLE001

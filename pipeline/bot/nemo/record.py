@@ -112,7 +112,7 @@ def format_counts(counts):
     ]
     if counts["reversed_action_count"]:
         parts.append(f"{counts['reversed_action_count']} reversed")
-    return "  ·  ".join(parts)
+    return ", ".join(parts)
 
 
 ENFORCEMENT_STATUS_LABELS = {
@@ -145,16 +145,17 @@ def entry_line(entry):
     if entry["kind"] == "cases":
         category = report.category_label(entry["type_key"]) or "not set"
         ending = f", {entry['actor_or_resolution'].replace('_', ' ')}" if entry["actor_or_resolution"] else ", open"
-        return f"{at}  ·  case {entry['case_id']}, {category.lower()}{ending}"
+        return f"case {entry['case_id']}, {category.lower()}{ending} on {at}"
 
     if entry["kind"] == "actions":
         return (
-            f"{at}  ·  {action.label(entry['type_key']).lower()}"
-            f" on case {entry['case_id']}, by <@{entry['actor_or_resolution']}>"
+            f"{action.label(entry['type_key']).lower()} on case {entry['case_id']} "
+            f"by <@{entry['actor_or_resolution']}>, {at}"
         )
 
     if entry["kind"] == "reversed":
-        text = f"{at}  ·  {action.label(entry['type_key']).lower()} reversed by <@{entry['actor_or_resolution']}>"
+        text = (f"{action.label(entry['type_key']).lower()} on {at}, "
+                f"reversed by <@{entry['actor_or_resolution']}>")
         return f"{text}, {entry['note']}" if entry["note"] else text
 
-    return f"{at}  ·  note by <@{entry['actor_or_resolution']}>: {entry['note']}"
+    return f"note by <@{entry['actor_or_resolution']}> on {at}: {entry['note']}"

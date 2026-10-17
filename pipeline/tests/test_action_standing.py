@@ -74,7 +74,7 @@ def submission(**over):
 def test_log_blocks_has_header_and_target_context():
     built = action.log_blocks(submission(), MOD)
     assert built[0] == {"type": "header", "text": {"type": "plain_text", "text": "Warning"}}
-    assert built[1]["elements"][0]["text"] == f"Against <@{USER_ID}> · logged by <@{MOD}>"
+    assert built[1]["elements"][0]["text"] == f"Against <@{USER_ID}>, logged by <@{MOD}>"
     assert built[2] == {"type": "divider"}
 
 

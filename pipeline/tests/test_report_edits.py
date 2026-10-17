@@ -18,7 +18,7 @@ def test_edit_notice_with_link_shows_from_and_to_text():
 
     assert notice["text"] == "Reporter edited a message"
     assert notice["blocks"][0]["elements"][0]["text"] == \
-        "Reporter edited a message · <https://hackclub.slack.com/archives/C1/p1|message>"
+        "Reporter edited a message: <https://hackclub.slack.com/archives/C1/p1|message>"
     assert texts(notice) == ["From", "old text", "To", "new text"]
 
 

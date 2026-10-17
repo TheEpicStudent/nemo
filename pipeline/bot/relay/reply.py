@@ -29,7 +29,7 @@ SUBMITTED = "Your report was sent to the Fire Department."
 
 SENDING = "Sending"
 
-THREAD_HINT = "Replies arrive in this thread · Reply here to add details"
+THREAD_HINT = "Replies arrive in this thread; reply here to add details"
 
 NOTE_SEPARATOR = " - "
 

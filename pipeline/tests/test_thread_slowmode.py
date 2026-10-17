@@ -58,7 +58,7 @@ def test_build_view_existing_shows_remaining_time_and_extend_block():
     assert block_ids(view)[1:] == [card.EXTEND, card.SECONDS, card.REASON, card.EXEMPT]
     assert view["submit"]["text"] == "Save"
     assert view["blocks"][0]["text"]["text"] == \
-        f"*Enabled* · ends in 1d 5h · {short_end(END)} · set by <@{MOD}>"
+        f"*Enabled* until {short_end(END)} (1d 5h left), set by <@{MOD}>"
     assert view["blocks"][0]["accessory"]["action_id"] == card.DISABLE
     assert view["blocks"][3]["element"]["initial_value"] == "Heated argument"
     assert view["blocks"][4]["element"]["initial_users"] == ["UEXEMPT"]
@@ -113,22 +113,17 @@ def test_new_end_returns_start_or_extended_end(over, row, expected):
     assert card.new_end(submission(**over), row, NOW) == expected
 
 
-def test_notice_includes_cooldown_end_and_actor():
-    posted = card.notice(30, END, MOD)
+def test_notice_includes_cooldown_and_end():
+    posted = card.notice(30, END)
 
-    assert posted["text"] == f"*Slow mode enabled* · 30s cooldown · ends {short_end(END)}"
-    assert posted["blocks"][1]["elements"][0]["text"] == f"Fire Department · <@{MOD}>"
-
-
-def test_confirmation_without_end_returns_no_end_date_text():
-    assert card.confirmation("enabled", 120, None, "Heated argument") == \
-        "Slow mode enabled · 2m cooldown · no end date · Reason: Heated argument"
+    assert posted["text"] == f"*Slow mode enabled* with 30s cooldown until {short_end(END)}"
+    assert len(posted["blocks"]) == 1
 
 
 def test_removal_notice_in_thread_quotes_reply():
     notice = card.removal_notice(12, "my reply", in_thread=True)
 
-    assert notice["text"] == "*Slow mode* · next reply in 12s"
+    assert notice["text"] == "*Slow mode*: next reply in 12s"
     assert notice["blocks"][1]["elements"][0]["elements"][0]["text"] == "my reply"
 
 
@@ -247,7 +242,7 @@ def test_on_message_thread_slowmode_fast_reply_is_removed_and_notified(enforcing
     assert removed == [TS]
     assert conn.args_for("INSERT INTO fd.slowmode_clock")[0][1] == THREAD
     assert conn.args_for("INSERT INTO fd.channel_guard_events")[0][0] == 9
-    assert ctx.client.ephemeral[0]["text"] == "*Slow mode* · next reply in 12s"
+    assert ctx.client.ephemeral[0]["text"] == "*Slow mode*: next reply in 12s"
 
 
 def test_on_message_thread_slowmode_overrides_channel_slowmode(enforcing, cache):
@@ -361,7 +356,7 @@ def guard_calls(monkeypatch):
     return calls
 
 
-def test_submit_slowmode_new_opens_guard_and_confirms(guard_calls):
+def test_submit_slowmode_new_opens_guard_and_posts_notice(guard_calls):
     ctx = SurfaceCtx(submitted_view())
     before = dt.datetime.now(dt.UTC)
 
@@ -370,8 +365,8 @@ def test_submit_slowmode_new_opens_guard_and_confirms(guard_calls):
     assert (channel_id, thread_ts, seconds, by, reason) == (CHANNEL_ID, THREAD, 30, MOD, "Heated argument")
     assert before + dt.timedelta(hours=1) <= ends <= dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
     assert guard_calls["allows"] == [(9, ["UEXEMPT"])]
-    assert ctx.client.posted[0]["text"] == f"*Slow mode enabled* · 30s cooldown · ends {short_end(ends)}"
-    assert ctx.ephemerals == [f"Slow mode enabled · 30s cooldown · ends {short_end(ends)} · Reason: Heated argument"]
+    assert ctx.client.posted[0]["text"] == f"*Slow mode enabled* with 30s cooldown until {short_end(ends)}"
+    assert ctx.ephemerals == []
 
 
 def test_submit_slowmode_existing_extends_without_notice(guard_calls):
@@ -382,8 +377,7 @@ def test_submit_slowmode_existing_extends_without_notice(guard_calls):
 
     assert guard_calls["updates"] == [(60, MOD, "Heated argument", END + dt.timedelta(hours=2))]
     assert ctx.client.posted == []
-    assert ctx.ephemerals == [f"Slow mode updated · 1m cooldown · ends {short_end(END + dt.timedelta(hours=2))} "
-                        "· Reason: Heated argument"]
+    assert ctx.ephemerals == []
 
 
 def test_submit_slowmode_ended_guard_returns_none_with_message(guard_calls):
@@ -399,7 +393,7 @@ def test_submit_slowmode_notice_failure_lifts_guard(guard_calls):
 
     assert thread_slowmode.submit_slowmode(ctx) is None
     assert guard_calls["lifted"] == [9]
-    assert ctx.ephemerals == ["Slow mode not enabled · Nemo could not post in this thread (RuntimeError)"]
+    assert ctx.ephemerals == ["Slow mode not enabled: Nemo could not post in this thread (RuntimeError)"]
 
 
 def test_submit_slowmode_invalid_cooldown_acks_errors(guard_calls):
@@ -470,7 +464,7 @@ def test_post_notices_posts_in_channel_and_records_ts(monkeypatch):
     assert slowmode.post_notices(client) == 1
     assert client.posted[0]["channel"] == CHANNEL_ID
     assert client.posted[0]["thread_ts"] is None
-    assert client.posted[0]["text"] == "*Slow mode enabled* · 30s cooldown · no end date"
+    assert client.posted[0]["text"] == "*Slow mode enabled* with 30s cooldown with no end date"
     assert conn.args_for(slowmode.NOTICE_POSTED) == [("1700000000.000900", 5)]
 
 

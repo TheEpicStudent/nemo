@@ -47,7 +47,7 @@ def build_blocks(bodies=None, files=0, channels=(), saved_choice=None):
         blocks.append(
             {
                 "type": "context",
-                "elements": [{"type": "mrkdwn", "text": "  ·  ".join(summary_parts)}],
+                "elements": [{"type": "mrkdwn", "text": ", ".join(summary_parts)}],
             }
         )
 

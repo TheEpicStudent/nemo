@@ -16,11 +16,11 @@ CHANNEL_MENTION = re.compile(r"<#([CG][A-Z0-9]+)(?:\|[^>]*)?>")
 NUMBER = re.compile(r"\A\d{1,6}\Z")
 
 USAGE = (
-    "Usage: */nemo purge 50* · */nemo purge #channel 50* · "
-    "*/nemo purge @member* · */nemo purge @member #channel*"
+    "Usage: */nemo purge 50* or */nemo purge #channel 50* or "
+    "*/nemo purge @member* or */nemo purge @member #channel*"
 )
 NAME_A_CHANNEL = "Name the channel: */nemo purge #channel 50*"
-NEED_A_NUMBER = "Usage: */nemo purge #channel 50* · */nemo purge @member #channel*"
+NEED_A_NUMBER = "Usage: */nemo purge #channel 50* or */nemo purge @member #channel*"
 OUT_OF_RANGE = f"Count must be 1 to {purge.CAP:,}"
 TOO_LONG = f"Reason must be under {MAX_REASON_LENGTH} characters"
 NOT_FOUND = "Purge already confirmed or cancelled"
@@ -147,7 +147,7 @@ def log_channel_mention():
 
 
 def confirmation_text(request):
-    return f"Purging {describe(request)} · Result in {log_channel_mention()}"
+    return f"Purging {describe(request)}, result in {log_channel_mention()}"
 
 
 def confirm(purge_id, user_id):

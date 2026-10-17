@@ -43,7 +43,7 @@ def cooldown(seconds):
 
 
 def summary(seconds, expires_at):
-    return f"{cooldown(seconds)} cooldown · {lengths.ends(expires_at)}"
+    return f"{cooldown(seconds)} cooldown {lengths.ends(expires_at)}"
 
 
 plain = lengths.plain
@@ -88,7 +88,7 @@ def status_block(current, now=None):
     return {
         "type": "section",
         "text": {"type": "mrkdwn",
-                 "text": f"*Enabled* · {lengths.remaining(current['expires_at'], now)} · "
+                 "text": f"*Enabled* {lengths.remaining(current['expires_at'], now)}, "
                          f"set by <@{current['opened_by']}>"},
         "accessory": {
             "type": "button", "action_id": DISABLE, "style": "danger", "text": plain("Disable"),
@@ -175,25 +175,19 @@ def validation_errors(values, now=None):
     return None
 
 
-def notice(seconds, expires_at, by):
-    text = f"*Slow mode enabled* · {summary(seconds, expires_at)}"
+def notice(seconds, expires_at):
+    text = f"*Slow mode enabled* with {summary(seconds, expires_at)}"
     return {
         "text": text,
         "blocks": [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Fire Department · <@{by}>"}]},
         ],
     }
 
 
-def confirmation(verb, seconds, expires_at, reason, channel_id=None):
-    where = f" in <#{channel_id}>" if channel_id else ""
-    return f"Slow mode {verb}{where} · {summary(seconds, expires_at)} · Reason: {reason}"
-
-
 def removal_notice(seconds_remaining, body, in_thread):
     what = "reply" if in_thread else "message"
-    text = f"*Slow mode* · next {what} in {format_wait(seconds_remaining)}"
+    text = f"*Slow mode*: next {what} in {format_wait(seconds_remaining)}"
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     if body:
         blocks.append({"type": "rich_text", "elements": [{

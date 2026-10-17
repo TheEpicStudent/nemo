@@ -108,9 +108,9 @@ def test_build_view_renders_quote_author_channel_stats_and_top_reply_button():
     assert f"<@{USER_ID}>" in blocks[1]["elements"][0]["text"]
     assert f"<#{CHANNEL_ID}>" in blocks[1]["elements"][0]["text"]
     fields = [one["text"] for one in blocks[3]["fields"]]
-    assert fields[0] == "*Viewers*\n224 · 37% of the channel"
+    assert fields[0] == "*Viewers*\n224 (37% of the channel)"
     assert fields[4] == "*Replies*\nnot available yet"
-    assert blocks[4]["elements"][0]["text"] == "55% browser · 33% desktop · 12% mobile"
+    assert blocks[4]["elements"][0]["text"] == "55% browser, 33% desktop, 12% mobile"
     assert blocks[5]["elements"][0]["text"] == "3 viewers in the first hour, 37 in the first day"
     buttons = next(one for one in blocks if one["type"] == "actions")["elements"]
     assert [one["action_id"] for one in buttons] == [card.OPEN_TOP_REPLY]

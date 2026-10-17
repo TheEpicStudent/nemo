@@ -47,7 +47,7 @@ def merged(actor, duplicate_ids, target_id, url_of=lambda case_id: None):
 
 def resolved(actor, case_id, label=None):
     line = f"<@{actor}> resolved case {case_id}"
-    return f"{line} · {label}" if label else line
+    return f"{line}: {label}" if label else line
 
 
 def reopened(actor, case_id):

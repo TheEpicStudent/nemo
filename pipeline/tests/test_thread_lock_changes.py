@@ -50,11 +50,11 @@ def test_lock_view_custom_adds_until_block():
 def test_locked_view_shows_status_reason_and_required_extend():
     view = card.locked_view(CHANNEL_ID, THREAD, lock_row(), now=NOW)
 
-    assert view["blocks"][0]["text"]["text"] == f"*Locked* · ends in 1d 5h · {short_end(END)} · set by <@{MOD}>"
+    assert view["blocks"][0]["text"]["text"] == (
+        f"*Locked* until {short_end(END)} (1d 5h left) for *Heated argument*, set by <@{MOD}>")
     assert view["blocks"][0]["accessory"]["action_id"] == card.UNLOCK
-    assert view["blocks"][1]["elements"][0]["text"] == "Reason: Heated argument"
-    assert view["blocks"][2]["block_id"] == card.LOCK_EXTEND
-    assert view["blocks"][2]["optional"] is False
+    assert view["blocks"][1]["block_id"] == card.LOCK_EXTEND
+    assert view["blocks"][1]["optional"] is False
     assert view["submit"]["text"] == "Save"
 
 
@@ -196,7 +196,7 @@ def test_submit_lock_extend_moves_end_and_confirms(live):
     thread_lock.submit_lock(ctx)
 
     assert live["extended"] == [(5, END + dt.timedelta(hours=2), MOD)]
-    assert ctx.ephemeral_messages == [f"Lock extended · ends {short_end(END + dt.timedelta(hours=2))}"]
+    assert ctx.ephemeral_messages == []
 
 
 def test_submit_lock_extend_after_lock_ended_is_refused(live):

@@ -173,7 +173,7 @@ def test_ending_line_channel_ban_includes_channel():
 
 
 def test_ending_line_without_case_ends_with_no_case():
-    assert sweep.ending_line(guard(case_id=None)).endswith(", no case")
+    assert sweep.ending_line(guard(case_id=None)).endswith("(no case)")
 
 
 def test_sweep_ending_posts_to_firehouse_and_records_notified_event(monkeypatch):

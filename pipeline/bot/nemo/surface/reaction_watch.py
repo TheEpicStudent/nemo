@@ -257,7 +257,7 @@ def post_ban_prompt(client, conn, case_id, target):
         return client.chat_postMessage(
             channel=channel.card_channel_for(conn, case_id),
             thread_ts=thread,
-            text=f"Log action · case {case_id}",
+            text=f"Log action: case {case_id}",
             blocks=views.edit.ban_prompt(case_id, target),
         )["ts"]
     except Exception as failure:

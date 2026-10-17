@@ -60,10 +60,9 @@ def archive_url(channel_id, thread_ts):
 
 def post_destroy_notice(client, conn, channel_id, thread_ts, by, deleted=0):
     noun = "message" if deleted == 1 else "messages"
-    notice = f"Thread destroyed · <#{channel_id}> · {deleted} {noun} · by <@{by}>"
     url = archive_url(channel_id, thread_ts)
-    if url:
-        notice += f" · <{url}|archive>"
+    counts = f"{deleted} {noun}" + (f", <{url}|archive>" if url else "")
+    notice = f"Thread in <#{channel_id}> destroyed by <@{by}> ({counts})"
 
     log_channel_id = channel.log_channel(conn)
     if not log_channel_id:
