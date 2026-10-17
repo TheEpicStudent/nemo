@@ -10,60 +10,67 @@ CASE_URL = "https://fe.example/fd/cases/"
 REPORT_URL = "https://hackclub.slack.com/archives/C_FIRE/p1760000000000100"
 
 
-def make_case(case_id, category_key=None, hours=3, assignees=(), entries=None, has_reports=True):
-    return {"case_id": case_id, "category_key": category_key, "opened_at": NOW - dt.timedelta(hours=hours),
+TODAY = dt.date(2026, 10, 16)
+
+
+def make_case(case_id, category_key=None, days=3, assignees=(), entries=None):
+    return {"case_id": case_id, "category_key": category_key, "opened_at": NOW - dt.timedelta(days=days),
             "assignees": list(assignees), "url": f"{CASE_URL}{case_id}",
-            "entries": entries if entries is not None else [{"body": "spam in #lounge", "url": REPORT_URL}],
-            "has_reports": has_reports}
+            "entries": entries if entries is not None else [{"body": "spam in #lounge", "url": REPORT_URL}]}
 
 
 def rich_text_lists(message):
     return [element for element in message["blocks"][0]["elements"] if element["type"] == "rich_text_list"]
 
 
-def test_build_message_with_two_cases_nests_entries_under_each_case():
-    message = view.build_message(
-        2, [make_case(4913, "spam", hours=76), make_case(4920, assignees=["UMOD", "UTWO"])], {}, now=NOW)
+def line_text(section):
+    return "".join(element.get("text") or f"@{element.get('user_id')}" for element in section["elements"])
 
-    assert message["text"] == "Open cases (2)"
+
+def test_build_message_lists_cases_without_a_title():
+    message = view.build_message(
+        2, [make_case(4913, "spam", days=26), make_case(4920, assignees=["UMOD", "UTWO"])], {}, today=TODAY)
+
+    assert message["text"] == view.FALLBACK_TEXT
+    assert message["blocks"][0]["elements"][0]["type"] == "rich_text_list"
     lists = rich_text_lists(message)
     assert [element["indent"] for element in lists] == [0, 1, 0, 1]
-    first_case = lists[0]["elements"][0]["elements"]
-    assert first_case[0] == {"type": "link", "url": f"{CASE_URL}4913", "text": "Case 4913", "style": {"bold": True}}
-    assert first_case[1]["text"] == " · Spam, mass pings or invites · 3d 4h ago"
+    assert lists[0]["elements"][0]["elements"][0] == \
+        {"type": "link", "url": f"{CASE_URL}4913", "text": "Case 4913", "style": {"bold": True}}
+    assert line_text(lists[0]["elements"][0]) == "Case 4913 (Spam, mass pings or invites, opened 20 Sep, unassigned)"
+    assert line_text(lists[2]["elements"][0]) == "Case 4920 (opened 13 Oct, assigned to @UMOD, @UTWO)"
     assert lists[1]["elements"][0]["elements"] == [{"type": "link", "url": REPORT_URL, "text": "spam in #lounge"}]
-    second_case = lists[2]["elements"][0]["elements"]
-    assert [element.get("text") or element.get("user_id") for element in second_case[1:]] == \
-        [" · 3h 0m ago · Assigned: ", "UMOD", ", ", "UTWO"]
 
 
-def test_build_message_report_without_body_uses_report_label():
-    entries = [{"body": None, "url": REPORT_URL}, {"body": "second report", "url": None}]
+@pytest.mark.parametrize("body", [None, "", "   "])
+def test_build_message_case_without_content_shows_the_report_link(body):
+    lists = rich_text_lists(view.build_message(1, [make_case(1, entries=[{"body": body, "url": REPORT_URL}])], {},
+                                               today=TODAY))
 
-    lists = rich_text_lists(view.build_message(1, [make_case(1, entries=entries)], {}, now=NOW))
-
-    assert [section["elements"] for section in lists[1]["elements"]] == [
-        [{"type": "link", "url": REPORT_URL, "text": view.REPORT_LABEL}],
-        [{"type": "text", "text": "second report"}],
-    ]
+    assert lists[1]["elements"][0]["elements"] == [{"type": "link", "url": REPORT_URL}]
 
 
-def test_build_message_card_without_body_uses_card_label():
-    case = make_case(1, entries=[{"body": "", "url": REPORT_URL}], has_reports=False)
-
-    lists = rich_text_lists(view.build_message(1, [case], {}, now=NOW))
-
-    assert lists[1]["elements"][0]["elements"][0]["text"] == view.CARD_LABEL
-
-
-def test_build_message_without_entries_omits_nested_list():
-    lists = rich_text_lists(view.build_message(1, [make_case(1, entries=[])], {}, now=NOW))
+def test_build_message_case_without_content_or_link_has_no_nested_line():
+    lists = rich_text_lists(view.build_message(1, [make_case(1, entries=[{"body": "", "url": None}])], {},
+                                               today=TODAY))
 
     assert [element["indent"] for element in lists] == [0]
 
 
+@pytest.mark.parametrize("entry", [
+    {"body": "", "url": REPORT_URL, "forwarded": True},
+    {"body": "<https://hackclub.slack.com/archives/C08NMR6KS8L/p1760000000000100>", "url": REPORT_URL},
+    {"body": "https://hackclub.slack.com/archives/C08NMR6KS8L/p1760000000000100", "url": REPORT_URL},
+])
+def test_build_message_shared_message_reads_as_forwarded(entry):
+    lists = rich_text_lists(view.build_message(1, [make_case(1, entries=[entry])], {}, today=TODAY))
+
+    assert lists[1]["elements"][0]["elements"][0]["text"] == view.FORWARDED_LABEL
+
+
 def test_build_message_over_limit_shows_count_and_list_link():
-    message = view.build_message(61, [make_case(1)], {}, now=NOW, list_url="https://fe.example/fd/cases?view=attention")
+    message = view.build_message(61, [make_case(1)], {}, today=TODAY,
+                                 list_url="https://fe.example/fd/cases?view=attention")
 
     assert message["blocks"][1] == {"type": "context", "elements": [{"type": "mrkdwn", "text": "showing 1 of 61"}]}
     assert message["blocks"][2]["elements"][0]["url"] == "https://fe.example/fd/cases?view=attention"
@@ -78,11 +85,12 @@ def test_build_message_without_cases_returns_empty_title():
 
 @pytest.mark.parametrize(("body", "expected"), [
     ("short", "short"),
-    ("someone keeps pinging @channel in #lounge every few minutes", "someone keeps pinging @channel in #lounge every..."),
+    ("someone keeps pinging @channel in #lounge every few minutes and then deletes the messages before anyone sees them",
+     "someone keeps pinging @channel in #lounge every few minutes and then deletes the messages before..."),
     ("<@U1> told <@U2|bo> to go to <#C1> and <#C2|code>", "@Ana told @bo to go to #lounge and #code"),
     ("<!here> see <https://x.example/a|this> and <https://y.example/b>", "@here see this and https://y.example/b"),
     ("a &lt;b&gt; &amp;\n\n  c", "a <b> & c"),
-    ("x" * 60, "x" * 50 + "..."),
+    ("x" * 120, "x" * 100 + "..."),
     (None, ""),
 ])
 def test_snippet_converts_slack_markup_and_truncates(body, expected):
@@ -118,7 +126,8 @@ def test_fetch_open_cases_uses_reports_or_card_opening(monkeypatch):
         open_cases.OPEN_CASES: [(1, "spam", opened_at, None, None, None, ["UMOD"]),
                                 (2, None, opened_at, "C_FIRE", "1760000000.000200", None, []),
                                 (3, None, opened_at, None, None, None, [])],
-        open_cases.CASE_REPORTS: [(1, "first", "C_FIRE", "1760000000.000100"), (1, "second", "C_FIRE", None)],
+        open_cases.CASE_REPORTS: [(1, "first", "C_FIRE", "1760000000.000100", False),
+                                  (1, "", "C_FIRE", None, True)],
         open_cases.CARD_OPENING_BODIES: [(2, "opened by hand")],
     })
 
@@ -127,11 +136,11 @@ def test_fetch_open_cases_uses_reports_or_card_opening(monkeypatch):
     assert total == 30
     assert conn.executed[1][1] == (open_cases.CASE_LIMIT,)
     assert conn.executed[2][1] == ([1, 2, 3], open_cases.REPORTS_PER_CASE)
-    assert cases[0]["entries"] == [{"body": "first", "url": REPORT_URL}, {"body": "second", "url": None}]
-    assert cases[0]["has_reports"] is True and cases[0]["assignees"] == ["UMOD"]
-    assert cases[1]["entries"] == [{"body": "opened by hand",
+    assert cases[0]["entries"] == [{"body": "first", "url": REPORT_URL, "forwarded": False},
+                                   {"body": "", "url": None, "forwarded": True}]
+    assert cases[0]["assignees"] == ["UMOD"]
+    assert cases[1]["entries"] == [{"body": "opened by hand", "forwarded": False,
                                     "url": "https://hackclub.slack.com/archives/C_FIRE/p1760000000000200"}]
-    assert cases[1]["has_reports"] is False
     assert cases[2]["entries"] == []
 
 

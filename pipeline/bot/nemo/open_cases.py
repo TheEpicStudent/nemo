@@ -19,8 +19,14 @@ LIMIT %s
 """
 
 CASE_REPORTS = """
-SELECT case_id, body, card_channel_id, forwarded_ts FROM (
+SELECT case_id, body, card_channel_id, forwarded_ts, has_shared_message FROM (
     SELECT r.case_id, r.body, r.card_channel_id, r.forwarded_ts,
+           EXISTS (
+               SELECT 1 FROM fd.intake_conversations c
+               JOIN fd.intake_messages m ON m.conversation_id = c.id
+               JOIN fd.intake_shares s ON s.message_id = m.id
+               WHERE c.report_id = r.id AND s.kind IN ('forward', 'link')
+           ) AS has_shared_message,
            row_number() OVER (PARTITION BY r.case_id ORDER BY r.received_at, r.id) AS report_index
     FROM fd.case_reports r
     WHERE r.case_id = ANY(%s)
@@ -43,8 +49,9 @@ WHERE user_id = ANY(%s)
 CHANNEL_NAMES = "SELECT channel_id, name FROM raw.channel_dim WHERE channel_id = ANY(%s)"
 
 
-def link_entry(body, channel_id, ts, thread_ts=None):
-    return {"body": body, "url": message_url(channel_id, ts, thread_ts) if channel_id and ts else None}
+def link_entry(body, channel_id, ts, thread_ts=None, forwarded=False):
+    return {"body": body, "url": message_url(channel_id, ts, thread_ts) if channel_id and ts else None,
+            "forwarded": forwarded}
 
 
 def fetch_open_cases(conn, limit=CASE_LIMIT):
@@ -53,8 +60,10 @@ def fetch_open_cases(conn, limit=CASE_LIMIT):
     case_ids = [row[0] for row in rows]
 
     reports_by_case = {}
-    for case_id, body, channel_id, ts in conn.execute(CASE_REPORTS, (case_ids, REPORTS_PER_CASE)).fetchall():
-        reports_by_case.setdefault(case_id, []).append(link_entry(body, channel_id, ts))
+    for case_id, body, channel_id, ts, forwarded in conn.execute(
+        CASE_REPORTS, (case_ids, REPORTS_PER_CASE)
+    ).fetchall():
+        reports_by_case.setdefault(case_id, []).append(link_entry(body, channel_id, ts, forwarded=forwarded))
     opening_bodies = dict(conn.execute(CARD_OPENING_BODIES, (case_ids,)).fetchall()) if case_ids else {}
 
     cases = []
@@ -64,7 +73,7 @@ def fetch_open_cases(conn, limit=CASE_LIMIT):
             entries = [link_entry(opening_bodies.get(case_id), card_channel_id, card_ts, card_thread_ts)]
         cases.append({"case_id": case_id, "category_key": category_key, "opened_at": opened_at,
                       "assignees": list(assignees or []), "url": case_url(case_id),
-                      "entries": entries or [], "has_reports": case_id in reports_by_case})
+                      "entries": entries or []})
     return total, cases
 
 
@@ -80,7 +89,7 @@ def resolve_mention_names(conn, cases):
     return names
 
 
-def build_reply(conn, now=None):
+def build_reply(conn, today=None):
     total, cases = fetch_open_cases(conn)
-    return view.build_message(total, cases, resolve_mention_names(conn, cases), now=now,
+    return view.build_message(total, cases, resolve_mention_names(conn, cases), today=today,
                               list_url=app_url(CASE_LIST_PATH))
