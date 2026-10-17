@@ -50,14 +50,8 @@
   <%= render layout: "fd/modal", locals: { id: "slowmode-extend", title: "Extend slow mode" } do %>
     <%= form_with url: fd_channel_guard_path(channel_id, Fd::ChannelGuard::SLOWMODE), method: :patch,
           html: { autocomplete: "off" } do %>
-      <div class="modal-body" data-controller="duration">
-        <label class="field-label">
-          Extend by
-          <%= select_tag :extend_by, options_for_select(duration_options("+")), prompt: "Select",
-                class: "select", id: nil, required: true,
-                data: { duration_target: "select", action: "change->duration#toggle" } %>
-        </label>
-        <%= render "fd/custom_end" %>
+      <div class="modal-body">
+        <%= render "fd/end_fields", label: "New end (UTC)", required: true, current: guard.expires_at %>
       </div>
       <div class="modal-foot">
         <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>
@@ -69,14 +63,8 @@
   <%= render layout: "fd/modal", locals: { id: "slowmode-enable", title: "Enable slow mode" } do %>
     <%= form_with url: fd_channel_guard_path(channel_id, Fd::ChannelGuard::SLOWMODE), method: :post,
           html: { autocomplete: "off" } do %>
-      <div class="modal-body" data-controller="duration">
-        <label class="field-label">
-          Duration
-          <%= select_tag :duration, options_for_select(duration_options), include_blank: "No end",
-                class: "select", id: nil,
-                data: { duration_target: "select", action: "change->duration#toggle" } %>
-        </label>
-        <%= render "fd/custom_end" %>
+      <div class="modal-body">
+        <%= render "fd/end_fields", label: "End (UTC, optional)" %>
         <label class="field-label">
           Cooldown (seconds)
           <%= number_field_tag :seconds, Fd::ChannelGuard::DEFAULT_SLOWMODE_SECONDS, class: "input", id: nil,

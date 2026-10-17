@@ -1,3 +1,4 @@
+import datetime as dt
 import logging
 import threading
 
@@ -72,6 +73,18 @@ def reason_part(reason):
     return f" for *{reason}*" if reason else ""
 
 
+def parsed_end(values):
+    try:
+        return dt.datetime.fromisoformat(str((values or {}).get("expires_at")))
+    except ValueError:
+        return None
+
+
+def extension_word(entry):
+    before, after = parsed_end(entry["before"]), parsed_end(entry["after"])
+    return "shortened" if before and after and after < before else "extended"
+
+
 def end_part(expires_at):
     return f"to {short_end(expires_at)}" if expires_at else "with no end date"
 
@@ -96,7 +109,7 @@ def member_line(entry, row):
         return (f"<@{subject_id}> {MEMBER_VERBS.get(kind, kind)}{where} "
                 f"{lengths.ends(expires_at)}{reason_part(reason)}{actor_suffix(actor)}")
     if verb == "extended":
-        return f"<@{subject_id}> {label.lower()} extended {end_part(expires_at)}{actor_suffix(actor)}"
+        return f"<@{subject_id}> {label.lower()} {extension_word(entry)} {end_part(expires_at)}{actor_suffix(actor)}"
     if verb == "lifted":
         why = after.get("lift_reason") or lift_reason
         if why == EXPIRED_REASON or actor in SYSTEM_ACTORS:
@@ -135,7 +148,7 @@ def channel_line(entry, row):
     if verb == "tuned":
         return f"{label} updated on {where}{channel_details(kind, settings, expires_at)}{actor_suffix(actor)}"
     if verb == "extended":
-        return f"{label} extended on {where} {end_part(expires_at)}{actor_suffix(actor)}"
+        return f"{label} {extension_word(entry)} on {where} {end_part(expires_at)}{actor_suffix(actor)}"
     if verb == "lifted":
         if actor in SYSTEM_ACTORS:
             return f"{label} ended on {where}"
@@ -166,7 +179,7 @@ def thread_line(entry, row):
     if verb == "opened":
         return f"Lock on {where} {lengths.ends(expires_at)}{reason_part(reason)}{actor_suffix(actor)}"
     if verb == "extended":
-        return f"Lock on {where} extended {end_part(expires_at)}{actor_suffix(actor)}"
+        return f"Lock on {where} {extension_word(entry)} {end_part(expires_at)}{actor_suffix(actor)}"
     if verb == "lifted":
         if state == "failed" or error == REPLACED_BY_DESTROY:
             return None

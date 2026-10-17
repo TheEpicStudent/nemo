@@ -17,5 +17,14 @@ module Fd
     rescue Date::Error
       [nil, "#{date_text} is not a date"]
     end
+
+    def self.future(date_text, time_text, required: false, now: Time.current)
+      ends, error = read(date_text, time_text)
+      return [nil, error] if error
+      return [nil, required ? "Enter the end date" : nil] if ends.nil?
+      return [nil, "End must be in the future"] if ends <= now
+
+      [ends, nil]
+    end
   end
 end

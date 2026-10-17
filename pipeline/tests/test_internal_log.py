@@ -232,3 +232,31 @@ def test_loop_bot_kick_notification_wakes_kick_drain(loop_listener):
 
     assert loop.BOT_KICK in listener["names"]
     assert "nemo-kicks" in wake_names
+
+
+EARLIER = {"expires_at": "2027-10-17 10:00:00+00:00"}
+LATER = {"expires_at": "2027-10-18 10:00:00+00:00"}
+
+
+@pytest.mark.parametrize(("before", "after", "word"), [
+    (EARLIER, LATER, "extended"),
+    (LATER, EARLIER, "shortened"),
+    (None, LATER, "extended"),
+    ({"expires_at": None}, LATER, "extended"),
+    (EARLIER, {"expires_at": None}, "extended"),
+    ({"expires_at": "not a date"}, EARLIER, "extended"),
+    (EARLIER, {"expires_at": "2027-10-17T10:00:00Z"}, "extended"),
+])
+def test_extension_word_follows_the_direction_of_the_end(before, after, word):
+    assert internal_log.extension_word(entry("extended", before=before, after=after)) == word
+
+
+def test_extension_lines_say_shortened_when_the_end_moves_earlier():
+    moved = {"before": LATER, "after": EARLIER}
+
+    assert internal_log.member_line(entry("extended", **moved), SHUSH) == \
+        f"<@U1> shush shortened to {short_end(END)} by <@UMOD>"
+    assert internal_log.channel_line(entry("extended", entity_type="channel_guard", **moved), SLOW) == \
+        f"Slow mode shortened on <#C1> to {short_end(END)} by <@UMOD>"
+    assert internal_log.thread_line(entry("extended", entity_type="thread_guard", **moved), LOCK) == \
+        f"Lock on <#C1> {THREAD_LINK} shortened to {short_end(END)} by <@UMOD>"

@@ -58,8 +58,8 @@ module Fd
     private
 
     def extend_slowmode(guard)
-      ends, error = slowmode_end(params[:extend_by], from: guard.expires_at)
-      return redirect_with_alert(error || "Select how long to extend") if ends.nil?
+      ends, error = EndTime.future(params[:expires_on], params[:expires_time], required: true)
+      return redirect_with_alert(error) if ends.nil?
 
       previous_end = guard.expires_at
       writing do
@@ -71,11 +71,7 @@ module Fd
       redirect_to return_path, notice: "Slow mode extended · ends #{ShortDate.ending(ends)}"
     end
 
-    def slowmode_end(key, from: nil)
-      Durations.read(key, params[:expires_on], params[:expires_time], from: from)
-    end
-
-    def starting_end = @starting_end ||= slowmode_end(params[:duration])
+    def starting_end = @starting_end ||= EndTime.future(params[:expires_on], params[:expires_time])
 
     def ends_label
       ends = starting_end.first

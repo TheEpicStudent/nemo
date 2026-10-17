@@ -24,5 +24,26 @@ module Fd
     test "read with a time and no date returns the enter a date error" do
       assert_equal [nil, "Enter a date for the end time"], EndTime.read("", "14:30")
     end
+
+    test "future with a later end returns it" do
+      now = Time.utc(2026, 11, 1, 9, 0)
+
+      assert_equal [Time.utc(2026, 11, 2, 14, 30), nil], EndTime.future("2026-11-02", "14:30", now: now)
+    end
+
+    test "future with no date is blank unless required" do
+      assert_equal [nil, nil], EndTime.future("", "")
+      assert_equal [nil, "Enter the end date"], EndTime.future("", "", required: true)
+    end
+
+    test "future with an end that has passed returns the future error" do
+      now = Time.utc(2026, 11, 3, 9, 0)
+
+      assert_equal [nil, "End must be in the future"], EndTime.future("2026-11-02", "14:30", now: now)
+    end
+
+    test "future passes read errors through" do
+      assert_equal [nil, "Enter a date for the end time"], EndTime.future("", "14:30")
+    end
   end
 end

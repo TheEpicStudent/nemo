@@ -67,13 +67,15 @@ class FdThreadGuardsTest < ActionDispatch::IntegrationTest
     actions_tab
     assert_select ".thread-guard-list", false
   end
-  test "actions tab lock with future expires_at renders time left Unlock and extend select" do
+  test "actions tab lock with future expires_at renders time left Unlock and extend end fields" do
     guard = guard!(expires_at: 2.hours.from_now + 5.minutes)
     body = actions_tab
 
     assert_match(/ends in 2h \d+m/, body)
     assert_select "form[action=?] button", fd_case_thread_lock_path(@kase, guard), text: "Unlock"
-    assert_select "[data-modal-id-value=lock-extend-#{guard.id}] select[name=extend_by]"
+    assert_select "[data-modal-id-value=lock-extend-#{guard.id}] input[name=expires_on][value=?]",
+      guard.expires_at.utc.to_date.iso8601
+    assert_select "[data-modal-id-value=lock-extend-#{guard.id}] input[name=expires_time]"
   end
 
   test "actions tab lock without expires_at renders no end date" do
@@ -82,33 +84,47 @@ class FdThreadGuardsTest < ActionDispatch::IntegrationTest
     assert_match(/no end date/, actions_tab)
   end
 
-  test "extend adds extend_by to expires_at and writes extended audit entry" do
+  test "extend sets expires_at from expires_on and expires_time in utc and writes extended audit entry" do
     guard = guard!
     first_end = guard.reload.expires_at
-
-    patch fd_case_thread_lock_path(@kase, guard), params: { extend_by: "2h" }
-
-    assert_redirected_to fd_case_path(@kase)
-    assert_equal first_end + 2.hours, guard.reload.expires_at
-    assert_equal "Lock extended · ends #{Fd::ShortDate.ending(first_end + 2.hours)}", flash[:notice]
-    assert Fd::AuditEntry.exists?(entity_type: "thread_guard", entity_id: guard.id, verb: "extended")
-  end
-
-  test "extend custom sets expires_at from expires_on and expires_time" do
-    guard = guard!
+    ends = 5.days.from_now.utc.change(hour: 8, min: 0)
 
     patch fd_case_thread_lock_path(@kase, guard),
-      params: { extend_by: "custom", expires_on: 5.days.from_now.to_date.to_s, expires_time: "08:00" }
+      params: { expires_on: ends.to_date.to_s, expires_time: "08:00" }
 
-    assert_equal 5.days.from_now.utc.change(hour: 8, min: 0), guard.reload.expires_at
+    assert_redirected_to fd_case_path(@kase)
+    assert_equal ends, guard.reload.expires_at
+    assert_equal "Lock extended · ends #{Fd::ShortDate.ending(ends)}", flash[:notice]
+    entry = Fd::AuditEntry.where(entity_type: "thread_guard", entity_id: guard.id, verb: "extended").sole
+    assert_equal first_end.iso8601, entry.before["expires_at"]
   end
 
-  test "extend without extend_by sets alert" do
+  test "extend can move the end earlier" do
+    guard = guard!(expires_at: 5.days.from_now)
+    ends = 1.day.from_now.utc.change(hour: 8, min: 0)
+
+    patch fd_case_thread_lock_path(@kase, guard),
+      params: { expires_on: ends.to_date.to_s, expires_time: "08:00" }
+
+    assert_equal ends, guard.reload.expires_at
+  end
+
+  test "extend without a date sets alert" do
     guard = guard!
 
     patch fd_case_thread_lock_path(@kase, guard)
 
-    assert_equal "Select how long to extend", flash[:alert]
+    assert_equal "Enter the end date", flash[:alert]
+  end
+
+  test "extend with an end in the past keeps the lock end and sets alert" do
+    guard = guard!
+    first_end = guard.reload.expires_at
+
+    patch fd_case_thread_lock_path(@kase, guard), params: { expires_on: 1.day.ago.to_date.to_s }
+
+    assert_equal "End must be in the future", flash[:alert]
+    assert_equal first_end, guard.reload.expires_at
   end
 
   test "unlock marks guard done and writes lifted audit entry" do

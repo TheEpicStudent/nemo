@@ -6,9 +6,8 @@ module Fd
       lock = live_lock
       return redirect_to(return_path, alert: "Lock already ended") if lock.nil?
 
-      ends, error = Durations.read(params[:extend_by], params[:expires_on], params[:expires_time],
-        from: lock.expires_at)
-      return redirect_to(return_path, alert: error || "Select how long to extend") if ends.nil?
+      ends, error = EndTime.future(params[:expires_on], params[:expires_time], required: true)
+      return redirect_to(return_path, alert: error) if ends.nil?
 
       previous_end = lock.expires_at
       writing do

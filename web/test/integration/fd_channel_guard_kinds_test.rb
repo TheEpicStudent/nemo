@@ -131,69 +131,74 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_equal "Enter a reason", flash[:alert]
   end
 
-  test "create slowmode with duration sets expires_at reason and notice_wanted" do
-    freeze_time do
-      post_guard("slowmode", duration: "2h")
-      guard = live("slowmode")
+  test "create slowmode with an end sets expires_at reason and notice_wanted" do
+    ends = 2.days.from_now.utc.change(hour: 14, min: 30)
 
-      assert_equal 2.hours.from_now, guard.expires_at
-      assert_equal "Heated argument", guard.reason
-      assert guard.notice_wanted
-      assert_equal "Slow mode enabled · ends #{Fd::ShortDate.ending(2.hours.from_now)}", flash[:notice]
-    end
+    post_guard("slowmode", expires_on: ends.to_date.to_s, expires_time: "14:30")
+    guard = live("slowmode")
+
+    assert_equal ends, guard.expires_at
+    assert_equal "Heated argument", guard.reason
+    assert guard.notice_wanted
+    assert_equal "Slow mode enabled · ends #{Fd::ShortDate.ending(ends)}", flash[:notice]
   end
 
-  test "create slowmode without duration sets no expires_at and notices no end date" do
+  test "create slowmode without an end sets no expires_at and notices no end date" do
     post_guard("slowmode")
 
     assert_nil live("slowmode").expires_at
     assert_equal "Slow mode enabled · no end date", flash[:notice]
   end
 
-  test "create slowmode with custom duration sets expires_at in utc" do
-    post_guard("slowmode", duration: "custom", expires_on: 2.days.from_now.to_date.to_s, expires_time: "14:30")
+  test "create slowmode with a date only ends at the end of that day in utc" do
+    day = 2.days.from_now.utc.to_date
 
-    assert_equal 2.days.from_now.utc.change(hour: 14, min: 30), live("slowmode").expires_at
+    post_guard("slowmode", expires_on: day.to_s)
+
+    assert_equal day.end_of_day.utc.floor(6), live("slowmode").expires_at
   end
 
-  test "create slowmode with custom end in the past adds no guard and alerts" do
-    post_guard("slowmode", duration: "custom", expires_on: 1.day.ago.to_date.to_s)
+  test "create slowmode with a time but no date adds no guard and alerts" do
+    post_guard("slowmode", expires_time: "14:30")
+
+    assert_nil live("slowmode")
+    assert_equal "Enter a date for the end time", flash[:alert]
+  end
+
+  test "create slowmode with an end in the past adds no guard and alerts" do
+    post_guard("slowmode", expires_on: 1.day.ago.to_date.to_s)
 
     assert_nil live("slowmode")
     assert_equal "End must be in the future", flash[:alert]
   end
 
-  test "create slowmode with custom duration and no date adds no guard and alerts" do
-    post_guard("slowmode", duration: "custom")
-
-    assert_nil live("slowmode")
-    assert_equal "Enter the end date", flash[:alert]
-  end
-
-  test "update slowmode with extend_by adds to expires_at and writes an extended audit entry" do
-    post_guard("slowmode", duration: "1h")
+  test "update slowmode sets the new end and writes an extended audit entry" do
+    post_guard("slowmode", expires_on: 1.day.from_now.to_date.to_s, expires_time: "10:00")
     first_end = live("slowmode").expires_at
-    patch_guard("slowmode", extend_by: "30m")
+    ends = 3.days.from_now.utc.change(hour: 9, min: 0)
+    patch_guard("slowmode", expires_on: ends.to_date.to_s, expires_time: "09:00")
 
-    assert_equal first_end + 30.minutes, live("slowmode").expires_at
+    assert_equal ends, live("slowmode").expires_at
     extended = Fd::AuditEntry.where(entity_type: "channel_guard", verb: "extended").sole
     assert_equal first_end.iso8601, extended.before["expires_at"]
   end
 
-  test "update slowmode with extend_by and no expires_at extends from now" do
-    post_guard("slowmode")
-    freeze_time do
-      patch_guard("slowmode", extend_by: "1h")
+  test "update slowmode can move the end earlier or give a guard without an end one" do
+    post_guard("slowmode", expires_on: 5.days.from_now.to_date.to_s, expires_time: "10:00")
+    earlier = 1.day.from_now.utc.change(hour: 9, min: 0)
+    patch_guard("slowmode", expires_on: earlier.to_date.to_s, expires_time: "09:00")
+    assert_equal earlier, live("slowmode").expires_at
 
-      assert_equal 1.hour.from_now, live("slowmode").expires_at
-    end
+    Fd::ChannelGuard.live_for(@id, kind: "slowmode").update!(expires_at: nil)
+    patch_guard("slowmode", expires_on: earlier.to_date.to_s, expires_time: "09:00")
+    assert_equal earlier, live("slowmode").expires_at
   end
 
-  test "update slowmode without extend_by alerts" do
-    post_guard("slowmode", duration: "1h")
+  test "update slowmode without a date alerts" do
+    post_guard("slowmode", expires_on: 1.day.from_now.to_date.to_s)
     patch_guard("slowmode")
 
-    assert_equal "Select how long to extend", flash[:alert]
+    assert_equal "Enter the end date", flash[:alert]
   end
 
   test "create slowmode after destroy leaves allows empty" do
@@ -207,13 +212,14 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
   end
 
   test "slow mode tab shows time left with extend and disable" do
-    post_guard("slowmode", duration: "2h", threads: "1")
+    post_guard("slowmode", expires_on: 2.days.from_now.to_date.to_s, expires_time: "10:00", threads: "1")
 
     get fd_channel_path(@id, tab: "slowmode")
 
-    assert_select ".setline .setval", /\Ain (1h 59m|2h 0m) · /
+    assert_select ".setline .setval", /\Ain \d+d \d+h · /
     assert_select ".setline .setval", "Included"
-    assert_select "[data-modal-id-value=slowmode-extend] select[name=extend_by]"
+    assert_select "[data-modal-id-value=slowmode-extend] input[name=expires_on][required]"
+    assert_select "[data-modal-id-value=slowmode-extend] input[name=expires_time]"
     assert_select "form[action=?] button", fd_channel_guard_path(@id, "slowmode"), text: "Disable"
   end
 
@@ -221,7 +227,8 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     get fd_channel_path(@id, tab: "slowmode")
 
     assert_select ".empty-title", "Off"
-    assert_select "[data-modal-id-value=slowmode-enable] select[name=duration] option[value=\"\"]", "No end"
+    assert_select "[data-modal-id-value=slowmode-enable] input[name=expires_on]:not([required])"
+    assert_select "[data-modal-id-value=slowmode-enable] input[name=expires_time]"
   end
 
   test "create readonly leaves notice_wanted false" do

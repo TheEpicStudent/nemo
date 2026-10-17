@@ -102,8 +102,6 @@ module FdChannelsHelper
     parts.join(" · ")
   end
 
-  def duration_options(prefix = "") = Fd::Durations.options(prefix)
-
   def time_left_label(expires_at, now: Time.current)
     expires_at ? "ends #{time_left(expires_at, now: now)}" : "no end date"
   end
