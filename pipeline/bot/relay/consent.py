@@ -15,6 +15,10 @@ FALLBACK = "Send this report to the Fire Department?"
 
 IDENTITY_OPTION = {
     "text": {"type": "plain_text", "text": "Send anonymously"},
+    "description": {
+        "type": "plain_text",
+        "text": "FD will not see who filed this report. Leave unchecked to include your username.",
+    },
     "value": ANONYMOUSLY,
 }
 
