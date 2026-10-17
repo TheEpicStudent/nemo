@@ -50,7 +50,7 @@ def end_at(date_text, time_text, tz=dt.UTC):
     return dt.datetime.combine(dt.date.fromisoformat(date_text), clock, tz).astimezone(dt.UTC)
 
 
-def end_error(date_text, time_text, at, required=False, after=None, now=None):
+def end_error(date_text, time_text, at, required=False, now=None):
     if time_text and not date_text:
         return "Select a date for the end time."
     if required and not date_text:
@@ -59,8 +59,6 @@ def end_error(date_text, time_text, at, required=False, after=None, now=None):
         return None
     if at <= (now or dt.datetime.now(dt.UTC)):
         return "Select a time in the future."
-    if after and at <= after:
-        return "Select a time after the current end."
     return None
 
 

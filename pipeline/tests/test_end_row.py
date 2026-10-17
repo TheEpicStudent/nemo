@@ -67,15 +67,6 @@ def test_end_error_messages(date_text, time_text, required, message):
     assert lengths.end_error(date_text, time_text, at, required=required, now=NOW) == message
 
 
-def test_end_error_requires_end_after_current_end():
-    at = dt.datetime(2027, 10, 20, 9, 0, tzinfo=dt.UTC)
-    current = dt.datetime(2027, 10, 21, 9, 0, tzinfo=dt.UTC)
-
-    assert lengths.end_error("2027-10-20", "09:00", at, after=current, now=NOW) == \
-        "Select a time after the current end."
-    assert lengths.end_error("2027-10-20", "09:00", at, after=at - dt.timedelta(hours=1), now=NOW) is None
-
-
 class Client:
     def __init__(self, tz="Europe/Athens", fails=False):
         self.tz = tz

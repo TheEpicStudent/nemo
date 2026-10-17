@@ -220,12 +220,12 @@ def lock_end(values, tz=dt.UTC):
     return lengths.end_at(values["end_date"], values["end_time"], tz)
 
 
-def lock_errors(values, tz=dt.UTC, current=None, now=None):
+def lock_errors(values, tz=dt.UTC, now=None):
     if values["starting"] and not values["reason"]:
         return {REASON: "Add a reason."}
     message = lengths.end_error(
         values["end_date"], values["end_time"], lock_end(values, tz),
-        required=not values["starting"], after=current and current["expires_at"], now=now,
+        required=not values["starting"], now=now,
     )
     return {END: message} if message else None
 

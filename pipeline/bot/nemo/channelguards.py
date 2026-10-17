@@ -47,6 +47,8 @@ WHERE id = %s AND state = 'live'
 RETURNING id
 """
 
+SET_NOTICE_TS = "UPDATE fd.channel_guards SET notice_ts = %s WHERE id = %s"
+
 LIFT_LAPSED = """
 UPDATE fd.channel_guards
 SET state = 'lifted', lifted_at = now(), updated_at = now()
@@ -289,6 +291,10 @@ def open_slowmode(conn, channel_id, thread_ts, seconds, by, reason, expires_at, 
                "expires_at": str(expires_at) if expires_at else None},
     )
     return guard_id
+
+
+def set_notice_ts(conn, guard_id, ts):
+    conn.execute(SET_NOTICE_TS, (ts, guard_id))
 
 
 def update_slowmode(conn, current, seconds, by, reason, expires_at):

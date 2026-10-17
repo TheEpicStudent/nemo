@@ -109,7 +109,7 @@ def join_channel(client, channel_id):
 
 def join_and_post_notices(client, channel_id):
     run_each((f"joining {channel_id}", lambda: join_channel(client, channel_id)),
-             ("posting slow mode notices", lambda: slowmode.post_notices(client)))
+             ("syncing slow mode notices", lambda: slowmode.sync_notices(client)))
 
 
 def enforce_guard(client, guard):
@@ -258,7 +258,7 @@ def sweep_once(case_channel, channel_id=None):
         ("resetting sessions the guard has earned", guard_actions.sweep_strikes),
         ("lifting what has run out", lambda: sweep.sweep_lapsed(client)),
         ("lifting expired channel guards", lift_lapsed_channel_guards),
-        ("posting slow mode notices", lambda: slowmode.post_notices(client)),
+        ("syncing slow mode notices", lambda: slowmode.sync_notices(client)),
         ("notifying manually lifted guards", lambda: sweep.sweep_lifted(client)),
         ("reclaiming released work", lambda: sweep.sweep_failed(client)),
         ("notifying expiring guards", lambda: sweep.sweep_ending(client)),

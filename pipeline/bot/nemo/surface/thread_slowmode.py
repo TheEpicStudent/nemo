@@ -37,7 +37,7 @@ def apply_slowmode(conn, channel_id, thread_ts, values, by, tz=dt.UTC):
     current = channelguards.slowmode_row(conn, channel_id, thread_ts)
     if current is None and not values["starting"]:
         return None, None, ALREADY_OFF
-    values["expires_at"] = card.new_end(values, tz)
+    values["expires_at"] = card.new_end(values, tz, current)
     if current:
         guard_id = channelguards.update_slowmode(
             conn, current, seconds, by, values["reason"], values["expires_at"])
@@ -54,7 +54,7 @@ def apply_slowmode(conn, channel_id, thread_ts, values, by, tz=dt.UTC):
 def post_notice(ctx, guard_id, channel_id, thread_ts, values):
     ctx.join(channel_id)
     try:
-        ctx.client.chat_postMessage(
+        sent = ctx.client.chat_postMessage(
             channel=channel_id, thread_ts=thread_ts, unfurl_links=False,
             **card.notice(card.parse_seconds(values), values["expires_at"]),
         )
@@ -66,6 +66,8 @@ def post_notice(ctx, guard_id, channel_id, thread_ts, values):
         log.warning("nemo: thread slow mode %s lifted, notice not posted: %s", guard_id, error_code)
         ctx.post_ephemeral_or_dm(NOT_POSTED.format(error_code=error_code), channel_id, thread_ts)
         return False
+    with session() as conn:
+        channelguards.set_notice_ts(conn, guard_id, (sent or {}).get("ts"))
     return True
 
 

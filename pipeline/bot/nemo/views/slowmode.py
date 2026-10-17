@@ -145,8 +145,11 @@ def parse_seconds(values):
     return seconds if MIN_SECONDS <= seconds <= MAX_SECONDS else None
 
 
-def new_end(values, tz=dt.UTC):
-    return lengths.end_at(values["end_date"], values["end_time"], tz)
+def new_end(values, tz=dt.UTC, current=None):
+    ends = lengths.end_at(values["end_date"], values["end_time"], tz)
+    if ends is None and not values["starting"] and current:
+        return current["expires_at"]
+    return ends
 
 
 def validation_errors(values, tz=dt.UTC, now=None):

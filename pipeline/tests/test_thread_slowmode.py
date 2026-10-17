@@ -294,11 +294,13 @@ class Client:
         self.posted = []
         self.updated = []
         self.opened = []
+        self.posted_ts = "1700000000.000700"
 
     def chat_postMessage(self, **kwargs):
         if self.fails:
             raise RuntimeError("not_in_channel")
         self.posted.append(kwargs)
+        return {"ts": self.posted_ts}
 
     def views_update(self, **kwargs):
         self.updated.append(kwargs)
@@ -347,7 +349,7 @@ def submitted_view(seconds="30", reason="Heated argument", end_date="2027-10-18"
 
 @pytest.fixture
 def guard_calls(monkeypatch):
-    calls = {"opened": [], "updates": [], "allows": [], "lifted": [], "row": None}
+    calls = {"opened": [], "updates": [], "allows": [], "lifted": [], "row": None, "notice_ts": []}
     monkeypatch.setattr(thread_slowmode, "session", lambda: session_of(object()))
     monkeypatch.setattr(channelguards, "slowmode_row", lambda conn, channel_id, thread_ts: calls["row"])
     monkeypatch.setattr(channelguards, "open_slowmode",
@@ -358,6 +360,8 @@ def guard_calls(monkeypatch):
                         lambda conn, guard_id, ids, by: calls["allows"].append((guard_id, ids)))
     monkeypatch.setattr(channelguards, "lift", lambda conn, guard_id, by: calls["lifted"].append(guard_id) or CHANNEL_ID)
     monkeypatch.setattr(channelguards, "refresh", lambda conn: 0)
+    monkeypatch.setattr(channelguards, "set_notice_ts",
+                        lambda conn, guard_id, ts: calls["notice_ts"].append((guard_id, ts)))
     monkeypatch.setattr(profile, "timezone", lambda client, user_id: dt.UTC)
     return calls
 
@@ -371,6 +375,7 @@ def test_submit_slowmode_new_opens_guard_with_picked_end_and_posts_notice(guard_
     assert ends == dt.datetime(2027, 10, 18, 10, 0, tzinfo=dt.UTC)
     assert guard_calls["allows"] == [(9, ["UEXEMPT"])]
     assert ctx.client.posted[0]["text"] == f"*Slow mode enabled* with 30s cooldown until {short_end(ends)}"
+    assert guard_calls["notice_ts"] == [(9, ctx.client.posted_ts)]
     assert ctx.ephemerals == []
 
 
@@ -505,3 +510,105 @@ def test_post_notices_failure_requeues_below_three_attempts(monkeypatch, attempt
 def test_claim_notices_selects_live_guards_with_notice_wanted():
     assert "WHERE notice_wanted AND state = 'live'" in slowmode.CLAIM_NOTICES
     assert "FOR UPDATE SKIP LOCKED" in slowmode.CLAIM_NOTICES
+
+
+@pytest.mark.parametrize(("over", "row", "expected"), [
+    ({}, None, None),
+    ({"starting": False}, current(), END),
+    ({"starting": False, "end_date": "2027-10-19", "end_time": "08:00"}, current(),
+     dt.datetime(2027, 10, 19, 8, 0, tzinfo=dt.UTC)),
+    ({"starting": False, "end_date": "2027-10-16", "end_time": "08:00"}, current(),
+     dt.datetime(2027, 10, 16, 8, 0, tzinfo=dt.UTC)),
+    ({"starting": False}, current(expires_at=None), None),
+])
+def test_new_end_keeps_current_end_when_editing_with_no_pick(over, row, expected):
+    assert card.new_end(submission(**over), dt.UTC, row) == expected
+
+
+def test_submit_slowmode_existing_without_pick_keeps_the_end(guard_calls):
+    guard_calls["row"] = current()
+    ctx = SurfaceCtx(submitted_view(end_date=None, end_time=None, extending=True))
+
+    thread_slowmode.submit_slowmode(ctx)
+
+    assert guard_calls["updates"][0][-1] == END
+
+
+class NoticeSyncConn:
+    def __init__(self, stale=(), ended=()):
+        self.rows = {slowmode.CLAIM_STALE_NOTICES: list(stale), slowmode.CLAIM_ENDED_NOTICES: list(ended)}
+        self.executed = []
+        self.last = None
+
+    def execute(self, sql, args=None):
+        self.executed.append((sql, args))
+        self.last = sql
+        return self
+
+    def fetchall(self):
+        return self.rows.get(self.last, [])
+
+    def args_for(self, sql):
+        return [args for one, args in self.executed if one == sql]
+
+
+class Editor:
+    def __init__(self, update_error=None, delete_error=None):
+        self.update_error = update_error
+        self.delete_error = delete_error
+        self.updates = []
+        self.deletes = []
+
+    def chat_update(self, **kwargs):
+        if self.update_error:
+            raise RuntimeError(self.update_error)
+        self.updates.append(kwargs)
+
+    def chat_delete(self, **kwargs):
+        if self.delete_error:
+            raise RuntimeError(self.delete_error)
+        self.deletes.append(kwargs)
+
+
+def test_refresh_notices_edits_the_posted_notice_with_current_settings(monkeypatch):
+    conn = NoticeSyncConn(stale=[(5, CHANNEL_ID, {"seconds": 45}, END, "1700000000.000900")])
+    monkeypatch.setattr(slowmode, "session", lambda: session_of(conn))
+    client = Editor()
+
+    assert slowmode.refresh_notices(client) == 1
+    assert client.updates[0]["ts"] == "1700000000.000900"
+    assert client.updates[0]["text"] == f"*Slow mode enabled* with 45s cooldown until {short_end(END)}"
+
+
+def test_refresh_notices_failure_is_skipped(monkeypatch):
+    conn = NoticeSyncConn(stale=[(5, CHANNEL_ID, {"seconds": 45}, END, "1700000000.000900")])
+    monkeypatch.setattr(slowmode, "session", lambda: session_of(conn))
+
+    assert slowmode.refresh_notices(Editor(update_error="message_not_found")) == 0
+
+
+def test_remove_ended_notices_deletes_the_notice_message(monkeypatch):
+    conn = NoticeSyncConn(ended=[(5, CHANNEL_ID, "1700000000.000900")])
+    monkeypatch.setattr(slowmode, "session", lambda: session_of(conn))
+    client = Editor()
+
+    assert slowmode.remove_ended_notices(client) == 1
+    assert client.deletes == [{"channel": CHANNEL_ID, "ts": "1700000000.000900"}]
+
+
+@pytest.mark.parametrize(("error", "removed", "released"), [
+    ("message_not_found", 1, False), ("channel_not_found", 1, False), ("ratelimited", 0, True)])
+def test_remove_ended_notices_releases_the_claim_only_on_retryable_errors(monkeypatch, error, removed, released):
+    conn = NoticeSyncConn(ended=[(5, CHANNEL_ID, "1700000000.000900")])
+    monkeypatch.setattr(slowmode, "session", lambda: session_of(conn))
+
+    assert slowmode.remove_ended_notices(Editor(delete_error=error)) == removed
+    assert bool(conn.args_for(slowmode.RELEASE_ENDED_NOTICE)) is released
+
+
+def test_sync_notices_runs_post_refresh_and_remove(monkeypatch):
+    monkeypatch.setattr(slowmode, "post_notices", lambda client: 1)
+    monkeypatch.setattr(slowmode, "refresh_notices", lambda client: 2)
+    monkeypatch.setattr(slowmode, "remove_ended_notices", lambda client: 4)
+
+    assert slowmode.sync_notices(object()) == 7

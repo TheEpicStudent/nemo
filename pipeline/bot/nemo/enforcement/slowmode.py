@@ -1,6 +1,6 @@
 import logging
 
-from bot.core import session
+from bot.core import privileged, session
 from bot.nemo import channelguards, exemptions, guard_actions, guards
 from bot.nemo.enforcement import notify
 from bot.nemo.surface import on_event
@@ -29,6 +29,35 @@ RETURNING id, channel_id, thread_ts, settings, expires_at, opened_by, notice_att
 """
 
 NOTICE_POSTED = "UPDATE fd.channel_guards SET notice_ts = %s WHERE id = %s"
+
+CLAIM_STALE_NOTICES = """
+UPDATE fd.channel_guards
+SET notice_stale = false
+WHERE id IN (
+    SELECT id FROM fd.channel_guards
+    WHERE notice_stale AND notice_ts IS NOT NULL AND state = 'live'
+    ORDER BY id
+    LIMIT %s
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING id, channel_id, settings, expires_at, notice_ts
+"""
+
+CLAIM_ENDED_NOTICES = """
+UPDATE fd.channel_guards
+SET notice_removed_at = now()
+WHERE id IN (
+    SELECT id FROM fd.channel_guards
+    WHERE kind = 'slowmode' AND state = 'lifted'
+      AND notice_ts IS NOT NULL AND notice_removed_at IS NULL
+    ORDER BY id
+    LIMIT %s
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING id, channel_id, notice_ts
+"""
+
+RELEASE_ENDED_NOTICE = "UPDATE fd.channel_guards SET notice_removed_at = NULL WHERE id = %s"
 
 NOTICE_AGAIN = "UPDATE fd.channel_guards SET notice_wanted = state = 'live' WHERE id = %s"
 
@@ -147,3 +176,43 @@ def post_notices(client):
             conn.execute(NOTICE_POSTED, ((sent or {}).get("ts"), guard_id))
         posted += 1
     return posted
+
+
+def refresh_notices(client):
+    with session() as conn:
+        claimed = conn.execute(CLAIM_STALE_NOTICES, (NOTICES_PER_PASS,)).fetchall()
+
+    refreshed = 0
+    for guard_id, channel_id, settings, expires_at, notice_ts in claimed:
+        seconds = int((settings or {}).get("seconds") or 0)
+        try:
+            client.chat_update(channel=channel_id, ts=notice_ts, **card.notice(seconds, expires_at))
+        except Exception as failure:
+            log.warning("nemo: slow mode %s notice not updated in %s: %s", guard_id, channel_id, failure)
+            continue
+        refreshed += 1
+    return refreshed
+
+
+def remove_ended_notices(client):
+    with session() as conn:
+        claimed = conn.execute(CLAIM_ENDED_NOTICES, (NOTICES_PER_PASS,)).fetchall()
+
+    removed = 0
+    for guard_id, channel_id, notice_ts in claimed:
+        try:
+            client.chat_delete(channel=channel_id, ts=notice_ts)
+        except Exception as failure:
+            if guard_actions.CANT_DELETE in str(failure):
+                guard_actions.delete_with_admin(guard_id, channel_id, notice_ts)
+            elif not (privileged.already_deleted(failure) or privileged.channel_missing(failure)):
+                log.warning("nemo: slow mode %s notice not removed yet: %s", guard_id, failure)
+                with session() as conn:
+                    conn.execute(RELEASE_ENDED_NOTICE, (guard_id,))
+                continue
+        removed += 1
+    return removed
+
+
+def sync_notices(client):
+    return post_notices(client) + refresh_notices(client) + remove_ended_notices(client)

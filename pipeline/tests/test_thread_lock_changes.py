@@ -104,15 +104,17 @@ def test_submitted_values_reads_end_row_and_reason():
     ({"starting": False, "reason": "", "end_date": "2027-10-20"}, None),
 ])
 def test_lock_errors_validates_reason_and_end(over, errors):
-    assert card.lock_errors(values(**over), dt.UTC, now=NOW) == errors
+    assert card.lock_errors(values(**over), dt.UTC, NOW) == errors
 
 
-def test_lock_errors_extend_must_end_after_current_end():
+def test_lock_errors_extend_accepts_earlier_and_later_ends_but_not_the_past():
     earlier = values(starting=False, end_date="2027-10-17", end_time="10:00")
     later = values(starting=False, end_date="2027-10-18", end_time="10:00")
+    past = values(starting=False, end_date="2027-10-15", end_time="10:00")
 
-    assert card.lock_errors(earlier, dt.UTC, lock_row(), NOW) == {card.END: "Select a time after the current end."}
-    assert card.lock_errors(later, dt.UTC, lock_row(), NOW) is None
+    assert card.lock_errors(earlier, dt.UTC, NOW) is None
+    assert card.lock_errors(later, dt.UTC, NOW) is None
+    assert card.lock_errors(past, dt.UTC, NOW) == {card.END: "Select a time in the future."}
 
 
 @pytest.mark.parametrize(("over", "tz", "expected"), [
@@ -254,13 +256,21 @@ def test_submit_lock_extend_without_date_redraws_modal_with_error(live):
     assert ctx.acked[0]["view"]["blocks"][3]["elements"][0]["text"] == "Select the end date."
 
 
-def test_submit_lock_extend_before_current_end_redraws_modal_with_error(live):
+def test_submit_lock_extend_can_move_the_end_earlier(live):
     ctx = SurfaceCtx(locked_submission("2027-10-17", "10:00"))
 
     thread_lock.submit_lock(ctx)
 
+    assert live["extended"] == [(5, dt.datetime(2027, 10, 17, 10, 0, tzinfo=dt.UTC), MOD)]
+
+
+def test_submit_lock_extend_in_the_past_redraws_modal_with_error(live):
+    ctx = SurfaceCtx(locked_submission("2020-01-01", "10:00"))
+
+    thread_lock.submit_lock(ctx)
+
     assert live["extended"] == []
-    assert ctx.acked[0]["view"]["blocks"][3]["elements"][0]["text"] == "Select a time after the current end."
+    assert ctx.acked[0]["view"]["blocks"][3]["elements"][0]["text"] == "Select a time in the future."
 
 
 def test_submit_lock_start_with_missing_reason_acks_input_error(live):

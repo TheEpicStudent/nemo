@@ -117,7 +117,7 @@ def submit_lock(ctx):
     channel_id, thread_ts = card.parse_metadata(ctx.view)
     tz = profile.timezone(ctx.client, ctx.user_id)
     current = live_lock(channel_id, thread_ts) if extending and channel_id and thread_ts else None
-    errors = card.lock_errors(values, tz, current)
+    errors = card.lock_errors(values, tz)
     if errors and card.END in errors:
         if not extending or current:
             return ctx.ack(response_action="update",
