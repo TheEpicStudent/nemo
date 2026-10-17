@@ -1,6 +1,6 @@
 from bot.core.formatting import member_parts, quote_text
 from bot.nemo import attachments, channel
-from bot.nemo.views import edit, report
+from bot.nemo.views import report
 
 CHANNEL_ID = "C1"
 THREAD = "100.000"
@@ -300,36 +300,6 @@ def test_build_blocks_with_shares_omits_linked_message_body():
     built = card(shares=[link_share()])
     assert [b["type"] for b in built] == ["rich_text"]
     assert "mmm" not in str(built), "linked messages go in the thread, not on the card"
-
-
-def test_menu_options_count_is_at_most_five():
-    for case in ({"case_id": 19, "assignees": []}, {"case_id": 19, "assignees": ["UME"]},
-                 {"case_id": 19, "resolved_at": "2026-10-10"}):
-        assert len(edit.menu(case)["options"]) <= 5
-
-
-def test_more_options_returns_labels_by_case_state():
-    labels = [label for label, _ in edit.more_options(True, None, [{"id": 1}])]
-    assert labels == ["People", "Set violation", "Reverse action", "Merge"]
-    assert [label for label, _ in edit.more_options(False, "spam", [])] == ["People"]
-
-
-def test_more_view_buttons_have_unique_action_ids_and_case_id():
-    built = edit.more_view(19, edit.more_options(True, None, []))
-    buttons = built["blocks"][-1]["elements"]
-    assert len({one["action_id"] for one in buttons}) == len(buttons), "slack wants them unique"
-    assert all(one["action_id"].startswith(edit.MORE_ACTION) for one in buttons)
-    assert [edit.parse_menu_value(one["value"])[1] for one in buttons] == [19] * len(buttons)
-
-
-def test_menu_option_values_include_case_id():
-    case = {"case_id": 19, "category_key": None, "live_actions": 1,
-            "assignees": ["UME"], "resolved_at": None}
-
-    for one in edit.menu(case)["options"]:
-        verb, case_id = edit.parse_menu_value(one["value"])
-        assert case_id == 19
-        assert verb
 
 
 class FakeConn:

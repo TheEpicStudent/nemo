@@ -4,7 +4,7 @@ from psycopg.types.json import Jsonb
 
 from bot.core import audit
 from bot.core.case import reopen_reports
-from bot.nemo import views, memberguards
+from bot.nemo import views
 
 log = logging.getLogger("bot.nemo")
 
@@ -64,30 +64,11 @@ INSERT INTO fd.notes (subject_user_id, body, author) VALUES (%s, %s, %s) RETURNI
 """
 
 
-PARTICIPANTS = """
-SELECT user_id, role FROM fd.case_participants
-WHERE case_id = %s ORDER BY noted_at
-"""
-
-
 ADD_PARTICIPANT = """
 INSERT INTO fd.case_participants (case_id, user_id, role)
 VALUES (%s, %s, %s)
 ON CONFLICT DO NOTHING
 RETURNING user_id
-"""
-
-
-REMOVE_PARTICIPANT = """
-DELETE FROM fd.case_participants WHERE case_id = %s AND user_id = %s AND role = %s
-RETURNING user_id
-"""
-
-
-SET_CATEGORY = """
-UPDATE fd.cases SET category_key = %s, updated_at = now()
-WHERE id = %s AND category_key IS NULL
-RETURNING category_key
 """
 
 
@@ -123,11 +104,6 @@ LIVE_ACTIONS = """
 SELECT id, target_user_id, type_key, expires_at, details FROM fd.actions
 WHERE case_id = %s AND reversed_at IS NULL
 ORDER BY performed_at, id
-"""
-
-
-OPEN_REPORTS = """
-SELECT count(*) FROM fd.case_reports WHERE case_id = %s AND closed_at IS NULL
 """
 
 
@@ -176,13 +152,6 @@ RETURNING id, performed_at, category_key
 """
 
 
-def participants(conn, case_id):
-    return [
-        {"user_id": row[0], "role": row[1]}
-        for row in conn.execute(PARTICIPANTS, (case_id,)).fetchall()
-    ]
-
-
 def add_participants(conn, case_id, user_ids, role, by):
     added = []
     for user_id in user_ids:
@@ -195,31 +164,6 @@ def add_participants(conn, case_id, user_ids, role, by):
         )
         added.append(user_id)
     return added
-
-
-def remove_participant(conn, case_id, user_id, role, by):
-    row = conn.execute(REMOVE_PARTICIPANT, (case_id, user_id, role)).fetchone()
-    if row is None:
-        return False
-
-    audit.record(
-        conn, "participant", case_id, "detached", by,
-        before={"user_id": user_id, "role": role},
-        after=None,
-    )
-    return True
-
-
-def set_category(conn, case_id, key, by):
-    row = conn.execute(SET_CATEGORY, (key, case_id)).fetchone()
-    if row is None:
-        return False
-
-    audit.record(
-        conn, "case", case_id, "categorised", by,
-        before={"category_key": None}, after={"category_key": key},
-    )
-    return True
 
 
 def add_note(conn, case_id, body, by):
@@ -291,10 +235,6 @@ def member_note(conn, subject, body, by):
     return note_id
 
 
-def scalar_for_case(conn, sql, case_id):
-    return conn.execute(sql, (case_id,)).fetchone()[0]
-
-
 def live_actions(conn, case_id):
     return [
         {
@@ -353,33 +293,6 @@ def resolve(conn, case_id, values, user_id):
     )
     notified = close_reports(conn, case_id, values["message"], user_id) if values["notify_reporter"] else 0
     return notified
-
-
-ACTION_REVERSED_REASON = "Action reversed: {why}"
-
-REVERSE_ACTION = """
-UPDATE fd.actions SET reversed_at = now(), reversed_by = %s, reversal_reason = %s
-WHERE id = %s AND case_id = %s AND reversed_at IS NULL
-RETURNING reversed_at
-"""
-
-
-def reverse_action(conn, case_id, action_id, reason, user_id):
-    row = conn.execute(REVERSE_ACTION, (user_id, reason, action_id, case_id)).fetchone()
-    if row is None:
-        return False
-
-    audit.record(
-        conn,
-        "action",
-        action_id,
-        "reversed",
-        user_id,
-        before={"reversed_at": None},
-        after={"reversed_at": str(row[0]), "reversed_by": user_id, "reason": reason},
-    )
-    memberguards.lift_for_action(conn, action_id, user_id, ACTION_REVERSED_REASON.format(why=reason))
-    return True
 
 
 def log_action(conn, case_id, values, user_id):

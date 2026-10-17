@@ -6,18 +6,13 @@ from bot.core.formatting import (
     quote_text,
 )
 from bot.nemo import categories
-from bot.nemo.views import edit, lines, linked
+from bot.nemo.views import lines, linked
 
 MENTION = re.compile(r"(<[@#][A-Z0-9][A-Z0-9]*(?:\|[^>]*)?>)")
 SLACK_BIT = re.compile(
     r"(<[@#][A-Z0-9][A-Z0-9]*(?:\|[^>]*)?>|<https?://[^\s<>]+?(?:\|[^>]*)?>)"
 )
 
-CLAIM = edit.CLAIM
-LOG_ACTION = edit.LOG_ACTION
-RESOLVE = edit.RESOLVE
-REOPEN = edit.REOPEN
-OPEN = "case_open"
 
 def category_label(key):
     return categories.label(key)
@@ -48,16 +43,6 @@ def headline(case):
     name = f"Case {case['case_id']}"
     label = category_label(case.get("category_key"))
     return f"{name} · {label}" if label else name
-
-
-def footer(case):
-    name = f"Case {case['case_id']}"
-    url = case.get("url")
-    return {
-        "type": "section",
-        "text": {"type": "mrkdwn", "text": f"<{url}|{name}>" if url else name},
-        "accessory": edit.menu(case),
-    }
 
 
 def body(case):

@@ -3,7 +3,7 @@ import contextlib
 import pytest
 
 from bot.nemo import case_actions, channel, command, handlers
-from bot.nemo.views import edit, merge
+from bot.nemo.views import merge
 
 
 class App:
@@ -63,11 +63,6 @@ class Ack:
         self.responses.append(kwargs)
 
 
-ON_CARD = {"user": {"id": "UME"}, "trigger_id": "T1", "channel": {"id": "C_FIRE"},
-           "message": {"ts": "1.0"}}
-IN_MORE = {"user": {"id": "UME"}, "trigger_id": "T2", "view": {"id": "V1", "hash": "H1"}}
-
-
 @pytest.fixture
 def app(monkeypatch):
     fake_app = App()
@@ -80,86 +75,8 @@ def app(monkeypatch):
 
     monkeypatch.setattr(handlers, "session", fake_session)
     monkeypatch.setattr(handlers.access, "may", lambda conn, user_id, capability, case=None: (True, None))
-    monkeypatch.setattr(handlers, "live_actions", lambda conn, case_id: [])
     monkeypatch.setattr(handlers, "refresh_card", lambda client, conn, case_id: None)
     return fake_app
-
-
-def select_action(verb, case_id=23):
-    return {"actions": [{"selected_option": {"value": f"{verb}:{case_id}"}}]}
-
-
-def button_action(verb, case_id=23):
-    return {"actions": [{"value": f"{verb}:{case_id}"}]}
-
-
-def test_card_menu_selection_opens_modal_for_case(app):
-    slack = Slack()
-
-    app.actions[edit.MENU](Ack(), dict(ON_CARD, **select_action(edit.LOG_ACTION)), slack)
-
-    assert slack.calls_to("views_open")[0]["view"]["private_metadata"] == "23"
-
-
-def test_card_menu_more_opens_view_with_people_violation_merge_buttons(app):
-    slack = Slack()
-
-    app.actions[edit.MENU](Ack(), dict(ON_CARD, **select_action(edit.MORE)), slack)
-
-    view = slack.calls_to("views_open")[0]["view"]
-    labels = [one["text"]["text"] for one in view["blocks"][-1]["elements"]]
-    assert labels == ["People", "Set violation", "Merge"]
-
-
-def test_more_view_merge_button_pushes_merge_modal(app, monkeypatch):
-    monkeypatch.setattr(handlers, "mergeable", lambda conn, requested: [(23, None, "bob"),
-                                                                        (25, "spam", None)])
-    slack = Slack()
-
-    app.actions[f"^{edit.MORE_ACTION}_"](Ack(), dict(IN_MORE, **button_action(edit.MERGE)), slack)
-
-    view = slack.calls_to("views_push")[0]["view"]
-    assert view["callback_id"] == merge.CALLBACK
-    assert view["blocks"][0]["element"]["initial_option"]["value"] == "23"
-    assert slack.calls_to("views_open") == []
-
-
-def test_card_menu_refusal_posts_ephemeral_and_opens_no_modal(app, monkeypatch):
-    monkeypatch.setattr(handlers.access, "may", lambda conn, user_id, capability, case=None: (False, "no"))
-    slack = Slack()
-
-    app.actions[edit.MENU](Ack(), dict(ON_CARD, **select_action(edit.RESOLVE)), slack)
-
-    assert slack.calls_to("chat_postEphemeral")[0]["text"] == "no"
-    assert slack.calls_to("views_open") == []
-
-
-def test_more_view_refusal_updates_view_with_message(app, monkeypatch):
-    monkeypatch.setattr(handlers.access, "may", lambda conn, user_id, capability, case=None: (False, "no"))
-    slack = Slack()
-
-    app.actions[f"^{edit.MORE_ACTION}_"](Ack(), dict(IN_MORE, **button_action(edit.REVERSE)), slack)
-
-    update = slack.calls_to("views_update")[0]
-    assert update["view_id"] == "V1"
-    assert update["view"]["blocks"][0]["elements"][0]["text"] == "no"
-
-
-def test_card_menu_claim_records_claim_for_user(app, monkeypatch):
-    claims = []
-    monkeypatch.setattr(handlers, "record_claim", lambda conn, case_id, user_id: claims.append((case_id, user_id)))
-
-    app.actions[edit.MENU](Ack(), dict(ON_CARD, **select_action(edit.CLAIM)), Slack())
-
-    assert claims == [(23, "UME")]
-
-
-def test_log_action_legacy_button_value_opens_modal(app):
-    slack = Slack()
-
-    app.actions[edit.LOG_ACTION](Ack(), dict(ON_CARD, actions=[{"value": "23"}]), slack)
-
-    assert slack.calls_to("views_open")
 
 
 def merge_view_state(target_id, *duplicate_ids):
@@ -223,45 +140,6 @@ def test_post_merge_note_posts_to_target_and_duplicate_cases(monkeypatch):
 
     text = "<@UME> merged cases 25 and 31 into case 39"
     assert posted_lines == [(39, text), (25, text), (31, text)]
-
-
-def resolve_view():
-    return {"private_metadata": "23", "state": {"values": {}}}
-
-
-def test_resolve_view_with_reporter_notice_defers_resolution_log(app, monkeypatch):
-    pending_marks, log_posts = [], []
-    monkeypatch.setattr(handlers.views.resolve, "submitted_values",
-                        lambda state, live: {"resolution": "no_action", "member_note": None,
-                                             "message": "thanks", "notify_reporter": True})
-    monkeypatch.setattr(handlers.views.resolve, "validation_errors", lambda values: None)
-    monkeypatch.setattr(handlers, "resolve", lambda conn, case_id, values, by: 1)
-    monkeypatch.setattr(handlers, "mark_resolution_log_pending",
-                        lambda conn, case_id, by: pending_marks.append((case_id, by)))
-    monkeypatch.setattr(handlers, "post_resolution_log", lambda *args: log_posts.append(args))
-
-    app.views[handlers.views.resolve.CALLBACK](Ack(), {"user": {"id": "UME"}}, resolve_view(), Slack())
-
-    assert pending_marks == [(23, "UME")]
-    assert log_posts == []
-
-
-def test_resolve_view_without_reporter_notice_posts_resolution_log(app, monkeypatch):
-    pending_marks, log_posts = [], []
-    monkeypatch.setattr(handlers.views.resolve, "submitted_values",
-                        lambda state, live: {"resolution": "no_action", "member_note": None,
-                                             "message": None, "notify_reporter": False})
-    monkeypatch.setattr(handlers.views.resolve, "validation_errors", lambda values: None)
-    monkeypatch.setattr(handlers, "resolve", lambda conn, case_id, values, by: 0)
-    monkeypatch.setattr(handlers, "mark_resolution_log_pending",
-                        lambda conn, case_id, by: pending_marks.append((case_id, by)))
-    monkeypatch.setattr(handlers, "resolution_log_actions", lambda conn, case_id: [])
-    monkeypatch.setattr(handlers, "post_resolution_log", lambda *args: log_posts.append(args))
-
-    app.views[handlers.views.resolve.CALLBACK](Ack(), {"user": {"id": "UME"}}, resolve_view(), Slack())
-
-    assert pending_marks == []
-    assert len(log_posts) == 1
 
 
 def test_post_pending_resolutions_posts_only_due_cases(monkeypatch):

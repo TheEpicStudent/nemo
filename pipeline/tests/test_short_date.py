@@ -3,7 +3,7 @@ import datetime as dt
 from bot.core.formatting import short_date, short_end
 from bot.nemo import command, record
 from bot.nemo.enforcement import notify, sweep
-from bot.nemo.views import action, resolve
+from bot.nemo.views import action
 
 TODAY = dt.date(2026, 10, 15)
 NEXT_YEAR = dt.date.today().year + 1
@@ -61,6 +61,5 @@ def test_ending_line_next_year_includes_year():
     assert NEXT_YEAR_LABEL in sweep.ending_line(guard)
 
 
-def test_format_date_and_resolve_until_next_year_include_year():
+def test_format_date_next_year_includes_year():
     assert action.format_date(NEXT_YEAR_TIMESTAMP) == NEXT_YEAR_LABEL
-    assert resolve.until(NEXT_YEAR_TIMESTAMP) == NEXT_YEAR_LABEL

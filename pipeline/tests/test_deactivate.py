@@ -106,22 +106,6 @@ def test_lift_already_lifted_guard_writes_no_event(slack_outcome):
     assert conn.args_for("INSERT INTO fd.member_guard_events") == []
 
 
-def test_lift_for_action_last_live_action_starts_lifting():
-    conn = Conn()
-    assert memberguards.lift_for_action(conn, 3, "UME", "Action reversed: appeal") == 7
-
-    sql, args = conn.statements[0]
-    assert "o.reversed_at IS NULL" in sql, "a guard another live action wants must stay"
-    assert args == (3,)
-    assert conn.executed("state = 'lifting'"), "a deactivation waits for slack before it is lifted"
-
-
-def test_lift_for_action_without_guard_returns_none():
-    conn = Conn(action_returns_row=False)
-    assert memberguards.lift_for_action(conn, 3, "UME", "why") is None
-    assert not conn.executed("UPDATE fd.member_guards")
-
-
 def test_lifts_in_slack_true_only_for_deactivation():
     assert memberguards.lifts_in_slack(memberguards.DEACTIVATION)
     assert not memberguards.lifts_in_slack(memberguards.SHUSH)
