@@ -2,6 +2,7 @@ import contextlib
 import io
 import urllib.error
 import urllib.request
+import zlib
 
 import pytest
 
@@ -24,7 +25,8 @@ TOKEN = "xoxb-secret"
     (b"\x1a\x45\xdf\xa3" + b"\x00" * 20, "video/webm"),
     (b"<svg xmlns='http://www.w3.org/2000/svg'><script/></svg>", None),
     (b"<!doctype html><script>alert(1)</script>", None),
-    (b"%PDF-1.7\n", None),
+    (b"%PDF-1.7\n", "application/pdf"),
+    (b" %PDF-1.7\n", None),
     (b"MZ\x90\x00", None),
     (b"\x00\x00\x00\x20ftypavif" + b"\x00" * 8, None),
     (b"", None),
@@ -35,9 +37,9 @@ def test_media_type_header_bytes_return_detected_mimetype(head, mimetype):
 
 @pytest.mark.parametrize(("declared", "allowed"), [
     ("image/png", True), ("IMAGE/JPEG; charset=binary", True), ("video/mp4", True),
-    ("image/svg+xml", False), ("text/html", False), ("application/pdf", False), (None, False),
+    ("image/svg+xml", False), ("text/html", False), ("application/pdf", True), ("application/zip", False), (None, False),
 ])
-def test_is_media_type_declared_type_allows_images_and_videos_only(declared, allowed):
+def test_is_media_type_declared_type_allows_images_videos_and_pdf_only(declared, allowed):
     assert blobs.is_media_type(declared) is allowed
 
 
@@ -133,11 +135,66 @@ def drain_calls(monkeypatch):
 
 
 def test_drain_declared_non_media_marks_refused_without_download(drain_calls, monkeypatch):
-    drain_calls["rows"].append((1, "F1", "https://files.slack.com/a.pdf", 10, "application/pdf"))
+    drain_calls["rows"].append((1, "F1", "https://files.slack.com/a.zip", 10, "application/zip"))
     monkeypatch.setattr(intake_files, "download", lambda *args: pytest.fail("no download expected"))
 
     assert intake_files.drain(TOKEN) == 0
     assert drain_calls["failed"] == [(1, "refused", blobs.NOT_MEDIA)]
+
+
+PDF = b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n"
+
+
+def pdf_with(extra):
+    return PDF.replace(b"<< /Type /Catalog >>", b"<< /Type /Catalog " + extra + b" >>")
+
+
+def object_stream(content):
+    return (b"%PDF-1.7\n5 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode >>\nstream\n"
+            + zlib.compress(content) + b"\nendstream\nendobj\n")
+
+
+@pytest.mark.parametrize("body", [
+    PDF,
+    pdf_with(b"/URI (https://example.com)"),
+    object_stream(b"1 0 << /Type /Catalog >>"),
+])
+def test_pdf_refusal_plain_pdf_is_accepted(body):
+    assert blobs.pdf_refusal(body) is None
+
+
+@pytest.mark.parametrize("body", [
+    pdf_with(b"/OpenAction << /S /JavaScript /JS (app.alert(1)) >>"),
+    pdf_with(b"/AA << /O 2 0 R >>"),
+    pdf_with(b"/Names << /EmbeddedFiles 3 0 R >> /EmbeddedFile 3 0 R"),
+    pdf_with(b"/Launch"),
+    pdf_with(b"/Java#53cript"),
+    pdf_with(b"/#4aS (x)"),
+    object_stream(b"1 0 << /OpenAction << /S /JavaScript >> >>"),
+])
+def test_pdf_refusal_active_content_is_refused_even_when_escaped_or_compressed(body):
+    assert blobs.pdf_refusal(body) == blobs.PDF_ACTIVE_CONTENT
+
+
+def test_pdf_refusal_encrypted_pdf_is_refused():
+    assert blobs.pdf_refusal(pdf_with(b"/Encrypt 9 0 R")) == blobs.PDF_ENCRYPTED
+
+
+def test_pdf_refusal_corrupt_object_stream_is_ignored():
+    body = b"%PDF-1.7\n<< /Type /ObjStm >>\nstream\nnot zlib\nendstream\n"
+    assert blobs.pdf_refusal(body) is None
+
+
+def test_drain_stores_clean_pdf_and_refuses_active_one(drain_calls, monkeypatch):
+    drain_calls["rows"] += [(1, "F1", "https://files.slack.com/a.pdf", 10, "application/pdf"),
+                            (2, "F2", "https://files.slack.com/b.pdf", 10, "application/pdf")]
+    bodies = {"https://files.slack.com/a.pdf": PDF,
+              "https://files.slack.com/b.pdf": pdf_with(b"/JavaScript")}
+    monkeypatch.setattr(intake_files, "download", lambda url, token, limit: (bodies[url], "stored", None))
+
+    assert intake_files.drain(TOKEN) == 1
+    assert drain_calls["stored"] == [(1, "application/pdf")]
+    assert drain_calls["failed"] == [(2, "refused", blobs.PDF_ACTIVE_CONTENT)]
 
 
 def test_drain_stores_mimetype_detected_from_bytes(drain_calls, monkeypatch):
@@ -153,7 +210,9 @@ def test_drain_stores_mimetype_detected_from_bytes(drain_calls, monkeypatch):
 
 @pytest.mark.parametrize(("state", "error", "text"), [
     ("too_large", None, "Not sent: a&amp;b.mp4 (over 25 MiB). Send a smaller file or a link."),
-    ("refused", blobs.NOT_MEDIA, "Not sent: a&amp;b.mp4 (only images and videos are accepted)."),
+    ("refused", blobs.NOT_MEDIA, "Not sent: a&amp;b.mp4 (only images, videos and PDFs are accepted)."),
+    ("refused", blobs.PDF_ACTIVE_CONTENT, "Not sent: a&amp;b.mp4 (contains active content)."),
+    ("refused", blobs.PDF_ENCRYPTED, "Not sent: a&amp;b.mp4 (encrypted)."),
     ("skipped", None, "Not sent: a&amp;b.mp4 (only files uploaded to Slack are accepted)."),
     ("refused", blobs.HTML_BODY, "Not sent: a&amp;b.mp4 (could not be downloaded). Send it again or send a link."),
     ("failed", "timeout", "Not sent: a&amp;b.mp4 (could not be downloaded). Send it again or send a link."),

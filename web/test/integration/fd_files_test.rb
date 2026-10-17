@@ -30,6 +30,18 @@ class FdFilesTest < ActionDispatch::IntegrationTest
     assert_equal "image/png", response.media_type
   end
 
+  test "pdf downloads as an attachment and is never rendered inline" do
+    file = stored_file("application/pdf", "%PDF-1.7\n%%EOF\n".b)
+
+    get fd_file_path(file)
+
+    assert_response :success
+    assert_equal "application/octet-stream", response.media_type
+    assert_match(/\Aattachment/, response.headers["Content-Disposition"])
+    assert_equal "nosniff", response.headers["X-Content-Type-Options"]
+    assert_equal Fd::FilesController::SANDBOX, response.headers["Content-Security-Policy"]
+  end
+
   test "file that is not an inline image downloads as octet stream" do
     file = stored_file("video/mp4", "\x00\x00\x00\x20ftypisom#{"\x00" * 8}".b)
 

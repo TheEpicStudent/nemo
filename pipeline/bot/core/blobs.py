@@ -1,18 +1,22 @@
 import hashlib
 import os
+import re
+import zlib
 from urllib.parse import urlparse
 
 DEFAULT_CAP = 25 * 1024 * 1024
 HTML = ("text/html", "application/xhtml+xml")
 SLACK_HOSTS = (".slack.com", ".slack-edge.com", ".slack-files.com")
 
-NOT_MEDIA = "not an image or video"
+NOT_MEDIA = "not an image, video or pdf"
+PDF_ACTIVE_CONTENT = "pdf contains active content"
+PDF_ENCRYPTED = "pdf is encrypted"
 NOT_SLACK_URL = "the file url is not an https slack url"
 HTML_BODY = "Slack returned HTML instead of file content"
 
 MEDIA_TYPES = frozenset({
     "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic", "image/heif",
-    "video/mp4", "video/quicktime", "video/webm",
+    "video/mp4", "video/quicktime", "video/webm", "application/pdf",
 })
 HEIF_BRANDS = frozenset({b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1", b"heim", b"heis"})
 QUICKTIME_BRANDS = frozenset({b"qt  "})
@@ -20,6 +24,40 @@ MP4_BRANDS = frozenset({
     b"isom", b"iso2", b"iso4", b"iso5", b"iso6", b"mp41", b"mp42", b"avc1", b"M4V ", b"M4VP",
     b"dash", b"3gp4", b"3gp5", b"3gp6", b"3g2a", b"f4v ", b"MSNV",
 })
+
+
+PDF_MAGIC = b"%PDF-"
+PDF_ACTIVE_NAMES = re.compile(
+    rb"/(?:JavaScript|JS|OpenAction|AA|Launch|EmbeddedFile|XFA|RichMedia|SubmitForm|ImportData)(?![A-Za-z0-9])"
+)
+PDF_ENCRYPT = re.compile(rb"/Encrypt(?![A-Za-z0-9])")
+PDF_NAME_ESCAPE = re.compile(rb"#([0-9A-Fa-f]{2})")
+PDF_OBJECT_STREAM = re.compile(
+    rb"<<([^>]*?/Type\s*/ObjStm[^>]*?)>>\s*stream\r?\n(.*?)\r?\nendstream", re.DOTALL
+)
+PDF_INFLATE_LIMIT = 16 * 1024 * 1024
+
+
+def unescape_pdf_names(data):
+    return PDF_NAME_ESCAPE.sub(lambda match: bytes([int(match.group(1), 16)]), data)
+
+
+def inflate_object_streams(body):
+    for match in PDF_OBJECT_STREAM.finditer(body):
+        try:
+            yield zlib.decompressobj().decompress(match.group(2), PDF_INFLATE_LIMIT)
+        except zlib.error:
+            continue
+
+
+def pdf_refusal(body):
+    unescaped = unescape_pdf_names(body)
+    if PDF_ENCRYPT.search(unescaped):
+        return PDF_ENCRYPTED
+    for part in (unescaped, *(unescape_pdf_names(one) for one in inflate_object_streams(body))):
+        if PDF_ACTIVE_NAMES.search(part):
+            return PDF_ACTIVE_CONTENT
+    return None
 
 
 def is_media_type(mimetype):
@@ -36,6 +74,8 @@ def media_type(body):
         return "image/gif"
     if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         return "image/webp"
+    if head.startswith(PDF_MAGIC):
+        return "application/pdf"
     if head.startswith(b"\x1a\x45\xdf\xa3"):
         return "video/webm"
     if head[4:8] == b"ftyp":

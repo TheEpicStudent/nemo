@@ -39,6 +39,10 @@ def notice_text(state, error, name):
         return reply.file_too_large(name, blobs.cap())
     if state == "refused" and error == blobs.NOT_MEDIA:
         return reply.file_not_media(name)
+    if state == "refused" and error == blobs.PDF_ACTIVE_CONTENT:
+        return reply.file_active_content(name)
+    if state == "refused" and error == blobs.PDF_ENCRYPTED:
+        return reply.file_encrypted(name)
     if state == "skipped":
         return reply.file_external(name)
     return reply.file_not_downloaded(name)

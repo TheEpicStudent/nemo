@@ -80,7 +80,15 @@ def file_too_large(name, limit_bytes):
 
 
 def file_not_media(name):
-    return f"Not sent: {file_label(name)} (only images and videos are accepted)."
+    return f"Not sent: {file_label(name)} (only images, videos and PDFs are accepted)."
+
+
+def file_active_content(name):
+    return f"Not sent: {file_label(name)} (contains active content)."
+
+
+def file_encrypted(name):
+    return f"Not sent: {file_label(name)} (encrypted)."
 
 
 def file_external(name):

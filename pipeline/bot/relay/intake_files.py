@@ -18,7 +18,7 @@ def drain(token, limit=20):
         if not blobs.is_media_type(mimetype):
             with session() as conn:
                 blobs.mark_failed(conn, file_id, "refused", blobs.NOT_MEDIA)
-            log.info("relay: %s is %s, not an image or video", slack_id, mimetype)
+            log.info("relay: %s is %s, not an image, video or pdf", slack_id, mimetype)
             continue
         if blobs.exceeds_limit(size):
             with session() as conn:
@@ -32,6 +32,10 @@ def drain(token, limit=20):
         detected = blobs.media_type(body) if state == "stored" else None
         if state == "stored" and detected is None:
             state, error = "refused", blobs.NOT_MEDIA
+        elif state == "stored" and detected == "application/pdf":
+            error = blobs.pdf_refusal(body)
+            if error:
+                state = "refused"
         with session() as conn:
             if state == "stored":
                 blobs.store_blob(conn, file_id, body, detected)
