@@ -73,24 +73,80 @@ def test_mark_card_resolved_case_removes_stale_reactions():
     assert [kwargs["name"] for kwargs in slack.calls_to("reactions_add")] == ["repeat"]
 
 
-class XReactionSlack(Slack):
+class ReactionsSlack(Slack):
+    def __init__(self, reactions):
+        super().__init__()
+        self.reactions = reactions
+
     def reactions_get(self, **kwargs):
-        return {"message": {"reactions": [{"name": "x", "users": ["UME"], "count": 1}]}}
+        self.calls.append(("reactions_get", kwargs))
+        return {"message": {"reactions": self.reactions}}
 
 
-def test_mark_card_not_conduct_with_existing_x_reaction_does_not_add_check():
-    slack = XReactionSlack()
+@pytest.fixture
+def nemo_bot_user(monkeypatch):
+    monkeypatch.setattr(channel.whoami, "bot_user_id", lambda client, name: BOT)
 
-    channel.mark_card(slack, CHANNEL_ID, CARD, {"resolved_at": "x", "resolution": "not_conduct"})
+
+@pytest.mark.parametrize("resolution", ["not_conduct", "no_action"])
+@pytest.mark.parametrize("reaction_name", ["x", "white_check_mark", "check-green", "white_tick::skin-tone-2"])
+def test_mark_card_with_human_close_reaction_does_not_add_check(nemo_bot_user, resolution, reaction_name):
+    slack = ReactionsSlack([{"name": reaction_name, "users": ["UME"], "count": 1}])
+
+    channel.mark_card(slack, CHANNEL_ID, CARD, {"resolved_at": "x", "resolution": resolution})
 
     assert slack.calls_to("reactions_add") == []
-    assert "hourglass_flowing_sand" in [kwargs["name"] for kwargs in slack.calls_to("reactions_remove")]
+    assert "white_check_mark" in [kwargs["name"] for kwargs in slack.calls_to("reactions_remove")]
 
 
-def test_mark_card_not_conduct_without_existing_reaction_adds_check():
-    slack = Slack()
+@pytest.mark.parametrize("reactions", [
+    [],
+    [{"name": "white_check_mark", "users": [BOT], "count": 1}],
+    [{"name": "eyes", "users": ["UME"], "count": 1}],
+])
+def test_mark_card_without_human_close_reaction_adds_check(nemo_bot_user, reactions):
+    slack = ReactionsSlack(reactions)
 
     channel.mark_card(slack, CHANNEL_ID, CARD, {"resolved_at": "x", "resolution": "not_conduct"})
+
+    assert [kwargs["name"] for kwargs in slack.calls_to("reactions_add")] == ["white_check_mark"]
+
+
+def test_mark_root_with_human_check_does_not_add_check(nemo_bot_user):
+    slack = ReactionsSlack([{"name": "white_tick", "users": ["UME"], "count": 1}])
+
+    channel.mark_root(slack, CHANNEL_ID, "90.000", CARD, {"resolved_at": "x", "resolution": "no_action"})
+
+    assert slack.calls_to("reactions_add") == []
+    assert slack.calls_to("reactions_get")[0]["timestamp"] == "90.000"
+
+
+def test_mark_root_resolved_elsewhere_adds_check(nemo_bot_user):
+    slack = ReactionsSlack([])
+
+    channel.mark_root(slack, CHANNEL_ID, "90.000", CARD, {"resolved_at": "x", "resolution": "no_action"})
+
+    assert slack.calls_to("reactions_add") == [
+        {"channel": CHANNEL_ID, "timestamp": "90.000", "name": "white_check_mark"}]
+
+
+def test_mark_card_merged_case_skips_reaction_read(nemo_bot_user):
+    slack = ReactionsSlack([{"name": "white_tick", "users": ["UME"], "count": 1}])
+
+    channel.mark_card(slack, CHANNEL_ID, CARD, {"resolved_at": "x", "resolution": "duplicate"})
+
+    assert slack.calls_to("reactions_get") == []
+    assert [kwargs["name"] for kwargs in slack.calls_to("reactions_add")] == ["repeat"]
+
+
+def test_mark_card_reaction_read_failure_adds_check(monkeypatch):
+    def fail(client, name):
+        raise RuntimeError("auth_test failed")
+
+    monkeypatch.setattr(channel.whoami, "bot_user_id", fail)
+    slack = ReactionsSlack([])
+
+    channel.mark_card(slack, CHANNEL_ID, CARD, {"resolved_at": "x", "resolution": "no_action"})
 
     assert [kwargs["name"] for kwargs in slack.calls_to("reactions_add")] == ["white_check_mark"]
 

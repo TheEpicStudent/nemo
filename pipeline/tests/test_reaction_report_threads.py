@@ -2,6 +2,7 @@ import contextlib
 
 import pytest
 
+from bot.nemo import channel
 from bot.nemo.surface import reaction_watch
 
 BOT_ID = "UNEMO"
@@ -158,5 +159,5 @@ def test_close_case_on_root_reaction_case_thread_reply_returns_none(case_thread_
     ("eyes", False, False),
 ])
 def test_is_resolve_and_is_close_reaction_classify_names(reaction_name, is_resolve, is_close):
-    assert reaction_watch.is_resolve_reaction(reaction_name) is is_resolve
-    assert reaction_watch.is_close_reaction(reaction_name) is is_close
+    assert channel.is_resolve_reaction(reaction_name) is is_resolve
+    assert channel.is_close_reaction(reaction_name) is is_close

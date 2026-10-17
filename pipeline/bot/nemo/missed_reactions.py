@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import access, session, whoami
-from bot.nemo import case_actions, channels
+from bot.nemo import case_actions, channel, channels
 from bot.nemo.surface import reaction_watch
 
 log = logging.getLogger("bot.nemo")
@@ -26,8 +26,8 @@ ORDER BY 1, 2 DESC
 def close_reactions(client, channel_id, ts):
     response = client.reactions_get(channel=channel_id, timestamp=ts, full=True)
     reactions = ((response or {}).get("message") or {}).get("reactions") or []
-    reaction_users = [(reaction_watch.plain(one.get("name")), one.get("users") or []) for one in reactions]
-    return [(name, user_ids) for name, user_ids in reaction_users if reaction_watch.is_close_reaction(name)]
+    reaction_users = [(channel.reaction_base_name(one.get("name")), one.get("users") or []) for one in reactions]
+    return [(name, user_ids) for name, user_ids in reaction_users if channel.is_close_reaction(name)]
 
 
 def resolver_id(conn, case_id, message_kind, user_ids, bot_user_id):

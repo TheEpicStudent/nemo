@@ -4,7 +4,7 @@ import time
 
 from psycopg.types.json import Jsonb
 
-from bot.core import parse
+from bot.core import parse, whoami
 from bot.core.formatting import quote_text
 from bot.nemo import answer, views, attachments, channels, chat, profile
 from bot.nemo.views.activity import message_url
@@ -144,6 +144,8 @@ MERGED_MARK = "repeat"
 DONE_MARK = "white_check_mark"
 CARD_MARKS = (OPEN_MARK, MERGED_MARK, DONE_MARK, "check")
 NOT_CONDUCT_MARKS = ("x", "heavy_multiplication_x", "negative_squared_cross_mark")
+RESOLVE_REACTIONS = ("white_check_mark", "heavy_check_mark", "ballot_box_with_check", "white_tick", "check")
+RESOLVE_REACTION_PREFIX = "check-"
 IGNORED_REACTION_ERRORS = ("already_reacted", "no_reaction")
 
 
@@ -164,14 +166,40 @@ def card_mark(case):
     return MERGED_MARK if case.get("resolution") == "duplicate" else DONE_MARK
 
 
-def has_not_conduct_reaction(client, channel_id, ts):
+def reaction_base_name(name):
+    return (name or "").split("::")[0]
+
+
+def is_resolve_reaction(name):
+    return name in RESOLVE_REACTIONS or (
+        name.startswith(RESOLVE_REACTION_PREFIX) and len(name) > len(RESOLVE_REACTION_PREFIX)
+    )
+
+
+def is_close_reaction(name):
+    return is_resolve_reaction(name) or name in NOT_CONDUCT_MARKS
+
+
+def has_human_close_reaction(client, channel_id, ts, bot_user_id):
+    response = client.reactions_get(channel=channel_id, timestamp=ts, full=True)
+    for reaction in ((response or {}).get("message") or {}).get("reactions") or []:
+        if not is_close_reaction(reaction_base_name(reaction.get("name"))):
+            continue
+        if any(user_id != bot_user_id for user_id in reaction.get("users") or []):
+            return True
+    return False
+
+
+def mark_to_add(client, channel_id, ts, target_mark):
+    if target_mark != DONE_MARK:
+        return target_mark
     try:
-        response = client.reactions_get(channel=channel_id, timestamp=ts)
+        closed_by_reaction = has_human_close_reaction(
+            client, channel_id, ts, whoami.bot_user_id(client, "nemo"))
     except Exception as failure:
         log.warning("nemo: could not read the reactions on %s: %s", ts, failure)
-        return False
-    reactions = ((response or {}).get("message") or {}).get("reactions") or []
-    return any((one.get("name") or "").split("::")[0] in NOT_CONDUCT_MARKS for one in reactions)
+        return target_mark
+    return None if closed_by_reaction else target_mark
 
 
 def react(client, method, channel_id, ts, name):
@@ -183,9 +211,7 @@ def react(client, method, channel_id, ts, name):
 
 
 def mark_card(client, channel_id, ts, case, is_new=False):
-    target_mark = card_mark(case)
-    if case.get("resolution") == "not_conduct" and has_not_conduct_reaction(client, channel_id, ts):
-        target_mark = None
+    target_mark = mark_to_add(client, channel_id, ts, card_mark(case))
     if not is_new:
         for name in CARD_MARKS:
             if name != target_mark:
@@ -199,9 +225,7 @@ def root_mark(case):
 
 
 def mark_root(client, channel_id, root_ts, card_ts, case, is_new=False):
-    target_mark = root_mark(case)
-    if case.get("resolution") == "not_conduct" and has_not_conduct_reaction(client, channel_id, root_ts):
-        target_mark = None
+    target_mark = mark_to_add(client, channel_id, root_ts, root_mark(case))
     if not is_new:
         for name in CARD_MARKS:
             if name != target_mark:
