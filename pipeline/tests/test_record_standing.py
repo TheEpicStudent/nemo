@@ -49,14 +49,37 @@ def test_in_force_sql_reads_member_guards_not_actions():
     assert "state IN ('live', 'lifting')" in record.IN_FORCE
 
 
-def test_counts_sql_counts_live_and_lifting_guards():
-    assert "FROM fd.member_guards" in record.COUNTS
-    assert "state IN ('live', 'lifting')) AS active_guard_count" in record.COUNTS
+def test_active_line_capitalises_and_names_case():
+    assert record.active_line(standing_row()) == "Shush until 10 Mar, case 412"
 
 
-def test_format_counts_labels_each_count():
-    line = record.format_counts({"subject_case_count": 1, "case_count": 2, "active_guard_count": 1, "reversed_action_count": 0})
-    assert line == "1 as subject, 2 cases, 1 active"
-    assert record.format_counts({"subject_case_count": 1, "case_count": 1, "active_guard_count": 0, "reversed_action_count": 2}) == (
-        "1 as subject, 1 case, 0 active, 2 reversed")
-    assert "action" not in line
+def test_active_line_without_case_has_no_case_suffix():
+    assert record.active_line(standing_row(case_id=None)) == "Shush until 10 Mar"
+
+
+def test_active_line_no_guard_returns_nothing_active():
+    assert record.active_line(None) == "Nothing active"
+
+
+def counts(**over):
+    row = {"case_count": 0, "open_case_count": 0, "action_count": 0, "reversed_action_count": 0, "note_count": 0}
+    row.update(over)
+    return row
+
+
+def test_counts_line_labels_each_count():
+    line = record.counts_line(counts(case_count=9, open_case_count=1, action_count=3, reversed_action_count=1, note_count=1))
+
+    assert line == "9 cases, 1 open, 3 actions, 1 reversed, 1 note"
+
+
+def test_counts_line_singular_and_zero_parts_omitted():
+    assert record.counts_line(counts(case_count=1, action_count=1)) == "1 case, 1 action"
+
+
+def test_counts_line_without_record_says_no_record():
+    assert record.counts_line(counts()) == "No record"
+
+
+def test_counts_line_notes_only():
+    assert record.counts_line(counts(note_count=2)) == "2 notes"

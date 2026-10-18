@@ -7,7 +7,6 @@ from bot.core.formatting import short_end
 from bot.nemo import (
     case_actions,
     case_modal,
-    channel,
     channelguards,
     guard_commands,
     memberguards,
@@ -16,7 +15,7 @@ from bot.nemo import (
     record,
 )
 from bot.nemo.views import help as helping
-from bot.nemo.views import merge
+from bot.nemo.views import member_view, merge
 from bot.nemo.views import slowmode as slowcard
 
 log = logging.getLogger("bot.nemo")
@@ -33,7 +32,7 @@ UNBAN = "unban"
 PURGE = "purge"
 SLOWMODE = "slowmode"
 QUEUE = "queue"
-OPEN_RECORD = "open_record"
+OPEN_RECORD = member_view.OPEN_WEB
 OFF = "off"
 
 MEMBER_REQUIRED_VERBS = (LOOKUP, NOTE, SHUSH, CHANNEL_BAN, UNSHUSH, UNBAN)
@@ -224,77 +223,6 @@ def message_only(text):
     }
 
 
-def record_bullets(entries):
-    return {
-        "type": "rich_text",
-        "elements": [
-            {
-                "type": "rich_text_list",
-                "style": "bullet",
-                "elements": [
-                    {"type": "rich_text_section", "elements": richtext.elements(record.entry_line(one))}
-                    for one in entries
-                ],
-            }
-        ],
-    }
-
-
-def lookup_message(member_record, names=None):
-    user_id = member_record["user_id"]
-    blocks = [
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*<@{user_id}>*: {record.in_force_line(member_record['in_force'])}"},
-        },
-        {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": record.format_counts(member_record["counts"])}],
-        },
-    ]
-
-    if member_record["entries"]:
-        blocks.append({"type": "divider"})
-        blocks.append(record_bullets(member_record["entries"]))
-        if member_record["total"] > len(member_record["entries"]):
-            blocks.append(
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"showing {len(member_record['entries'])} of {member_record['total']}",
-                        }
-                    ],
-                }
-            )
-    else:
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": "No record"}],
-            }
-        )
-
-    where = channel.member_url(user_id)
-    if where:
-        blocks.append(
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "action_id": OPEN_RECORD,
-                        "text": {"type": "plain_text", "text": "Open in Fire Engine"},
-                        "url": where,
-                    }
-                ],
-            }
-        )
-
-    return {"text": f"Record of {user_id}", "blocks": blocks}
-
-
 NEEDED = {
     LOOKUP: "case.read",
     NOTE: "member.note",
@@ -427,9 +355,12 @@ def register(app):
                 return None
 
             if verb == LOOKUP:
-                answer = lookup_message(record.read(conn, target_id))
+                can_note, _why = access.may(conn, user_id, "member.note")
+                view = record.build_view(conn, target_id, can_note)
                 audit.record(conn, "member", 0, "looked_up", user_id,
                              after={"user_id": target_id})
+                client.views_open(trigger_id=command["trigger_id"], view=view)
+                return None
             elif verb == NOTE:
                 case_actions.member_note(conn, target_id, body, user_id)
                 answer = message_only(f"Note added to <@{target_id}>")
