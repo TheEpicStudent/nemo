@@ -357,7 +357,7 @@ class FdChannelGuardKindsTest < ActionDispatch::IntegrationTest
     assert_match(/Bot allow list/, response.body)
     assert_match(/Read-only/, response.body)
     assert_match(/Slow mode/, response.body)
-    assert_match(/New accounts/, response.body)
+    assert_match(/New-account age/, response.body)
   end
 
   test "kind tabs render only their own guard events" do

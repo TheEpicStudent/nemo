@@ -3,7 +3,7 @@ module FdChannelsHelper
     Fd::ChannelGuard::BOT_ALLOWLIST => "Bot allow list",
     Fd::ChannelGuard::READONLY => "Read-only",
     Fd::ChannelGuard::SLOWMODE => "Slow mode",
-    Fd::ChannelGuard::ACCOUNT_AGE => "New accounts"
+    Fd::ChannelGuard::ACCOUNT_AGE => "New-account age"
   }.freeze
 
   CHANNEL_TAB_LABELS = {
@@ -11,7 +11,7 @@ module FdChannelsHelper
     "bots" => "Bots",
     "readonly" => "Read-only",
     "slowmode" => "Slow mode",
-    "account_age" => "New accounts",
+    "account_age" => "New-account age",
     "purge" => "Purge"
   }.freeze
 

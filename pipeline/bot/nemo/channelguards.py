@@ -2,6 +2,8 @@ import datetime as dt
 import json
 import threading
 
+from psycopg.types.json import Jsonb
+
 from bot.core import audit
 
 BOT_ALLOWLIST = "bot_allowlist"
@@ -63,10 +65,41 @@ RETURNING subject_id
 """
 
 OPEN = """
-INSERT INTO fd.channel_guards (kind, channel_id, opened_by, case_id)
-VALUES (%s, %s, %s, %s)
+INSERT INTO fd.channel_guards (kind, channel_id, opened_by, case_id, settings)
+VALUES (%s, %s, %s, %s, %s)
 ON CONFLICT DO NOTHING
 RETURNING id
+"""
+
+LIVE_GUARD_SETTINGS = """
+SELECT id, settings
+FROM fd.channel_guards
+WHERE channel_id = %s AND kind = %s AND thread_ts = '' AND state = 'live'
+"""
+
+TUNE = """
+UPDATE fd.channel_guards guard
+SET settings = guard.settings || %s::jsonb, updated_at = now()
+FROM (SELECT id, settings FROM fd.channel_guards WHERE id = %s FOR UPDATE) previous
+WHERE guard.id = previous.id AND guard.state = 'live'
+RETURNING previous.settings, guard.settings
+"""
+
+LAST_LIFTED = """
+SELECT id
+FROM fd.channel_guards
+WHERE kind = %s AND channel_id = %s AND thread_ts = '' AND state = 'lifted'
+ORDER BY lifted_at DESC, id DESC
+LIMIT 1
+"""
+
+COPY_ALLOWS = """
+INSERT INTO fd.channel_guard_allows (guard_id, subject_id, label, added_by, added_at)
+SELECT %s, subject_id, label, added_by, added_at
+FROM fd.channel_guard_allows
+WHERE guard_id = %s
+ORDER BY added_at
+RETURNING subject_id, label
 """
 
 LIFT = """
@@ -336,17 +369,43 @@ def lift_lapsed(conn):
     return lifted
 
 
-def open_guard(conn, channel_id, by, case_id=None, kind=BOT_ALLOWLIST):
-    row = conn.execute(OPEN, (kind, channel_id, by, case_id)).fetchone()
+def open_guard(conn, channel_id, by, case_id=None, kind=BOT_ALLOWLIST, settings=None):
+    settings = settings or {}
+    row = conn.execute(OPEN, (kind, channel_id, by, case_id, Jsonb(settings))).fetchone()
     if row is None:
         return None
 
     guard_id = row[0]
     audit.record(
         conn, "channel_guard", guard_id, "opened", by,
-        after={"kind": kind, "channel_id": channel_id},
+        after={"kind": kind, "channel_id": channel_id, **settings},
     )
     return guard_id
+
+
+def live_guard_settings(conn, channel_id, kind):
+    return conn.execute(LIVE_GUARD_SETTINGS, (channel_id, kind)).fetchone()
+
+
+def tune(conn, guard_id, settings, by):
+    row = conn.execute(TUNE, (Jsonb(settings), guard_id)).fetchone()
+    if row is None:
+        return None
+
+    audit.record(conn, "channel_guard", guard_id, "tuned", by, before=row[0], after=row[1])
+    return row[1]
+
+
+def restore_allows(conn, guard_id, channel_id, kind, by):
+    previous = conn.execute(LAST_LIFTED, (kind, channel_id)).fetchone()
+    if previous is None:
+        return []
+
+    restored = conn.execute(COPY_ALLOWS, (guard_id, previous[0])).fetchall()
+    for subject_id, label in restored:
+        audit.record(conn, "channel_allow", guard_id, "added", by,
+                     after={"subject_id": subject_id, "label": label, "restored_from_guard_id": previous[0]})
+    return [row[0] for row in restored]
 
 
 def lift(conn, guard_id, by):

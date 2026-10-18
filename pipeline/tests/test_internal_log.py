@@ -48,7 +48,7 @@ GATE = ("account_age", "C1", "", {"min_age_days": 7}, None, None)
      f"for *Heated* by <@UMOD>"),
     (THREAD_SLOW, entry("opened", entity_type="channel_guard"),
      f"Slow mode enabled on <#C1> {THREAD_LINK} with 2m cooldown and no end date for *Heated* by <@UMOD>"),
-    (GATE, entry("opened", entity_type="channel_guard"), "New-account gate enabled on <#C1> with 7 days by <@UMOD>"),
+    (GATE, entry("opened", entity_type="channel_guard"), "New-account age enabled on <#C1> with 7 days by <@UMOD>"),
     (SLOW, entry("extended", entity_type="channel_guard"),
      f"Slow mode extended on <#C1> to {short_end(END)} by <@UMOD>"),
     (SLOW, entry("lifted", entity_type="channel_guard"), "Slow mode disabled on <#C1> by <@UMOD>"),

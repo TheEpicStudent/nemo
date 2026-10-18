@@ -9,6 +9,7 @@ from bot.nemo import (
     case_modal,
     channel,
     channelguards,
+    guard_commands,
     memberguards,
     open_cases,
     purge_requests,
@@ -37,7 +38,7 @@ OFF = "off"
 
 MEMBER_REQUIRED_VERBS = (LOOKUP, NOTE, SHUSH, CHANNEL_BAN, UNSHUSH, UNBAN)
 MEMBER_VERBS = (*MEMBER_REQUIRED_VERBS, OPEN, PURGE)
-VERBS = (*MEMBER_REQUIRED_VERBS, OPEN, MERGE, PURGE, SLOWMODE, QUEUE)
+VERBS = (*MEMBER_REQUIRED_VERBS, OPEN, MERGE, PURGE, SLOWMODE, QUEUE, *guard_commands.VERBS)
 TEXT_REQUIRED_VERBS = (NOTE, OPEN, SHUSH, CHANNEL_BAN, SLOWMODE)
 
 USER_MENTION = re.compile(r"<@([UW][A-Z0-9]+)(?:\|[^>]*)?>")
@@ -162,10 +163,15 @@ def cooldown_of(text):
     return seconds if slowcard.MIN_SECONDS <= seconds <= slowcard.MAX_SECONDS else None
 
 
-def slowmode_request(body, here, now=None):
+def channel_and_text(body, here):
     where, text = extract_channel(body)
     if where is None:
         where, text = here, re.sub(r"\s+", " ", body or "").strip()
+    return where, text
+
+
+def slowmode_request(body, here, now=None):
+    where, text = channel_and_text(body, here)
     if not where or where.startswith("D"):
         return None, TEXT_USAGE[SLOWMODE]
 
@@ -301,6 +307,7 @@ NEEDED = {
     SLOWMODE: "channel.guard",
     QUEUE: "case.read",
     "case": "case.read",
+    **{verb: "channel.guard" for verb in guard_commands.VERBS},
 }
 
 
@@ -474,6 +481,11 @@ def register(app):
                           else purge_requests.propose(conn, request, user_id))
             elif verb == QUEUE:
                 answer = open_cases.build_reply(conn)
+            elif verb in guard_commands.VERBS:
+                where, text = channel_and_text(body, command.get("channel_id"))
+                answer = message_only(
+                    guard_commands.run(client, conn, verb, where, text, target_id, user_id)
+                )
             elif verb == OPEN:
                 open_case_ids = case_actions.open_cases_for_subject(conn, target_id) if target_id else []
                 if open_case_ids:

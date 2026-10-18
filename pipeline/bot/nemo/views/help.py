@@ -51,6 +51,24 @@ SLOWMODE = (
     ),
 )
 
+CHANNEL_GUARDS = (
+    "Channel guards",
+    (
+        ("channel.guard", "/nemo readonly #channel on", "read-only"),
+        ("channel.guard", "/nemo readonly #channel on threads", "read-only, threads included"),
+        ("channel.guard", "/nemo readonly #channel allow @member", "allow a member"),
+        ("channel.guard", "/nemo readonly #channel off", "turn read-only off"),
+        ("channel.guard", "/nemo accountage #channel 7d", "minimum account age"),
+        ("channel.guard", "/nemo accountage #channel allow @member", "allow a member"),
+        ("channel.guard", "/nemo accountage #channel off", "turn the age limit off"),
+        ("channel.guard", "/nemo botallow #channel on", "bot allow list"),
+        ("channel.guard", "/nemo botallow #channel add @bot", "allow a bot"),
+        ("channel.guard", "/nemo botallow #channel remove @bot", "remove a bot"),
+        ("channel.guard", "/nemo botallow #channel off", "turn the allow list off"),
+        ("channel.guard", "/nemo readonly #channel", "state and allow list"),
+    ),
+)
+
 PURGE = (
     "Purge",
     (
@@ -85,7 +103,7 @@ CARD = (
     ),
 )
 
-SECTIONS = (LOOKUP, NOTES, GUARDS, SLOWMODE, PURGE, THREAD, CARD)
+SECTIONS = (LOOKUP, NOTES, GUARDS, SLOWMODE, CHANNEL_GUARDS, PURGE, THREAD, CARD)
 
 
 def line(command, note):

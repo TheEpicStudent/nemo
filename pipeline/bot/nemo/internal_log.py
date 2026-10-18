@@ -59,7 +59,7 @@ FROM fd.thread_guards WHERE id = %s
 
 MEMBER_LABELS = {"shush": "Shush", "channel_ban": "Channel ban", "deactivation": "Deactivation"}
 MEMBER_VERBS = {"shush": "shushed", "channel_ban": "banned", "deactivation": "deactivated"}
-CHANNEL_LABELS = {"slowmode": "Slow mode", "readonly": "Read-only", "account_age": "New-account gate",
+CHANNEL_LABELS = {"slowmode": "Slow mode", "readonly": "Read-only", "account_age": "New-account age",
                   "bot_allowlist": "Bot allow list"}
 
 _lock = threading.Lock()
