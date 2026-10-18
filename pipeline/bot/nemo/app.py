@@ -20,6 +20,7 @@ from bot.nemo.surface import (
     bot_watch,  # noqa: F401
     case_card,  # noqa: F401
     channel_watch,  # noqa: F401
+    end_row,  # noqa: F401
     join_watch,  # noqa: F401
     member_view,  # noqa: F401
     message_activity,  # noqa: F401

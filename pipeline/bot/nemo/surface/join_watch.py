@@ -1,4 +1,7 @@
 import logging
+import time
+
+from psycopg.errors import LockNotAvailable
 
 from bot.core import privileged, session
 from bot.nemo import new_members, screening
@@ -6,6 +9,8 @@ from bot.nemo.surface import on_event
 from ingest import member_links_live
 
 log = logging.getLogger("bot.nemo")
+
+LOCK_RETRY_DELAYS_SECONDS = (0.5, 2.0, 5.0)
 
 
 @on_event("team_join", open_to_all=True)
@@ -49,6 +54,16 @@ def record_user_change(ctx):
     if user is None:
         return None
 
-    with session() as conn:
-        new_members.upsert_member(conn, user)
+    upsert_with_retry(user)
     return user["id"]
+
+
+def upsert_with_retry(user):
+    for delay in (*LOCK_RETRY_DELAYS_SECONDS, None):
+        try:
+            with session() as conn:
+                return new_members.upsert_member(conn, user)
+        except LockNotAvailable:
+            if delay is None:
+                raise
+            time.sleep(delay)
