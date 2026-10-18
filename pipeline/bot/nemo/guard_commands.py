@@ -21,9 +21,10 @@ ADD = {READONLY: "allow", ACCOUNT_AGE: "allow", BOT_ALLOW: "add"}
 REMOVE = {READONLY: "disallow", ACCOUNT_AGE: "disallow", BOT_ALLOW: "remove"}
 
 MAX_AGE_DAYS = 365
+DAYS_PER_MONTH = 30
 SETTING_DEFAULTS = {"threads": False, "min_age_days": 0}
 ALLOWED_SHOWN = 20
-DAYS = re.compile(r"\A(\d{1,4})d?\Z", re.IGNORECASE)
+AGE = re.compile(r"\A(\d{1,4})([dm]?)\Z", re.IGNORECASE)
 
 CHANNEL_USAGE = {
     READONLY: "Name the channel: */nemo readonly #channel on*",
@@ -37,10 +38,10 @@ SUBJECT_USAGE = {
 }
 USAGE = {
     READONLY: "Usage: */nemo readonly #channel on [threads]*, *off*, *allow @member* or *disallow @member*",
-    ACCOUNT_AGE: "Usage: */nemo accountage #channel 7d*, *off*, *allow @member* or *disallow @member*",
+    ACCOUNT_AGE: "Usage: */nemo accountage #channel 7d* or *3m*, *off*, *allow @member* or *disallow @member*",
     BOT_ALLOW: "Usage: */nemo botallow #channel on*, *off*, *add @bot* or *remove @bot*",
 }
-DAYS_USAGE = f"Days: 1 to {MAX_AGE_DAYS}: */nemo accountage #channel 7d*"
+DAYS_USAGE = f"Age: 1 to {MAX_AGE_DAYS} days or 1 to {MAX_AGE_DAYS // DAYS_PER_MONTH} months: */nemo accountage #channel 7d* or *3m*"
 NOT_INSIDE = "Nemo is not in this channel"
 
 
@@ -174,9 +175,10 @@ def run(client, conn, verb, channel_id, text, subject_id, by):
     action = action.lower()
     if not action:
         return status(conn, verb, channel_id)
-    age = DAYS.match(action) if verb == ACCOUNT_AGE else None
+    age = AGE.match(action) if verb == ACCOUNT_AGE else None
     if age:
-        return set_age(client, conn, channel_id, int(age.group(1)), by)
+        days = int(age.group(1)) * (DAYS_PER_MONTH if age.group(2).lower() == "m" else 1)
+        return set_age(client, conn, channel_id, days, by)
     if action == ON and verb != ACCOUNT_AGE:
         return turn_on(client, conn, verb, channel_id, option, by)
     if action == OFF:

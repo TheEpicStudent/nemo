@@ -267,7 +267,16 @@ def test_account_age_new_days_tunes(store):
     assert ("tune", {"min_age_days": 14}, MOD) in store.calls
 
 
-@pytest.mark.parametrize("text", ["0", "0d", "366d", "9999"])
+def test_account_age_months_set_days(store):
+    assert run(guard_commands.ACCOUNT_AGE, "3m") == f"New-account age set to 90 days in <#{CHANNEL}>"
+    assert store.calls[0] == ("open", channelguards.ACCOUNT_AGE, {"min_age_days": 90}, MOD)
+
+
+def test_account_age_twelve_months_is_accepted(store):
+    assert run(guard_commands.ACCOUNT_AGE, "12M") == f"New-account age set to 360 days in <#{CHANNEL}>"
+
+
+@pytest.mark.parametrize("text", ["0", "0d", "0m", "366d", "9999", "13m"])
 def test_account_age_out_of_range_returns_days_usage(store, text):
     assert run(guard_commands.ACCOUNT_AGE, text) == guard_commands.DAYS_USAGE
 
