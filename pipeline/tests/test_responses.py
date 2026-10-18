@@ -229,6 +229,7 @@ def test_unsub_shield_on_message_removes_message_and_notifies_with_link(monkeypa
     assert unsub_shield.on_message(Ctx(posted(), client)) is True
     assert removed == [(CHANNEL_ID, TS)]
     assert "unsub.hack.club" in client.ephemeral[0]["text"]
+    assert client.ephemeral[0]["thread_ts"] == THREAD
 
 
 def test_unsub_shield_on_message_without_link_omits_see_how(monkeypatch):

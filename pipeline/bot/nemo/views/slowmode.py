@@ -1,7 +1,7 @@
 import datetime as dt
 import json
 
-from bot.nemo.views import lengths
+from bot.nemo.views import lengths, removal
 
 CALLBACK = "thread_slowmode"
 DISABLED_CALLBACK = "thread_slowmode_disabled"
@@ -174,12 +174,7 @@ def notice(seconds, expires_at):
 def removal_notice(seconds_remaining, body, in_thread):
     what = "reply" if in_thread else "message"
     text = f"*Slow mode*: next {what} in {format_wait(seconds_remaining)}"
-    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
-    if body:
-        blocks.append({"type": "rich_text", "elements": [{
-            "type": "rich_text_preformatted", "elements": [{"type": "text", "text": body}],
-        }]})
-    return {"text": text, "blocks": blocks}
+    return removal.notice(text, body)
 
 
 def format_wait(seconds):

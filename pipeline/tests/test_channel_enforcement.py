@@ -148,13 +148,17 @@ def test_readonly_on_message_exempt_member_is_ignored(monkeypatch):
     assert conn.args_for(exemptions.EXEMPT) == [(USER_ID, exemptions.STAFF_CAPABILITY, USER_ID)]
 
 
-def test_readonly_on_message_ephemeral_includes_message_text(monkeypatch):
+def test_readonly_on_message_ephemeral_quotes_message_text(monkeypatch):
     guard(channelguards.READONLY)
     client = Slack()
     install_fakes(monkeypatch, readonly, Conn())
     readonly.on_message(Ctx(message("the thing I typed"), client))
 
-    assert "the thing I typed" in client.ephemeral[0]["text"]
+    sent = client.ephemeral[0]
+    assert "Your message" not in sent["text"]
+    assert sent["blocks"][1]["elements"][0] == {
+        "type": "rich_text_preformatted", "elements": [{"type": "text", "text": "the thing I typed"}],
+    }
 
 
 def test_readonly_on_message_thread_reply_is_ignored(monkeypatch):

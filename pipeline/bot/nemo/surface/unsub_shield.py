@@ -37,6 +37,7 @@ def on_message(ctx):
 
     link = responses.setting(responses.UNSUB_SHIELD_LINK)
     notify.post_ephemeral(ctx.client, channel_id, subject_id,
-                     WITH_LINK.format(text=NOTICE, link=link) if link else NOTICE)
+                          WITH_LINK.format(text=NOTICE, link=link) if link else NOTICE,
+                          thread_ts=event["thread_ts"])
     log.info("nemo: took down an unsubscribe from %s in %s", subject_id, channel_id)
     return True

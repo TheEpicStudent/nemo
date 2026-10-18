@@ -2,7 +2,7 @@ import datetime as dt
 import json
 
 from bot.core import richtext
-from bot.nemo.views import lengths
+from bot.nemo.views import lengths, removal
 
 DESTROY_CALLBACK = "thread_destroy"
 LOCK_CALLBACK = "thread_lock"
@@ -208,12 +208,7 @@ def lock_notice(expires_at, reason, signs_out=False):
 
 def lock_removal_notice(expires_at, body):
     text = f"*Thread locked* {lengths.ends(expires_at)}"
-    blocks = [section_block(text)]
-    if body:
-        blocks.append({"type": "rich_text", "elements": [{
-            "type": "rich_text_preformatted", "elements": [{"type": "text", "text": body}],
-        }]})
-    return {"text": text, "blocks": blocks}
+    return removal.notice(text, body)
 
 
 def lock_end(values, tz=dt.UTC):

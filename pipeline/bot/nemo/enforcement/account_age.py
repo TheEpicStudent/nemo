@@ -4,6 +4,7 @@ from bot.core import session
 from bot.nemo import channelguards, exemptions, guard_actions
 from bot.nemo.enforcement import notify
 from bot.nemo.surface import on_event
+from bot.nemo.views import removal
 
 log = logging.getLogger("bot.nemo")
 
@@ -11,10 +12,7 @@ KIND = channelguards.ACCOUNT_AGE
 
 DELETED = "deleted"
 
-IN_CHANNEL = (
-    "Your account must be {days} day{plural} old to post here. You can post in {left}."
-    "\n\nYour message:\n{body}"
-)
+IN_CHANNEL = "Your account must be {days} day{plural} old to post here. You can post in {left}."
 
 DAYS_REMAINING = """
 SELECT ceil(extract(epoch FROM (join_time.at + make_interval(days => %s)) - now()) / 86400)::int
@@ -69,8 +67,10 @@ def on_message(ctx):
         channelguards.record_enforcement(conn, guard.guard_id, channel_id, subject_id,
                                DELETED, text=body, message_ts=ts)
 
-    notify.post_ephemeral(ctx.client, channel_id, subject_id, IN_CHANNEL.format(
+    notice = removal.notice(IN_CHANNEL.format(
         days=days, plural="" if days == 1 else "s",
-        left=f"{days_remaining} day{'' if days_remaining == 1 else 's'}", body=body))
+        left=f"{days_remaining} day{'' if days_remaining == 1 else 's'}"), body)
+    notify.post_ephemeral(ctx.client, channel_id, subject_id, notice["text"],
+                          thread_ts=event.get("thread_ts"), blocks=notice["blocks"])
     log.info("nemo: account age %s removed %s from %s", guard.guard_id, ts, channel_id)
     return True
