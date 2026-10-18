@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import access, session
-from bot.nemo import case_actions, case_queue, channel, profile, thread_commands, views
+from bot.nemo import case_actions, case_modal, case_queue, channel, profile, thread_commands, views
 from bot.nemo.surface import on_action, on_view
 from bot.nemo.surface.reaction_watch import after_reopen, after_resolve
 
@@ -66,6 +66,28 @@ def update_more(ctx, case_id, notice=None):
         log.warning("nemo: could not refresh the case menu for case %s: %s", case_id, failure)
 
 
+def in_case_view(ctx):
+    return ctx.view.get("callback_id") == views.case_view.CALLBACK
+
+
+def update_case_view(ctx, case_id, notice=None):
+    with session() as conn:
+        view = case_modal.build(ctx.client, conn, case_id, notice)
+    if view is None:
+        return None
+    try:
+        ctx.client.views_update(view_id=ctx.view["id"], hash=ctx.view["hash"], view=view)
+    except Exception as failure:
+        log.warning("nemo: could not refresh the case view for case %s: %s", case_id, failure)
+    return case_id
+
+
+def show(ctx, view):
+    if ctx.view:
+        return ctx.client.views_push(trigger_id=ctx.trigger_id, view=view)
+    return ctx.client.views_open(trigger_id=ctx.trigger_id, view=view)
+
+
 def run_thread_command(ctx, verb, args, case_id):
     outcome = thread_commands.run(verb, args, case_id, ctx.user_id)
     if outcome["refused"]:
@@ -81,6 +103,8 @@ def claim_from_card(ctx):
     if case_id is None:
         return None
     outcome = run_thread_command(ctx, thread_commands.CLAIM, "", case_id)
+    if in_case_view(ctx):
+        return update_case_view(ctx, case_id, outcome["refused"])
     if outcome["refused"]:
         ctx.post_ephemeral(outcome["refused"])
     return case_id
@@ -93,8 +117,7 @@ def open_resolve(ctx):
         return None
     with session() as conn:
         resolution = case_actions.default_resolution(conn, case_id)
-    return ctx.client.views_open(trigger_id=ctx.trigger_id,
-                                 view=menu.resolve_view(case_id, resolution))
+    return show(ctx, menu.resolve_view(case_id, resolution))
 
 
 @on_action(card.REOPEN, needs="case.reopen")
@@ -105,8 +128,12 @@ def reopen_from_card(ctx):
     with session() as conn:
         reopened = case_actions.reopen(conn, case_id, ctx.user_id)
     if not reopened:
+        if in_case_view(ctx):
+            return update_case_view(ctx, case_id, ALREADY_OPEN.format(case_id=case_id))
         return ctx.post_ephemeral(ALREADY_OPEN.format(case_id=case_id))
     after_reopen(ctx.client, case_id, ctx.user_id)
+    if in_case_view(ctx):
+        return update_case_view(ctx, case_id)
     return case_id
 
 
@@ -118,10 +145,7 @@ def open_log_action(ctx):
     with session() as conn:
         subjects = [row[0] for row in conn.execute(SUBJECTS, (case_id,)).fetchall()]
         category_row = conn.execute(CASE_CATEGORY, (case_id,)).fetchone()
-    return ctx.client.views_open(
-        trigger_id=ctx.trigger_id,
-        view=views.action.build_view(case_id, subjects, category_row[0] if category_row else None),
-    )
+    return show(ctx, views.action.build_view(case_id, subjects, category_row[0] if category_row else None))
 
 
 @on_action(card.MORE, needs="case.read")
@@ -131,7 +155,7 @@ def open_more(ctx):
         return None
     with session() as conn:
         view = more_for(conn, case_id)
-    return ctx.client.views_open(trigger_id=ctx.trigger_id, view=view)
+    return show(ctx, view)
 
 
 @on_action(menu.MENU_CLAIM, needs="case.open")

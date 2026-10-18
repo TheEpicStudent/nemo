@@ -110,67 +110,6 @@ def test_fallback_text_lists_shush_only_with_member_guard():
     assert "/nemo shush" not in command.helping.fallback_text({"case.read"})
 
 
-REPORT_CASE = "JOIN fd.case_reports r ON r.case_id = c.id"
-QUEUE_CASE = "SELECT id, category_key"
-OPENING_SQL = "mirrored_as = 'card'"
-ACTION_COUNT = "SELECT count(*) FROM fd.actions"
-
-
-class Conn:
-    def __init__(self, rows):
-        self.rows = rows
-        self.last_sql = ""
-
-    def execute(self, sql, args=None):
-        self.last_sql = sql
-        return self
-
-    def fetchone(self):
-        for marker, row in self.rows.items():
-            if marker in self.last_sql:
-                return row
-        return None
-
-    def fetchall(self):
-        return []
-
-
-def queue_case_row(case_id):
-    return (case_id, None, None, "C_FIRE", "5.5", None, "UOPENER", None, None, None, None)
-
-
-def report_case_row(case_id, body):
-    return (case_id, None, None, 3, True, None, body, "1.1", None, None, None, None, "C_FIRE",
-            None, None)
-
-
-def test_case_reply_queue_case_includes_opening_text():
-    conn = Conn({QUEUE_CASE: queue_case_row(12), OPENING_SQL: (7, "spam in the lounge")})
-
-    reply = command.case_reply(conn, 12)
-
-    assert reply["text"] == "Case 12"
-    assert "spam in the lounge" in str(reply["blocks"])
-
-
-def test_case_reply_without_opening_shows_header():
-    reply = command.case_reply(Conn({QUEUE_CASE: queue_case_row(12)}), 12)
-
-    assert "Case 12" in str(reply["blocks"])
-
-
-def test_case_reply_report_case_includes_report_body():
-    conn = Conn({REPORT_CASE: report_case_row(12, "they spammed"), ACTION_COUNT: (0,)})
-
-    reply = command.case_reply(conn, 12)
-
-    assert "they spammed" in str(reply["blocks"])
-
-
-def test_case_reply_unknown_case_returns_not_found():
-    assert command.case_reply(Conn({}), 99)["text"] == "Case 99 not found"
-
-
 def test_parse_command_slowmode_returns_no_target_and_full_body():
     verb, target, body = command.parse_command(f"slowmode {CHANNEL_MENTION} 30s 2h heated thread")
 

@@ -5,9 +5,8 @@ import re
 from bot.core import access, audit, richtext, session
 from bot.core.formatting import short_end
 from bot.nemo import (
-    card_facts,
     case_actions,
-    case_queue,
+    case_modal,
     channel,
     channelguards,
     memberguards,
@@ -16,7 +15,7 @@ from bot.nemo import (
     record,
 )
 from bot.nemo.views import help as helping
-from bot.nemo.views import merge, queued, report
+from bot.nemo.views import merge
 from bot.nemo.views import slowmode as slowcard
 
 log = logging.getLogger("bot.nemo")
@@ -361,18 +360,6 @@ def case_opened_text(case_id, user_id):
     return f"{text} by <@{user_id}>" if user_id else text
 
 
-def case_reply(conn, case_id):
-    case = channel.fetch_case(conn, case_id)
-    if case:
-        card_facts.enrich(None, conn, case, channel.case_url)
-        return {"text": f"Case {case_id}", "blocks": report.build_blocks(case)}
-    case = case_queue.fetch_case(conn, case_id)
-    if case:
-        card_facts.enrich(None, conn, case, channel.case_url)
-        return {"text": f"Case {case_id}", "blocks": queued.build_blocks(case)}
-    return message_only(f"Case {case_id} not found")
-
-
 def help_view(user_id):
     with session() as conn:
         capabilities = {row[0] for row in conn.execute(helping.USER_CAPABILITIES, (user_id,)).fetchall()}
@@ -495,7 +482,12 @@ def register(app):
                     case_id = case_actions.open_case(conn, target_id, body, user_id)
                     answer = message_only(case_opened_text(case_id, target_id))
             else:
-                answer = case_reply(conn, target_id)
+                view = case_modal.build(client, conn, target_id)
+                if view is None:
+                    answer = message_only(f"Case {target_id} not found")
+                else:
+                    client.views_open(trigger_id=command["trigger_id"], view=view)
+                    return None
 
         log.info("nemo: %s ran %s on %s", user_id, verb, target_id)
         return respond(**answer) if answer else None

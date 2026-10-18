@@ -2,9 +2,10 @@ import contextlib
 
 import pytest
 
-from bot.nemo import case_actions, channel, case_queue, thread_commands
+from bot.nemo import case_actions, case_modal, channel, case_queue, thread_commands
 from bot.nemo.surface import case_card as surface
 from bot.nemo.views import case_menu as menu
+from bot.nemo.views import case_view
 from bot.nemo.views import edit
 
 MOD = "UMOD"
@@ -385,3 +386,101 @@ def test_submit_resolve_without_resolution_shows_error(world):
     surface.submit_resolve(ctx)
 
     assert ctx.acked[0]["errors"] == {menu.RESOLUTION: "Select a resolution"}
+
+
+def case_view_of(case_id=49):
+    return {"id": "V9", "hash": "H9", "callback_id": case_view.CALLBACK, "private_metadata": str(case_id)}
+
+
+def test_open_resolve_from_case_view_pushes_view(world, monkeypatch):
+    monkeypatch.setattr(case_actions, "default_resolution", lambda conn, case_id: "action_taken")
+    ctx = Ctx(view=case_view_of())
+
+    surface.open_resolve(ctx)
+
+    assert ctx.client.opened == [] and ctx.client.pushed[0]["view"]["callback_id"] == menu.RESOLVE_CALLBACK
+
+
+def test_open_log_action_from_case_view_pushes_view(world):
+    ctx = Ctx(view=case_view_of())
+
+    surface.open_log_action(ctx)
+
+    assert ctx.client.opened == [] and len(ctx.client.pushed) == 1
+
+
+def test_open_log_action_from_message_opens_view(world):
+    ctx = Ctx()
+
+    surface.open_log_action(ctx)
+
+    assert ctx.client.pushed == [] and len(ctx.client.opened) == 1
+
+
+def test_open_more_from_case_view_pushes_view(world):
+    ctx = Ctx(view=case_view_of())
+
+    surface.open_more(ctx)
+
+    assert ctx.client.opened == [] and ctx.client.pushed[0]["view"]["callback_id"] == menu.MENU_CALLBACK
+
+
+def test_claim_from_case_view_updates_view(world, monkeypatch):
+    notices = []
+    monkeypatch.setattr(case_modal, "build", lambda client, conn, case_id, notice=None: notices.append(notice) or {"type": "modal"})
+    ctx = Ctx(view=case_view_of())
+
+    assert surface.claim_from_card(ctx) == 49
+
+    assert ctx.client.updated == [{"view_id": "V9", "hash": "H9", "view": {"type": "modal"}}]
+    assert notices == [None] and ctx.ephemerals == []
+
+
+def test_claim_from_case_view_refusal_becomes_view_notice(world, monkeypatch):
+    world["outcome"] = thread_commands.refused_outcome("Already claimed")
+    notices = []
+    monkeypatch.setattr(case_modal, "build", lambda client, conn, case_id, notice=None: notices.append(notice) or {"type": "modal"})
+    ctx = Ctx(view=case_view_of())
+
+    surface.claim_from_card(ctx)
+
+    assert notices == ["Already claimed"] and ctx.ephemerals == []
+
+
+def test_claim_from_other_view_stays_private(world):
+    world["outcome"] = thread_commands.refused_outcome("Already claimed")
+    ctx = Ctx(view={"id": "V1", "hash": "H1", "callback_id": menu.MENU_CALLBACK})
+
+    surface.claim_from_card(ctx)
+
+    assert ctx.ephemerals == ["Already claimed"] and ctx.client.updated == []
+
+
+def test_reopen_from_case_view_updates_view(world, monkeypatch):
+    monkeypatch.setattr(case_actions, "reopen", lambda conn, case_id, by: True)
+    monkeypatch.setattr(case_modal, "build", lambda client, conn, case_id, notice=None: {"type": "modal"})
+    ctx = Ctx(view=case_view_of())
+
+    assert surface.reopen_from_card(ctx) == 49
+
+    assert world["reopened"] == [49] and len(ctx.client.updated) == 1
+
+
+def test_reopen_from_case_view_on_open_case_updates_view_with_notice(world, monkeypatch):
+    monkeypatch.setattr(case_actions, "reopen", lambda conn, case_id, by: False)
+    notices = []
+    monkeypatch.setattr(case_modal, "build", lambda client, conn, case_id, notice=None: notices.append(notice) or {"type": "modal"})
+    ctx = Ctx(view=case_view_of())
+
+    surface.reopen_from_card(ctx)
+
+    assert notices == ["Case 49 is already open"] and ctx.ephemerals == [] and world["reopened"] == []
+
+
+def test_update_case_view_unknown_case_changes_nothing(world, monkeypatch):
+    monkeypatch.setattr(case_modal, "build", lambda client, conn, case_id, notice=None: None)
+    ctx = Ctx(view=case_view_of())
+
+    assert surface.update_case_view(ctx, 49) is None
+
+    assert ctx.client.updated == []
