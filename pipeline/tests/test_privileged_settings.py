@@ -108,6 +108,52 @@ def test_deactivate_on_mode_calls_proxy_with_deactivate_method(monkeypatch):
     assert calls == [(privileged.DEACTIVATE, {"user_id": "USUB"}, "admin")]
 
 
+def test_reactivate_on_mode_activates_then_assigns_workspace(monkeypatch):
+    calls = []
+
+    class Proxy:
+        def call(self, method, params, **options):
+            calls.append((method, params, options["credential"]))
+
+    monkeypatch.setattr(privileged, "proxy", Proxy)
+    monkeypatch.setenv("SLACK_TEAM_ID", "T1")
+
+    outcome = privileged.reactivate("USUB", Conn({privileged.DEACTIVATE_SETTING: "on"}))
+
+    assert outcome == privileged.REACTIVATED
+    assert calls == [
+        (privileged.ACTIVATE, {"user_id": "USUB"}, "admin"),
+        (privileged.ASSIGN, {"team_id": "T1", "user_id": "USUB"}, "admin"),
+    ]
+
+
+def test_reactivate_assign_failure_is_reported(monkeypatch):
+    class Proxy:
+        def call(self, method, params, **options):
+            if method == privileged.ASSIGN:
+                raise RuntimeError("user_not_found")
+
+    monkeypatch.setattr(privileged, "proxy", Proxy)
+    monkeypatch.setenv("SLACK_TEAM_ID", "T1")
+
+    outcome = privileged.reactivate("USUB", Conn({privileged.DEACTIVATE_SETTING: "on"}))
+
+    assert outcome == "failed: user_not_found"
+
+
+def test_reactivate_without_team_id_fails_after_activate(monkeypatch):
+    class Proxy:
+        def call(self, method, params, **options):
+            pass
+
+    monkeypatch.setattr(privileged, "proxy", Proxy)
+    monkeypatch.delenv("SLACK_TEAM_ID", raising=False)
+
+    outcome = privileged.reactivate("USUB", Conn({privileged.DEACTIVATE_SETTING: "on"}))
+
+    assert outcome.startswith("failed")
+
+
 def test_mode_without_conn_opens_session(monkeypatch):
     conn = Conn({privileged.SESSION_RESET_SETTING: "on"})
 

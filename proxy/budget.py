@@ -26,6 +26,7 @@ LIMITS = {
     ("pipeline", "admin", "audit.logs"): (TIER3, 0),
     ("pipeline", "admin", "team.accessLogs"): (TIER2, 0),
     ("nemo", "admin", "admin.users.session.reset"): (TIER2, 0),
+    ("nemo", "admin", "admin.users.assign"): (TIER2, 0),
     ("nemo", "admin", "scim.users.deactivate"): (TIER2, 0),
     ("nemo", "admin", "scim.users.activate"): (TIER2, 0),
     ("nemo", "admin", "chat.delete"): (TIER3, 60, 30),

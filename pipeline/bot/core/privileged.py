@@ -154,6 +154,7 @@ def reset_sessions(user_id, conn=None):
 
 DEACTIVATE = "scim.users.deactivate"
 ACTIVATE = "scim.users.activate"
+ASSIGN = "admin.users.assign"
 
 DEACTIVATED = "deactivated"
 REACTIVATED = "reactivated"
@@ -198,5 +199,24 @@ def deactivate(user_id, conn=None):
     return set_account_state(user_id, DEACTIVATE, DEACTIVATED, "deactivate", conn)
 
 
+def assign_workspace(user_id):
+    team_id = os.environ.get("SLACK_TEAM_ID", "").strip()
+    if not team_id:
+        return "failed: SLACK_TEAM_ID is not set"
+
+    try:
+        proxy().call(ASSIGN, {"team_id": team_id, "user_id": user_id},
+                     credential="admin", max_retries=1)
+    except Exception as failure:
+        log.warning("privileged: could not assign %s to %s: %s", user_id, team_id, failure)
+        return f"failed: {str(failure)[:200]}"
+
+    log.warning("privileged: assigned %s to %s", user_id, team_id)
+    return REACTIVATED
+
+
 def reactivate(user_id, conn=None):
-    return set_account_state(user_id, ACTIVATE, REACTIVATED, "reactivate", conn)
+    outcome = set_account_state(user_id, ACTIVATE, REACTIVATED, "reactivate", conn)
+    if outcome != REACTIVATED:
+        return outcome
+    return assign_workspace(user_id)
