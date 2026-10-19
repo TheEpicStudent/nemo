@@ -863,7 +863,8 @@ module FdHelper
   end
 
   CONFIGURATION_TAB_LABELS = { "automod" => "Automod", "domains" => "Domains",
-                              "responses" => "Responses", "categories" => "Categories",
+                              "responses" => "Responses", "public_log" => "Public log",
+                              "categories" => "Categories",
                               "tags" => "Tags" }.freeze
 
   def configuration_tab_label(key)

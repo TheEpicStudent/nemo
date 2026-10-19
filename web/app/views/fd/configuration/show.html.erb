@@ -21,6 +21,10 @@
   <%= render "responses" %>
 <% end %>
 
+<% if @tab == "public_log" %>
+  <%= render "public_log" %>
+<% end %>
+
 <% if @tab == "categories" %>
   <%= render "categories", categories: @categories, cases: @category_cases, active_count: @active_count %>
 <% end %>

@@ -92,6 +92,9 @@ Rails.application.routes.draw do
          as: :configuration_autoresponse
     post "configuration/responses/unsub_shield", to: "responses#unsub_shield",
          as: :configuration_unsub_shield
+    post "configuration/public_log/channel", to: "public_log#channel", as: :configuration_public_log_channel
+    patch "configuration/public_log/:event", to: "public_log#event", as: :configuration_public_log_event
+    delete "configuration/public_log/:event", to: "public_log#reset"
     resources :new_members, only: [:index, :show]
     resources :bulk_deactivations, only: [:create], path: "new_members/deactivate"
     get "links/compare", to: "member_links#compare", as: :link_compare

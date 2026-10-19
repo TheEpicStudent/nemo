@@ -2,7 +2,7 @@ module Fd
   class ConfigurationController < BaseController
     permit "app.configure"
 
-    TABS = %w[automod domains responses categories tags].freeze
+    TABS = %w[automod domains responses public_log categories tags].freeze
     LIST_LIMIT = 50
     TAG_LIMIT = 100
 
@@ -13,9 +13,10 @@ module Fd
       @matches = AutomodMatch.newest_first.limit(LIST_LIMIT).to_a
       load_domains
       load_responses
+      load_public_log if @tab == "public_log"
       load_tags if @tab == "tags"
       load_categories if @tab == "categories"
-      @channels = ChannelNames.for(@matches.map(&:channel_id) + [@autoresponse_channel])
+      @channels = ChannelNames.for(@matches.map(&:channel_id) + [@autoresponse_channel, @public_log_channel])
       @names = Names.for([@words.flat_map(&:referenced_user_ids),
                           @retired.flat_map(&:referenced_user_ids),
                           @matches.map(&:user_id),
@@ -45,6 +46,11 @@ module Fd
       @categories = active + retired
       @active_count = active.size
       @category_cases = CaseQuery.category_counts
+    end
+
+    def load_public_log
+      @public_log_channel = PublicLog.channel
+      @public_log_membership = ChannelMembership.membership_for(@public_log_channel) if @public_log_channel
     end
 
     def load_responses
