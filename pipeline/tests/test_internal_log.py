@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bot.core.formatting import short_end
+from bot.core.formatting import short_end_token
 from bot.nemo import guard_actions, internal_log, loop
 from bot.nemo.views.activity import message_url
 
@@ -24,9 +24,9 @@ BAN = ("channel_ban", "U1", "C1", "spam", None, None)
 
 
 @pytest.mark.parametrize(("row", "made", "line"), [
-    (SHUSH, entry("opened"), f"<@U1> shushed until {short_end(END)} for *spam* by <@UMOD>"),
+    (SHUSH, entry("opened"), f"<@U1> shushed until {short_end_token(END)} for *spam* by <@UMOD>"),
     (BAN, entry("opened"), "<@U1> banned from <#C1> with no end date for *spam* by <@UMOD>"),
-    (SHUSH, entry("extended"), f"<@U1> shush extended to {short_end(END)} by <@UMOD>"),
+    (SHUSH, entry("extended"), f"<@U1> shush extended to {short_end_token(END)} by <@UMOD>"),
     (SHUSH, entry("lifted", after={"lift_reason": "appeal upheld"}),
      "Shush lifted for <@U1> for *appeal upheld* by <@UMOD>"),
     (BAN, entry("lifted", actor="nemo", after={"lift_reason": internal_log.EXPIRED_REASON}),
@@ -44,13 +44,13 @@ GATE = ("account_age", "C1", "", {"min_age_days": 7}, None, None)
 
 @pytest.mark.parametrize(("row", "made", "line"), [
     (SLOW, entry("opened", entity_type="channel_guard"),
-     f"Slow mode enabled on <#C1> with 30s cooldown until {short_end(END)} and threads "
+     f"Slow mode enabled on <#C1> with 30s cooldown until {short_end_token(END)} and threads "
      f"for *Heated* by <@UMOD>"),
     (THREAD_SLOW, entry("opened", entity_type="channel_guard"),
      f"Slow mode enabled on <#C1> {THREAD_LINK} with 2m cooldown and no end date for *Heated* by <@UMOD>"),
     (GATE, entry("opened", entity_type="channel_guard"), "New-account age enabled on <#C1> with 7 days by <@UMOD>"),
     (SLOW, entry("extended", entity_type="channel_guard"),
-     f"Slow mode extended on <#C1> to {short_end(END)} by <@UMOD>"),
+     f"Slow mode extended on <#C1> to {short_end_token(END)} by <@UMOD>"),
     (SLOW, entry("lifted", entity_type="channel_guard"), "Slow mode disabled on <#C1> by <@UMOD>"),
     (SLOW, entry("lifted", actor="system", entity_type="channel_guard"), "Slow mode ended on <#C1>"),
 ])
@@ -74,9 +74,9 @@ LOCK = ("lock", "C1", THREAD, "raid", END, "running", None)
 
 @pytest.mark.parametrize(("row", "made", "line"), [
     (LOCK, entry("opened", entity_type="thread_guard"),
-     f"Lock on <#C1> {THREAD_LINK} until {short_end(END)} for *raid* by <@UMOD>"),
+     f"Lock on <#C1> {THREAD_LINK} until {short_end_token(END)} for *raid* by <@UMOD>"),
     (LOCK, entry("extended", entity_type="thread_guard"),
-     f"Lock on <#C1> {THREAD_LINK} extended to {short_end(END)} by <@UMOD>"),
+     f"Lock on <#C1> {THREAD_LINK} extended to {short_end_token(END)} by <@UMOD>"),
     (LOCK[:5] + ("done", None), entry("lifted", entity_type="thread_guard"),
      f"Lock on <#C1> {THREAD_LINK} unlocked by <@UMOD>"),
     (LOCK[:5] + ("done", None), entry("lifted", actor="system", entity_type="thread_guard"),
@@ -255,8 +255,8 @@ def test_extension_lines_say_shortened_when_the_end_moves_earlier():
     moved = {"before": LATER, "after": EARLIER}
 
     assert internal_log.member_line(entry("extended", **moved), SHUSH) == \
-        f"<@U1> shush shortened to {short_end(END)} by <@UMOD>"
+        f"<@U1> shush shortened to {short_end_token(END)} by <@UMOD>"
     assert internal_log.channel_line(entry("extended", entity_type="channel_guard", **moved), SLOW) == \
-        f"Slow mode shortened on <#C1> to {short_end(END)} by <@UMOD>"
+        f"Slow mode shortened on <#C1> to {short_end_token(END)} by <@UMOD>"
     assert internal_log.thread_line(entry("extended", entity_type="thread_guard", **moved), LOCK) == \
-        f"Lock on <#C1> {THREAD_LINK} shortened to {short_end(END)} by <@UMOD>"
+        f"Lock on <#C1> {THREAD_LINK} shortened to {short_end_token(END)} by <@UMOD>"

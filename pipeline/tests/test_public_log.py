@@ -3,7 +3,7 @@ import datetime as dt
 
 import pytest
 
-from bot.core.formatting import short_end
+from bot.core.formatting import short_end, short_end_token
 from bot.nemo import channels, internal_log, public_log
 from bot.nemo.views.activity import message_url
 
@@ -25,7 +25,7 @@ DESTROY = ("destroy", "C1", THREAD, "raid", None, "done", "UMOD", 42)
 
 @pytest.mark.parametrize(("row", "made", "event", "values"), [
     (SHUSH, entry("opened"), "shush",
-     {"member": "<@U1>", "admin": "<@UMOD>", "channel": "", "reason": "spam", "ends": f"until {short_end(END)}"}),
+     {"member": "<@U1>", "admin": "<@UMOD>", "channel": "", "reason": "spam", "ends": f"until {short_end_token(END)}"}),
     (BAN, entry("opened", actor="nemo"), "channel_ban",
      {"member": "<@U1>", "admin": "Nemo", "channel": "<#C1>", "reason": "n/a", "ends": "with no end date"}),
     (DEACTIVATION, entry("opened"), "deactivation", {"member": "<@U1>", "reason": "alt"}),
@@ -55,7 +55,7 @@ def test_thread_values_for_lock_and_destroy_carry_template_variables():
     destroy = public_log.thread_values(entry("lifted", actor="system", entity_type="thread_guard"), DESTROY)[1]
 
     assert lock == {"admin": "<@UMOD>", "channel": "<#C1>", "thread": message_url("C1", THREAD),
-                    "reason": "raid", "ends": f"until {short_end(END)}"}
+                    "reason": "raid", "ends": f"until {short_end_token(END)}"}
     assert destroy["admin"] == "<@UMOD>" and destroy["count"] == 42 and destroy["channel"] == "<#C1>"
     assert destroy["thread"] == message_url("C1", THREAD)
 
@@ -202,3 +202,11 @@ def test_drain_skips_entries_without_a_row(monkeypatch):
 
     assert handled == 1
     assert client.posted == []
+
+
+def test_logged_ends_uses_the_date_token_and_plain_text_when_there_is_no_end():
+    from bot.nemo.views import lengths
+
+    assert lengths.logged_ends(END) == f"until {short_end_token(END)}"
+    assert lengths.logged_ends(None) == "with no end date"
+    assert lengths.ends(END) == f"until {short_end(END)}"

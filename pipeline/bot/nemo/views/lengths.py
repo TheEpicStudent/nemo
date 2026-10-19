@@ -1,6 +1,6 @@
 import datetime as dt
 
-from bot.core.formatting import short_end
+from bot.core.formatting import short_end, short_end_token
 
 END_OF_DAY = dt.time(23, 59, 59)
 
@@ -64,6 +64,10 @@ def end_error(date_text, time_text, at, required=False, now=None):
 
 def ends(expires_at):
     return f"until {short_end(expires_at)}" if expires_at else "with no end date"
+
+
+def logged_ends(expires_at):
+    return f"until {short_end_token(expires_at)}" if expires_at else "with no end date"
 
 
 def span(seconds):

@@ -1,6 +1,6 @@
 import datetime as dt
 
-from bot.core.formatting import short_date, short_end
+from bot.core.formatting import short_date, short_end, short_end_token
 from bot.nemo import command, record
 from bot.nemo.enforcement import notify, sweep
 from bot.nemo.views import action
@@ -63,3 +63,27 @@ def test_ending_line_next_year_includes_year():
 
 def test_format_date_next_year_includes_year():
     assert action.format_date(NEXT_YEAR_TIMESTAMP) == NEXT_YEAR_LABEL
+
+
+def test_short_end_token_mid_day_returns_viewer_local_date_token_with_utc_fallback():
+    at = dt.datetime(2026, 11, 3, 14, 5, tzinfo=dt.UTC)
+
+    assert short_end_token(at, today=TODAY) == (
+        f"<!date^{int(at.timestamp())}^{{date_short_pretty}} at {{time}}|3 Nov 2026, 14:05 UTC>")
+
+
+def test_short_end_token_non_utc_zone_uses_the_same_instant():
+    cairo = dt.timezone(dt.timedelta(hours=3))
+
+    assert short_end_token(dt.datetime(2026, 11, 3, 17, 5, tzinfo=cairo), today=TODAY) == short_end_token(
+        dt.datetime(2026, 11, 3, 14, 5, tzinfo=dt.UTC), today=TODAY)
+
+
+def test_short_end_token_naive_datetime_is_read_as_utc():
+    assert short_end_token(dt.datetime(2026, 11, 3, 14, 5), today=TODAY) == short_end_token(
+        dt.datetime(2026, 11, 3, 14, 5, tzinfo=dt.UTC), today=TODAY)
+
+
+def test_short_end_token_end_of_day_and_dates_stay_plain_utc_dates():
+    assert short_end_token(dt.datetime(2026, 11, 3, 23, 59, 59, tzinfo=dt.UTC), today=TODAY) == "3 Nov"
+    assert short_end_token(dt.date(2026, 11, 3), today=TODAY) == "3 Nov"

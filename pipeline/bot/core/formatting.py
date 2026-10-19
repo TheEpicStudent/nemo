@@ -85,3 +85,16 @@ def short_end(value, today=None):
     if (utc_value.hour, utc_value.minute) == (23, 59):
         return short_date(utc_value, today)
     return f"{short_date(utc_value, today)}, {utc_value:%H:%M} UTC"
+
+
+def date_token(value, fallback):
+    return f"<!date^{int(value.timestamp())}^{{date_short_pretty}} at {{time}}|{fallback}>"
+
+
+def short_end_token(value, today=None):
+    if not isinstance(value, dt.datetime):
+        return short_date(value, today)
+    utc_value = value.astimezone(dt.timezone.utc) if value.tzinfo else value.replace(tzinfo=dt.timezone.utc)
+    if (utc_value.hour, utc_value.minute) == (23, 59):
+        return short_date(utc_value, today)
+    return date_token(utc_value, f"{utc_value:%-d %b %Y, %H:%M} UTC")

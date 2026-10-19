@@ -87,7 +87,7 @@ def member_values(entry, row):
         "admin": actor_label(entry["actor"]),
         "channel": f"<#{channel_id}>" if channel_id else "",
         "reason": reason or NO_REASON,
-        "ends": lengths.ends(expires_at),
+        "ends": lengths.logged_ends(expires_at),
     }
 
 
@@ -99,7 +99,7 @@ def thread_values(entry, row):
             "channel": f"<#{channel_id}>",
             "thread": message_url(channel_id, thread_ts),
             "reason": reason or NO_REASON,
-            "ends": lengths.ends(expires_at),
+            "ends": lengths.logged_ends(expires_at),
         }
     if kind == "destroy" and entry["verb"] == "lifted" and state == "done":
         return "destroy", {

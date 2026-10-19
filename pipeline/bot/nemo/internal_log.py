@@ -3,7 +3,7 @@ import logging
 import threading
 
 from bot.core import session
-from bot.core.formatting import short_end
+from bot.core.formatting import short_end_token
 from bot.nemo import channel, memberguards
 from bot.nemo.enforcement.sweep import EXPIRED_REASON
 from bot.nemo.guard_notices import quoted
@@ -86,7 +86,7 @@ def extension_word(entry):
 
 
 def end_part(expires_at):
-    return f"to {short_end(expires_at)}" if expires_at else "with no end date"
+    return f"to {short_end_token(expires_at)}" if expires_at else "with no end date"
 
 
 def thread_link(channel_id, thread_ts):
@@ -107,7 +107,7 @@ def member_line(entry, row):
     verb, actor, after = entry["verb"], entry["actor"], entry["after"] or {}
     if verb == "opened":
         return (f"<@{subject_id}> {MEMBER_VERBS.get(kind, kind)}{where} "
-                f"{lengths.ends(expires_at)}{reason_part(reason)}{actor_suffix(actor)}")
+                f"{lengths.logged_ends(expires_at)}{reason_part(reason)}{actor_suffix(actor)}")
     if verb == "extended":
         return f"<@{subject_id}> {label.lower()} {extension_word(entry)} {end_part(expires_at)}{actor_suffix(actor)}"
     if verb == "lifted":
@@ -125,7 +125,7 @@ def channel_where(channel_id, thread_ts):
 def channel_details(kind, settings, expires_at):
     settings = settings or {}
     if kind == "slowmode":
-        end = f"until {short_end(expires_at)}" if expires_at else "and no end date"
+        end = f"until {short_end_token(expires_at)}" if expires_at else "and no end date"
         details = f" with {cooldown(int(settings.get('seconds') or 0))} cooldown {end}"
         if settings.get("threads"):
             return details + (" and threads" if expires_at else ", threads")
@@ -177,7 +177,7 @@ def thread_line(entry, row):
     where = f"<#{channel_id}> {thread_link(channel_id, thread_ts)}"
     verb, actor = entry["verb"], entry["actor"]
     if verb == "opened":
-        return f"Lock on {where} {lengths.ends(expires_at)}{reason_part(reason)}{actor_suffix(actor)}"
+        return f"Lock on {where} {lengths.logged_ends(expires_at)}{reason_part(reason)}{actor_suffix(actor)}"
     if verb == "extended":
         return f"Lock on {where} {extension_word(entry)} {end_part(expires_at)}{actor_suffix(actor)}"
     if verb == "lifted":
