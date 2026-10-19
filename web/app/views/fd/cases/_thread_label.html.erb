@@ -1,0 +1,8 @@
+<%= thread_face(item[:report]) %>
+<span class="thread-text">
+  <b><%= item[:report].reporter_label(names) %></b>
+  <span class="thread-meta">
+    <span>Case <%= item[:report].case_id %></span>
+    <span class="thread-state" data-state="<%= item[:tone] %>"><%= item[:state] %></span>
+  </span>
+</span>

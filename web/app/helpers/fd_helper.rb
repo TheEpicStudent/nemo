@@ -820,11 +820,28 @@ module FdHelper
   def composer_hint(thread, names)
     return "Message the team" if thread.nil?
 
-    "Message the team · ? to reply to #{thread.reporter_label(names)}"
+    "Message the team · ? to reply to #{thread.reporter_label(names)}, case #{thread.case_id}"
+  end
+
+  def thread_state(report, kase, reachable)
+    if !reachable.include?(report.id)
+      ["closed", "closed"]
+    elsif report.unanswered? && !kase.resolved?
+      ["waiting #{case_age_label(report.waiting_for)}", "waiting"]
+    else
+      [report.received_at.strftime("%-d %b"), nil]
+    end
+  end
+
+  def thread_face(report)
+    return anonymous_face(css: "row-avatar thread-face") if report.anonymous?
+
+    avatar(report.reporter_user_id, css: "row-avatar thread-face")
   end
 
   def chat_head_line(reports, kase, count: 0)
     parts = []
+    parts << "case #{reports.first.case_id}" if kase.merged?
     parts << "reported it #{report_when_short(reports.first)}"
     parts << pluralize(count, "message") if count.positive?
     if reports.first.unanswered? && !kase.resolved?

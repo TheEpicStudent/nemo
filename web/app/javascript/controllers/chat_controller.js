@@ -2,7 +2,7 @@ import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
   static targets = ["field", "pill", "send", "recipient", "anon", "drop"]
-  static values = { reporter: Boolean, noteUrl: String, replyUrl: String }
+  static values = { reporter: Boolean, reporterLabel: String, case: String, noteUrl: String, replyUrl: String }
 
   connect() {
     this.anonymous = false
@@ -73,11 +73,16 @@ export default class extends Controller {
     this.pillTarget.dataset.mode = atReporter ? "reporter" : "team"
     this.dropTarget.hidden = !atReporter
     this.recipientTarget.textContent = atReporter
-      ? (this.anonymous ? "reporter · anonymous" : "reporter · signed")
+      ? `${this.replyTarget()} · ${this.anonymous ? "anonymous" : "signed"}`
       : "internal"
     this.anonTarget.value = this.anonymous ? "1" : ""
     this.element.action = atReporter ? this.replyUrlValue : this.noteUrlValue
     this.sendTarget.setAttribute("aria-label", atReporter ? "Send to reporter" : "Send to team")
+  }
+
+  replyTarget() {
+    const name = this.reporterLabelValue || "reporter"
+    return this.caseValue ? `${name}, case ${this.caseValue}` : name
   }
 
   mentionPopupOpen() {

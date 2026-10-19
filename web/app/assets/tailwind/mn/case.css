@@ -307,8 +307,39 @@
     border-bottom: 1px solid var(--line-soft);
     flex-wrap: wrap;
   }
+  .thread-tabs {
+    @apply flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto py-0.5;
+    scrollbar-width: none;
+  }
+  .thread-tabs::-webkit-scrollbar { display: none; }
+  .thread-tab, .thread-trigger, .thread-row {
+    @apply flex min-w-0 items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-foreground/70 no-underline transition-colors hover:bg-muted hover:text-foreground hover:no-underline;
+  }
+  .thread-tab { @apply max-w-56 min-w-0 shrink; }
+  .thread-tab[aria-current="true"], .thread-row[aria-current="true"] {
+    @apply border-input bg-muted text-foreground dark:bg-input/30;
+  }
+  .thread-tab:focus-visible, .thread-trigger:focus-visible, .thread-row:focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+  :is(.thread-tab, .thread-trigger, .thread-row) .thread-face { width: 28px; height: 28px; font-size: var(--t-fine); }
+  .thread-text { @apply flex min-w-0 flex-col leading-tight; }
+  .thread-text > b { @apply truncate text-sm font-medium text-foreground; }
+  .thread-meta { @apply flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground tabular-nums; }
+  .thread-meta > span + span::before { content: "\00b7"; @apply mr-1.5 text-muted-foreground/60; }
+  .thread-state[data-state="waiting"] { @apply font-medium text-primary; }
+  .thread-state[data-state="closed"] { @apply text-muted-foreground/70; }
+  .thread-menu { @apply min-w-0 flex-1; }
+  .thread-trigger { @apply w-full max-w-md cursor-pointer border-input bg-muted dark:bg-input/30; list-style: none; }
+  .thread-trigger::-webkit-details-marker { display: none; }
+  .thread-count { @apply ml-auto flex-none text-xs text-muted-foreground tabular-nums; }
+  .thread-chevron { @apply flex-none text-muted-foreground; }
+  .menu-pop.thread-pop { @apply min-w-72 p-1; }
+  .thread-pop .thread-row { @apply w-full; }
   .chat-only { flex: none; }
-  .chat-here { margin-left: auto; font-size: var(--t-fine); color: var(--ink-3); }
+  .segmented.chat-only { @apply h-auto gap-0.5 bg-transparent p-0; }
+  .segmented.chat-only > button { @apply h-7 rounded-md border-transparent! px-2.5 text-xs shadow-none!; }
+  .segmented.chat-only > button[aria-pressed="true"] { @apply bg-muted! text-foreground; }
 
   .chatscroll {
     overflow-y: auto;

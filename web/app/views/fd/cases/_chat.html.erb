@@ -5,24 +5,17 @@
 <% earlier = local_assigns.fetch(:earlier, 0) %>
 <% thread = local_assigns.fetch(:thread, reports.last) %>
 <% conversation = local_assigns.fetch(:conversation, nil) %>
+<% reachable = local_assigns.fetch(:reachable, Set.new) %>
 <% message_count = local_assigns.fetch(:message_count, messages.size) %>
 
-<div class="chatwrap" data-controller="sticky pending-flush presence chat-filter"
+<div class="chatwrap" data-controller="sticky pending-flush chat-filter"
      data-chat-filter-key-value="<%= kase.id %>"
-     data-pending-flush-frame-value="<%= chat_log_id(kase) %>"
-     data-presence-case-value="<%= kase.id %>"
-     data-presence-me-value="<%= current_account&.user_id %>">
+     data-pending-flush-frame-value="<%= chat_log_id(kase) %>">
 
   <div class="chat-head">
     <% if reports.size > 1 %>
-      <span class="segmented">
-        <% reports.each do |report| %>
-          <%= link_to fd_case_path(kase, tab: "report", thread: report.id),
-                aria: { current: ("true" if report.id == thread&.id) } do %>
-            <%= report.reporter_label(names) %>
-          <% end %>
-        <% end %>
-      </span>
+      <%= render "fd/cases/thread_switch", kase: kase, reports: reports, thread: thread,
+            names: names, reachable: reachable %>
     <% elsif thread %>
       <%= thread.anonymous? ? anonymous_face : avatar(thread.reporter_user_id) %>
       <span class="grow two-line">
@@ -49,8 +42,6 @@
                 data-action="chat-filter#onlyReplies">Replies</button>
       </span>
     <% end %>
-    <% present_user_ids = Fd::ChatPresence.present_user_ids(kase.id) %>
-    <%= render "fd/cases/presence", case_id: kase.id, user_ids: present_user_ids, names: Fd::Names.for(present_user_ids) %>
   </div>
 
   <%= turbo_stream_from chat_stream(kase) %>
@@ -61,6 +52,8 @@
     <div class="composer">
       <%= form_with url: fd_case_chats_path(kase), method: :post,
             data: { controller: "chat", chat_reporter_value: thread.present?,
+                    chat_reporter_label_value: thread&.reporter_label(names).to_s,
+                    chat_case_value: thread&.case_id.to_s,
                     chat_note_url_value: fd_case_chats_path(kase),
                     chat_reply_url_value: fd_case_replies_path(kase) },
             html: { autocomplete: "off" } do %>
