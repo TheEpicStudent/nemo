@@ -119,6 +119,21 @@ make serve               # http://localhost:3000
 
 In development, `/dev/be/USEED0000001` signs you in as the bootstrap admin.
 
+## Slack connection
+
+The bot role connects to Slack in one of two modes, chosen by `SLACK_SOCKET_MODE`.
+
+| Mode | Setting | Credentials per app | Slack app settings |
+| --- | --- | --- | --- |
+| Socket Mode (default, development) | unset or `true` | `NEMO_APP_TOKEN`, `RELAY_APP_TOKEN` | Socket Mode on |
+| HTTP (production) | `false` | `NEMO_SIGNING_SECRET`, `RELAY_SIGNING_SECRET` | Socket Mode off, request URL on Event Subscriptions, Interactivity and each slash command |
+
+In HTTP mode the bot listens on `SLACK_HTTP_HOST` and `SLACK_HTTP_PORT` (default `127.0.0.1:3100`; set `0.0.0.0` inside a container) and serves `POST /slack/nemo/events`, `POST /slack/relay/events` and `GET /healthz`. Terminate TLS in front of it and route only those paths to the bot.
+
+- Every request is verified against the app's signing secret (at least 32 characters, one per app). The bot refuses to start without it.
+- Request bodies over 4 MiB are refused, repeated `event_id`s are skipped, and request bodies, headers and signatures are never logged.
+- User tokens (`SLACK_TOKEN`, `SLACK_ADMIN_TOKEN`) stay out of the bot environment; Slack calls that need them go through the internal proxy.
+
 ## Development
 
 ```sh

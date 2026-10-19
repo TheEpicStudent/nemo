@@ -2,7 +2,7 @@ import argparse
 import os
 import sys
 
-from lib import shards
+from lib import shards, slack_connection
 
 DATABASE = [
     "POSTGRES_HOST",
@@ -29,8 +29,13 @@ BOT_OPTIONAL = PIPELINE_ROLE + [
     "NEMO_SWEEP_SECONDS",
     "PROXY_TOKEN_NEMO",
     "RELAY_SWEEP_SECONDS",
+    "SLACK_SOCKET_MODE",
+    "SLACK_HTTP_HOST",
+    "SLACK_HTTP_PORT",
     "TZ",
 ]
+
+BOT_APPS = {"bot": ("relay", "nemo"), "bot.relay": ("relay",), "bot.nemo": ("nemo",)}
 
 ROLES = {
     "serve": {
@@ -140,28 +145,39 @@ ROLES = {
     "bot": {
         "required": DATABASE + [
             "RELAY_BOT_TOKEN",
-            "RELAY_APP_TOKEN",
             "NEMO_BOT_TOKEN",
-            "NEMO_APP_TOKEN",
             "SLACK_TEAM_ID",
         ],
-        "optional": BOT_OPTIONAL,
+        "optional": BOT_OPTIONAL + [
+            "RELAY_APP_TOKEN",
+            "RELAY_SIGNING_SECRET",
+            "NEMO_APP_TOKEN",
+            "NEMO_SIGNING_SECRET",
+        ],
     },
     "bot.relay": {
-        "required": DATABASE + ["RELAY_BOT_TOKEN", "RELAY_APP_TOKEN"],
+        "required": DATABASE + ["RELAY_BOT_TOKEN"],
         "optional": BOT_OPTIONAL + [
+            "RELAY_APP_TOKEN",
+            "RELAY_SIGNING_SECRET",
             "NEMO_BOT_TOKEN",
             "NEMO_APP_TOKEN",
+            "NEMO_SIGNING_SECRET",
             "SLACK_TEAM_ID",
         ],
     },
     "bot.nemo": {
         "required": DATABASE + [
             "NEMO_BOT_TOKEN",
-            "NEMO_APP_TOKEN",
             "SLACK_TEAM_ID",
         ],
-        "optional": BOT_OPTIONAL + ["RELAY_BOT_TOKEN", "RELAY_APP_TOKEN"],
+        "optional": BOT_OPTIONAL + [
+            "NEMO_APP_TOKEN",
+            "NEMO_SIGNING_SECRET",
+            "RELAY_BOT_TOKEN",
+            "RELAY_APP_TOKEN",
+            "RELAY_SIGNING_SECRET",
+        ],
     },
     "provision": {
         "required": DATABASE,
@@ -224,8 +240,8 @@ BOT_FORBIDDEN = [
 
 FORBIDDEN = {
     "serve": [
-        "NEMO_BOT_TOKEN", "NEMO_APP_TOKEN", "SLACK_TOKEN", "SLACK_ADMIN_TOKEN",
-        "INTERNAL_PROXY_TOKEN",
+        "NEMO_BOT_TOKEN", "NEMO_APP_TOKEN", "NEMO_SIGNING_SECRET", "RELAY_SIGNING_SECRET",
+        "SLACK_TOKEN", "SLACK_ADMIN_TOKEN", "INTERNAL_PROXY_TOKEN",
     ],
     "bot": BOT_FORBIDDEN,
     "bot.relay": BOT_FORBIDDEN,
@@ -241,9 +257,18 @@ def known(role):
     return spec["required"] + spec["optional"]
 
 
+def required(role, env=None):
+    apps = BOT_APPS.get(role, ())
+    return ROLES[role]["required"] + slack_connection.credential_variables(apps, env)
+
+
+def weak(role, env=None):
+    return slack_connection.weak_signing_secrets(BOT_APPS.get(role, ()), env)
+
+
 def missing(role, env=None):
     env = env if env is not None else os.environ
-    return [name for name in ROLES[role]["required"] if not env.get(name)]
+    return [name for name in required(role, env) if not env.get(name)]
 
 
 def unexpected(role, env=None):
@@ -265,9 +290,10 @@ def report(role, env=None):
     missing_names = missing(role, env)
     extra = unexpected(role, env)
     forbidden_names = forbidden(role, env)
+    weak_names = weak(role, env)
 
     print(f"role {role}")
-    for name in ROLES[role]["required"]:
+    for name in required(role, env):
         state = "MISSING" if name in missing_names else "set"
         print(f"  required  {name:28} {state}")
     if extra:
@@ -280,11 +306,18 @@ def report(role, env=None):
         print("  forbidden:")
         for name in forbidden_names:
             print(f"    {name}")
+    if weak_names:
+        print("  too short:")
+        for name in weak_names:
+            print(f"    {name}")
     if missing_names:
         print(f"{role}: {len(missing_names)} required variable(s) missing: {', '.join(missing_names)}")
     if forbidden_names:
         print(f"{role}: {len(forbidden_names)} forbidden variable(s) set")
-    return 1 if missing_names or forbidden_names else 0
+    if weak_names:
+        print(f"{role}: {len(weak_names)} signing secret(s) shorter than "
+              f"{slack_connection.MIN_SIGNING_SECRET_LENGTH} characters")
+    return 1 if missing_names or forbidden_names or weak_names else 0
 
 
 def example(role):

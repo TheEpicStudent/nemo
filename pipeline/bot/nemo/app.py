@@ -12,6 +12,7 @@ from bot.nemo.enforcement import (  # noqa: F401
     shush,
     slowmode,
 )
+from lib import slack_connection
 from lib.slack_client import RETRY_HANDLERS
 from bot.nemo.surface import (
     archive_watch,  # noqa: F401
@@ -33,12 +34,15 @@ from bot.nemo.surface import (
 )
 
 LISTENER_THREADS = 16
+NAME = "nemo"
 
 
 def build(on_reply=None):
     client = WebClient(token=os.environ["NEMO_BOT_TOKEN"], retry_handlers=RETRY_HANDLERS)
     app = App(
         client=client,
+        signing_secret=slack_connection.signing_secret(NAME),
+        request_verification_enabled=True,
         raise_error_for_unhandled_request=False,
         listener_executor=ThreadPoolExecutor(
             max_workers=LISTENER_THREADS, thread_name_prefix="nemo-listener"),
@@ -47,8 +51,3 @@ def build(on_reply=None):
     command.register(app)
     surface.register(app)
     return app
-
-
-def app_token():
-    return os.environ["NEMO_APP_TOKEN"]
-

@@ -8,8 +8,9 @@ import threading
 from dotenv import load_dotenv
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from bot import APPS, NEEDS, NEMO, RELAY
+from bot import APPS, NEEDS, NEMO, RELAY, http_server
 from bot.core import session, shutdown
+from lib import slack_connection
 from lib.config import DATABASE
 from lib.db import SeededDeployment, refuse_if_seeded
 from lib.heartbeat import heartbeat_loop
@@ -35,6 +36,7 @@ def missing_variables(apps):
     required_vars = list(DATABASE)
     for name in apps:
         required_vars += NEEDS[name]
+    required_vars += slack_connection.credential_variables(apps)
     return [name for name in required_vars if not os.environ.get(name)]
 
 
@@ -53,7 +55,7 @@ def wire_relay(built, workers):
     relay = MessageRelay()
     app = relay_app.build(relay.submit_report)
     relay.client = app.client
-    built[RELAY] = (app, relay_app.app_token())
+    built[RELAY] = app
     workers[RELAY] = relay
 
 
@@ -64,7 +66,7 @@ def wire_nemo(built, workers):
     case_channel = CaseChannel()
     app = nemo_app.build(case_channel.queue_reply)
     case_channel.client = app.client
-    built[NEMO] = (app, nemo_app.app_token())
+    built[NEMO] = app
     workers[NEMO] = case_channel
 
 
@@ -89,12 +91,19 @@ def start_loops(workers, stopping):
         nemo_loop.start_missed_reaction_pass(workers[NEMO].client)
 
 
-def start(name, app, token):
-    handler = SocketModeHandler(app, token)
+def start_socket_mode(name, app):
+    handler = SocketModeHandler(app, slack_connection.app_token(name))
     thread = threading.Thread(target=handler.start, name=name, daemon=True)
     thread.start()
     log.info("%s connected", name)
     return handler
+
+
+def start_http_server(built):
+    host, port = slack_connection.http_address()
+    server = http_server.HttpServer(built, host, port)
+    server.start()
+    return server
 
 
 def main(argv=None):
@@ -123,8 +132,19 @@ def main(argv=None):
         shutdown()
         return 78
 
+    weak = slack_connection.weak_signing_secrets(apps)
+    if weak:
+        print(f"bot: {', '.join(weak)} shorter than {slack_connection.MIN_SIGNING_SECRET_LENGTH} characters",
+              file=sys.stderr)
+        shutdown()
+        return 78
+
     built, workers = wire(apps)
-    running = [start(name, app, token) for name, (app, token) in built.items()]
+    socket_handlers, server = [], None
+    if slack_connection.socket_mode_enabled():
+        socket_handlers = [start_socket_mode(name, app) for name, app in built.items()]
+    else:
+        server = start_http_server(built)
     stopping = threading.Event()
 
     start_loops(workers, stopping)
@@ -139,8 +159,10 @@ def main(argv=None):
     with heartbeat_loop(worker(apps), lambda: app_list(apps)):
         stopping.wait()
 
-    for handler in running:
+    for handler in socket_handlers:
         handler.close()
+    if server:
+        server.stop()
     shutdown()
     log.info("bot: stopped")
     return 0
