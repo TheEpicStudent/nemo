@@ -1,0 +1,26 @@
+events:
+  lock:
+    label: Thread lock
+    enabled: true
+    template: "{admin} locked a thread in {channel} {ends}. Reason: {reason}.\n{thread}"
+    variables: [admin, channel, thread, reason, ends]
+  destroy:
+    label: Thread destroy
+    enabled: true
+    template: "{admin} destroyed a thread in {channel} ({count} messages)\n{thread}"
+    variables: [admin, channel, thread, count, archive]
+  shush:
+    label: Shush
+    enabled: false
+    template: "{member} has been shushed {ends}"
+    variables: [member, admin, reason, ends]
+  channel_ban:
+    label: Channel ban
+    enabled: false
+    template: "{member} has been banned from {channel} {ends}"
+    variables: [member, admin, channel, reason, ends]
+  deactivation:
+    label: Deactivation
+    enabled: false
+    template: "{member} has been deactivated"
+    variables: [member, admin, reason]

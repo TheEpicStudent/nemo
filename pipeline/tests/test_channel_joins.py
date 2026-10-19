@@ -48,12 +48,14 @@ def configure(monkeypatch, configured, inside=(), waiting=(), private=()):
 
 def test_configured_channels_with_all_settings_returns_all_channel_ids():
     conn = Conn(rows=[(channels.FIREHOUSE, "C_FIRE"), (channels.REPORTS, "C_REPORTS"),
-                      (channels.LOGS, "C_LOGS"), (channels.REACT_CHANNELS, "C_R1, C_R2"),
-                      (responses.AUTORESPONSE_CHANNEL, "C_AUTO")])
+                      (channels.LOGS, "C_LOGS"), (channels.PUBLIC_LOG, "C_PUBLIC"),
+                      (channels.REACT_CHANNELS, "C_R1, C_R2"), (responses.AUTORESPONSE_CHANNEL, "C_AUTO")])
 
-    assert channels.configured_channels(conn) == {"C_FIRE", "C_REPORTS", "C_LOGS", "C_R1", "C_R2", "C_AUTO"}
+    assert channels.configured_channels(conn) == {"C_FIRE", "C_REPORTS", "C_LOGS", "C_PUBLIC", "C_R1", "C_R2",
+                                                  "C_AUTO"}
     assert set(conn.executed[0][1][0]) == {channels.FIREHOUSE, channels.REPORTS, channels.LOGS,
-                                           channels.REACT_CHANNELS, responses.AUTORESPONSE_CHANNEL}
+                                           channels.PUBLIC_LOG, channels.REACT_CHANNELS,
+                                           responses.AUTORESPONSE_CHANNEL}
 
 
 @pytest.mark.parametrize(("how", "expected"), [

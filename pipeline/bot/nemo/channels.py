@@ -17,6 +17,7 @@ SETTING = "nemo.join_mode"
 FIREHOUSE = "nemo.firehouse_channel"
 REPORTS = "nemo.reports_channel"
 LOGS = "nemo.log_channel"
+PUBLIC_LOG = "nemo.public_log_channel"
 REACT_CHANNELS = "nemo.case_react_channels"
 SWEEP_SOON_HOURS = "nemo.sweep_soon_hours"
 SWEEP_TELLS_MEMBER = "nemo.sweep_tells_member"
@@ -99,7 +100,7 @@ def react_channels(conn):
 
 
 def configured_channels(conn):
-    keys = [FIREHOUSE, REPORTS, LOGS, REACT_CHANNELS, responses.AUTORESPONSE_CHANNEL]
+    keys = [FIREHOUSE, REPORTS, LOGS, PUBLIC_LOG, REACT_CHANNELS, responses.AUTORESPONSE_CHANNEL]
     values = dict(conn.execute(SETTINGS, (keys,)).fetchall())
     return {channel_id for key in keys for channel_id in split_ids(values.get(key))}
 

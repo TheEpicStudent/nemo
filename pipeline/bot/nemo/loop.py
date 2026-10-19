@@ -5,7 +5,9 @@ import threading
 from bot.core import loops, session
 from bot.nemo import automod, channel, channelguards, channels, chat, guards, guard_actions
 from bot.nemo import enforcement, guard_notices, guard_removals, memberguards, case_queue
-from bot.nemo import bot_kicks, categories, internal_log, join_requests, missed_reactions, responses, screening
+from bot.nemo import (
+    bot_kicks, categories, internal_log, join_requests, missed_reactions, public_log, responses, screening,
+)
 from bot.nemo.enforcement import purge, slowmode, sweep
 
 log = logging.getLogger("bot.nemo")
@@ -30,6 +32,8 @@ AUTOMOD_MATCH = "fd_automod_match"
 BOT_KICK = "fd_bot_kick"
 CATEGORY = "fd_infraction_category"
 FIRE_ENGINE_SOURCE = '"fire_engine"'
+NEMO_SOURCE = '"nemo"'
+LOG_SOURCES = (FIRE_ENGINE_SOURCE, NEMO_SOURCE)
 
 DEFAULT_SWEEP_SECONDS = 300
 DEFAULT_JOIN_SWEEP_SECONDS = 1800
@@ -254,6 +258,7 @@ def sweep_once(case_channel, channel_id=None):
         ("clearing unremoved guard artifacts", lambda: guard_actions.sweep_removals(client)),
         ("removing ended lock notices", lambda: guard_actions.remove_lock_warnings(client)),
         ("posting internal log lines", lambda: internal_log.drain(client)),
+        ("posting public log lines", lambda: public_log.drain(client)),
         ("kicking bots taken off allow lists", lambda: bot_kicks.drain(client)),
         ("resetting sessions the guard has earned", guard_actions.sweep_strikes),
         ("lifting what has run out", lambda: sweep.sweep_lapsed(client)),
@@ -265,6 +270,10 @@ def sweep_once(case_channel, channel_id=None):
     )
 
     return posted, redrawn_count, mirrored_count
+
+
+def drain_logs(client):
+    return internal_log.drain(client) + public_log.drain(client)
 
 
 def start(case_channel, stopping, channel_id=None):
@@ -290,14 +299,14 @@ def start(case_channel, stopping, channel_id=None):
                                    lambda: guard_removals.drain(case_channel.client, wake_notices),
                                    stopping, debounce_seconds=1.0, interval_seconds=5.0)
     wake_lapses = loops.run_on_timer(f"{NAME}-lapses", lambda: lift_expired(case_channel.client), stopping)
-    wake_log = loops.run_on_wake(f"{NAME}-log", lambda: internal_log.drain(case_channel.client), stopping)
+    wake_log = loops.run_on_wake(f"{NAME}-log", lambda: drain_logs(case_channel.client), stopping)
     wake_kicks = loops.run_on_wake(f"{NAME}-kicks", lambda: bot_kicks.drain(case_channel.client), stopping)
 
     def on_notify(channel_name, payload):
         if channel_name == GUARD_NOTICE:
             wake_notices()
         elif channel_name == AUDIT_EVENT:
-            if FIRE_ENGINE_SOURCE in (payload or ""):
+            if any(source in (payload or "") for source in LOG_SOURCES):
                 wake_log()
         elif channel_name == AUTOMOD_MATCH:
             wake_log()
