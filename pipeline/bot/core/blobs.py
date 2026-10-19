@@ -2,16 +2,18 @@ import hashlib
 import os
 import re
 import zlib
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 DEFAULT_CAP = 25 * 1024 * 1024
 HTML = ("text/html", "application/xhtml+xml")
 SLACK_HOSTS = (".slack.com", ".slack-edge.com", ".slack-files.com")
+FILE_HOST = "files.slack.com"
+FILE_PATHS = ("/files-pri/", "/files-tmb/")
 
 NOT_MEDIA = "not an image, video or pdf"
 PDF_ACTIVE_CONTENT = "pdf contains active content"
 PDF_ENCRYPTED = "pdf is encrypted"
-NOT_SLACK_URL = "the file url is not an https slack url"
+NOT_SLACK_URL = "the file url is not an https Slack file url"
 HTML_BODY = "Slack returned HTML instead of file content"
 
 MEDIA_TYPES = frozenset({
@@ -87,6 +89,24 @@ def media_type(body):
         if brand in MP4_BRANDS:
             return "video/mp4"
     return None
+
+
+def file_url(url):
+    try:
+        parsed = urlparse(url or "")
+        port = parsed.port
+    except ValueError:
+        return False
+    path = unquote(parsed.path)
+    return (
+        parsed.scheme == "https"
+        and (parsed.hostname or "").lower() == FILE_HOST
+        and not parsed.username
+        and not parsed.password
+        and port in (None, 443)
+        and path.startswith(FILE_PATHS)
+        and not {"..", "."} & set(path.split("/"))
+    )
 
 
 def slack_url(url):

@@ -294,3 +294,35 @@ def test_unnotified_files_filters_open_conversations_and_unnotified_inbound():
     assert "c.handed_off_at IS NOT NULL AND c.closed_at IS NULL" in sql
     assert "f.reporter_notified_at IS NULL" in sql
     assert "m.direction = 'inbound'" in sql
+
+
+@pytest.mark.parametrize(("url", "allowed"), [
+    ("https://files.slack.com/files-pri/T1-F1/a.png", True),
+    ("https://FILES.slack.com/files-tmb/T1-F1-abc/a_480.png", True),
+    ("https://files.slack.com/api/auth.test", False),
+    ("https://files.slack.com/", False),
+    ("https://hackclub.slack.com/files-pri/T1-F1/a.png", False),
+    ("https://files.slack-edge.com/files-pri/T1-F1/a.png", False),
+    ("https://files.slack.com/files-pri/../api/auth.test", False),
+    ("https://files.slack.com/files-pri/%2e%2e/api/auth.test", False),
+    ("https://user:pass@files.slack.com/files-pri/T1-F1/a.png", False),
+    ("https://files.slack.com:8443/files-pri/T1-F1/a.png", False),
+    ("https://files.slack.com:badport/files-pri/T1-F1/a.png", False),
+    ("http://files.slack.com/files-pri/T1-F1/a.png", False),
+    (None, False),
+])
+def test_file_url_accepts_only_the_file_host_and_file_paths(url, allowed):
+    assert blobs.file_url(url) is allowed
+
+
+def test_download_of_another_slack_host_is_refused_without_a_request(monkeypatch):
+    monkeypatch.setattr(slack_files.OPENER, "open", lambda *args, **kwargs: pytest.fail("no request expected"))
+
+    assert slack_files.download("https://hackclub.slack.com/admin", TOKEN, 100) == (
+        None, "refused", blobs.NOT_SLACK_URL)
+
+
+def test_redirect_to_a_non_file_path_on_the_same_host_drops_authorization():
+    redirected = redirect("https://files.slack.com/files-pri/T1-F1/a.png", "https://files.slack.com/api/auth.test")
+
+    assert redirected.get_header("Authorization") is None

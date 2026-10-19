@@ -1,6 +1,5 @@
 import urllib.error
 import urllib.request
-from urllib.parse import urlparse
 
 from bot.core import blobs
 
@@ -15,7 +14,7 @@ class SlackOnlyRedirect(urllib.request.HTTPRedirectHandler):
         if not blobs.slack_url(newurl):
             raise urllib.error.HTTPError(newurl, code, "redirect outside Slack refused", headers, fp)
         redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if redirected is not None and urlparse(newurl).hostname != urlparse(req.full_url).hostname:
+        if redirected is not None and not blobs.file_url(newurl):
             redirected.remove_header("Authorization")
         return redirected
 
@@ -24,7 +23,7 @@ OPENER = urllib.request.build_opener(SlackOnlyRedirect)
 
 
 def download(url, token, limit):
-    if not blobs.slack_url(url):
+    if not blobs.file_url(url):
         return None, "refused", blobs.NOT_SLACK_URL
 
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})

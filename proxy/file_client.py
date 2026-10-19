@@ -8,7 +8,11 @@ METHODS = frozenset({READ})
 
 UPSTREAM_TIMEOUT = 30
 MAX_BYTES = 12 * 1024 * 1024
-SLACK_HOSTS = (".slack.com", ".slack-edge.com")
+FILE_HOST = "files.slack.com"
+FILE_PATHS = ("/files-pri/", "/files-tmb/")
+CDN_HOST_SUFFIXES = (".slack-edge.com", ".slack-files.com")
+MAX_REDIRECTS = 3
+COOKIE_HEADER = "Cookie"
 FALLBACK_TYPE = "application/octet-stream"
 
 
@@ -21,11 +25,6 @@ def cookie():
     if not value:
         raise FileError("SLACK_D_COOKIE must be set to read a file")
     return value
-
-
-def hosted_by_slack(url):
-    host = urllib.parse.urlparse(url).hostname or ""
-    return any(host == one.lstrip(".") or host.endswith(one) for one in SLACK_HOSTS)
 
 
 def plain_https_address(url):
@@ -41,12 +40,35 @@ def plain_https_address(url):
         return False
 
 
+def file_address(url):
+    if not plain_https_address(url):
+        return False
+    parts = urllib.parse.urlsplit(url)
+    path = urllib.parse.unquote(parts.path)
+    return (
+        (parts.hostname or "").lower() == FILE_HOST
+        and path.startswith(FILE_PATHS)
+        and not {"..", "."} & set(path.split("/"))
+    )
+
+
+def cdn_address(url):
+    if not plain_https_address(url):
+        return False
+    return (urllib.parse.urlsplit(url).hostname or "").lower().endswith(CDN_HOST_SUFFIXES)
+
+
 class SlackOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    max_redirections = MAX_REDIRECTS
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         target = urllib.parse.urljoin(req.full_url, newurl)
-        if not plain_https_address(target) or not hosted_by_slack(target):
+        if not file_address(target) and not cdn_address(target):
             raise FileError("redirect outside Slack refused")
-        return super().redirect_request(req, fp, code, msg, headers, target)
+        redirected = super().redirect_request(req, fp, code, msg, headers, target)
+        if redirected is not None and not file_address(target):
+            redirected.remove_header(COOKIE_HEADER)
+        return redirected
 
 
 OPENER = urllib.request.build_opener(SlackOnlyRedirects)
@@ -58,14 +80,14 @@ def url_of(params):
         raise FileError("url is required")
     if not url.startswith("https://") or not plain_https_address(url):
         raise FileError("file url must be plain https")
-    if not hosted_by_slack(url):
-        raise FileError("file url is not hosted by Slack")
+    if not file_address(url):
+        raise FileError("file url is not a Slack file")
     return url
 
 
 def read(params):
     url = url_of(params)
-    request = urllib.request.Request(url, headers={"Cookie": f"d={cookie()}"})
+    request = urllib.request.Request(url, headers={COOKIE_HEADER: f"d={cookie()}"})
     try:
         with OPENER.open(request, timeout=UPSTREAM_TIMEOUT) as response:
             body = response.read(MAX_BYTES + 1)

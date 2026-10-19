@@ -59,12 +59,25 @@ def test_files_read_not_in_writes():
     assert "files.read" not in app.WRITES
 
 
-def test_hosted_by_slack_rejects_other_hosts():
+FILE_URL = "https://files.slack.com/files-pri/T1-F1/image.png"
+
+
+def test_file_address_accepts_only_the_file_host_and_file_paths():
     import file_client
 
-    assert file_client.hosted_by_slack("https://files.slack.com/files-pri/T1-F1/a.png")
-    assert not file_client.hosted_by_slack("https://evil.example/a.png")
-    assert not file_client.hosted_by_slack("https://files.slack.com.evil.example/a.png")
+    assert file_client.file_address(FILE_URL)
+    assert file_client.file_address("https://FILES.slack.com/files-tmb/T1-F1-abc/image_480.png")
+    for url in ("https://evil.example/files-pri/T1-F1/a.png",
+                "https://files.slack.com.evil.example/files-pri/T1-F1/a.png",
+                "https://hackclub.slack.com/files-pri/T1-F1/a.png",
+                "https://slack.com/files-pri/T1-F1/a.png",
+                "https://files.slack-edge.com/files-pri/T1-F1/a.png",
+                "https://files.slack.com/api/conversations.history",
+                "https://files.slack.com/",
+                "https://files.slack.com/files-pri/../api/auth.test",
+                "https://files.slack.com/files-pri/%2e%2e/api/auth.test",
+                "https://files.slack.com/files-pri/./T1-F1/a.png"):
+        assert not file_client.file_address(url), url
 
 
 def test_url_of_non_slack_or_insecure_url_raises_file_error():
@@ -73,7 +86,9 @@ def test_url_of_non_slack_or_insecure_url_raises_file_error():
     import file_client
 
     for payload in ({}, {"url": "https://evil.example/a.png"},
-                 {"url": "http://files.slack.com/a.png"}):
+                    {"url": "http://files.slack.com/files-pri/T1-F1/a.png"},
+                    {"url": "https://hackclub.slack.com/admin"},
+                    {"url": "https://files.slack.com/api/auth.test"}):
         with pytest.raises(file_client.FileError):
             file_client.url_of(payload)
 
@@ -83,37 +98,59 @@ def test_url_of_userinfo_or_port_raises_file_error():
 
     import file_client
 
-    for url in ("https://user:pass@files.slack.com/a.png",
-                "https://files.slack.com@evil.example/a.png",
-                "https://files.slack.com:8443/a.png"):
+    for url in ("https://user:pass@files.slack.com/files-pri/T1-F1/a.png",
+                "https://files.slack.com@evil.example/files-pri/T1-F1/a.png",
+                "https://files.slack.com\\@evil.example/files-pri/T1-F1/a.png",
+                "https://files.slack.com:8443/files-pri/T1-F1/a.png"):
         with pytest.raises(file_client.FileError):
             file_client.url_of({"url": url})
 
 
-def test_redirect_off_slack_raises_file_error_slack_edge_redirect_followed():
+def redirect(target, origin=FILE_URL):
     import io
     import urllib.request
 
+    import file_client
+
+    original = urllib.request.Request(origin, headers={"Cookie": "d=secret"})
+    return file_client.SlackOnlyRedirects().redirect_request(
+        original, io.BytesIO(), 302, "Found", {}, target
+    )
+
+
+def test_redirect_off_slack_or_off_the_file_paths_raises_file_error():
     import pytest
 
     import file_client
 
-    original = urllib.request.Request("https://files.slack.com/a.png", headers={"Cookie": "d=secret"})
-    handler = file_client.SlackOnlyRedirects()
-
-    for target in ("https://evil.example/a.png", "http://files.slack.com/a.png",
-                   "https://files.slack.com.evil.example/a.png"):
+    for target in ("https://evil.example/a.png", "http://files.slack.com/files-pri/T1-F1/a.png",
+                   "https://files.slack.com.evil.example/a.png",
+                   "https://hackclub.slack.com/admin",
+                   "https://files.slack.com/api/auth.test"):
         with pytest.raises(file_client.FileError):
-            handler.redirect_request(original, io.BytesIO(), 302, "Found", {}, target)
+            redirect(target)
 
-    followed = handler.redirect_request(
-        original, io.BytesIO(), 302, "Found", {}, "https://files.slack-edge.com/b.png"
-    )
+
+def test_redirect_to_a_file_path_keeps_the_cookie():
+    followed = redirect("https://files.slack.com/files-pri/T1-F1/b.png")
+
+    assert followed.get_header("Cookie") == "d=secret"
+
+
+def test_redirect_to_a_cdn_host_drops_the_cookie():
+    followed = redirect("https://files.slack-edge.com/b.png")
+
     assert followed.full_url == "https://files.slack-edge.com/b.png"
+    assert followed.get_header("Cookie") is None
+
+
+def test_redirect_limit_is_three():
+    import file_client
+
+    assert file_client.SlackOnlyRedirects.max_redirections == 3
 
 
 def test_url_of_slack_url_returns_url_unchanged():
     import file_client
 
-    url = "https://files.slack.com/files-pri/T1-F1/image.png"
-    assert file_client.url_of({"url": url}) == url
+    assert file_client.url_of({"url": FILE_URL}) == FILE_URL
