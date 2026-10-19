@@ -64,7 +64,7 @@ def post_notice(ctx, guard_id, channel_id, thread_ts, values):
             channelguards.lift(conn, guard_id, ctx.user_id)
             channelguards.refresh(conn)
         log.warning("nemo: thread slow mode %s lifted, notice not posted: %s", guard_id, error_code)
-        ctx.post_ephemeral_or_dm(NOT_POSTED.format(error_code=error_code), channel_id, thread_ts)
+        ctx.post_ephemeral(NOT_POSTED.format(error_code=error_code), channel_id, thread_ts)
         return False
     with session() as conn:
         channelguards.set_notice_ts(conn, guard_id, (sent or {}).get("ts"))

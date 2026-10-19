@@ -87,7 +87,7 @@ def lock(ctx, channel_id, thread_ts, values, tz):
 
     if error_code:
         log.warning("nemo: lock guard %s failed, warning not posted: %s", guard_id, error_code)
-        ctx.post_ephemeral_or_dm(WARNING_NOT_POSTED.format(error_code=error_code), channel_id, thread_ts)
+        ctx.post_ephemeral(WARNING_NOT_POSTED.format(error_code=error_code), channel_id, thread_ts)
         return None
 
     log.info("nemo: %s locked %s until %s (guard %s)", ctx.user_id, thread_ts, expires_at, guard_id)

@@ -329,9 +329,6 @@ class SurfaceCtx:
     def post_ephemeral(self, message, channel_id=None, thread_ts=None):
         self.ephemerals.append(message)
 
-    def post_ephemeral_or_dm(self, message, channel_id=None, thread_ts=None):
-        self.ephemerals.append(message)
-
 
 def submitted_view(seconds="30", reason="Heated argument", end_date="2027-10-18", end_time="10:00",
                    extending=False):

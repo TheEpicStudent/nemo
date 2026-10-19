@@ -1,6 +1,9 @@
 import logging
 
+from slack_sdk.webhook import WebhookClient
+
 from bot.core import access, audit, session
+from bot.nemo import channels
 
 log = logging.getLogger("bot.nemo")
 
@@ -119,33 +122,62 @@ class Ctx:
                 return
             log.info("nemo: could not join %s: %s", where, failure)
 
+    @property
+    def response_url(self):
+        return self.body.get("response_url")
+
+    def join_public(self, channel_id):
+        if not channel_id or channel_id[:1] != "C":
+            return
+        try:
+            with session() as conn:
+                if channels.is_inside(conn, channel_id) or not channels.joinable(conn, channel_id):
+                    return
+                channels.join(self.client, conn, channel_id, by=self.user_id)
+        except Exception as failure:
+            log.info("nemo: could not join %s before answering: %s", channel_id, failure)
+
+    def send_to_response_url(self, message, thread_ts=None):
+        payload = {"text": message, "response_type": "ephemeral"}
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
+        try:
+            sent = WebhookClient(self.response_url).send(**payload)
+        except Exception as failure:
+            log.info("nemo: the response url refused %r: %s", message, failure)
+            return False
+        return sent.status_code == 200
+
+    def respond_in_place(self, message, channel_id, thread_ts=None):
+        if not self.response_url or channel_id != self.channel_id:
+            return False
+        if thread_ts and self.send_to_response_url(message, thread_ts):
+            return True
+        return self.send_to_response_url(message)
+
     def post_ephemeral(self, message, channel_id=None, thread_ts=None):
         target_channel_id = channel_id or self.channel_id
         if not target_channel_id:
             log.info("nemo: nowhere to say %r", message)
-            return
-        try:
-            self.client.chat_postEphemeral(
-                channel=target_channel_id, user=self.user_id,
-                thread_ts=thread_ts or self.thread_ts, text=message,
-            )
-        except Exception as failure:
-            log.warning("nemo: could not post an ephemeral message: %s", failure)
+            return False
 
-    def post_ephemeral_or_dm(self, message, channel_id=None, thread_ts=None):
-        target_channel_id = channel_id or self.channel_id
+        target_thread_ts = thread_ts or self.thread_ts
+        self.join_public(target_channel_id)
         try:
             self.client.chat_postEphemeral(
                 channel=target_channel_id, user=self.user_id,
-                thread_ts=thread_ts or self.thread_ts, text=message,
+                thread_ts=target_thread_ts, text=message,
             )
-            return
+            return True
         except Exception as failure:
-            log.info("nemo: ephemeral refused in %s, sending a DM instead: %s", target_channel_id, failure)
-        try:
-            self.client.chat_postMessage(channel=self.user_id, text=message)
-        except Exception as failure:
-            log.warning("nemo: could not send a DM either: %s", failure)
+            reason = channels.slack_error_code(failure)
+
+        if self.respond_in_place(message, target_channel_id, target_thread_ts):
+            return True
+        log.warning("nemo: %s %s could not say %r in %s: %s",
+                    getattr(self.entry, "kind", "surface"), getattr(self.entry, "key", ""),
+                    message, target_channel_id, reason)
+        return False
 
 
 def refused(entry, ctx, why):

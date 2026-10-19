@@ -166,9 +166,6 @@ class SurfaceCtx:
     def post_ephemeral(self, message, channel_id=None, thread_ts=None):
         self.ephemeral_messages.append(message)
 
-    def post_ephemeral_or_dm(self, message, channel_id=None, thread_ts=None):
-        self.ephemeral_messages.append(message)
-
 
 @contextlib.contextmanager
 def session_of(conn=None):

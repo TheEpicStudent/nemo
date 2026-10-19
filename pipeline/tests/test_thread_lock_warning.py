@@ -94,14 +94,12 @@ def test_submit_lock_warning_failure_posts_ephemeral_to_moderator(monkeypatch, f
     assert client.messages == []
 
 
-def test_submit_lock_warning_failure_with_ephemeral_error_posts_dm(monkeypatch, finish_calls):
+def test_submit_lock_warning_failure_with_ephemeral_error_sends_no_dm(monkeypatch, finish_calls):
     monkeypatch.setattr(guards, "warn", warn_raises("not_in_channel"))
     client = SlackClient(ephemeral_error="not_in_channel")
 
-    thread_lock.submit_lock(lock_submission(client))
-
-    assert client.messages[0]["channel"] == MODERATOR_ID
-    assert "/invite @nemo" in client.messages[0]["text"]
+    assert thread_lock.submit_lock(lock_submission(client)) is None
+    assert client.messages == []
 
 
 def test_submit_lock_warning_posted_returns_guard_id_without_finishing(monkeypatch, finish_calls):
