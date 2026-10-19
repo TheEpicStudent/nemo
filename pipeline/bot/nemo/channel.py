@@ -15,7 +15,8 @@ log = logging.getLogger("bot.nemo")
 CASE = """
 SELECT c.id, c.category_key, c.resolved_at,
        r.id, r.is_anonymous, r.reporter_user_id, r.body, r.forwarded_ts, r.received_at,
-       v.id, r.card_digest, c.resolution, r.card_channel_id, r.header_ts, r.header_digest
+       v.id, r.card_digest, c.resolution, r.card_channel_id, r.header_ts, r.header_digest,
+       r.entry_point
 FROM fd.cases c
 JOIN fd.case_reports r ON r.case_id = c.id
 LEFT JOIN fd.intake_conversations v ON v.report_id = r.id
@@ -64,6 +65,15 @@ FROM fd.intake_shares s
 JOIN fd.intake_messages m ON m.id = s.message_id
 WHERE m.conversation_id = %s
 ORDER BY s.id
+"""
+
+
+ENTRY_POINT_OF_MESSAGE = """
+SELECT r.entry_point
+FROM fd.intake_messages m
+JOIN fd.intake_conversations c ON c.id = m.conversation_id
+JOIN fd.case_reports r ON r.id = c.report_id
+WHERE m.id = %s
 """
 
 
@@ -525,6 +535,7 @@ def fetch_case(conn, case_id):
         "card_channel_id": row[12],
         "header_ts": row[13],
         "header_digest": row[14],
+        "entry_point": row[15],
         "url": case_url(row[0]),
         "shares": [],
         "message_id": None,
@@ -619,7 +630,14 @@ def forwarded_files(client, conn, message_id):
     return files_by_id
 
 
+def is_shortcut_report(conn, message_id):
+    row = conn.execute(ENTRY_POINT_OF_MESSAGE, (message_id,)).fetchone()
+    return bool(row) and row[0] == views.shortcut_report.SHORTCUT
+
+
 def unfurl(client, conn, message_id, channel_id, thread_ts):
+    if is_shortcut_report(conn, message_id):
+        return None
     row = conn.execute(LOCK_UNFURL, (message_id,)).fetchone()
     if row is None:
         return None

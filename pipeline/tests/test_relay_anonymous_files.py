@@ -44,7 +44,8 @@ def test_submit_report_anonymous_renames_files_after_opening_case(monkeypatch):
     monkeypatch.setattr(messages, "bot_user_id", lambda client, name: "URELAY")
     monkeypatch.setattr(messages.case, "existing", lambda conn, conversation_id: None)
     monkeypatch.setattr(messages.case, "open_case",
-                        lambda conn, conversation_id, opener, anonymous: calls.append(("open", anonymous)) or 512)
+                        lambda conn, conversation_id, opener, anonymous, subject_user_id=None, entry_point="dm":
+                            calls.append(("open", anonymous)) or 512)
     monkeypatch.setattr(messages.intake, "rename_anonymous_files",
                         lambda conn, conversation_id: calls.append(("rename", conversation_id)) or [])
     monkeypatch.setattr(messages.evidence, "promote",
@@ -121,7 +122,7 @@ def test_submit_report_downloads_files_in_the_background(monkeypatch):
     monkeypatch.setattr(messages, "session", fake_session)
     monkeypatch.setattr(messages, "bot_user_id", lambda client, name: "URELAY")
     monkeypatch.setattr(messages.case, "existing", lambda conn, conversation_id: None)
-    monkeypatch.setattr(messages.case, "open_case", lambda conn, conversation_id, opener, anonymous: 512)
+    monkeypatch.setattr(messages.case, "open_case", lambda conn, conversation_id, opener, anonymous, subject_user_id=None, entry_point="dm": 512)
     monkeypatch.setattr(messages.intake, "rename_anonymous_files", lambda conn, conversation_id: [])
     monkeypatch.setattr(messages.evidence, "promote",
                         lambda conn, case_id, conversation_id, opener: {"threads": 0, "messages": 0})

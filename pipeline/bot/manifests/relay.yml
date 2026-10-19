@@ -7,6 +7,15 @@ features:
   bot_user:
     display_name: shroud
     always_online: true
+  shortcuts:
+    - name: Report anonymously
+      type: message
+      callback_id: report_anonymous
+      description: Report this message to FD without revealing your identity
+    - name: Report with my name
+      type: message
+      callback_id: report_with_name
+      description: Report this message to FD, attributing the report to you
 
 oauth_config:
   scopes:
@@ -18,6 +27,7 @@ oauth_config:
       - files:read
       - files:write
       - reactions:write
+      - users:read
 
 settings:
   event_subscriptions:

@@ -89,7 +89,28 @@ def existing(conn, conversation_id):
     return None
 
 
-def open_case(conn, conversation_id, opened_by, anonymous=True):
+DM = "dm"
+SHORTCUT = "shortcut"
+
+ADD_SUBJECT = """
+INSERT INTO fd.case_participants (case_id, user_id, role)
+VALUES (%s, %s, 'subject')
+ON CONFLICT DO NOTHING
+RETURNING user_id
+"""
+
+
+def add_subject(conn, case_id, user_id, by):
+    if not conn.execute(ADD_SUBJECT, (case_id, user_id)).fetchone():
+        return False
+    audit.record(
+        conn, "participant", case_id, "attached", by,
+        after={"user_id": user_id, "role": "subject"},
+    )
+    return True
+
+
+def open_case(conn, conversation_id, opened_by, anonymous=True, subject_user_id=None, entry_point=DM):
     already = existing(conn, conversation_id)
     if already:
         return already
@@ -112,10 +133,10 @@ def open_case(conn, conversation_id, opened_by, anonymous=True):
     report = report_ref(conversation_id)
     conn.execute(
         "INSERT INTO fd.case_reports "
-        "(case_id, is_anonymous, reporter_user_id, body, received_at, source_app, external_ref) "
-        "VALUES (%s, %s, %s, %s, coalesce(%s, now()), 'relay', %s) "
+        "(case_id, is_anonymous, reporter_user_id, body, received_at, source_app, external_ref, entry_point) "
+        "VALUES (%s, %s, %s, %s, coalesce(%s, now()), 'relay', %s, %s) "
         "ON CONFLICT (external_ref) DO NOTHING",
-        (case_id, reporter is None, reporter, body, received, report),
+        (case_id, reporter is None, reporter, body, received, report, entry_point),
     )
     report_id = conn.execute(
         "SELECT id FROM fd.case_reports WHERE external_ref = %s", (report,)
@@ -126,4 +147,6 @@ def open_case(conn, conversation_id, opened_by, anonymous=True):
         "WHERE id = %s AND report_id IS NULL",
         (report_id, conversation_id),
     )
+    if subject_user_id:
+        add_subject(conn, case_id, subject_user_id, opened_by)
     return case_id

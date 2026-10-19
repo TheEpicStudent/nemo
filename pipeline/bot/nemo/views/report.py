@@ -6,7 +6,7 @@ from bot.core.formatting import (
     quote_text,
 )
 from bot.nemo import categories
-from bot.nemo.views import case_card, linked
+from bot.nemo.views import case_card, linked, shortcut_report
 
 MENTION = re.compile(r"(<[@#][A-Z0-9][A-Z0-9]*(?:\|[^>]*)?>)")
 SLACK_BIT = re.compile(
@@ -56,11 +56,15 @@ def header_blocks(case):
 
 
 def build_blocks(case):
+    if shortcut_report.is_shortcut(case):
+        return shortcut_report.blocks(case) or header_blocks(case)
     body_block = body(case)
     return [body_block] if body_block else header_blocks(case)
 
 
 def needs_header(case):
+    if shortcut_report.is_shortcut(case):
+        return bool(shortcut_report.blocks(case))
     return body(case) is not None
 
 

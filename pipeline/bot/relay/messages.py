@@ -54,11 +54,12 @@ class MessageRelay:
     def __init__(self, client=None):
         self.client = client
 
-    def submit_report(self, conversation_id, message_id, anonymous=True):
+    def submit_report(self, conversation_id, message_id, anonymous=True, subject_user_id=None,
+                      entry_point=case.DM):
         opener = bot_user_id(self.client, "relay")
         with session() as conn:
             already = case.existing(conn, conversation_id)
-            case_id = case.open_case(conn, conversation_id, opener, anonymous)
+            case_id = case.open_case(conn, conversation_id, opener, anonymous, subject_user_id, entry_point)
             intake.rename_anonymous_files(conn, conversation_id)
             evidence_blocks = evidence.promote(conn, case_id, conversation_id, opener)
             if already:
