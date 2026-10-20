@@ -72,13 +72,7 @@ module Fd
     end
 
     def mark_resolved(resolution)
-      Case.where(id: @case.id, resolved_at: nil)
-        .update_all(
-          resolved_at: @now,
-          resolution: resolution,
-          member_note: params[:member_note].presence,
-          updated_at: @now
-        ).positive?
+      @case.mark_resolved!(resolution, at: @now, member_note: params[:member_note].presence)
     end
 
     def close_reports

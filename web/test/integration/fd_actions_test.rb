@@ -249,4 +249,69 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_equal 0, actions.count
     assert_not_includes @kase.reload.subject_user_ids, "UNEW"
   end
+
+  test "action form has the solution, resolvers and resolve case fields" do
+    sign_in_as(@me)
+    get fd_case_path(@kase, tab: "actions", do: "action")
+
+    assert_select "label.field-label", text: /How Was This Solved\? \(Text edition\)/
+    assert_select "textarea[name=?]", "solution"
+    assert_select ".field-label span", text: "Who Resolved This? (Thank you btw <3)"
+    assert_select "[data-combobox-name-value=?]", "resolved_by[]"
+    assert_select "input[type=checkbox][name=?]", "resolve_case"
+  end
+
+  test "create action stores the solution and the people who resolved it" do
+    sign_in_as(@me)
+    log(solution: "removed the post", resolved_by: ["UFF1", "UFF2"])
+
+    action = actions.sole
+    assert_equal "removed the post", action.solution
+    assert_equal ["UFF1", "UFF2"], action.resolved_by
+  end
+
+  test "create action with no resolvers records the person logging" do
+    sign_in_as(@me)
+    log
+
+    action = actions.sole
+    assert_equal ["UME"], action.resolved_by
+    assert_nil action.solution
+  end
+
+  test "create action with resolve case resolves the case as action taken" do
+    sign_in_as(@me)
+    log(resolve_case: "1")
+
+    @kase.reload
+    assert_not_nil @kase.resolved_at
+    assert_equal "action_taken", @kase.resolution
+    assert_equal "Warning logged on case #{@kase.id} · case resolved", flash[:notice]
+    assert Fd::AuditEntry.where(entity_type: "case", entity_id: @kase.id, verb: "resolved").exists?
+  end
+
+  test "create action with resolve case is refused without case resolve" do
+    firefighter = grant_role!("UFF", "firefighter")
+    override_capability!("firefighter", "case.resolve", false)
+    sign_in_as(firefighter)
+    log(resolve_case: "1")
+
+    assert_equal 0, actions.count
+    assert_nil @kase.reload.resolved_at
+    assert_equal "Not permitted to resolve cases", flash[:alert]
+  end
+
+  test "actions tab shows the solution and the people who resolved it" do
+    Fd::Action.create!(
+      case_id: @kase.id, type_key: "warning", target_user_id: "USUB",
+      decided_by: "UME", performed_by: "UME", performed_at: 1.hour.ago,
+      source_app: "fire_engine", reason: "spam", solution: "removed the post",
+      resolved_by: ["UME", "UFF2"]
+    )
+    sign_in_as(@me)
+    get fd_case_path(@kase, tab: "actions")
+
+    assert_select ".lrow .sub", text: "removed the post"
+    assert_select ".lrow .sub", text: /Resolved by/
+  end
 end

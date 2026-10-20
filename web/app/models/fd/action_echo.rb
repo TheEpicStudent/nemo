@@ -15,6 +15,7 @@ module Fd
       label = FdHelper::ACTION_LABELS.fetch(action.type_key) { action.type_key.tr("_", " ").capitalize }
       lines = ["#{label} logged on #{target}"]
       lines[-1] += ": #{action.reason}" if action.reason.presence
+      lines << "How Was This Solved? #{action.solution}" if action.solution.presence
       lines.join("
 ")
     end

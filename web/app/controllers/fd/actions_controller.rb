@@ -10,6 +10,7 @@ module Fd
       guard = lock ? nil : existing_guard
 
       error = guard ? existing_guard_error(kase, guard) : action_error(kase)
+      error ||= "Not permitted to resolve cases" if resolve_case? && !current_account.may?("case.resolve", kase)
       if error
         return redirect_to(fd_case_path(kase, do: "action"),
           alert: (error unless flash[:field_error]))
@@ -18,6 +19,7 @@ module Fd
       subject_added = false
       thread_attached = lock&.orphaned?
       echo = nil
+      resolved = false
       writing do
         subject_added = add_target_subject(kase) unless lock
         if guard
@@ -30,11 +32,13 @@ module Fd
           enforce(kase, action)
           echo = ActionEcho.write!(kase, action, by: current_account.user_id)
         end
+        resolved = resolve_case(kase) if resolve_case?
       end
       SlackPost.post_to_thread(echo) if echo&.mirrored_as == "user"
 
       redirect_to fd_case_path(kase, tab: "actions"),
-        notice: notice_for(kase, guard: guard, lock: lock, thread_attached: thread_attached, subject_added: subject_added)
+        notice: notice_for(kase, guard: guard, lock: lock, thread_attached: thread_attached,
+          subject_added: subject_added, resolved: resolved)
     end
 
     def update
@@ -49,6 +53,7 @@ module Fd
       end
 
       action.assign_attributes(reason: params[:reason].to_s.strip.presence,
+        solution: params[:solution].to_s.strip.presence,
         category_key: params[:category_key].to_s.presence)
       return redirect_to(fd_case_path(kase, tab: "actions"), notice: "No changes") unless action.changed?
 
@@ -75,11 +80,26 @@ module Fd
       nil
     end
 
-    def notice_for(kase, guard:, lock:, thread_attached:, subject_added:)
-      return attached_notice(kase, guard) if guard
-      return locked_notice(kase, thread_attached) if lock
+    def notice_for(kase, guard:, lock:, thread_attached:, subject_added:, resolved:)
+      message = if guard
+        attached_notice(kase, guard)
+      elsif lock
+        locked_notice(kase, thread_attached)
+      else
+        logged_notice(kase, subject_added)
+      end
+      resolved ? "#{message} · case resolved" : message
+    end
 
-      logged_notice(kase, subject_added)
+    def resolve_case(kase)
+      return false unless kase.mark_resolved!("action_taken", at: Time.current)
+
+      kase.reload
+      audit(kase, "resolved",
+        before: { "resolved_at" => nil, "resolution" => nil },
+        after: { "resolved_at" => kase.resolved_at, "resolution" => kase.resolution,
+                 "duplicate_of" => kase.duplicate_of, "member_note" => kase.member_note })
+      true
     end
 
     def add_target_subject(kase)

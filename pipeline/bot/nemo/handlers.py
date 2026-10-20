@@ -4,6 +4,7 @@ from bot.core import access, outbox, session
 from bot.nemo import answer, views, chat, memberguards, profile, surface, thread_commands
 from bot.nemo.case_actions import (
     CASE_CATEGORY,
+    close_without_notice,
     mark_resolution_log_pending,
     log_action,
     merge,
@@ -111,16 +112,28 @@ def register(app, on_reply=None):
                     response_action="errors",
                     errors={views.action.KIND: refusal},
                 )
+            if values["resolve_case"]:
+                allowed, refusal = access.may(conn, user_id, "case.resolve", case_id)
+                if not allowed:
+                    return ack(
+                        response_action="errors",
+                        errors={views.action.RESOLVE: refusal},
+                    )
             current_guard_status = guard_status_for(conn, case_id, values)
             action_id = log_action(conn, case_id, values, user_id)
             guard_id = memberguards.apply_enforcement(conn, action_id, values, current_guard_status, user_id)
+            resolution = (
+                close_without_notice(conn, case_id, None, user_id) if values["resolve_case"] else None
+            )
 
         ack()
         with session() as conn:
             refresh_card(client, conn, case_id)
             post_action_log(client, conn, case_id, values, user_id)
-        log.info("nemo: action %s logged on case %s by %s, guard %s",
-                 action_id, case_id, user_id, guard_id)
+        if resolution:
+            after_resolve(client, case_id, resolution, user_id)
+        log.info("nemo: action %s logged on case %s by %s, guard %s, resolved %s",
+                 action_id, case_id, user_id, guard_id, resolution or "no")
 
     @app.view(views.merge.CALLBACK)
     def on_merged(ack, body, view, client):

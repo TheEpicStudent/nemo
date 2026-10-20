@@ -246,6 +246,10 @@
                 class: "textarea", id: nil %>
         </label>
         <%= field_wrong(:edit_reason) %>
+        <label class="field-label">
+          How Was This Solved? (Text edition)
+          <%= text_area_tag :solution, action.solution, rows: 2, class: "textarea", id: nil %>
+        </label>
       </div>
       <div class="modal-foot">
         <button type="button" class="btn btn-ghost" data-action="click->modal#close">Cancel</button>

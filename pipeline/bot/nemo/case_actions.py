@@ -153,8 +153,8 @@ CASE_CATEGORY = "SELECT category_key FROM fd.cases WHERE id = %s"
 LOG_ACTION = """
 INSERT INTO fd.actions
     (case_id, type_key, target_user_id, decided_by, performed_by, performed_at,
-     source_app, expires_at, details, reason, category_key)
-VALUES (%s, %s, %s, %s, %s, now(), %s, %s, %s, %s,
+     source_app, expires_at, details, reason, solution, resolved_by, category_key)
+VALUES (%s, %s, %s, %s, %s, now(), %s, %s, %s, %s, %s, %s,
         coalesce(%s, (SELECT category_key FROM fd.cases WHERE id = %s)))
 RETURNING id, performed_at, category_key
 """
@@ -329,6 +329,8 @@ def log_action(conn, case_id, values, user_id):
             expires,
             Jsonb(views.action.details(values)),
             values["reason"],
+            values.get("solution") or None,
+            views.action.resolvers(values, user_id),
             values.get("category_key"),
             case_id,
         ),
@@ -346,6 +348,8 @@ def log_action(conn, case_id, values, user_id):
             "target_user_id": values["target_user_id"],
             "expires_at": expires,
             "category_key": row[2],
+            "solution": values.get("solution") or None,
+            "resolved_by": views.action.resolvers(values, user_id),
         },
     )
     return row[0]

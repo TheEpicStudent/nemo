@@ -264,6 +264,12 @@ module Fd
       resolved_at.present?
     end
 
+    def mark_resolved!(resolution, at:, member_note: nil)
+      self.class.where(id: id, resolved_at: nil)
+        .update_all(resolved_at: at, resolution: resolution, member_note: member_note, updated_at: at)
+        .positive?
+    end
+
 
     def sibling_cases
       pairs = threads.evidence.map(&:coordinates)

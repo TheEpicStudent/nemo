@@ -15,9 +15,14 @@ UNTIL = "action_until"
 UNTIL_TIME = "action_until_time"
 WHERE = "action_where"
 REASON = "action_reason"
+SOLUTION = "action_solution"
+RESOLVERS = "action_resolvers"
+RESOLVE = "action_resolve"
 CATEGORY = "action_category"
 GUARD_STATUS = "action_standing"
 ENFORCEMENT = "action_settle"
+
+RESOLVE_CASE = "resolve_case"
 
 NO_GUARD = "no_guard"
 NO_CASE = "no_case"
@@ -339,8 +344,52 @@ def build_blocks(case_id, values, guard_status=None, end_error=None):
                 **({"initial_value": values["reason"]} if values.get("reason") else {}),
             },
         },
+        {
+            "type": "input",
+            "block_id": SOLUTION,
+            "optional": True,
+            "label": {"type": "plain_text", "text": "How Was This Solved? (Text edition)"},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": SOLUTION,
+                "multiline": True,
+                "max_length": REASON_LIMIT,
+                **({"initial_value": values["solution"]} if values.get("solution") else {}),
+            },
+        },
+        {
+            "type": "input",
+            "block_id": RESOLVERS,
+            "optional": True,
+            "label": {"type": "plain_text", "text": "Who Resolved This? (Thank you btw <3)"},
+            "element": {
+                "type": "multi_users_select",
+                "action_id": RESOLVERS,
+                "placeholder": {"type": "plain_text", "text": "Select people"},
+                **({"initial_users": values["resolved_by"]} if values.get("resolved_by") else {}),
+            },
+        },
+        resolve_block(values.get("resolve_case")),
     ]
     return built
+
+
+RESOLVE_OPTION = {"text": {"type": "plain_text", "text": "Yes"}, "value": RESOLVE_CASE}
+
+
+def resolve_block(checked):
+    return {
+        "type": "input",
+        "block_id": RESOLVE,
+        "optional": True,
+        "label": {"type": "plain_text", "text": "Resolve Case?"},
+        "element": {
+            "type": "checkboxes",
+            "action_id": RESOLVE,
+            "options": [RESOLVE_OPTION],
+            **({"initial_options": [RESOLVE_OPTION]} if checked else {}),
+        },
+    }
 
 
 def build_view(case_id, subjects=(), category=None, values=None, guard_status=None, end_error=None):
@@ -358,6 +407,18 @@ def build_view(case_id, subjects=(), category=None, values=None, guard_status=No
 HEADER_TEXT_LIMIT = 150
 
 
+def resolvers(values, by):
+    return list(values.get("resolved_by") or []) or [by]
+
+
+def byline(values, by):
+    text = f"Against <@{values['target_user_id']}>, logged by <@{by}>"
+    resolved_by = resolvers(values, by)
+    if resolved_by != [by]:
+        text += ", resolved by " + ", ".join(f"<@{one}>" for one in resolved_by)
+    return text
+
+
 def log_blocks(values, by, channel_name=None):
     built = [
         {
@@ -367,10 +428,7 @@ def log_blocks(values, by, channel_name=None):
         },
         {
             "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": f"Against <@{values['target_user_id']}>, logged by <@{by}>",
-            }],
+            "elements": [{"type": "mrkdwn", "text": byline(values, by)}],
         },
         {"type": "divider"},
         {
@@ -378,6 +436,14 @@ def log_blocks(values, by, channel_name=None):
             "text": {"type": "mrkdwn", "text": f"> {values['reason']}"},
         },
     ]
+    if values.get("solution"):
+        built.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": f"*How Was This Solved?* {values['solution']}",
+            }],
+        })
     return built
 
 
@@ -406,6 +472,12 @@ def submitted_values(view_state):
             (values.get(ENFORCEMENT, {}).get(ENFORCEMENT, {}).get("selected_option") or {}).get("value")
         ),
         "reason": (values.get(REASON, {}).get(REASON, {}).get("value") or "").strip(),
+        "solution": (values.get(SOLUTION, {}).get(SOLUTION, {}).get("value") or "").strip(),
+        "resolved_by": values.get(RESOLVERS, {}).get(RESOLVERS, {}).get("selected_users") or [],
+        "resolve_case": any(
+            one.get("value") == RESOLVE_CASE
+            for one in values.get(RESOLVE, {}).get(RESOLVE, {}).get("selected_options") or []
+        ),
         "category_key": (
             (values.get(CATEGORY, {}).get(CATEGORY, {}).get("selected_option") or {})
             .get("value")

@@ -64,10 +64,20 @@ module Fd
         source_app: Audit::SOURCE_APP,
         expires_at: expiry,
         reason: params[:reason].to_s.strip,
+        solution: params[:solution].to_s.strip.presence,
+        resolved_by: resolver_ids,
         category_key: selected_category(kase),
         details: channel
       )
     end
+
+    def resolver_ids
+      ids = Array(params[:resolved_by]).map { |user_id| user_id.to_s.strip }
+        .select { |user_id| user_id.match?(MEMBER_ID) }.uniq
+      ids.presence || [current_account.user_id]
+    end
+
+    def resolve_case? = params[:resolve_case] == "1"
 
     def thread_lock_error(kase)
       family = kase.family_ids

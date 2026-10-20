@@ -124,4 +124,11 @@ class FdActionEditsTest < ActionDispatch::IntegrationTest
     assert_select "#{modal} textarea[name='reason']", text: "spamm"
     assert_select "#{modal} select[name='category_key'] option[selected][value='spam']"
   end
+
+  test "edit updates the solution" do
+    sign_in_as(@me)
+    edit_action(solution: "removed the post")
+
+    assert_equal "removed the post", @action.reload.solution
+  end
 end

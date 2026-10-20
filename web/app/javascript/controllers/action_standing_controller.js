@@ -43,6 +43,6 @@ export default class extends Controller {
     if (this.hasLocksTarget) this.locksTarget.hidden = !onThread
     if (this.hasTargetFieldsTarget) this.targetFieldsTarget.hidden = onThread
     if (this.hasStandingTarget) this.standingTarget.hidden = onThread
-    if (this.hasWhyTarget) this.whyTarget.hidden = onThread
+    for (const why of this.whyTargets) why.hidden = onThread
   }
 }

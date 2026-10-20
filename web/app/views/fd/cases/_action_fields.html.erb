@@ -41,4 +41,20 @@
     </label>
     <%= field_wrong(:reason) %>
   </div>
+  <label class="field-label" data-action-standing-target="why">
+    How Was This Solved? (Text edition)
+    <%= text_area_tag :solution, nil, rows: 2, class: "textarea", id: nil %>
+  </label>
+  <div class="field-label" data-action-standing-target="why">
+    <span>Who Resolved This? (Thank you btw &lt;3)</span>
+    <%= render "shared/combobox", name: "resolved_by[]", url: fd_member_search_path(case_id: kase.id),
+          label: "Search members" %>
+  </div>
 </div>
+
+<label class="opt">
+  <%= check_box_tag :resolve_case, "1", false, class: "tick", id: nil %>
+  <span>
+    <span class="opt-label">Resolve Case?</span>
+  </span>
+</label>

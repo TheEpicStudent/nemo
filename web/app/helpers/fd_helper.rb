@@ -1245,6 +1245,11 @@ module FdHelper
     parts << ". Set by "
     parts << member_link(action.decided_by)
     parts << " on #{on_day(action.performed_at)}."
+    if action.resolved_by.present? && action.resolved_by != [action.decided_by]
+      parts << " Resolved by "
+      parts << safe_join(action.resolved_by.map { |user_id| member_link(user_id) }, ", ")
+      parts << "."
+    end
     safe_join(parts)
   end
 
@@ -1259,6 +1264,10 @@ module FdHelper
     return tag.span("No reason", class: "why-none") if reason.nil?
 
     tag.q(reason, class: "why-quote")
+  end
+
+  def action_solution(action)
+    tag.span(action.solution, class: "why-quote")
   end
 
   def action_performer_note(action)
