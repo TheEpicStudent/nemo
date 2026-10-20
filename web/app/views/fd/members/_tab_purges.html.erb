@@ -19,7 +19,7 @@
               <% end %>
             </td>
             <td>
-              <%= member_face(purge.asked_by, small: true) %>
+              <%= member_link(purge.asked_by) %>
               <span class="sub2"><%= at_minute(purge.asked_at) %></span>
             </td>
           </tr>

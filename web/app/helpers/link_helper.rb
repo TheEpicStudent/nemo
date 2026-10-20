@@ -78,7 +78,7 @@ module LinkHelper
     else
       "Compare"
     end
-    link_to label, link_compare_path(a, b, back: back, variant: variant), class: "btn btn-sm", data: { turbo_frame: "_top" }
+    link_to label, link_compare_path(a, b, back: back, variant: variant), class: "btn btn-sm btn-ghost", data: { turbo_frame: "_top" }
   end
 
   def link_match_cell(attribute)

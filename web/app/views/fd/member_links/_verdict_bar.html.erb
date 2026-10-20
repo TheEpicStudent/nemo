@@ -15,7 +15,8 @@
         aria: { label: "Note" }, id: nil %>
   <% if target && current_account.may?("member.deactivate") %>
     <button type="button" class="btn btn-sm btn-danger" data-modal-open="member-deactivate" aria-haspopup="dialog"
-            data-verdict-keys-target="choice" data-key="d">
+            data-verdict-keys-target="choice" data-key="d" data-controller="hold"
+            data-action="pointerdown->hold#press pointerup->hold#release pointerleave->hold#release pointercancel->hold#release">
       Deactivate <%= person_label(target.user_id) %> as alt <span class="kbd">D</span>
     </button>
   <% end %>

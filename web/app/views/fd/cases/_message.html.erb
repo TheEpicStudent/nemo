@@ -9,7 +9,9 @@
         <% unless grouped %>
           <span class="msg-who"><%= named_text(entry.name) %></span>
           <span class="msg-at"><%= clock_stamp(entry.at, "%-d %b, %H:%M") %></span>
-          <% if %w[them us].include?(entry.kind) %><span class="chip chip-sm chip-primary">reporter</span><% end %>
+          <% if (kind_label = message_kind_label(entry.kind)) %>
+            <span class="msg-kind msg-kind-<%= entry.kind %>"><%= kind_label %></span>
+          <% end %>
         <% end %>
         <% if entry.state %><span class="chip chip-sm <%= state_tone(entry.state) %>"><%= entry.state %></span><% end %>
       </div>

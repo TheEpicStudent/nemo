@@ -37,7 +37,7 @@
               <% if address.other_user_ids.any? %>
                 <span class="session-alongside">
                   Shared with
-                  <%= safe_join(address.other_user_ids.first(6).map { |other_user_id| member_face(other_user_id, small: true) }, ", ") %>
+                  <%= safe_join(address.other_user_ids.first(6).map { |other_user_id| member_link(other_user_id) }, ", ") %>
                 </span>
               <% elsif address.shared_range? %>
                 <span class="session-crowd">

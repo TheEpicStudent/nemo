@@ -1,7 +1,9 @@
 <% tone ||= alert ? "warn" : "good" %>
 <% persistent = tone != "good" %>
+<% action = nil unless action.is_a?(Hash) && action["href"].present? %>
+<% undo = action && action["method"].present? %>
 <div class="topbar-msg topbar-msg-<%= tone %>"
-     data-controller="toast" data-toast-delay-value="<%= persistent ? 0 : 3000 %>">
+     data-controller="toast" data-toast-delay-value="<%= persistent ? 0 : (action ? 6000 : 3000) %>">
   <span class="flash-mark" aria-hidden="true">
     <% if tone == "good" %>
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg>
@@ -16,10 +18,18 @@
     <% if detail.present? %>
       <span class="flash-detail"><%= detail %></span>
     <% end %>
-    <% if action.is_a?(Hash) && action["href"].present? %>
+    <% if action && !undo %>
       <span class="flash-action"><%= link_to action["label"], action["href"] %></span>
     <% end %>
   </span>
+  <% if undo %>
+    <%= button_to action["href"], method: action["method"], params: action["params"] || {},
+          class: "btn btn-sm flash-undo", form: { class: "contents" } do %>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>
+      <%= action["label"] %>
+    <% end %>
+  <% end %>
   <button type="button" class="flash-close" aria-label="Dismiss"
           data-action="toast#dismiss">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>

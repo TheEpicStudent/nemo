@@ -42,7 +42,7 @@ class FdOverviewTest < ActionDispatch::IntegrationTest
     get fd_root_path
     assert_equal "1", metric
     assert_match(/attached to no case/, response.body)
-    assert_match(/no case/, panel)
+    assert_match(%r{<span class="na">None</span>}, panel)
   end
 
   test "overview with every guard linked to a case shows all linked to a case" do
@@ -77,9 +77,9 @@ class FdOverviewTest < ActionDispatch::IntegrationTest
     get fd_root_path
 
     assert_equal "3", metric
-    assert_match(/pending/, panel)
-    assert_match(/not enforced/, panel)
-    assert_match(/by hand/, panel)
+    assert_match(/Pending/, panel)
+    assert_match(/Not enforced/, panel)
+    assert_match(/By hand/, panel)
   end
 
   test "overview panel lists the channel_ban guard before the shush guard" do

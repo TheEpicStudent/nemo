@@ -37,7 +37,7 @@
       <% end %>
       <div class="setline">
         <span class="setname">Enabled by</span>
-        <span class="setval"><%= member_face(guard.opened_by, small: true) %></span>
+        <span class="setval"><%= member_link(guard.opened_by) %></span>
       </div>
     </div>
     <%= render "allows", channel_id: channel_id, guard: guard, allows: allows %>

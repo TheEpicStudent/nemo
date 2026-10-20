@@ -126,6 +126,13 @@
   .enforcement-why { overflow-wrap: anywhere; }
 
   .standing-row[data-enforcement-status="pending"] .enforcement-state { @apply text-warning; }
+  .standing-row:is([data-enforcement-status="pending"], [data-enforcement-status="lifting"]) .enforcement-state {
+    @apply inline-flex items-center gap-1.5;
+  }
+  .standing-row:is([data-enforcement-status="pending"], [data-enforcement-status="lifting"]) .enforcement-state::before {
+    content: "";
+    @apply size-3 flex-none animate-spin rounded-full border-[1.5px] border-current border-t-transparent motion-reduce:animate-none;
+  }
   .standing-row[data-enforcement-status="failed"] .enforcement-state { @apply text-destructive; }
   .standing-row[data-enforcement-status="held"] {
     color: var(--ink-3);
@@ -228,7 +235,6 @@
     line-height: 1.5;
     overflow-wrap: anywhere;
   }
-  .member-event-by { display: block; margin-top: 4px; color: var(--ink-4); font-size: var(--t-fine); }
   .evrow-right {
     margin-left: auto;
     flex: none;
@@ -251,6 +257,8 @@
     white-space: nowrap;
   }
   .locked svg { flex: none; color: var(--ink-4); }
+  .locked > span { @apply min-w-0 truncate; }
+  .member-facts dd.fact-one > .locked { @apply max-w-full; }
   .idline { font-size: var(--t-small); color: var(--ink-3); }
   .was {
     font-family: var(--font-mono);

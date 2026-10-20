@@ -20,7 +20,7 @@
           <% guards.each do |guard| %>
             <tr>
               <td><%= member_face(guard.subject_id) %></td>
-              <td><%= guard_line(guard) %></td>
+              <td><%= guard_kind_line(guard) %></td>
               <td><%= Fd::ShortDate.for(guard.opened_at) %></td>
               <td class="<%= "is-none" unless guard.expires_at %>">
                 <%= guard.expires_at ? Fd::ShortDate.ending(guard.expires_at) : "no end date" %>
@@ -29,7 +29,7 @@
                 <% if guard.case_id %>
                   <%= link_to "##{guard.case_id}", fd_case_path(guard.case_id) %>
                 <% else %>
-                  <span class="state state-crit">no case</span>
+                  <span class="na">None</span>
                 <% end %>
               </td>
               <td><%= guard_enforcement_chip(guard) %></td>

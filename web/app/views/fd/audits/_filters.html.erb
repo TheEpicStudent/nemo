@@ -10,13 +10,13 @@
 <div class="audit-filters">
   <% if @query.may_slack? %>
     <%= render layout: "shared/dropdown", locals: {
-          label: "Category", trigger_css: "btn",
+          label: "Category", trigger_css: "btn", pop_css: "menu-start",
           trigger: audit_filter_trigger("Category", categories.first && Fd::AuditCatalogue.category_label(categories.first)) } do %>
       <%= render "facet_frame", facet: "category" %>
     <% end %>
 
     <%= render layout: "shared/dropdown", locals: {
-          label: "Event", trigger_css: "btn", pop_css: "audit-filter-pop",
+          label: "Event", trigger_css: "btn", pop_css: "audit-filter-pop menu-start",
           trigger: audit_filter_trigger("Event", actions.first && Fd::AuditCatalogue.action_label(actions.first)) } do %>
       <%= render "facet_frame", facet: "action" %>
     <% end %>
@@ -37,20 +37,20 @@
 
   <% if @query.may_slack? %>
     <%= render layout: "shared/dropdown", locals: {
-          label: "Network", trigger_css: "btn",
+          label: "Network", trigger_css: "btn", pop_css: "menu-start",
           trigger: audit_filter_trigger("Network", networks.map { |key| Fd::AuditSearch::NETWORKS.fetch(key) }.join(", ").presence) } do %>
       <%= render "facet_frame", facet: "network" %>
     <% end %>
   <% end %>
 
   <%= render layout: "shared/dropdown", locals: {
-        label: "Actor type", trigger_css: "btn",
+        label: "Actor type", trigger_css: "btn", pop_css: "menu-start",
         trigger: audit_filter_trigger("Actor type", AuditHelper::ACTOR_TYPES.key(actor_type)) } do %>
     <%= render "facet_frame", facet: "is" %>
   <% end %>
 
   <%= render layout: "shared/dropdown", locals: {
-        label: "Group by", trigger_css: "btn",
+        label: "Group by", trigger_css: "btn", pop_css: "menu-start",
         trigger: audit_filter_trigger("Group by", @query.group_label) } do %>
     <%= link_to "None", fd_audit_path(@query.to_params.except("group")), aria: { current: ("true" if @query.group.nil?) } %>
     <div class="menu-sep"></div>
@@ -62,7 +62,7 @@
 
   <% if @query.may_slack? %>
     <%= render layout: "shared/dropdown", locals: {
-          label: "High-volume actions", trigger_css: "btn",
+          label: "High-volume actions", trigger_css: "btn", pop_css: "menu-start",
           trigger: audit_filter_trigger("High-volume", high_volume ? "Shown" : "Hidden") } do %>
       <%= link_to "Hidden", fd_audit_path(@query.show_params("high_volume", false)), aria: { current: ("true" unless high_volume) } %>
       <%= link_to "Shown", fd_audit_path(@query.show_params("high_volume", true)), aria: { current: ("true" if high_volume) } %>
@@ -70,7 +70,7 @@
 
     <% unless @query.access_log_subject? %>
       <%= render layout: "shared/dropdown", locals: {
-            label: "Access logs", trigger_css: "btn",
+            label: "Access logs", trigger_css: "btn", pop_css: "menu-start",
             trigger: audit_filter_trigger("Access logs", access_logs ? "Shown" : "Hidden") } do %>
         <%= link_to "Hidden", fd_audit_path(@query.show_params(Fd::AuditQuery::ACCESS_LOG_SHOW, false)),
               aria: { current: ("true" unless access_logs) } %>

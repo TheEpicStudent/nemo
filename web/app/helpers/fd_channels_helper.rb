@@ -49,12 +49,12 @@ module FdChannelsHelper
   end
 
   PURGE_STATE = {
-    "proposed" => ["not confirmed", "state-off"],
-    "asked" => ["waiting", "state-warn"],
-    "running" => ["running", "state-warn"],
-    "checking" => ["checking", "state-warn"],
-    "done" => ["done", "state-good"],
-    "failed" => ["failed", "state-crit"]
+    "proposed" => ["Not confirmed", "state-off"],
+    "asked" => ["Waiting", "state-warn"],
+    "running" => ["Running", "state-warn"],
+    "checking" => ["Checking", "state-warn"],
+    "done" => ["Done", "state-good"],
+    "failed" => ["Failed", "state-crit"]
   }.freeze
 
   PURGE_SOURCES = { "slack" => "from Slack", "deactivation" => "with deactivation" }.freeze
@@ -141,7 +141,7 @@ module FdChannelsHelper
   def channel_guard_why(guard)
     return nil if guard.nil?
 
-    safe_join([member_face(guard.opened_by, small: true), " · ", on_day(guard.created_at)])
+    safe_join([member_link(guard.opened_by), " · ", on_day(guard.created_at)])
   end
 
   NEEDS_INVITE = "needs an invite".freeze
@@ -222,6 +222,6 @@ module FdChannelsHelper
   end
 
   def allow_added_line(allow)
-    safe_join(["added by ", member_face(allow.added_by, small: true), " ", ago_label(allow.added_at)])
+    safe_join(["added by ", member_link(allow.added_by), " ", ago_label(allow.added_at)])
   end
 end

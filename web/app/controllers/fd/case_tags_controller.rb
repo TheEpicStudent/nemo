@@ -32,6 +32,8 @@ module Fd
         link.destroy!
       end
 
+      flash[:action] = { "label" => "Undo", "href" => fd_case_tags_path(kase), "method" => "post",
+                         "params" => { "name" => link.tag.name } }
       redirect_to fd_case_path(kase), notice: "#{link.tag.name} removed from the case"
     end
   end

@@ -32,8 +32,8 @@
     color: var(--ink-3);
     white-space: nowrap;
   }
-  .audit-more { vertical-align: middle; opacity: 0.5; }
-  .audit-row:hover .audit-more,
+  .audit-more { vertical-align: middle; opacity: 0; transition: opacity var(--dur) var(--ease); }
+  .audit-row:is(:hover, :focus-within, [aria-selected="true"]) .audit-more,
   .menu[open] > .audit-more,
   .audit-more:focus-visible { opacity: 1; }
 
@@ -162,7 +162,12 @@
 
 @layer components {
   .audit-filters { @apply flex flex-wrap items-center gap-2; }
-  .audit-filters .filter-val { @apply text-muted-foreground; }
+  summary.btn:has(> .filter-icon) { @apply border-dashed; }
+  .filter-icon { @apply size-3.5 flex-none text-muted-foreground; }
+  summary.btn > .filter-val {
+    @apply relative ml-1 pl-2.5 font-normal text-muted-foreground;
+    @apply before:absolute before:inset-y-0.5 before:left-0 before:w-px before:bg-border;
+  }
   .audit-filter-pop { @apply min-w-64; }
   .audit-facet { display: contents; }
   .menu-count {
@@ -352,5 +357,77 @@
     gap: var(--s-2xs);
     padding-top: var(--s-2xs);
     border-top: 1px solid var(--line-soft);
+  }
+
+  @keyframes page-head-edge {
+    from { box-shadow: 0 1px 0 transparent, 0 10px 18px -14px transparent; }
+    to { box-shadow: 0 1px 0 var(--border), 0 10px 18px -14px var(--page-head-shadow); }
+  }
+
+  [data-section="fd"] { --page-head-shadow: oklch(0 0 0 / 0.14); }
+  :root[data-theme="lightsout"] [data-section="fd"] { --page-head-shadow: oklch(0 0 0 / 0.9); }
+
+  [data-section="fd"] .main { timeline-scope: --page-scroll; }
+  [data-section="fd"] .main > .scrollarea { scroll-timeline: --page-scroll y; }
+  [data-section="fd"] .main > .rhead {
+    @apply relative z-4 bg-background;
+    animation: page-head-edge linear both;
+    animation-timeline: --page-scroll;
+    animation-range: 0 56px;
+  }
+
+  .fdnav .cnav a[aria-current="page"]::before {
+    content: "";
+    @apply absolute inset-y-2 left-0 w-0.5 rounded-[1px] bg-sidebar-primary;
+  }
+  .fdnav .cnav a[aria-current="page"] > svg { @apply text-sidebar-primary; }
+  .fdnav .community-nav-group .community-nav-tally { @apply text-sidebar-primary; }
+
+  [data-section="fd"] .data-table thead th {
+    @apply h-9 text-xs text-muted-foreground;
+    background: color-mix(in oklab, var(--foreground) 3%, var(--card));
+  }
+  [data-section="fd"] .data-table tbody td { @apply h-11; }
+  [data-section="fd"] .data-table tbody tr:hover > td {
+    background: color-mix(in oklab, var(--foreground) 3.5%, transparent);
+  }
+  [data-section="fd"] .data-table .member-face > .lnk { @apply truncate; overflow-wrap: normal; }
+  [data-section="fd"] .data-table td .btn-ghost:not(.btn-only) { @apply text-muted-foreground hover:text-foreground; }
+
+  [data-section="fd"] .body > .empty {
+    @apply min-h-60 border border-dashed border-border;
+  }
+  [data-section="fd"] .empty-mark {
+    @apply size-10 ring-1 ring-foreground/10;
+  }
+
+  [data-section="fd"] :is(.pagebar, .px-verdictbar) {
+    background: color-mix(in oklab, var(--card) 72%, transparent);
+    @apply backdrop-blur-md backdrop-saturate-150;
+  }
+
+  [data-section="fd"] a.lnk[data-turbo-frame="person-drawer"] {
+    @apply font-medium text-foreground decoration-foreground/35 underline-offset-[3px];
+  }
+
+  @media (max-width: 899px) {
+    [data-section="fd"] .scroll > .data-table :is(th, td) { @apply whitespace-nowrap; }
+    [data-section="fd"] .scroll > .data-table :is(th, td):first-child {
+      @apply sticky left-0 z-3 bg-card;
+      box-shadow: 1px 0 0 var(--border);
+    }
+    [data-section="fd"] .scroll > .audit-table { @apply min-w-[720px]; }
+  }
+
+  .drag-handle {
+    @apply mr-2 inline-grid size-4 cursor-grab place-items-center align-middle text-muted-foreground/70 hover:text-foreground;
+  }
+  .drag-handle > svg { @apply size-3.5; }
+  .data-table tr.is-dragging > td { @apply bg-muted/60 opacity-70; }
+
+  .confirm-step { @apply inline-flex items-center justify-end gap-1; }
+  .confirm-step-ask:not([hidden]) { @apply inline-flex items-center gap-1; }
+  .confirm-step-start {
+    @apply text-muted-foreground hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/20;
   }
 }

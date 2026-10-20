@@ -37,6 +37,8 @@ module Fd
 
     def move
       category = InfractionCategory.find(params[:key])
+      return reorder(category, Integer(params[:index], exception: false)) if params.key?(:index)
+
       neighbour = neighbour_of(category, params[:direction].to_s)
       return redirect_to(return_path) if neighbour.nil?
 
@@ -71,6 +73,26 @@ module Fd
     end
 
     private
+
+    def reorder(category, index)
+      active = InfractionCategory.active.ordered.to_a
+      return redirect_to(return_path) if index.nil? || !active.include?(category)
+
+      positions = active.map(&:position).sort
+      previous = category.position
+      reordered = active - [category]
+      reordered.insert(index.clamp(0, reordered.size), category)
+      return redirect_to(return_path) if reordered == active
+
+      writing do
+        reordered.each_with_index do |row, slot|
+          row.update!(position: positions[slot], updated_at: Time.current) if row.position != positions[slot]
+        end
+        audit(category, "tuned", before: { "position" => previous }, after: { "position" => category.position })
+      end
+
+      redirect_to return_path
+    end
 
     def neighbour_of(category, direction)
       active = InfractionCategory.active.ordered.to_a

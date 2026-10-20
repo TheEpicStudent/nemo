@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["field", "pill", "send", "recipient", "anon", "drop"]
+  static targets = ["field", "send", "anon", "team", "reply"]
   static values = { reporter: Boolean, reporterLabel: String, case: String, noteUrl: String, replyUrl: String }
 
   connect() {
@@ -60,29 +60,34 @@ export default class extends Controller {
     }
   }
 
-  clearRecipient(event) {
-    event.stopPropagation()
+  messageTeam() {
     this.setRecipient(false)
+    this.fieldTarget.focus()
+  }
+
+  replyToReporter() {
+    this.setRecipient(true, this.anonymous)
     this.fieldTarget.focus()
   }
 
   setRecipient(atReporter, anonymous = false) {
     this.toReporter = atReporter
     this.anonymous = atReporter && anonymous
-    this.pillTarget.hidden = false
-    this.pillTarget.dataset.mode = atReporter ? "reporter" : "team"
-    this.dropTarget.hidden = !atReporter
-    this.recipientTarget.textContent = atReporter
-      ? `${this.replyTarget()} · ${this.anonymous ? "anonymous" : "signed"}`
-      : "internal"
+    if (this.hasTeamTarget) this.teamTarget.setAttribute("aria-pressed", String(!atReporter))
+    if (this.hasReplyTarget) {
+      this.replyTarget.setAttribute("aria-pressed", String(atReporter))
+      this.replyTarget.textContent = this.replyLabel()
+    }
     this.anonTarget.value = this.anonymous ? "1" : ""
     this.element.action = atReporter ? this.replyUrlValue : this.noteUrlValue
     this.sendTarget.setAttribute("aria-label", atReporter ? "Send to reporter" : "Send to team")
   }
 
-  replyTarget() {
-    const name = this.reporterLabelValue || "reporter"
-    return this.caseValue ? `${name}, case ${this.caseValue}` : name
+  replyLabel() {
+    const parts = [`Reply to ${this.reporterLabelValue || "reporter"}`]
+    if (this.caseValue) parts.push(`case ${this.caseValue}`)
+    if (this.anonymous) parts.push("anonymous")
+    return parts.join(", ")
   }
 
   mentionPopupOpen() {

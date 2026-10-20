@@ -1,3 +1,4 @@
+<% content_for :page_title, audit_verb(@row).upcase_first %>
 <turbo-frame id="audit-panel">
   <div class="side-head" data-row-id="<%= @row.source %>:<%= @row.id %>">
     <div class="grow">

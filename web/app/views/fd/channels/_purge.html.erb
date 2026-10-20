@@ -17,7 +17,7 @@
                 <b><%= link_to purge_scope(purge),
                       fd_channel_purge_path(channel_id, purge), class: "lnk" %></b>
                 <% if purge.member_id %>
-                  <span class="sub">from <%= member_face(purge.member_id, small: true) %></span>
+                  <span class="sub">from <%= member_link(purge.member_id) %></span>
                 <% end %>
                 <%= purge_state_chip(purge) %>
               </span>
@@ -25,7 +25,7 @@
                 <span class="sub"><%= purge.reason %></span>
               <% end %>
               <span class="sub">
-                <%= member_face(purge.asked_by, small: true) %> ·
+                <%= member_link(purge.asked_by) %> ·
                 <%= at_minute(purge.asked_at) %>
                 <% if purge_source(purge) %>
                   · <%= purge_source(purge) %>

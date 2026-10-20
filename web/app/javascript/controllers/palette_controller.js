@@ -132,6 +132,10 @@ export default class extends Controller {
     this.resultsTarget.innerHTML = ""
     this.rows = []
     this.at = 0
+    this.glide = document.createElement("span")
+    this.glide.className = "palette-glide"
+    this.glide.hidden = true
+    this.resultsTarget.append(this.glide)
 
     for (const group of groups) {
       const head = document.createElement("div")
@@ -196,7 +200,7 @@ export default class extends Controller {
     content.className = "pal-what"
     const title = document.createElement("b")
     title.className = "pal-t"
-    title.textContent = row.title
+    title.append(...this.highlight(row.title, term))
     if (row.kind === "member" && row.id && row.title === `@${row.id}`) title.dataset.cachetName = row.id
     content.append(title)
 
@@ -214,7 +218,11 @@ export default class extends Controller {
       content.append(sub_note)
     }
 
-    line.append(icon, content, document.createElement("span"))
+    const go = document.createElement("span")
+    go.className = "kbd pal-go"
+    go.setAttribute("aria-hidden", "true")
+    go.textContent = "\u21b5"
+    line.append(icon, content, go)
     this.rows.push(line)
     return line
   }
@@ -251,7 +259,21 @@ export default class extends Controller {
     this.rows.forEach((row, index) => {
       row.setAttribute("aria-selected", index === this.at ? "true" : "false")
     })
-    this.rows[this.at]?.scrollIntoView({ block: "nearest" })
+    const selected = this.rows[this.at]
+    selected?.scrollIntoView({ block: "nearest" })
+    this.moveGlide(selected)
+  }
+
+  moveGlide(row) {
+    const glide = this.glide
+    if (!glide?.isConnected) return
+
+    glide.hidden = !row
+    if (!row) return
+
+    glide.style.height = `${row.offsetHeight}px`
+    glide.style.transform = `translateY(${row.offsetTop}px)`
+    if (!glide.classList.contains("is-ready")) requestAnimationFrame(() => glide.classList.add("is-ready"))
   }
 
   icon(name) {

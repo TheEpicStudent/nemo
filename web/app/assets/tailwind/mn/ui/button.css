@@ -18,6 +18,25 @@
     @apply hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 aria-expanded:bg-muted aria-expanded:text-foreground;
   }
 
+  .btn[data-controller~="hold"] {
+    @apply relative isolate overflow-hidden select-none;
+    -webkit-touch-callout: none;
+  }
+
+  .btn[data-controller~="hold"]::after {
+    content: "";
+    @apply pointer-events-none absolute inset-0 -z-1 origin-left scale-x-0 bg-destructive/40 transition-transform duration-150 ease-out;
+  }
+
+  .btn[data-controller~="hold"].is-holding::after {
+    @apply scale-x-100 ease-linear;
+    transition-duration: var(--hold-ms, 1200ms);
+  }
+
+  .btn-ghost-danger {
+    @apply text-destructive hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/20;
+  }
+
   .btn-danger {
     @apply bg-destructive/10 hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/20 text-destructive focus-visible:border-destructive/40 dark:hover:bg-destructive/30;
   }

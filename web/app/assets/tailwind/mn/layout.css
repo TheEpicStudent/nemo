@@ -148,6 +148,8 @@
   .lede-icon { @apply mt-0.5 size-4 flex-none text-muted-foreground; }
   .lede-warn { @apply border-warning/30 bg-warning/5; }
   .lede-warn > .lede-icon { @apply text-warning; }
+  .lede-crit { @apply items-center border-destructive/30 bg-destructive/5; }
+  .lede-crit > .lede-icon { @apply mt-0 text-destructive; }
   .lede > .empty-fish { @apply w-14 self-center; }
   .lede-mark {
     @apply grid size-9 flex-none place-items-center rounded-lg bg-primary/10 text-primary;

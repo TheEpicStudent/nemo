@@ -1,11 +1,32 @@
 <section class="pane" aria-label="Case queue" data-controller="pane-filter">
   <div class="pane-head">
+    <% tabs = views.select { |view| Fd::CaseQuery::TABS.include?(view.key) } %>
+    <% primary_tabs, more_tabs = tabs.partition { |view| FdHelper::CASE_QUEUE_PRIMARY_VIEWS.include?(view.key) } %>
+    <% current_more = more_tabs.find(&:current) %>
     <nav class="views" aria-label="Case views">
-      <% views.select { |view| Fd::CaseQuery::TABS.include?(view.key) }.each do |view| %>
+      <% primary_tabs.each do |view| %>
         <%= link_to fd_cases_path(view: view.key), class: "view",
               aria: { current: ("true" if view.current) } do %>
           <%= view.label %>
           <span class="view-count"><%= view.count %></span>
+        <% end %>
+      <% end %>
+      <% if more_tabs.any? %>
+        <%= render layout: "shared/dropdown", locals: {
+              css: "views-more", trigger_css: "view", pop_css: "menu-start", label: "More case views",
+              current: ("true" if current_more),
+              trigger: safe_join([
+                current_more&.label || "More",
+                (tag.span(current_more.count, class: "view-count") if current_more),
+                tag.svg(tag.path(d: "m6 9 6 6 6-6"), width: 12, height: 12, viewBox: "0 0 24 24", fill: "none",
+                  stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "aria-hidden": true)
+              ].compact) } do %>
+          <% more_tabs.each do |view| %>
+            <%= link_to fd_cases_path(view: view.key), aria: { current: ("true" if view.current) } do %>
+              <%= view.label %>
+              <span class="menu-val"><%= view.count %></span>
+            <% end %>
+          <% end %>
         <% end %>
       <% end %>
     </nav>

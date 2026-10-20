@@ -30,12 +30,12 @@
                   <%= blocked_domain.account_count.zero? ? "None" : pluralize(blocked_domain.account_count, "account") %>
                 </td>
                 <td>
-                  <%= member_face(blocked_domain.added_by, small: true) %>
+                  <%= member_link(blocked_domain.added_by) %>
                   <span class="sub2"><%= on_day(blocked_domain.added_at) %></span>
                 </td>
                 <td class="col-num">
-                  <%= button_to "Remove", fd_blocked_domain_path(blocked_domain),
-                        method: :delete, class: "btn btn-sm" %>
+                  <%= render "fd/configuration/remove_step", label: "Remove domain",
+                        path: fd_blocked_domain_path(blocked_domain) %>
                 </td>
               </tr>
             <% end %>

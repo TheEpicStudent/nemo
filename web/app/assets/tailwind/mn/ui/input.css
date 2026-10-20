@@ -68,6 +68,49 @@
     @apply flex cursor-pointer items-center gap-2 text-sm text-foreground;
   }
 
+  .switch-state {
+    @apply text-sm text-muted-foreground;
+  }
+
+  .switch:checked ~ .switch-state > .switch-state-off,
+  .switch:not(:checked) ~ .switch-state > .switch-state-on {
+    @apply hidden;
+  }
+
+  .settings-form {
+    @apply flex flex-col gap-5;
+  }
+
+  .settings-row {
+    @apply grid min-w-0 grid-cols-[200px_minmax(0,560px)] items-start gap-x-8 gap-y-2;
+  }
+
+  .settings-label {
+    @apply pt-2 text-sm leading-none font-medium text-foreground;
+  }
+
+  .settings-control {
+    @apply flex min-w-0 flex-col gap-2;
+  }
+
+  .settings-control > .field-vars {
+    @apply text-xs text-muted-foreground;
+  }
+
+  .settings-short {
+    @apply max-w-32;
+  }
+
+  @media (max-width: 899px) {
+    .settings-row {
+      @apply grid-cols-1;
+    }
+
+    .settings-label {
+      @apply pt-0;
+    }
+  }
+
   .tick {
     @apply relative size-4 shrink-0 cursor-pointer appearance-none rounded-[4px] border border-input outline-none transition-colors dark:bg-input/30 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50;
   }

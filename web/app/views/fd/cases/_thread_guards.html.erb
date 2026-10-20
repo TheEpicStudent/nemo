@@ -17,7 +17,7 @@
           <span class="lcite"><%= guard.note_text %></span>
         <% end %>
         <span class="sub">
-          <%= member_face(guard.opened_by, small: true) %> ·
+          <%= member_link(guard.opened_by) %> ·
           <%= clock_stamp(guard.created_at) %>
         </span>
       </span>

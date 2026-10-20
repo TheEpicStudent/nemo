@@ -3,53 +3,56 @@
     <div class="card-head">
       <h2 class="card-title">Channel</h2>
     </div>
-    <div class="card-body">
-      <%= form_with url: fd_configuration_public_log_channel_path, method: :post,
-            html: { autocomplete: "off" } do %>
-        <div class="stack">
-          <div class="field-label">
-            <%= render "shared/combobox", kind: "channel", name: :channel_id, label: "Search channels" %>
-            <% if @public_log_channel.present? %>
-              <span class="sub2">Current: <%= channel_link(@public_log_channel) %></span>
-              <%= channel_membership_label(*@public_log_membership) %>
-            <% else %>
-              <p class="sev-crit">No channel picked</p>
-            <% end %>
-          </div>
-          <div><%= submit_tag "Save", class: "btn btn-primary" %></div>
+    <%= form_with url: fd_configuration_public_log_channel_path, method: :post, id: "public-log-channel-form",
+          class: "card-body settings-form", html: { autocomplete: "off" } do %>
+      <div class="settings-row">
+        <span class="settings-label">Channel</span>
+        <div class="settings-control">
+          <%= render "shared/combobox", kind: "channel", name: :channel_id, label: "Search channels" %>
+          <% if @public_log_channel.present? %>
+            <span class="sub2">Current: <%= channel_link(@public_log_channel) %></span>
+            <%= channel_membership_label(*@public_log_membership) %>
+          <% else %>
+            <p class="sev-crit">No channel picked</p>
+          <% end %>
         </div>
-      <% end %>
+      </div>
+    <% end %>
+    <div class="card-foot">
+      <%= submit_tag "Save", class: "btn btn-primary", form: "public-log-channel-form" %>
     </div>
   </div>
 
   <% Fd::PublicLog.events.each do |event| %>
+    <% form_id = "public-log-#{event.to_s.dasherize}-form" %>
     <div class="card card-flush">
       <div class="card-head">
         <h2 class="card-title"><%= Fd::PublicLog.label(event) %></h2>
-        <% if Fd::PublicLog.customised?(event) %>
-          <div class="card-tools">
+        <div class="card-tools">
+          <% if Fd::PublicLog.customised?(event) %>
             <%= button_to "Reset", fd_configuration_public_log_event_path(event), method: :delete,
                   class: "btn btn-sm", form: { class: "contents" } %>
-          </div>
-        <% end %>
+          <% end %>
+          <label class="tickline">
+            <%= check_box_tag :on, "1", Fd::PublicLog.enabled?(event), class: "switch", id: nil, form: form_id,
+                  aria: { label: Fd::PublicLog.label(event) } %>
+            <%= render "fd/configuration/switch_state" %>
+          </label>
+        </div>
       </div>
-      <div class="card-body">
-        <%= form_with url: fd_configuration_public_log_event_path(event), method: :patch,
-              html: { autocomplete: "off" } do %>
-          <div class="stack">
-            <label class="tickline">
-              <%= check_box_tag :on, "1", Fd::PublicLog.enabled?(event), class: "switch", id: nil %>
-              <span>On</span>
-            </label>
-            <label class="field-label">
-              Template
-              <%= text_area_tag :template, Fd::PublicLog.template(event), rows: 3, class: "textarea", id: nil,
-                    maxlength: Fd::PublicLog::MAX_TEMPLATE_LENGTH %>
-              <span class="field-vars">Variables: <%= safe_join(Fd::PublicLog.variables(event).map { |name| tag.code("{#{name}}") }, ", ") %></span>
-            </label>
-            <div><%= submit_tag "Save", class: "btn btn-primary" %></div>
-          </div>
-        <% end %>
+      <%= form_with url: fd_configuration_public_log_event_path(event), method: :patch, id: form_id,
+            class: "card-body settings-form", html: { autocomplete: "off" } do %>
+        <label class="settings-row">
+          <span class="settings-label">Template</span>
+          <span class="settings-control">
+            <%= text_area_tag :template, Fd::PublicLog.template(event), rows: 3, class: "textarea", id: nil,
+                  maxlength: Fd::PublicLog::MAX_TEMPLATE_LENGTH %>
+            <span class="field-vars">Variables: <%= safe_join(Fd::PublicLog.variables(event).map { |name| tag.code("{#{name}}") }, ", ") %></span>
+          </span>
+        </label>
+      <% end %>
+      <div class="card-foot">
+        <%= submit_tag "Save", class: "btn btn-primary", form: form_id %>
       </div>
     </div>
   <% end %>

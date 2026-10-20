@@ -37,6 +37,21 @@ module FdHelper
       data: { controller: "copy", copy_id_value: user_id, action: "click->copy#write" })
   end
 
+  CASE_QUEUE_PRIMARY_VIEWS = %w[attention unassigned mine].freeze
+
+  MESSAGE_KIND_LABELS = { "them" => "Reporter", "us" => "Reply", "action" => "Action log" }.freeze
+
+  def message_kind_label(kind)
+    MESSAGE_KIND_LABELS[kind]
+  end
+
+  def member_event_byline(entry)
+    return nil if entry.who.blank?
+    return safe_join(["by ", member_link(entry.who)]) if entry.kind == "notes"
+
+    safe_join(["assigned to ", member_link(entry.who)]) if entry.mark == "in"
+  end
+
   def member_link(user_id)
     return "n/a" if user_id.blank?
 
@@ -44,10 +59,10 @@ module FdHelper
       data: { turbo_frame: "person-drawer" }
   end
 
-  def member_face(user_id, small: false, deactivated: false)
+  def member_face(user_id, deactivated: false)
     return "n/a" if user_id.blank?
 
-    tag.span(class: ["member-face", ("member-face-sm" if small), ("is-gone" if deactivated)]) do
+    tag.span(class: ["member-face", ("is-gone" if deactivated)]) do
       safe_join([avatar(user_id), member_link(user_id)])
     end
   end
@@ -227,7 +242,7 @@ module FdHelper
 
   def audit_actor(row)
     return member_face(row.actor_id) if row.actor_id.present?
-    return tag.span("nemo", class: "state") if row.actor_kind.to_s == "bot"
+    return tag.span("Nemo", class: "state") if row.actor_kind.to_s == "bot"
 
     tag.span("Unknown", class: "state")
   end
@@ -320,11 +335,11 @@ module FdHelper
   end
 
   def session_swatch(address)
-    return tag.span("shared", class: "state state-crit") if address.other_user_ids.any?
-    return tag.span("many users", class: "state") if address.shared_range?
-    return tag.span("shared", class: "state state-warn") if address.shared?
+    return tag.span("Shared", class: "state state-crit") if address.other_user_ids.any?
+    return tag.span("Many users", class: "state") if address.shared_range?
+    return tag.span("Shared", class: "state state-warn") if address.shared?
 
-    tag.span("not shared", class: "state state-good")
+    tag.span("Not shared", class: "state state-good")
   end
 
   def new_member_country(row)
@@ -442,10 +457,10 @@ module FdHelper
 
   def member_standing_swatch(row)
     word, tone =
-      if row.open_cases.positive? then ["open case", "state-warn"]
-      elsif row.in_force.positive? then ["in force", "state-crit"]
-      elsif row.notes.positive? || row.cases.positive? then ["noted", "state-warn"]
-      else ["clean", "state-off"]
+      if row.open_cases.positive? then ["Open case", "state-warn"]
+      elsif row.in_force.positive? then ["In force", "state-crit"]
+      elsif row.notes.positive? || row.cases.positive? then ["Noted", "state-warn"]
+      else ["Clean", "state-off"]
       end
 
     tag.span(word, class: "state #{tone}")
@@ -817,10 +832,8 @@ module FdHelper
     ].join(" · ")
   end
 
-  def composer_hint(thread, names)
-    return "Message the team" if thread.nil?
-
-    "Message the team · ? to reply to #{thread.reporter_label(names)}, case #{thread.case_id}"
+  def composer_hint(thread)
+    thread.nil? ? "Message the team" : "Message"
   end
 
   def thread_state(report, kase, reachable)
@@ -921,7 +934,7 @@ module FdHelper
   end
 
   def note_byline(note)
-    parts = [member_face(note.author, small: true), on_day(note.created_at)]
+    parts = [member_link(note.author), on_day(note.created_at)]
     parts << "edited" if note.edited?
     safe_join(parts, " · ")
   end
@@ -1180,9 +1193,9 @@ module FdHelper
   end
 
   def case_status_chip(kase)
-    return tag.span(kase.resolution.tr("_", " "), class: "state state-off") if kase.resolved?
+    return tag.span(kase.resolution.tr("_", " ").upcase_first, class: "state state-off") if kase.resolved?
 
-    tag.span("open", class: "state state-crit")
+    tag.span("Open", class: "state state-crit")
   end
 
   ACTION_LABELS = Fd::Action::LABELS
@@ -1215,22 +1228,22 @@ module FdHelper
   end
 
   def action_state_chip(action)
-    return tag.span("reversed", class: "chip chip-off") if action.reversed?
-    return tag.span("expired #{Fd::ShortDate.ending(action.expires_at)}", class: "chip chip-off") if action.expired?
+    return tag.span("Reversed", class: "chip chip-off") if action.reversed?
+    return tag.span("Expired #{Fd::ShortDate.ending(action.expires_at)}", class: "chip chip-off") if action.expired?
 
     return nil unless action.expires?
 
     remaining = case_age_label(action.expires_at - Time.current)
-    tag.span("in force, #{remaining} left", class: "chip chip-warn")
+    tag.span("In force, #{remaining} left", class: "chip chip-warn")
   end
 
   def action_sentence(action)
     channel = action.details["channel_id"]
-    parts = action.targets_member? ? ["On ", member_face(action.target_user_id, small: true)] : ["On a thread"]
+    parts = action.targets_member? ? ["On ", member_link(action.target_user_id)] : ["On a thread"]
     parts << " in #{channel_label(channel)}" if channel.present?
     parts << ", until #{Fd::ShortDate.ending(action.expires_at)}" if action.expires?
     parts << ". Set by "
-    parts << member_face(action.decided_by, small: true)
+    parts << member_link(action.decided_by)
     parts << " on #{on_day(action.performed_at)}."
     safe_join(parts)
   end
@@ -1381,7 +1394,7 @@ module FdHelper
     case row.kind
     when "case" then link_to row.about, fd_case_path(row.id), class: "lnk"
     when "capability" then row.about
-    else member_face(row.id, small: true)
+    else member_link(row.id)
     end
   end
 
@@ -1464,13 +1477,13 @@ module FdHelper
   end
 
   GUARD_ENFORCEMENT_CHIP = {
-    "held" => ["enforced", "state-good"],
-    "pending" => ["pending", "state-warn"],
-    "failed" => ["not enforced", "state-crit"]
+    "held" => ["Enforced", "state-good"],
+    "pending" => ["Pending", "state-warn"],
+    "failed" => ["Not enforced", "state-crit"]
   }.freeze
 
   def guard_enforcement_chip(guard)
-    return tag.span("by hand", class: "state") if guard.by_hand?
+    return tag.span("By hand", class: "state") if guard.by_hand?
 
     label, tone = GUARD_ENFORCEMENT_CHIP.fetch(guard.enforcement_status,
       [guard.enforcement_status, "state"])

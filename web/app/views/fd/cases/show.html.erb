@@ -3,12 +3,10 @@
   <span class="triad-id">#<%= @case.id %></span>
 <% end %>
 <% content_for :head_context do %>
-  <span class="triad-sep" aria-hidden="true">&middot;</span>
   <span class="queue-age <%= age_class(case_age_seconds(@case)) unless @case.resolved? %>">
     <%= @case.resolved? ? "closed" : case_age_label(case_age_seconds(@case)) %>
   </span>
   <% if @case.subject_user_ids.any? %>
-    <span class="triad-sep" aria-hidden="true">&middot;</span>
     <span class="triad-who"><%= subject_faces(@case) %></span>
   <% end %>
 <% end %>

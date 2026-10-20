@@ -121,7 +121,6 @@
   .queue-tags .tag-mark { @apply size-3; }
   .queue-tags-more { @apply flex-none tabular-nums; }
   .tagbar .pill { gap: 2px; }
-  .tag-actions { @apply flex items-center justify-end gap-2; }
   .tag-link { @apply text-foreground no-underline underline-offset-4 hover:underline; }
   .tag-x {
     @apply inline-grid size-4 cursor-pointer place-items-center rounded-sm border-0 bg-transparent p-0 text-muted-foreground hover:bg-muted hover:text-foreground;
@@ -404,22 +403,8 @@
     color: var(--ink);
   }
   .chat-input::placeholder { color: var(--ink-3); }
-  .chat-pill {
-    @apply inline-flex flex-none items-center gap-1 self-center text-xs font-medium whitespace-nowrap text-primary;
-  }
-  .chat-pill[data-mode="team"] { @apply text-muted-foreground; }
-  .chat-pill-x {
-    display: inline-grid;
-    place-items: center;
-    width: 15px;
-    height: 15px;
-    border: 0;
-    border-radius: 50%;
-    background: none;
-    color: inherit;
-    padding: 0;
-  }
-  .chat-pill-x:hover { @apply text-foreground; }
+  .chat-mode { @apply h-7 flex-none self-center; }
+  .chat-mode > button { @apply cursor-pointer px-2 text-xs; }
   .chat-send {
     width: var(--chat-ctl);
     height: var(--chat-ctl);
@@ -441,18 +426,16 @@
     max-width: 76ch;
   }
   .msg-flagged { padding: 6px 9px; margin: 0 -9px; border-radius: var(--r-ctl); background: var(--warn-soft); }
-  .msg[data-kind="them"], .msg[data-kind="us"] {
-    padding: 6px 9px;
-    margin: 0 -9px;
-    background: var(--primary-soft);
-    border-left: 3px solid var(--primary);
+  .msg[data-kind="them"], .msg[data-kind="us"], .msg[data-kind="action"] {
+    padding: 8px 12px 8px 10px;
+    margin: 2px -12px;
+    border-left: 2px solid var(--primary);
+    border-radius: 0 var(--r-ctl) var(--r-ctl) 0;
+    background: color-mix(in oklab, var(--foreground) 2.5%, transparent);
   }
-  .msg[data-kind="action"] {
-    padding: 6px 9px;
-    margin: 0 -9px;
-    background: var(--info-soft);
-    border-left: 3px solid var(--info);
-  }
+  .msg[data-kind="action"] { border-left-color: var(--info); }
+  .msg-kind { @apply text-xs font-medium text-primary; }
+  .msg-kind-action { @apply text-info; }
   .echo-card { display: flex; flex-direction: column; gap: 4px; }
   .echo-head { margin: 0; font-size: var(--t-body); font-weight: 650; color: var(--ink); }
   .echo-meta { font-size: var(--t-small); color: var(--ink-3); }

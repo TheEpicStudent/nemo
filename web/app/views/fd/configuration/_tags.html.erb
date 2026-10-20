@@ -23,18 +23,21 @@
                 <td class="col-num"><%= tag.uses %></td>
                 <td><%= on_day(tag.last_used_at, none: "never") %></td>
                 <td>
-                  <%= member_face(tag.created_by, small: true) %>
+                  <%= member_link(tag.created_by) %>
                   <span class="sub2"><%= on_day(tag.created_at) %></span>
                 </td>
                 <td class="col-num">
-                  <div class="tag-actions">
-                    <%= opens_modal "app.configure", "Rename", opens: "rename-tag-#{tag.id}", css: "btn btn-sm" %>
-                    <%= opens_modal "app.configure", "Merge", opens: "merge-tag-#{tag.id}", css: "btn btn-sm" %>
+                  <%= render layout: "shared/dropdown", locals: {
+                        label: "#{tag.name} actions", trigger_css: "btn btn-ghost btn-only btn-sm",
+                        pop_css: "menu-compact", trigger: menu_dots } do %>
+                    <%= opens_modal "app.configure", "Rename", opens: "rename-tag-#{tag.id}", css: "btn" %>
+                    <%= opens_modal "app.configure", "Merge", opens: "merge-tag-#{tag.id}", css: "btn" %>
                     <% if tag.uses.zero? %>
+                      <hr class="menu-sep">
                       <%= button_to "Remove", fd_tag_path(tag), method: :delete,
-                            class: "btn btn-sm btn-danger", form: { class: "contents" } %>
+                            class: "btn btn-danger", form: { class: "contents" } %>
                     <% end %>
-                  </div>
+                  <% end %>
                 </td>
               </tr>
             <% end %>

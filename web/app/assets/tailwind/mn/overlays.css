@@ -90,7 +90,7 @@
   .palette-input > .palette-icon { @apply size-4 opacity-50; }
   .scope { @apply flex-none rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground; }
   .palette-list {
-    @apply min-h-0 flex-1 scroll-py-1 overflow-y-auto p-1 outline-none;
+    @apply relative min-h-0 flex-1 scroll-py-1 overflow-y-auto p-1 outline-none;
     scrollbar-width: none;
   }
   .palette-group {
@@ -99,8 +99,17 @@
   .palette-group > .expand { @apply ml-auto font-normal tabular-nums; }
   .palette-group:only-child { @apply justify-center py-6 text-sm font-normal text-foreground; }
   .palette-row {
-    @apply relative flex min-w-0 cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-foreground no-underline outline-hidden select-none;
+    @apply relative z-1 flex min-w-0 cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-foreground no-underline outline-hidden select-none;
   }
+  .palette-glide {
+    @apply pointer-events-none absolute inset-x-1 top-0 z-0 rounded-lg bg-muted;
+  }
+  .palette-glide.is-ready {
+    transition: transform 70ms var(--ease-out), height 70ms var(--ease-out);
+  }
+  .palette-row .highlight { @apply rounded-none bg-transparent p-0 font-medium text-primary; }
+  .pal-go { @apply ml-auto hidden flex-none; }
+  .palette-row[aria-selected="true"] > .pal-go { @apply inline-flex; }
   .palette-row > .palette-icon {
     @apply inline-grid w-4 flex-none place-items-center text-muted-foreground [&_svg:not([class*='size-'])]:size-4;
   }
@@ -113,7 +122,7 @@
   .pal-what > .sub { @apply truncate text-xs text-muted-foreground; }
   .pal-what > .line2 { @apply col-span-full truncate text-xs text-muted-foreground; }
   .palette-row:hover, .palette-row[aria-selected="true"] {
-    @apply bg-muted text-foreground no-underline;
+    @apply text-foreground no-underline;
   }
   .palette-row:is(:hover, [aria-selected="true"]) > .palette-icon { @apply text-foreground; }
   .palette-row.off { @apply cursor-not-allowed; }
@@ -226,6 +235,28 @@
     color: var(--ink-4);
   }
   .flash-close:hover { background: var(--hover); color: var(--ink); }
+  .flash-undo { @apply flex-none self-center; }
+
+  @media (min-width: 900px) {
+    [data-section="fd"] .topbar-msgs {
+      @apply right-5 bottom-5 left-auto grid translate-0 justify-items-end;
+    }
+    [data-section="fd"] .topbar-msgs > .topbar-msg {
+      @apply w-90 max-w-[calc(100vw-2.5rem)];
+      grid-area: 1 / 1;
+      transition: opacity var(--dur-3) var(--ease), translate var(--dur-3) var(--ease), scale var(--dur-3) var(--ease);
+    }
+    [data-section="fd"] .topbar-msgs > .topbar-msg:nth-last-child(2):not(.is-leaving) {
+      translate: 0 -12px;
+      scale: 0.95;
+      opacity: 0.7;
+    }
+    [data-section="fd"] .topbar-msgs > .topbar-msg:nth-last-child(n+3):not(.is-leaving) {
+      translate: 0 -24px;
+      scale: 0.9;
+      opacity: 0;
+    }
+  }
 
   .datepicker-pop[popover] { padding: var(--s-2xs); min-width: 250px; }
   .datepicker-head { display: flex; align-items: center; gap: var(--s-2xs); padding: 2px 4px 8px; }

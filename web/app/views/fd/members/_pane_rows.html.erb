@@ -19,19 +19,19 @@
       <%= member_context&.cohort_at ? "joined #{member_context.cohort_at.to_date.strftime('%b %Y')}" : "join date n/a" %>
     </span>
 
-    <span class="queue-meta">
-      <% if row.cases.positive? %>
-        <span class="chip chip-warn"><%= pluralize(row.cases, "case") %></span>
-      <% end %>
-      <% if row.in_force.positive? %>
-        <span class="state state-crit"><%= row.in_force == 1 ? "in force" : "#{row.in_force} in force" %></span>
-      <% elsif row.open_cases.positive? %>
-        <span class="state state-warn">Open case</span>
-      <% elsif row.cases.zero? %>
-        <span class="state state-good">Clear</span>
-      <% end %>
-      <%= role_chip(grant.name) if grant %>
-    </span>
+    <% if row.cases.positive? || row.in_force.positive? || row.open_cases.positive? || grant %>
+      <span class="queue-meta">
+        <% if row.cases.positive? %>
+          <span class="chip chip-warn"><%= pluralize(row.cases, "case") %></span>
+        <% end %>
+        <% if row.in_force.positive? %>
+          <span class="state state-crit"><%= row.in_force == 1 ? "In force" : "#{row.in_force} in force" %></span>
+        <% elsif row.open_cases.positive? %>
+          <span class="state state-warn">Open case</span>
+        <% end %>
+        <%= role_chip(grant.name) if grant %>
+      </span>
+    <% end %>
   <% end %>
 <% end %>
 <% if local_assigns[:more].present? %>

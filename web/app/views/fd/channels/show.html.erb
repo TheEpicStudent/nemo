@@ -2,7 +2,6 @@
 <% label = name ? "##{name}" : @channel_id %>
 <% content_for :page_title, label %>
 <% content_for :head_context do %>
-  <span class="triad-sep">&middot;</span>
   <span class="triad-who mono"><%= @channel_id %></span>
 <% end %>
 <% content_for :head_actions do %>
@@ -21,10 +20,14 @@
 
 <% membership_warning = channel_membership_label(@nemo_inside, @standing) %>
 <% if membership_warning %>
-  <div class="toolbar">
+  <div class="lede lede-crit">
+    <svg class="lede-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/>
+    </svg>
     <%= membership_warning %>
     <% if offers_nemo_join?(@channel_id, @standing) %>
-      <div class="toolbar-end">
+      <div class="lede-do">
         <%= button_to "Join channel", fd_channel_join_path(@channel_id), params: { tab: @tab },
               class: "btn btn-sm", form: { class: "contents" },
               data: { turbo_submits_with: "Joining" } %>

@@ -86,7 +86,7 @@ class FdChannelPurgeTest < ActionDispatch::IntegrationTest
     get fd_channel_path(@id, tab: "purge")
 
     assert_match(/a raid/, response.body)
-    assert_match(/done/, response.body)
+    assert_match(/Done/, response.body)
     assert_match(/8 purged/, response.body)
   end
 
@@ -246,7 +246,7 @@ class FdChannelPurgeTest < ActionDispatch::IntegrationTest
     get fd_channel_path(@id, tab: "purge")
 
     assert_response :success
-    assert_no_match(/not confirmed/, response.body)
+    assert_no_match(/Not confirmed/, response.body)
   end
 
   test "purge tab renders failed state and the error" do
@@ -255,7 +255,7 @@ class FdChannelPurgeTest < ActionDispatch::IntegrationTest
       error: "the admin account is not in the channel")
     get fd_channel_path(@id, tab: "purge")
 
-    assert_match(/failed/, response.body)
+    assert_match(/Failed/, response.body)
     assert_match(/admin account is not in/, response.body)
   end
 
@@ -322,6 +322,15 @@ class FdChannelPurgeTest < ActionDispatch::IntegrationTest
     assert_match(/the raid/, response.body)
     assert_match(/Purged/, response.body)
     assert_no_match(/purgeds/, response.body)
+  end
+
+  test "purge show renders one avatar per purged message" do
+    one = finished_purge([{ "ts" => "1700000000.000100", "thread_ts" => nil,
+                       "user" => "USUB", "text" => "the raid" }])
+    get fd_channel_purge_path(@id, one)
+
+    assert_select ".msg", 1
+    assert_select ".msg img[data-cachet-face], .msg .row-avatar, .msg .avatar", 1
   end
 
   test "purge show marks the Channels nav link current" do

@@ -17,7 +17,7 @@ module AuditHelper
     "bookmark" => ["M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"]
   }.freeze
   FIRST_DAY = Fd::AuditQuery::FIRST_DAY
-  CHEVRON = "m6 9 6 6 6-6".freeze
+  FACET_ICON = ["M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0", "M8 12h8", "M12 8v8"].freeze
 
   def audit_stamp(time)
     local = time.in_time_zone
@@ -50,10 +50,11 @@ module AuditHelper
 
   def audit_filter_trigger(key, value)
     safe_join([
+      tag.svg(safe_join(FACET_ICON.map { |path| tag.path(d: path) }), class: "filter-icon", width: 14, height: 14,
+        viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2,
+        "stroke-linecap": "round", "aria-hidden": true),
       tag.span(key, class: "filter-key"),
-      (tag.span(value, class: "filter-val") if value.present?),
-      tag.svg(tag.path(d: CHEVRON), width: 11, height: 11, viewBox: "0 0 24 24", fill: "none",
-        stroke: "currentColor", "stroke-width": 2.5, "aria-hidden": true)
+      (tag.span(value, class: "filter-val") if value.present?)
     ].compact)
   end
 

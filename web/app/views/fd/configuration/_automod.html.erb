@@ -22,16 +22,18 @@
           <tbody>
             <% words.each do |word| %>
               <tr>
-                <td><span class="masked mono"><%= word.word %></span></td>
+                <td>
+                  <span class="masked mono" tabindex="0" data-controller="scramble"
+                        data-action="mouseenter->scramble#reveal focus->scramble#reveal"><%= word.word %></span>
+                </td>
                 <td><%= automod_mode_chip(word) %></td>
                 <td><%= word.category_key.present? ? category_label(word.category_key) : "n/a" %></td>
                 <td>
-                  <%= member_face(word.added_by, small: true) %>
+                  <%= member_link(word.added_by) %>
                   <span class="sub2"><%= on_day(word.added_at) %></span>
                 </td>
                 <td class="col-num">
-                  <%= button_to "Remove", fd_automod_word_path(word),
-                        method: :delete, class: "btn btn-sm btn-danger" %>
+                  <%= render "fd/configuration/remove_step", label: "Remove word", path: fd_automod_word_path(word) %>
                 </td>
               </tr>
             <% end %>
@@ -58,7 +60,7 @@
               <b class="masked"><%= match.word %></b>
               <span class="sub"><%= match.body.presence || "No text" %></span>
               <span class="sub">
-                <%= member_face(match.user_id, small: true) %> ·
+                <%= member_link(match.user_id) %> ·
                 <%= channel_link(match.channel_id, permalink: match.permalink) %> ·
                 <%= clock_stamp(match.at) %>
               </span>
@@ -86,7 +88,7 @@
               <tr>
                 <td><span class="masked mono"><%= word.word %></span></td>
                 <td>
-                  <%= member_face(word.retired_by, small: true) %>
+                  <%= member_link(word.retired_by) %>
                   <span class="sub2"><%= on_day(word.retired_at) %></span>
                 </td>
               </tr>

@@ -12,9 +12,9 @@
             <td><%= guard_label(kind) %></td>
             <td>
               <% if guard %>
-                <span class="state state-good">on</span>
+                <span class="state state-good">On</span>
               <% else %>
-                <span class="state state-off">off</span>
+                <span class="state state-off">Off</span>
               <% end %>
             </td>
             <td><%= guard ? channel_guard_why(guard) : "n/a" %></td>

@@ -1,0 +1,17 @@
+<span class="confirm-step" data-controller="confirm-step" data-action="keydown.esc->confirm-step#cancel">
+  <button type="button" class="btn btn-ghost btn-only btn-sm confirm-step-start" aria-label="<%= label %>"
+          data-confirm-step-target="start" data-action="confirm-step#ask">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+    </svg>
+  </button>
+  <span class="confirm-step-ask" data-confirm-step-target="ask" hidden>
+    <button type="button" class="btn btn-ghost btn-only btn-sm" aria-label="Cancel" data-action="confirm-step#cancel">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </button>
+    <%= button_to label, path, method: :delete, class: "btn btn-sm btn-crit", form: { class: "contents" },
+          data: { confirm_step_target: "go" } %>
+  </span>
+</span>

@@ -68,7 +68,7 @@ module Fd
       related = @context.visible_related
       @names = Names.for([@row.actor_id, @row.subject_id, @row.entity_id].compact + member_ids_in(related))
       @channels = ChannelNames.for([@row.entity_ref, @row.entity_id, @row.channel].compact + channel_ids(related))
-      render layout: false
+      render layout: turbo_frame_request? ? false : "application"
     end
 
     private

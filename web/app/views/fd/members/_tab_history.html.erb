@@ -16,15 +16,12 @@
                   <b><%= entry.title %></b>
                 <% end %>
               </div>
-              <% if entry.body.present? %>
-                <p class="member-event-body"><%= mentioned(entry.body) %></p>
-              <% else %>
-                <% event_detail = [entry.state, entry.detail].reject(&:blank?).join(" · ") %>
-                <% if event_detail.present? %><p class="member-event-body"><%= named_text(event_detail) %></p><% end %>
+              <% event_detail = [entry.state, entry.detail].reject(&:blank?).join(" · ") %>
+              <% event_text = entry.body.present? ? mentioned(entry.body) : named_text(event_detail).presence %>
+              <% event_line = [event_text, member_event_byline(entry)].compact %>
+              <% if event_line.any? %>
+                <p class="member-event-body"><%= safe_join(event_line, " · ") %></p>
               <% end %>
-              <span class="member-event-by">
-                <%= entry.who ? member_face(entry.who) : "n/a" %>
-              </span>
             </div>
             <span class="evrow-right">
               <span class="evwhen"><%= entry.at.strftime("%-d %b") %></span>

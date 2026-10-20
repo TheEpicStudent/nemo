@@ -17,39 +17,50 @@
             <th class="col-num"></th>
           </tr>
         </thead>
-        <tbody>
+        <% sortable = current_account.may?("app.configure") %>
+        <tbody <%= tag.attributes(data: { controller: ("row-sort" if sortable) }) %>>
           <% categories.each_with_index do |category, index| %>
-            <tr>
+            <% movable = sortable && !category.retired? %>
+            <tr <%= tag.attributes(data: { row_sort_target: ("row" if movable),
+                      row_sort_url: (move_fd_infraction_category_path(category) if movable) }) %>>
               <td>
+                <% if movable %>
+                  <span class="drag-handle" aria-hidden="true" data-action="pointerdown->row-sort#grab">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                      <circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/>
+                      <circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/>
+                    </svg>
+                  </span>
+                <% end %>
                 <%= category.label %>
                 <% if category.retired? %><span class="sub2">Retired</span><% end %>
               </td>
               <td class="mono"><%= category.key %></td>
               <td class="col-num"><%= link_to cases.fetch(category.key, 0), fd_cases_path(category: category.key) %></td>
               <td class="col-num">
-                <div class="tag-actions">
+                <%= render layout: "shared/dropdown", locals: {
+                      label: "#{category.label} actions", trigger_css: "btn btn-ghost btn-only btn-sm",
+                      pop_css: "menu-compact", trigger: menu_dots } do %>
                   <% unless category.retired? %>
                     <% if index.positive? %>
-                      <%= gated_button("app.configure", "Up",
-                            move_fd_infraction_category_path(category, direction: "up"),
-                            css: "btn btn-sm", method: :post) %>
+                      <%= gated_button("app.configure", "Move up",
+                            move_fd_infraction_category_path(category, direction: "up"), css: "btn", method: :post) %>
                     <% end %>
                     <% if index < active_count - 1 %>
-                      <%= gated_button("app.configure", "Down",
-                            move_fd_infraction_category_path(category, direction: "down"),
-                            css: "btn btn-sm", method: :post) %>
+                      <%= gated_button("app.configure", "Move down",
+                            move_fd_infraction_category_path(category, direction: "down"), css: "btn", method: :post) %>
                     <% end %>
                   <% end %>
-                  <%= opens_modal "app.configure", "Rename", opens: "rename-category-#{category.key}",
-                        css: "btn btn-sm" %>
+                  <%= opens_modal "app.configure", "Rename", opens: "rename-category-#{category.key}", css: "btn" %>
                   <% if category.retired? %>
                     <%= gated_button("app.configure", "Restore", restore_fd_infraction_category_path(category),
-                          css: "btn btn-sm", method: :post) %>
+                          css: "btn", method: :post) %>
                   <% else %>
+                    <hr class="menu-sep">
                     <%= gated_button("app.configure", "Retire", retire_fd_infraction_category_path(category),
-                          css: "btn btn-sm btn-danger", method: :post) %>
+                          css: "btn btn-danger", method: :post) %>
                   <% end %>
-                </div>
+                <% end %>
               </td>
             </tr>
           <% end %>

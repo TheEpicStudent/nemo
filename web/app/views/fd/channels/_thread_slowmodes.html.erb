@@ -10,7 +10,7 @@
           <b>
             <%= link_to thread_started(guard), slack_thread_url(guard.channel_id, guard.thread_ts),
                   target: "_blank", rel: "noopener" %>
-            &middot; set by <%= member_face(guard.opened_by, small: true) %>
+            &middot; set by <%= member_link(guard.opened_by) %>
           </b>
           <span title="<%= thread_slowmode_line(guard) %>"><%= thread_slowmode_line(guard) %></span>
         </span>
