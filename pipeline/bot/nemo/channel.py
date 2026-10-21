@@ -152,8 +152,10 @@ def digest_of(blocks, mark=None):
 OPEN_MARK = "hourglass_flowing_sand"
 MERGED_MARK = "repeat"
 DONE_MARK = "white_check_mark"
-CARD_MARKS = (OPEN_MARK, MERGED_MARK, DONE_MARK, "check")
-NOT_CONDUCT_MARKS = ("x", "heavy_multiplication_x", "negative_squared_cross_mark")
+NOT_CONDUCT_MARK = "x"
+CARD_MARKS = (OPEN_MARK, MERGED_MARK, DONE_MARK, NOT_CONDUCT_MARK, "check")
+CLOSED_MARKS = (DONE_MARK, NOT_CONDUCT_MARK)
+NOT_CONDUCT_MARKS = (NOT_CONDUCT_MARK, "heavy_multiplication_x", "negative_squared_cross_mark")
 RESOLVE_REACTIONS = ("white_check_mark", "heavy_check_mark", "ballot_box_with_check", "white_tick", "check")
 RESOLVE_REACTION_PREFIX = "check-"
 IGNORED_REACTION_ERRORS = ("already_reacted", "no_reaction")
@@ -173,7 +175,9 @@ def has_legacy_digest(stored):
 def card_mark(case):
     if not case.get("resolved_at"):
         return OPEN_MARK
-    return MERGED_MARK if case.get("resolution") == "duplicate" else DONE_MARK
+    if case.get("resolution") == "duplicate":
+        return MERGED_MARK
+    return NOT_CONDUCT_MARK if case.get("resolution") == "not_conduct" else DONE_MARK
 
 
 def reaction_base_name(name):
@@ -201,7 +205,7 @@ def has_human_close_reaction(client, channel_id, ts, bot_user_id):
 
 
 def mark_to_add(client, channel_id, ts, target_mark):
-    if target_mark != DONE_MARK:
+    if target_mark not in CLOSED_MARKS:
         return target_mark
     try:
         closed_by_reaction = has_human_close_reaction(

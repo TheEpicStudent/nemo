@@ -51,7 +51,8 @@ def test_card_mark_reflects_case_state():
     assert channel.card_mark({}) == "hourglass_flowing_sand"
     assert channel.card_mark({"resolved_at": "x", "resolution": "duplicate"}) == "repeat"
     assert channel.card_mark({"resolved_at": "x", "resolution": "no_action"}) == "white_check_mark"
-    assert channel.card_mark({"resolved_at": "x", "resolution": "not_conduct"}) == "white_check_mark"
+    assert channel.card_mark({"resolved_at": "x", "resolution": "action_taken"}) == "white_check_mark"
+    assert channel.card_mark({"resolved_at": "x", "resolution": "not_conduct"}) == "x"
 
 
 def test_mark_card_new_card_adds_reaction_only():
@@ -69,8 +70,17 @@ def test_mark_card_resolved_case_removes_stale_reactions():
     channel.mark_card(slack, CHANNEL_ID, CARD, {"resolved_at": "x", "resolution": "duplicate"})
 
     assert [kwargs["name"] for kwargs in slack.calls_to("reactions_remove")] == [
-        "hourglass_flowing_sand", "white_check_mark", "check"]
+        "hourglass_flowing_sand", "white_check_mark", "x", "check"]
     assert [kwargs["name"] for kwargs in slack.calls_to("reactions_add")] == ["repeat"]
+
+
+def test_mark_card_reopened_not_conduct_case_removes_x():
+    slack = Slack()
+
+    channel.mark_card(slack, CHANNEL_ID, CARD, {})
+
+    assert "x" in [kwargs["name"] for kwargs in slack.calls_to("reactions_remove")]
+    assert [kwargs["name"] for kwargs in slack.calls_to("reactions_add")] == ["hourglass_flowing_sand"]
 
 
 class ReactionsSlack(Slack):
@@ -104,12 +114,20 @@ def test_mark_card_with_human_close_reaction_does_not_add_check(nemo_bot_user, r
     [{"name": "white_check_mark", "users": [BOT], "count": 1}],
     [{"name": "eyes", "users": ["UME"], "count": 1}],
 ])
-def test_mark_card_without_human_close_reaction_adds_check(nemo_bot_user, reactions):
+def test_mark_card_without_human_close_reaction_adds_x_for_not_conduct(nemo_bot_user, reactions):
     slack = ReactionsSlack(reactions)
 
     channel.mark_card(slack, CHANNEL_ID, CARD, {"resolved_at": "x", "resolution": "not_conduct"})
 
-    assert [kwargs["name"] for kwargs in slack.calls_to("reactions_add")] == ["white_check_mark"]
+    assert [kwargs["name"] for kwargs in slack.calls_to("reactions_add")] == ["x"]
+
+
+def test_mark_root_not_conduct_adds_x(nemo_bot_user):
+    slack = ReactionsSlack([])
+
+    channel.mark_root(slack, CHANNEL_ID, "90.000", CARD, {"resolved_at": "x", "resolution": "not_conduct"})
+
+    assert slack.calls_to("reactions_add") == [{"channel": CHANNEL_ID, "timestamp": "90.000", "name": "x"}]
 
 
 def test_mark_root_with_human_check_does_not_add_check(nemo_bot_user):
