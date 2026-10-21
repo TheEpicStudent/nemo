@@ -112,3 +112,106 @@ def test_log_action_resolvers_default_to_the_logger(monkeypatch):
     args = conn.args_for("INSERT INTO fd.actions")[0]
     assert [MOD] in args
     assert args[9] is None
+
+
+def test_resolve_tick_dispatches_so_the_modal_can_change():
+    built = action.build_blocks(CASE_ID, submission())
+    assert block(built, action.RESOLVE)["dispatch_action"] is True
+
+
+def test_resolve_ticked_without_open_report_adds_no_notify_fields():
+    built = action.build_blocks(CASE_ID, submission(resolve_case=True), open_report=False)
+    block_ids = {one.get("block_id") for one in built}
+    assert action.NOTIFY not in block_ids
+    assert action.MESSAGE not in block_ids
+
+
+def test_resolve_ticked_with_open_report_adds_notify_ticked_and_default_message():
+    built = action.build_blocks(CASE_ID, submission(resolve_case=True), open_report=True)
+    notify = block(built, action.NOTIFY)
+    assert notify["label"]["text"] == "Notify the reporter"
+    assert notify["element"]["initial_options"] == [action.NOTIFY_OPTION]
+    message = block(built, action.MESSAGE)
+    assert message["label"]["text"] == "Message to reporter"
+    assert message["element"]["initial_value"] == action.resolve.default_message()
+
+
+def test_notify_unticked_hides_the_message():
+    built = action.build_blocks(
+        CASE_ID, submission(resolve_case=True, notify_reporter=False), open_report=True
+    )
+    assert "initial_options" not in block(built, action.NOTIFY)["element"]
+    assert action.MESSAGE not in {one.get("block_id") for one in built}
+
+
+def test_notify_fields_hidden_until_resolve_is_ticked():
+    built = action.build_blocks(CASE_ID, submission(), open_report=True)
+    assert action.NOTIFY not in {one.get("block_id") for one in built}
+
+
+def test_submitted_values_notify_defaults_on_until_the_tick_is_shown():
+    assert action.submitted_values({"values": {}})["notify_reporter"] is True
+    values = action.submitted_values({"values": {
+        action.NOTIFY: {action.NOTIFY: {"selected_options": []}},
+        action.MESSAGE: {action.MESSAGE: {"value": "  thanks  "}},
+    }})
+    assert values["notify_reporter"] is False
+    assert values["message"] == "thanks"
+
+
+def test_requires_refresh_when_resolve_ticked_on_a_reported_case_without_notify_field():
+    values = submission(resolve_case=True)
+    assert action.requires_refresh(values, {action.RESOLVE}, None, open_report=True)
+    assert not action.requires_refresh(values, {action.RESOLVE, action.NOTIFY}, None, open_report=True)
+    assert not action.requires_refresh(values, {action.RESOLVE}, None, open_report=False)
+
+
+def test_resolve_with_action_skips_when_not_ticked():
+    assert case_actions.resolve_with_action(Conn(None), CASE_ID, submission(), MOD) is None
+
+
+def test_resolve_with_action_notifies_reporter_with_the_message(monkeypatch):
+    calls = []
+    monkeypatch.setattr(case_actions, "resolve_and_notify",
+                        lambda conn, case_id, message, by: calls.append((case_id, message, by)) or ("action_taken", 1))
+    resolution = case_actions.resolve_with_action(
+        Conn((1,)), CASE_ID, submission(resolve_case=True, notify_reporter=True, message="all done"), MOD
+    )
+    assert resolution == "action_taken"
+    assert calls == [(CASE_ID, "all done", MOD)]
+
+
+def test_resolve_with_action_uses_default_message_when_blank(monkeypatch):
+    calls = []
+    monkeypatch.setattr(case_actions, "resolve_and_notify",
+                        lambda conn, case_id, message, by: calls.append(message) or ("action_taken", 1))
+    case_actions.resolve_with_action(
+        Conn((1,)), CASE_ID, submission(resolve_case=True, notify_reporter=True, message=None), MOD
+    )
+    assert calls == [action.resolve.default_message()]
+
+
+def refuse_notify(*args):
+    raise AssertionError("must not notify")
+
+
+def test_resolve_with_action_without_notify_closes_without_notice(monkeypatch):
+    calls = []
+    monkeypatch.setattr(case_actions, "close_without_notice",
+                        lambda conn, case_id, resolution, by: calls.append((case_id, by)) or "action_taken")
+    monkeypatch.setattr(case_actions, "resolve_and_notify", refuse_notify)
+    resolution = case_actions.resolve_with_action(
+        Conn((1,)), CASE_ID, submission(resolve_case=True, notify_reporter=False), MOD
+    )
+    assert resolution == "action_taken"
+    assert calls == [(CASE_ID, MOD)]
+
+
+def test_resolve_with_action_without_open_report_closes_without_notice(monkeypatch):
+    calls = []
+    monkeypatch.setattr(case_actions, "close_without_notice",
+                        lambda conn, case_id, resolution, by: calls.append(case_id) or "action_taken")
+    case_actions.resolve_with_action(
+        Conn(None), CASE_ID, submission(resolve_case=True, notify_reporter=True), MOD
+    )
+    assert calls == [CASE_ID]

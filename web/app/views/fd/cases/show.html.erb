@@ -293,6 +293,7 @@
       <%= render "action_fields", kase: @case, names: names,
               standing: @action_standing, thread_locks: @thread_locks,
               guards_logged: @guards_logged, locks_logged: @locks_logged,
+              open_reports: @open_reports,
               target: @people.selected&.user_id || sole_subject_id(@case) %>
 
     </div>

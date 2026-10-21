@@ -1,5 +1,7 @@
 module Fd
   class ResolutionsController < BaseController
+    include ClosesReports
+
     permit "case.resolve", on: -> { Case.find(params[:case_id]) }, only: :create
     permit "case.reopen", on: -> { Case.find(params[:case_id]) }, only: :destroy
 
@@ -15,7 +17,7 @@ module Fd
         next unless mark_resolved(resolution)
 
         resolved = true
-        close_reports if notify_reporter?
+        close_reports(@case, @now) if notify_reporter?
         @case.reload
         audit(@case, "resolved",
           before: { "resolved_at" => nil, "resolution" => nil },
@@ -62,28 +64,8 @@ module Fd
       Case::CLOSE_REASONS.include?(reason) ? reason : nil
     end
 
-    def notify_reporter?
-      params[:notify_reporter] == "1"
-    end
-
-    def reporter_message
-      message = params[:member_message].to_s.strip
-      message.presence || Resolution::DEFAULT_MESSAGE
-    end
-
     def mark_resolved(resolution)
       @case.mark_resolved!(resolution, at: @now, member_note: params[:member_note].presence)
-    end
-
-    def close_reports
-      message = reporter_message
-
-      CaseReport.where(case_id: @case.family_ids, closed_at: nil).find_each do |report|
-        report.update!(closed_at: @now, closed_by: current_account.user_id)
-        audit(report, "closed", entity_id: @case.id,
-          before: { "closed_at" => nil }, after: { "closed_at" => @now })
-        queue(report, message)
-      end
     end
 
     def reopen_reports
@@ -93,14 +75,6 @@ module Fd
         audit(report, "reopened", entity_id: @case.id,
           before: previous_closure, after: { "closed_at" => nil, "closed_by" => nil })
       end
-    end
-
-    def queue(report, message)
-      conversation = IntakeConversation.find_by(report_id: report.id, closed_at: nil)
-      return if conversation.nil?
-
-      IntakeOutbox.create!(conversation_id: conversation.id, kind: "outcome", body: message,
-        requested_by: current_account.user_id)
     end
 
     def redirect_with_alert(message)

@@ -58,3 +58,17 @@
     <span class="opt-label">Resolve Case?</span>
   </span>
 </label>
+
+<% if open_reports.positive? %>
+  <label class="opt only only-resolving">
+    <%= check_box_tag :notify_reporter, "1", true, class: "tick", id: nil %>
+    <span>
+      <span class="opt-label">Notify the reporter</span>
+    </span>
+  </label>
+  <label class="field-label only only-resolving only-notifying">
+    Message to reporter
+    <%= text_area_tag :member_message, Fd::Resolution::DEFAULT_MESSAGE, rows: 3,
+          class: "textarea", id: nil, maxlength: Fd::IntakeOutbox::MAX_LENGTH %>
+  </label>
+<% end %>

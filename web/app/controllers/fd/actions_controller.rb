@@ -1,6 +1,7 @@
 module Fd
   class ActionsController < BaseController
     include LogsActions
+    include ClosesReports
 
     permit "case.act", on: -> { Case.find(params[:case_id]) }
 
@@ -32,7 +33,10 @@ module Fd
           enforce(kase, action)
           echo = ActionEcho.write!(kase, action, by: current_account.user_id)
         end
-        resolved = resolve_case(kase) if resolve_case?
+        if resolve_case?
+          resolved = resolve_case(kase)
+          close_reports(kase, Time.current) if resolved && notify_reporter?
+        end
       end
       SlackPost.post_to_thread(echo) if echo&.mirrored_as == "user"
 

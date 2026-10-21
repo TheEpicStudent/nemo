@@ -4,11 +4,12 @@ from bot.core import access, outbox, session
 from bot.nemo import answer, views, chat, memberguards, profile, surface, thread_commands
 from bot.nemo.case_actions import (
     CASE_CATEGORY,
-    close_without_notice,
+    has_open_report,
     mark_resolution_log_pending,
     log_action,
     merge,
     resolve_and_notify,
+    resolve_with_action,
 )
 from bot.nemo.surface.reaction_watch import after_resolve
 from bot.nemo.channel import (
@@ -65,18 +66,22 @@ def register(app, on_reply=None):
         values = views.action.submitted_values(submitted_view["state"])
         with session() as conn:
             guard_status = guard_status_for(conn, case_id, values)
+            open_report = has_open_report(conn, case_id)
 
         try:
             client.views_update(
                 view_id=submitted_view["id"],
                 hash=submitted_view["hash"],
-                view=views.action.build_view(case_id, values=values, guard_status=guard_status),
+                view=views.action.build_view(case_id, values=values, guard_status=guard_status,
+                                             open_report=open_report),
             )
         except Exception as failure:
             log.warning("nemo: could not reshape the action modal: %s", failure)
 
-    for where in (views.action.KIND, views.action.TARGET, views.action.WHERE):
+    for where in (views.action.KIND, views.action.TARGET, views.action.WHERE, views.action.RESOLVE,
+                  views.action.NOTIFY):
         app.action(where)(reshape_action_modal)
+
 
     @app.view(views.action.CALLBACK)
     def on_action_logged(ack, body, view, client):
@@ -87,12 +92,14 @@ def register(app, on_reply=None):
 
         with session() as conn:
             guard_status = guard_status_for(conn, case_id, values)
+            open_report = has_open_report(conn, case_id)
 
         block_ids = {block.get("block_id") for block in view.get("blocks", [])}
-        if views.action.requires_refresh(values, block_ids, guard_status):
+        if views.action.requires_refresh(values, block_ids, guard_status, open_report):
             return ack(
                 response_action="update",
-                view=views.action.build_view(case_id, values=values, guard_status=guard_status),
+                view=views.action.build_view(case_id, values=values, guard_status=guard_status,
+                                             open_report=open_report),
             )
 
         errors = views.action.validation_errors(values)
@@ -100,7 +107,7 @@ def register(app, on_reply=None):
             return ack(
                 response_action="update",
                 view=views.action.build_view(case_id, values=values, guard_status=guard_status,
-                                             end_error=errors[views.action.UNTIL]),
+                                             end_error=errors[views.action.UNTIL], open_report=open_report),
             )
         if errors:
             return ack(response_action="errors", errors=errors)
@@ -122,9 +129,7 @@ def register(app, on_reply=None):
             current_guard_status = guard_status_for(conn, case_id, values)
             action_id = log_action(conn, case_id, values, user_id)
             guard_id = memberguards.apply_enforcement(conn, action_id, values, current_guard_status, user_id)
-            resolution = (
-                close_without_notice(conn, case_id, None, user_id) if values["resolve_case"] else None
-            )
+            resolution = resolve_with_action(conn, case_id, values, user_id)
 
         ack()
         with session() as conn:

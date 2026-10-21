@@ -136,6 +136,15 @@ RETURNING id
 """
 
 
+OPEN_REPORT = """
+SELECT 1 FROM fd.case_reports WHERE case_id = %s AND closed_at IS NULL LIMIT 1
+"""
+
+
+def has_open_report(conn, case_id):
+    return conn.execute(OPEN_REPORT, (case_id,)).fetchone() is not None
+
+
 OPEN_CONVERSATION = """
 SELECT id FROM fd.intake_conversations WHERE report_id = %s AND closed_at IS NULL
 """
@@ -428,6 +437,16 @@ def resolve_and_notify(conn, case_id, message, by):
     if notified is not None:
         return final_resolution, notified
     return None, close_reports(conn, case_id, message, by)
+
+
+def resolve_with_action(conn, case_id, values, by):
+    if not values.get("resolve_case"):
+        return None
+    if values.get("notify_reporter") and has_open_report(conn, case_id):
+        message = values.get("message") or views.resolve.default_message()
+        resolution, _notified = resolve_and_notify(conn, case_id, message, by)
+        return resolution
+    return close_without_notice(conn, case_id, None, by)
 
 
 MARK_RESOLUTION_LOG = "UPDATE fd.cases SET resolution_echo_by = %s WHERE id = %s"

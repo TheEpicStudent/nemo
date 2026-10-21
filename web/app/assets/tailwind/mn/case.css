@@ -206,7 +206,8 @@
   .flag-mid .flag-icon { color: currentColor; }
 
   .only { transition: opacity var(--dur-2) var(--ease); }
-  .modal-body:has(#notify_reporter:not(:checked)) .only-notifying { display: none; }
+  .modal-body:has(input[name="notify_reporter"]:not(:checked)) .only-notifying { display: none; }
+  .modal-body:has(input[name="resolve_case"]:not(:checked)) .only-resolving { display: none; }
   .modal-body:has(.purge-kind-last:checked) .purge-member { display: none; }
   .modal-body:has(.purge-kind-member:checked) .purge-count { display: none; }
   .standing-slot:not(:has(turbo-frame > *)) { display: none; }

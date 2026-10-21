@@ -250,6 +250,17 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_not_includes @kase.reload.subject_user_ids, "UNEW"
   end
 
+  test "create deleted messages action stores a record with no guard" do
+    sign_in_as(@me)
+    log(type_key: "deleted_messages")
+
+    action = actions.sole
+    assert_equal "deleted_messages", action.type_key
+    assert_nil action.guard_id
+    assert_equal 0, Fd::MemberGuard.where(subject_id: "USUB").count
+    assert_equal "Deleted messages logged on case #{@kase.id}", flash[:notice]
+  end
+
   test "action form has the solution, resolvers and resolve case fields" do
     sign_in_as(@me)
     get fd_case_path(@kase, tab: "actions", do: "action")
@@ -299,6 +310,61 @@ class FdActionsTest < ActionDispatch::IntegrationTest
     assert_equal 0, actions.count
     assert_nil @kase.reload.resolved_at
     assert_equal "Not permitted to resolve cases", flash[:alert]
+  end
+
+  def open_report_with_conversation
+    report = Fd::CaseReport.create!(case_id: @kase.id, is_anonymous: true,
+      source_app: "relay", received_at: 2.days.ago)
+    conversation = Fd::IntakeConversation.create!(channel_id: "DREPORTER", thread_ts: "1.1",
+      report_id: report.id, handed_off_at: 2.days.ago)
+    [report, conversation]
+  end
+
+  test "action form shows notify the reporter under resolve case on a reported case" do
+    open_report_with_conversation
+    sign_in_as(@me)
+    get fd_case_path(@kase, tab: "actions", do: "action")
+
+    assert_select ".only-resolving input[type=checkbox][name=?][checked]", "notify_reporter"
+    assert_select ".only-resolving.only-notifying textarea[name=?]", "member_message"
+  end
+
+  test "action form has no notify the reporter on a case without reports" do
+    sign_in_as(@me)
+    get fd_case_path(@kase, tab: "actions", do: "action")
+
+    assert_select ".only-resolving", false
+  end
+
+  test "create action with resolve case and notify closes the report and queues the message" do
+    report, conversation = open_report_with_conversation
+    sign_in_as(@me)
+    log(resolve_case: "1", notify_reporter: "1", member_message: "all done")
+
+    assert_equal "action_taken", @kase.reload.resolution
+    assert_not_nil report.reload.closed_at
+    outcome = Fd::IntakeOutbox.where(conversation_id: conversation.id, kind: "outcome").sole
+    assert_equal "all done", outcome.body
+  end
+
+  test "create action with resolve case but no notify leaves the reporter untold" do
+    report, conversation = open_report_with_conversation
+    sign_in_as(@me)
+    log(resolve_case: "1", member_message: "all done")
+
+    assert_equal "action_taken", @kase.reload.resolution
+    assert_nil report.reload.closed_at
+    assert_equal 0, Fd::IntakeOutbox.where(conversation_id: conversation.id).count
+  end
+
+  test "create action with notify but no resolve case changes nothing for the reporter" do
+    report, conversation = open_report_with_conversation
+    sign_in_as(@me)
+    log(notify_reporter: "1", member_message: "all done")
+
+    assert_nil @kase.reload.resolved_at
+    assert_nil report.reload.closed_at
+    assert_equal 0, Fd::IntakeOutbox.where(conversation_id: conversation.id).count
   end
 
   test "actions tab shows the solution and the people who resolved it" do

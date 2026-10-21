@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from bot.core.formatting import short_date, short_end
-from bot.nemo.views import edit, lengths
+from bot.nemo.views import edit, lengths, resolve
 from lib.paths import ACTIONS_FILE
 
 CALLBACK = "case_action_log"
@@ -18,11 +18,14 @@ REASON = "action_reason"
 SOLUTION = "action_solution"
 RESOLVERS = "action_resolvers"
 RESOLVE = "action_resolve"
+NOTIFY = "action_notify"
+MESSAGE = "action_message"
 CATEGORY = "action_category"
 GUARD_STATUS = "action_standing"
 ENFORCEMENT = "action_settle"
 
 RESOLVE_CASE = "resolve_case"
+NOTIFY_REPORTER = "notify_reporter"
 
 NO_GUARD = "no_guard"
 NO_CASE = "no_case"
@@ -252,7 +255,7 @@ def initial_values(subjects=(), category=None):
     }
 
 
-def build_blocks(case_id, values, guard_status=None, end_error=None):
+def build_blocks(case_id, values, guard_status=None, end_error=None, open_report=False):
     key = values.get("type_key")
     built = [
         {
@@ -371,28 +374,56 @@ def build_blocks(case_id, values, guard_status=None, end_error=None):
         },
         resolve_block(values.get("resolve_case")),
     ]
+    if values.get("resolve_case") and open_report:
+        built += notify_blocks(values)
     return built
 
 
 RESOLVE_OPTION = {"text": {"type": "plain_text", "text": "Yes"}, "value": RESOLVE_CASE}
+NOTIFY_OPTION = {"text": {"type": "plain_text", "text": "Yes"}, "value": NOTIFY_REPORTER}
 
 
-def resolve_block(checked):
+def tick_block(block_id, label, option, checked):
     return {
         "type": "input",
-        "block_id": RESOLVE,
+        "block_id": block_id,
+        "dispatch_action": True,
         "optional": True,
-        "label": {"type": "plain_text", "text": "Resolve Case?"},
+        "label": {"type": "plain_text", "text": label},
         "element": {
             "type": "checkboxes",
-            "action_id": RESOLVE,
-            "options": [RESOLVE_OPTION],
-            **({"initial_options": [RESOLVE_OPTION]} if checked else {}),
+            "action_id": block_id,
+            "options": [option],
+            **({"initial_options": [option]} if checked else {}),
         },
     }
 
 
-def build_view(case_id, subjects=(), category=None, values=None, guard_status=None, end_error=None):
+def resolve_block(checked):
+    return tick_block(RESOLVE, "Resolve Case?", RESOLVE_OPTION, checked)
+
+
+def notify_blocks(values):
+    notify = values.get("notify_reporter", True)
+    built = [tick_block(NOTIFY, "Notify the reporter", NOTIFY_OPTION, notify)]
+    if notify:
+        built.append({
+            "type": "input",
+            "block_id": MESSAGE,
+            "label": {"type": "plain_text", "text": "Message to reporter"},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": MESSAGE,
+                "multiline": True,
+                "max_length": REASON_LIMIT,
+                "initial_value": values.get("message") or resolve.default_message(),
+            },
+        })
+    return built
+
+
+def build_view(case_id, subjects=(), category=None, values=None, guard_status=None, end_error=None,
+               open_report=False):
     return {
         "type": "modal",
         "callback_id": CALLBACK,
@@ -400,7 +431,8 @@ def build_view(case_id, subjects=(), category=None, values=None, guard_status=No
         "title": {"type": "plain_text", "text": "Log action"},
         "submit": {"type": "plain_text", "text": "Log"},
         "close": {"type": "plain_text", "text": "Cancel"},
-        "blocks": build_blocks(case_id, values or initial_values(subjects, category), guard_status, end_error),
+        "blocks": build_blocks(case_id, values or initial_values(subjects, category), guard_status, end_error,
+                               open_report),
     }
 
 
@@ -447,8 +479,10 @@ def log_blocks(values, by, channel_name=None):
     return built
 
 
-def requires_refresh(values, block_ids, guard_status=None):
+def requires_refresh(values, block_ids, guard_status=None, open_report=False):
     key = values.get("type_key")
+    if values.get("resolve_case") and open_report and NOTIFY not in block_ids:
+        return True
     if takes_expiry(key) and UNTIL not in block_ids:
         return True
     if needs_channel(key) and WHERE not in block_ids:
@@ -456,6 +490,13 @@ def requires_refresh(values, block_ids, guard_status=None):
     if (guard_status or {}).get("guard") and GUARD_STATUS not in block_ids:
         return True
     return bool(enforcement_options(values, guard_status)) and ENFORCEMENT not in block_ids
+
+
+def ticked(values, block_id, value):
+    return any(
+        one.get("value") == value
+        for one in values.get(block_id, {}).get(block_id, {}).get("selected_options") or []
+    )
 
 
 def submitted_values(view_state):
@@ -474,10 +515,9 @@ def submitted_values(view_state):
         "reason": (values.get(REASON, {}).get(REASON, {}).get("value") or "").strip(),
         "solution": (values.get(SOLUTION, {}).get(SOLUTION, {}).get("value") or "").strip(),
         "resolved_by": values.get(RESOLVERS, {}).get(RESOLVERS, {}).get("selected_users") or [],
-        "resolve_case": any(
-            one.get("value") == RESOLVE_CASE
-            for one in values.get(RESOLVE, {}).get(RESOLVE, {}).get("selected_options") or []
-        ),
+        "resolve_case": ticked(values, RESOLVE, RESOLVE_CASE),
+        "notify_reporter": ticked(values, NOTIFY, NOTIFY_REPORTER) if NOTIFY in values else True,
+        "message": (values.get(MESSAGE, {}).get(MESSAGE, {}).get("value") or "").strip() or None,
         "category_key": (
             (values.get(CATEGORY, {}).get(CATEGORY, {}).get("selected_option") or {})
             .get("value")
