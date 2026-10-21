@@ -21,9 +21,17 @@ def block(blocks, block_id):
     ("temp_ban", True, True),
     ("indef_ban", False, False),
     ("warning", False, False),
+    ("deleted_messages", False, False),
 ])
 def test_takes_expiry_needs_expiry_read_actions_table(key, takes, needs):
     assert (action.takes_expiry(key), action.needs_expiry(key)) == (takes, needs)
+
+
+def test_deleted_messages_is_a_record_with_no_channel_or_guard():
+    assert "deleted_messages" in [one["value"] for one in action.choices()]
+    assert action.label("deleted_messages") == "Deleted messages"
+    assert not action.takes_channel("deleted_messages")
+    assert action.guard_kind("deleted_messages") is None
 
 
 def label_before_end_row(blocks):

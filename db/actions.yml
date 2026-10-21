@@ -48,3 +48,6 @@ actions:
   dm:
     label: DM
     weight: 8
+  deleted_messages:
+    label: Deleted messages
+    weight: 9
