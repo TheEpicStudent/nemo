@@ -15,6 +15,8 @@ module Admin
       @log_channel = Fd::AppSetting.log_channel
       @react_channels = Fd::AppSetting.case_react_channels
       @trusted_senders = Fd::AppSetting.trusted_senders
+      @lyla_link = Fd::AppSetting.lyla_link?
+      @lyla_sync = Fd::LylaSync.status
       configured_ids = ([@firehouse, @reports_channel, @log_channel] + @react_channels).compact.uniq
       @channels_by_id = Analytics::DimChannel.where(channel_id: configured_ids).index_by(&:channel_id)
       @memberships = configured_ids.index_with { |channel_id| Fd::ChannelMembership.membership_for(channel_id) }
@@ -27,6 +29,14 @@ module Admin
 
       audit_setting(Fd::AppSetting.set_join_mode(mode, by: current_account.user_id))
       redirect_to admin_settings_path, notice: "Join mode set to #{AdminHelper::JOIN_MODES.fetch(mode)}"
+    end
+
+    def lyla_link
+      on = params[:mode].to_s == Fd::AppSetting::ON
+      return redirect_to admin_settings_path if on == Fd::AppSetting.lyla_link?
+
+      audit_setting(Fd::AppSetting.set_enabled(Fd::AppSetting::LYLA_LINK, on, by: current_account.user_id))
+      redirect_to admin_settings_path, notice: "LYLA link #{on ? 'on' : 'off'}"
     end
 
     def sweep

@@ -264,6 +264,10 @@ module Fd
       resolved_at.present?
     end
 
+    def chat_import_pending?
+      source_app == "lyla" && chat_imported_at.nil?
+    end
+
     def mark_resolved!(resolution, at:, member_note: nil)
       self.class.where(id: id, resolved_at: nil)
         .update_all(resolved_at: at, resolution: resolution, member_note: member_note, updated_at: at)

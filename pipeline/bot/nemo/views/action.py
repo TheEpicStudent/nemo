@@ -167,6 +167,8 @@ def footnote(guard):
     parts.append(f"until {until}" if until else "no end date")
     if guard.get("enforced_by") == "by_hand":
         parts.append("manual")
+    elif guard.get("enforced_by") == "firehose":
+        parts.append("Firehose")
     elif guard.get("enforcement_status") == "failed":
         parts.append("not enforced")
     elif guard.get("enforcement_status") == "pending":

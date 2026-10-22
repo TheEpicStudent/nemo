@@ -33,6 +33,7 @@ module Fd
     def update
       guard = MemberGuard.active.find(params[:id])
       return deny!("member.deactivate", guard) if deactivating?(guard.kind)
+      return redirect_to(fd_member_path(guard.subject_id), alert: "Set in Firehose") if guard.firehose?
 
       if expiry.nil?
         return redirect_to fd_member_path(guard.subject_id),
@@ -53,6 +54,7 @@ module Fd
     def destroy
       guard = MemberGuard.active.find(params[:id])
       return deny!("member.deactivate", guard) if deactivating?(guard.kind)
+      return redirect_to(fd_member_path(guard.subject_id), alert: "Set in Firehose") if guard.firehose?
 
       previous_state = guard.state
       writing do

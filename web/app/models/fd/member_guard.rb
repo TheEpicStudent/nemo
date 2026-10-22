@@ -22,6 +22,7 @@ module Fd
 
     NEMO = "nemo".freeze
     BY_HAND = "by_hand".freeze
+    FIREHOSE = "firehose".freeze
 
     UNGUARDED = :unguarded
     ORPHANED = :orphaned
@@ -106,13 +107,13 @@ module Fd
     end
 
     def set_expiry!(expires_at)
-      updated_count = self.class.active.where(id: id)
+      updated_count = self.class.active.where(id: id).where.not(enforced_by: FIREHOSE)
         .update_all(expires_at: expires_at, updated_at: Time.current)
       updated_count.positive? ? reload : nil
     end
 
     def lift!(by:, reason: nil)
-      updated_count = self.class.active.where(id: id).update_all(
+      updated_count = self.class.active.where(id: id).where.not(enforced_by: FIREHOSE).update_all(
         **lifting_columns, lifted_by: by, lift_reason: reason, updated_at: Time.current
       )
       updated_count.positive? ? reload : nil
@@ -128,6 +129,7 @@ module Fd
     def pending? = enforcement_status == PENDING
     def failed? = enforcement_status == FAILED
     def by_hand? = enforced_by == BY_HAND
+    def firehose? = enforced_by == FIREHOSE
     def orphaned? = case_id.nil?
     def channel_scoped? = channel_id.present?
     def deactivation? = kind == DEACTIVATION

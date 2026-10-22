@@ -118,6 +118,25 @@ module AdminHelper
       disabled: !may_grant?
   end
 
+  LYLA_LINK_MODES = { Fd::AppSetting::ON => "On", Fd::AppSetting::OFF => "Off" }.freeze
+
+  def admin_lyla_link_switch(on)
+    current = on ? Fd::AppSetting::ON : Fd::AppSetting::OFF
+    form_with(url: admin_settings_lyla_link_path, method: :post, class: "segmented") do
+      safe_join(LYLA_LINK_MODES.map { |key, label|
+        button_tag(label, name: "mode", value: key, "aria-pressed": (key == current).to_s)
+      })
+    end
+  end
+
+  def lyla_sync_time(time)
+    time ? time.utc.strftime("%-d %b, %H:%M:%S UTC") : "Never"
+  end
+
+  def lyla_import_time(sync)
+    sync.import_running ? "Running" : lyla_sync_time(sync.imported_at)
+  end
+
   def admin_join_mode_switch(mode)
     form_with(url: admin_settings_join_mode_path, method: :post, class: "segmented") do
       safe_join(JOIN_MODES.map { |key, label|

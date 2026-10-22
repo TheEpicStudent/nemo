@@ -178,6 +178,7 @@ Rails.application.routes.draw do
     post "settings/reports_channel", to: "settings#reports_channel", as: :settings_reports_channel
     post "settings/log_channel", to: "settings#log_channel", as: :settings_log_channel
     post "settings/join_mode", to: "settings#join_mode", as: :settings_join_mode
+    post "settings/lyla_link", to: "settings#lyla_link", as: :settings_lyla_link
     post "settings/sweep", to: "settings#sweep", as: :settings_sweep
     post "settings/accounts", to: "settings#accounts", as: :settings_accounts
     post "settings/react_channels", to: "settings#add_react", as: :settings_react_channels

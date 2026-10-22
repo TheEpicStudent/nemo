@@ -45,7 +45,7 @@ def queue_case_row(case_id, opened_by="UOPENER"):
 
 def report_case_row(case_id, body, anonymous=True, reporter=None):
     return (case_id, None, None, 3, anonymous, reporter, body, "1.1", None, None, None, None, "C_FIRE",
-            None, None, "dm")
+            None, None, "dm", False)
 
 
 def card_of(view):

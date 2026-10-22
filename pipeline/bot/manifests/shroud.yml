@@ -1,0 +1,54 @@
+display_information:
+  name: Shroud
+  description: Report something to the Fire Department, with your name or anonymously.
+  background_color: "#0b0067"
+
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: Shroud
+    always_online: true
+  shortcuts:
+    - name: Report anonymously
+      type: message
+      callback_id: report_anonymous
+      description: Report this message to FD without revealing your identity
+    - name: Report with my name
+      type: message
+      callback_id: report_with_name
+      description: Report this message to FD, attributing the report to you
+
+oauth_config:
+  scopes:
+    bot:
+      - channels:history
+      - channels:join
+      - channels:read
+      - chat:write
+      - chat:write.customize
+      - commands
+      - groups:history
+      - groups:read
+      - groups:write
+      - im:history
+      - im:write
+      - reactions:read
+      - users:read
+      - reactions:write
+      - files:read
+      - files:write
+
+settings:
+  event_subscriptions:
+    request_url: https://BOT_HOST/slack/relay/events
+    bot_events:
+      - message.im
+  interactivity:
+    is_enabled: true
+    request_url: https://BOT_HOST/slack/relay/events
+  socket_mode_enabled: false
+  org_deploy_enabled: false
+  token_rotation_enabled: false

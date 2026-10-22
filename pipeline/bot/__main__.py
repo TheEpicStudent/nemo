@@ -10,7 +10,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from bot import APPS, NEEDS, NEMO, RELAY, http_server
 from bot.core import session, shutdown
-from lib import slack_connection
+from lib import slack_connection, slack_dry_run
 from lib.config import DATABASE
 from lib.db import SeededDeployment, refuse_if_seeded
 from lib.heartbeat import heartbeat_loop
@@ -45,7 +45,10 @@ def worker(apps):
 
 
 def app_list(apps):
-    return " and ".join(apps)
+    listed = " and ".join(apps)
+    if slack_dry_run.enabled():
+        return f"{listed}, dry run, {slack_dry_run.held_count()} Slack writes held"
+    return listed
 
 
 def wire_relay(built, workers):
@@ -90,6 +93,10 @@ def start_loops(workers, stopping):
         nemo_loop.start(workers[NEMO], stopping)
         nemo_loop.start_missed_reaction_pass(workers[NEMO].client)
 
+        from lyla import tasks as lyla_tasks
+
+        lyla_tasks.start(workers[NEMO].client, stopping)
+
 
 def start_socket_mode(name, app):
     handler = SocketModeHandler(app, slack_connection.app_token(name))
@@ -114,6 +121,8 @@ def main(argv=None):
     load_dotenv(ENV_FILE)
 
     apps = parse_args(sys.argv[1:] if argv is None else argv).apps or list(APPS)
+    if slack_dry_run.enabled():
+        slack_dry_run.install()
 
     missing = missing_variables(apps)
     if missing:

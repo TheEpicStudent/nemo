@@ -17,6 +17,75 @@
 
   <div class="card card-flush">
     <div class="card-head">
+      <h2 class="card-title">LYLA link</h2>
+      <% if may_grant? %>
+        <div class="card-tools">
+          <%= admin_lyla_link_switch(@lyla_link) %>
+        </div>
+      <% end %>
+    </div>
+    <div class="setlist">
+      <div class="setline">
+        <span class="setname">Last import</span>
+        <span class="setval"><%= lyla_import_time(@lyla_sync) %></span>
+      </div>
+      <% if @lyla_sync.import_error %>
+        <div class="setline">
+          <span class="setname">Import error</span>
+          <span class="setval"><%= @lyla_sync.import_error %></span>
+        </div>
+      <% end %>
+      <div class="setline">
+        <span class="setname">Last read</span>
+        <span class="setval"><%= lyla_sync_time(@lyla_sync.read_at) %></span>
+      </div>
+      <% if @lyla_sync.read_error %>
+        <div class="setline">
+          <span class="setname">Read error</span>
+          <span class="setval"><%= @lyla_sync.read_error %></span>
+        </div>
+      <% end %>
+      <div class="setline">
+        <span class="setname">Last write</span>
+        <span class="setval"><%= lyla_sync_time(@lyla_sync.written_at) %></span>
+      </div>
+      <% if @lyla_sync.write_error %>
+        <div class="setline">
+          <span class="setname">Write error</span>
+          <span class="setval"><%= @lyla_sync.write_error %></span>
+        </div>
+      <% end %>
+      <div class="setline">
+        <span class="setname">Outbox</span>
+        <span class="setval"><%= @lyla_sync.waiting %></span>
+      </div>
+      <div class="setline">
+        <span class="setname">Failed writes</span>
+        <span class="setval"><%= @lyla_sync.failed %></span>
+      </div>
+      <div class="setline">
+        <span class="setname">Conflicts (24 hours)</span>
+        <span class="setval"><%= @lyla_sync.conflicts %></span>
+      </div>
+      <div class="setline">
+        <span class="setname">Cases without chat</span>
+        <span class="setval"><%= @lyla_sync.chat_waiting %></span>
+      </div>
+      <div class="setline">
+        <span class="setname">Last Firehose read</span>
+        <span class="setval"><%= lyla_sync_time(@lyla_sync.firehose_at) %></span>
+      </div>
+      <% if @lyla_sync.firehose_error %>
+        <div class="setline">
+          <span class="setname">Firehose error</span>
+          <span class="setval"><%= @lyla_sync.firehose_error %></span>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <div class="card card-flush">
+    <div class="card-head">
       <h2 class="card-title">Channel assignments</h2>
     </div>
     <div class="setlist">

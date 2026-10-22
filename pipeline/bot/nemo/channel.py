@@ -8,6 +8,7 @@ from bot.core import parse, whoami
 from bot.core.formatting import quote_text
 from bot.nemo import answer, views, attachments, card_facts, channels, chat, profile
 from bot.nemo.views.activity import message_url
+from lyla import claim
 
 log = logging.getLogger("bot.nemo")
 
@@ -16,7 +17,7 @@ CASE = """
 SELECT c.id, c.category_key, c.resolved_at,
        r.id, r.is_anonymous, r.reporter_user_id, r.body, r.forwarded_ts, r.received_at,
        v.id, r.card_digest, c.resolution, r.card_channel_id, r.header_ts, r.header_digest,
-       r.entry_point
+       r.entry_point, c.source_app = 'lyla'
 FROM fd.cases c
 JOIN fd.case_reports r ON r.case_id = c.id
 LEFT JOIN fd.intake_conversations v ON v.report_id = r.id
@@ -174,7 +175,7 @@ def has_legacy_digest(stored):
 
 def card_mark(case):
     if not case.get("resolved_at"):
-        return OPEN_MARK
+        return None if case.get("mark_held") else OPEN_MARK
     if case.get("resolution") == "duplicate":
         return MERGED_MARK
     return NOT_CONDUCT_MARK if case.get("resolution") == "not_conduct" else DONE_MARK
@@ -381,7 +382,7 @@ UPDATE fd.case_reports SET header_digest = %s WHERE id = %s
 
 
 def post_header(client, conn, case, card_channel_id, thread_ts):
-    if case.get("header_ts") or not views.report.needs_header(case):
+    if case.get("header_ts") or case.get("resolved_at") or not views.report.needs_header(case):
         return None
     card_facts.enrich(client, conn, case, case_url)
     try:
@@ -540,6 +541,7 @@ def fetch_case(conn, case_id):
         "header_ts": row[13],
         "header_digest": row[14],
         "entry_point": row[15],
+        "imported": row[16],
         "url": case_url(row[0]),
         "shares": [],
         "message_id": None,
@@ -553,6 +555,7 @@ def fetch_case(conn, case_id):
         assignee[0] for assignee in conn.execute(ASSIGNEES, (case["case_id"],)).fetchall()
     ]
     case["live_actions"] = conn.execute(LIVE_ACTION_COUNT, (case["case_id"],)).fetchone()[0]
+    case["mark_held"] = claim.waiting(conn, case["case_id"])
 
     conversation_id = case["conversation_id"]
     if conversation_id is None:
@@ -863,6 +866,8 @@ def refresh_card(client, conn, case_id, channel_id=None):
     case = fetch_case(conn, case_id)
     if case is None:
         return None
+    if case.get("imported"):
+        return case["forwarded_ts"]
     if not case["forwarded_ts"]:
         return post_report(client, conn, case_id, channel_id)
 
@@ -886,7 +891,8 @@ def refresh_card(client, conn, case_id, channel_id=None):
                 return case["forwarded_ts"]
 
         conn.execute(SET_CARD_DIGEST, (state, case["report_id"]))
-        mark_card(client, card_channel_id, case["forwarded_ts"], case)
+        mark_card(client, card_channel_id, case["forwarded_ts"], case,
+                  is_new=case["card_digest"] == card_state(None))
         log.info("nemo: case %s is now %s", case_id, state)
 
     sync_header(client, conn, case, card_channel_id)
@@ -1060,7 +1066,7 @@ def post_reopen_message(client, conn, case_id, was, channel_id=None):
     refresh_card(client, conn, case_id, channel_id)
 
     case = fetch_case(conn, case_id)
-    if case is None or not case["forwarded_ts"]:
+    if case is None or not case["forwarded_ts"] or case.get("imported"):
         return None
 
     label = views.resolve.label(was) if was else "Resolved"

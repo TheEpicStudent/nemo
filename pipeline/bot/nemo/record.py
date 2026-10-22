@@ -134,6 +134,8 @@ def in_force_line(guard):
 
     if guard.get("enforced_by") == "by_hand":
         return f"{text}, manual"
+    if guard.get("enforced_by") == "firehose":
+        return f"{text}, Firehose"
     status_label = ENFORCEMENT_STATUS_LABELS.get(guard.get("enforcement_status"))
     return f"{text}, {status_label}" if status_label else text
 

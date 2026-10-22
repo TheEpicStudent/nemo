@@ -28,7 +28,7 @@ MOVE_CURSOR = "UPDATE fd.log_cursors SET last_id = %s, updated_at = now() WHERE 
 AUDIT_ENTRIES = """
 SELECT id, actor_user_id, entity_type, entity_id, verb, before, after
 FROM fd.audit
-WHERE id > %s AND occurred_at > now() - interval '7 days'
+WHERE id > %s AND occurred_at > now() - interval '7 days' AND actor_kind <> 'import'
   AND entity_type = ANY(%s) AND verb = ANY(%s)
 ORDER BY id
 LIMIT %s

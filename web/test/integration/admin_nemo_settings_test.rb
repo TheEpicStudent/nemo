@@ -308,4 +308,116 @@ class AdminNemoSettingsTest < ActionDispatch::IntegrationTest
 
     assert_select ".empty-title", text: "No trusted senders"
   end
+
+  def lyla_status!(name, ok_at: Time.current, error: nil, ran_at: Time.current)
+    connection = ActiveRecord::Base.connection
+    connection.execute(
+      "INSERT INTO fd.lyla_sync_status (name, ran_at, ok_at, error) " \
+      "VALUES (#{connection.quote(name)}, #{connection.quote(ran_at)}, #{connection.quote(ok_at)}, " \
+      "#{connection.quote(error)}) " \
+      "ON CONFLICT (name) DO UPDATE SET ran_at = EXCLUDED.ran_at, ok_at = EXCLUDED.ok_at, error = EXCLUDED.error"
+    )
+  end
+
+  def queue_lyla_row!(error: nil, conflict: nil, applied: false)
+    connection = ActiveRecord::Base.connection
+    connection.execute(
+      "INSERT INTO fd.lyla_outbox (entity, entity_id, op, error, conflict, applied_at) " \
+      "VALUES ('cases', 1, 'update', #{connection.quote(error)}, #{connection.quote(conflict)}, " \
+      "#{applied ? 'now()' : 'NULL'})"
+    )
+  end
+
+  test "lyla link on sets the setting and writes a tuned audit entry" do
+    Fd::AppSetting.where(key: Fd::AppSetting::LYLA_LINK).delete_all
+
+    post admin_settings_lyla_link_path, params: { mode: "on" }
+
+    assert_redirected_to admin_settings_path
+    assert_equal "LYLA link on", flash[:notice]
+    assert Fd::AppSetting.lyla_link?
+    assert_equal 1, Fd::AuditEntry.where(entity_type: "app_setting", verb: "tuned").count
+  end
+
+  test "lyla link off clears the setting" do
+    Fd::AppSetting.set_enabled(Fd::AppSetting::LYLA_LINK, true, by: "UME")
+
+    post admin_settings_lyla_link_path, params: { mode: "off" }
+
+    assert_equal "LYLA link off", flash[:notice]
+    assert_not Fd::AppSetting.lyla_link?
+  end
+
+  test "lyla link without manager access changes nothing" do
+    Fd::AppSetting.where(key: Fd::AppSetting::LYLA_LINK).delete_all
+    revoke_roles!("UME")
+    grant_role!("UME", "firefighter")
+
+    post admin_settings_lyla_link_path, params: { mode: "on" }
+
+    assert_not Fd::AppSetting.lyla_link?
+  end
+
+  test "settings page shows the lyla link switch and sync status" do
+    Fd::AppSetting.set_enabled(Fd::AppSetting::LYLA_LINK, true, by: "UME")
+    lyla_status!("import", ok_at: Time.utc(2026, 10, 22, 8, 0, 0), error: "2 failed")
+    lyla_status!("reader", ok_at: Time.utc(2026, 10, 22, 9, 30, 5))
+    lyla_status!("firehose", ok_at: Time.utc(2026, 10, 22, 9, 30, 10), error: "connection refused")
+    lyla_status!("writer", error: "LYLA has no case 5010 yet")
+    queue_lyla_row!(error: "LYLA has no case 5010 yet")
+    queue_lyla_row!
+    queue_lyla_row!(conflict: "thread C0 1.2 is on LYLA case 9", applied: true)
+
+    get admin_settings_path
+
+    assert_select "h2.card-title", text: "LYLA link"
+    assert_select "form[action='#{admin_settings_lyla_link_path}'] button[aria-pressed='true']", text: "On"
+    values = css_select(".setline").to_h do |line|
+      [line.at_css(".setname")&.text.to_s.strip, line.at_css(".setval")&.text.to_s.strip]
+    end
+    assert_equal "22 Oct, 08:00:00 UTC", values["Last import"]
+    assert_equal "2 failed", values["Import error"]
+    assert_equal "22 Oct, 09:30:05 UTC", values["Last read"]
+    assert_equal "LYLA has no case 5010 yet", values["Write error"]
+    assert_equal "2", values["Outbox"]
+    assert_equal "1", values["Failed writes"]
+    assert_equal "1", values["Conflicts (24 hours)"]
+    assert_equal "22 Oct, 09:30:10 UTC", values["Last Firehose read"]
+    assert_equal "connection refused", values["Firehose error"]
+  end
+
+  test "settings page during the lyla import shows running" do
+    lyla_status!("import", ok_at: nil)
+
+    get admin_settings_path
+
+    values = css_select(".setline").to_h do |line|
+      [line.at_css(".setname")&.text.to_s.strip, line.at_css(".setval")&.text.to_s.strip]
+    end
+    assert_equal "Running", values["Last import"]
+  end
+
+  test "settings page with a refused lyla import shows never and the error" do
+    lyla_status!("import", ok_at: nil, error: "3 Nemo case(s) already use LYLA case numbers")
+
+    get admin_settings_path
+
+    values = css_select(".setline").to_h do |line|
+      [line.at_css(".setname")&.text.to_s.strip, line.at_css(".setval")&.text.to_s.strip]
+    end
+    assert_equal "Never", values["Last import"]
+    assert_equal "3 Nemo case(s) already use LYLA case numbers", values["Import error"]
+  end
+
+  test "settings page before the lyla import shows never" do
+    get admin_settings_path
+
+    values = css_select(".setline").to_h do |line|
+      [line.at_css(".setname")&.text.to_s.strip, line.at_css(".setval")&.text.to_s.strip]
+    end
+    assert_equal "Never", values["Last import"]
+    assert_nil values["Import error"]
+    assert_equal "0", values["Cases without chat"]
+    assert_equal "Never", values["Last Firehose read"]
+  end
 end

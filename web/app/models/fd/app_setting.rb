@@ -9,6 +9,7 @@ module Fd
     LOGS = "nemo.log_channel".freeze
     REACT_CHANNELS = "nemo.case_react_channels".freeze
     TRUSTED_SENDERS = "relay.trusted_senders".freeze
+    LYLA_LINK = "lyla.link".freeze
 
     AUTORESPONSE_ON = "nemo.autoresponse_on".freeze
     AUTORESPONSE_EMOJI = "nemo.autoresponse_emoji".freeze
@@ -100,6 +101,10 @@ module Fd
 
     def self.on?(key)
       value(key) == ON
+    end
+
+    def self.lyla_link?
+      on?(LYLA_LINK)
     end
 
     def self.set_enabled(key, on, by:)

@@ -51,7 +51,7 @@ LIMIT 20
 CASES_WITHOUT_CARD = """
 SELECT c.id
 FROM fd.cases c
-WHERE c.card_ts IS NULL
+WHERE c.card_ts IS NULL AND c.source_app <> 'lyla'
   AND c.opened_at > now() - interval '1 day'
   AND NOT EXISTS (SELECT 1 FROM fd.case_reports r WHERE r.case_id = c.id)
 ORDER BY c.opened_at

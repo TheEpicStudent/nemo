@@ -27,6 +27,7 @@ BOT_OPTIONAL = PIPELINE_ROLE + [
     "NEMO_JOIN_PER_SWEEP",
     "NEMO_JOIN_SECONDS",
     "NEMO_SWEEP_SECONDS",
+    "NEMO_DRY_RUN",
     "PROXY_TOKEN_NEMO",
     "RELAY_SWEEP_SECONDS",
     "SLACK_SOCKET_MODE",
@@ -153,6 +154,9 @@ ROLES = {
             "RELAY_SIGNING_SECRET",
             "NEMO_APP_TOKEN",
             "NEMO_SIGNING_SECRET",
+            "SHROUD_DATABASE_URL",
+            "LYLA_DATABASE_URL",
+            "FIREHOSE_DATABASE_URL",
         ],
     },
     "bot.relay": {
@@ -164,6 +168,7 @@ ROLES = {
             "NEMO_APP_TOKEN",
             "NEMO_SIGNING_SECRET",
             "SLACK_TEAM_ID",
+            "SHROUD_DATABASE_URL",
         ],
     },
     "bot.nemo": {
@@ -177,6 +182,8 @@ ROLES = {
             "RELAY_BOT_TOKEN",
             "RELAY_APP_TOKEN",
             "RELAY_SIGNING_SECRET",
+            "LYLA_DATABASE_URL",
+            "FIREHOSE_DATABASE_URL",
         ],
     },
     "provision": {

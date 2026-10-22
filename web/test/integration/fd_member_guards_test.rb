@@ -196,4 +196,33 @@ class FdMemberGuardsTest < ActionDispatch::IntegrationTest
     get fd_channel_search_path, params: { q: "" }
     assert_redirected_to login_path
   end
+
+  test "member page labels a firehose guard and offers no lift" do
+    guard = guard!(enforced_by: "firehose", enforcement_status: "held")
+
+    get fd_member_path("USUB")
+
+    assert_match(/Firehose/, response.body)
+    assert_no_match(/guard-lift-#{guard.id}/, response.body)
+  end
+
+  test "destroy on a firehose guard leaves it live" do
+    guard = guard!(enforced_by: "firehose", enforcement_status: "held")
+
+    delete fd_member_guard_path("USUB", guard), params: { lift_reason: "done" }
+
+    assert_redirected_to fd_member_path("USUB")
+    assert_equal "Set in Firehose", flash[:alert]
+    assert_equal "live", guard.reload.state
+  end
+
+  test "update on a firehose guard keeps its end" do
+    guard = guard!(enforced_by: "firehose", enforcement_status: "held")
+    expires_at = guard.expires_at
+
+    patch fd_member_guard_path("USUB", guard), params: { expires_on: 30.days.from_now.to_date.to_s }
+
+    assert_equal "Set in Firehose", flash[:alert]
+    assert_equal expires_at.to_i, guard.reload.expires_at.to_i
+  end
 end

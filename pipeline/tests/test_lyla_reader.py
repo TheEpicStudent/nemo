@@ -1,0 +1,91 @@
+import datetime as dt
+
+from lyla import reader
+
+AT = dt.datetime(2026, 10, 22, 9, tzinfo=dt.UTC)
+AT_MS = int(AT.timestamp() * 1000)
+
+
+class Recorder:
+    def __init__(self, answers=None):
+        self.answers = answers or {}
+        self.executed = []
+
+    def execute(self, sql, args=None):
+        self.executed.append((sql, args))
+        return Rows(self.answers.get(sql, []))
+
+    def ran(self, sql):
+        return [args for statement, args in self.executed if statement == sql]
+
+
+class Rows:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+    def fetchall(self):
+        return self.rows
+
+
+def lyla_case(status, resolved_by="UFF1", merged_into=None, resolved_ms=AT_MS):
+    return (5002, status, AT_MS - 1000, resolved_ms, resolved_by, status, merged_into)
+
+
+def nemo_case(resolved_at=None, resolution=None, duplicate_of=None):
+    return (5002, resolved_at, resolution, duplicate_of, AT - dt.timedelta(days=1))
+
+
+def test_sync_status_resolved_in_lyla_closes_the_nemo_case_and_its_reports():
+    conn = Recorder({reader.LIVE_ACTION_COUNT: [(2,)]})
+    assert reader.Reader(None, None).sync_status(conn, lyla_case("resolved"), nemo_case())
+    assert conn.ran(reader.RESOLVE) == [(AT, "action_taken", None, 5002)]
+    assert conn.ran(reader.CLOSE_REPORTS) == [(AT, "UFF1", 5002)]
+
+
+def test_sync_status_canceled_in_lyla_closes_as_not_conduct():
+    conn = Recorder({reader.LIVE_ACTION_COUNT: [(0,)]})
+    reader.Reader(None, None).sync_status(conn, lyla_case("canceled"), nemo_case())
+    assert conn.ran(reader.RESOLVE)[0][1] == "not_conduct"
+
+
+def test_sync_status_expired_in_lyla_leaves_nemo_alone():
+    conn = Recorder()
+    assert reader.Reader(None, None).sync_status(conn, lyla_case("expired"), nemo_case())
+    assert conn.executed == []
+
+
+def test_sync_status_reopened_in_lyla_reopens_case_and_reports():
+    conn = Recorder()
+    reader.Reader(None, None).sync_status(conn, lyla_case("open", resolved_by=None, resolved_ms=None),
+                                          nemo_case(AT, "no_action"))
+    assert conn.ran(reader.REOPEN) == [(5002,)]
+    assert conn.ran(reader.REOPEN_REPORTS) == [(5002,)]
+
+
+def test_sync_status_merged_in_lyla_marks_duplicate_of_the_target():
+    conn = Recorder({reader.EXISTING_CASES: [(5005,)], reader.LIVE_ACTION_COUNT: [(0,)]})
+    reader.Reader(None, None).sync_status(conn, lyla_case("merged", merged_into=5005, resolved_ms=None),
+                                          nemo_case())
+    assert conn.ran(reader.RESOLVE)[0][1:] == ("duplicate", 5005, 5002)
+
+
+def test_sync_status_same_status_puts_nemos_resolver_back(monkeypatch):
+    calls = []
+    monkeypatch.setattr(reader.writer, "set_resolver", lambda lyla, *args: calls.append(args))
+    lyla = Recorder()
+    lyla.commit = lambda: None
+    conn = Recorder({reader.RESOLVER: [("UFF1",)]})
+    reader.Reader(None, lyla).sync_status(conn, lyla_case("resolved", resolved_by="UNEMOBOT"),
+                                          nemo_case(AT, "action_taken"))
+    assert calls == [(5002, "UFF1", AT)]
+    assert conn.ran(reader.RESOLVE) == []
+
+
+def test_sync_status_same_status_and_resolver_changes_nothing(monkeypatch):
+    monkeypatch.setattr(reader.writer, "set_resolver", lambda *args: (_ for _ in ()).throw(AssertionError))
+    conn = Recorder({reader.RESOLVER: [("UFF1",)]})
+    reader.Reader(None, None).sync_status(conn, lyla_case("resolved"), nemo_case(AT, "no_action"))
+    assert conn.ran(reader.RESOLVE) == []

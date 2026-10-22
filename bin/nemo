@@ -34,6 +34,10 @@ nemo <role> [args]
   verdict        record link verdicts between a main account and others
   links          rebuild every link from a variant file into fd.member_link_shadow
                  (--variant FILE), scored with check-links --variant NAME
+  lyla check     compare LYLA's cases with Nemo's and report the sync status
+                 (in the bot.nemo container)
+  shroud-import  Shroud reports (--since for a delta, --takeover after the switch)
+                 (in the bot.relay container)
   doctor <role>  report the env this role needs and what is missing
 
 the role may also come from NEMO_ROLE when no argument is given.
@@ -96,6 +100,12 @@ case "$ROLE" in
     ;;
   links)
     py -m jobs.shadow_links "$@"
+    ;;
+  lyla)
+    py -m lyla "$@"
+    ;;
+  shroud-import)
+    py -m jobs.shroud_import "$@"
     ;;
   doctor)
     py -m lib.config "${1:-serve}"

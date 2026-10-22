@@ -852,6 +852,12 @@ module FdHelper
     avatar(report.reporter_user_id, css: "row-avatar thread-face")
   end
 
+  def chat_empty_title(kase, reports)
+    return "Not imported yet" if kase.chat_import_pending?
+
+    reports.any? ? "No messages" : "No report on file"
+  end
+
   def chat_head_line(reports, kase, count: 0)
     parts = []
     parts << "case #{reports.first.case_id}" if kase.merged?
@@ -1493,6 +1499,7 @@ module FdHelper
 
   def guard_enforcement_chip(guard)
     return tag.span("By hand", class: "state") if guard.by_hand?
+    return tag.span("Firehose", class: "state") if guard.firehose?
 
     label, tone = GUARD_ENFORCEMENT_CHIP.fetch(guard.enforcement_status,
       [guard.enforcement_status, "state"])
@@ -1571,6 +1578,8 @@ module FdHelper
     parts << (guard.expires_at ? "until #{Fd::ShortDate.ending(guard.expires_at)}" : "with no end date")
     parts << if guard.by_hand?
       "by hand"
+    elsif guard.firehose?
+      "Firehose"
     else
       GUARD_ENFORCEMENT_STATUS[guard.enforcement_status]
     end

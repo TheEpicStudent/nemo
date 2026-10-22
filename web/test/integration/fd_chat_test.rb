@@ -505,4 +505,29 @@ class FdChatTest < ActionDispatch::IntegrationTest
     assert_includes response.body, %(class="echo-head">Warning</p>)
     assert_not_includes response.body, "tag-reporter"
   end
+
+  test "chat log of an imported case without its chat shows not imported yet" do
+    kase = make_case(source_app: "lyla")
+
+    get fd_case_chat_log_path(kase)
+
+    assert_select ".empty-title", "Not imported yet"
+  end
+
+  test "chat log of an imported case with its chat shows the usual empty state" do
+    kase = make_case(source_app: "lyla", chat_imported_at: Time.current)
+
+    get fd_case_chat_log_path(kase)
+
+    assert_select ".empty-title", "No report on file"
+  end
+
+  test "chat log of an imported case with messages and no import marks the gap" do
+    kase = make_case(source_app: "lyla")
+    Fd::CaseChat.create!(case_id: kase.id, author_user_id: "UME", body: "noted", source_app: "fire_engine")
+
+    get fd_case_chat_log_path(kase)
+
+    assert_select "p.dayrule", "Not imported yet"
+  end
 end

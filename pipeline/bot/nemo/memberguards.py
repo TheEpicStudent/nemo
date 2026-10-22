@@ -8,6 +8,8 @@ SHUSH = "shush"
 CHANNEL_BAN = "channel_ban"
 DEACTIVATION = "deactivation"
 
+FIREHOSE = "firehose"
+
 SLACK_LIFT_KINDS = (DEACTIVATION,)
 
 NO_GUARD = action.NO_GUARD
@@ -113,7 +115,7 @@ RETURNING id
 
 SET_EXPIRY = """
 UPDATE fd.member_guards SET expires_at = %s, updated_at = now()
-WHERE id = %s AND state IN ('live', 'lifting')
+WHERE id = %s AND state IN ('live', 'lifting') AND enforced_by <> 'firehose'
 RETURNING id
 """
 
@@ -209,7 +211,7 @@ LIVE_GUARDS = """
 SELECT id, kind, subject_id, channel_id, reason, expires_at, enforcement_status,
        enforced_by
 FROM fd.member_guards
-WHERE state = 'live'
+WHERE state = 'live' AND enforced_by <> 'firehose'
 """
 
 UNENFORCED = """
@@ -343,6 +345,7 @@ LAPSED = """
 SELECT id, kind, subject_id, channel_id, reason, expires_at
 FROM fd.member_guards
 WHERE state = 'live' AND expires_at IS NOT NULL AND expires_at <= now()
+  AND enforced_by <> 'firehose'
 ORDER BY expires_at LIMIT 20
 """
 
@@ -357,14 +360,14 @@ ORDER BY updated_at LIMIT 20
 LIFT = """
 UPDATE fd.member_guards
 SET state = 'lifted', lifted_at = now(), lifted_by = %s, lift_reason = %s, updated_at = now()
-WHERE id = %s AND state = 'live'
+WHERE id = %s AND state = 'live' AND enforced_by <> 'firehose'
 RETURNING id
 """
 
 START_LIFTING = """
 UPDATE fd.member_guards
 SET state = 'lifting', lifted_by = %s, lift_reason = %s, updated_at = now()
-WHERE id = %s AND state = 'live'
+WHERE id = %s AND state = 'live' AND enforced_by <> 'firehose'
 RETURNING id
 """
 
@@ -385,7 +388,7 @@ ORDER BY updated_at LIMIT 20
 ENDING_NOT_NOTIFIED = """
 SELECT g.id, g.kind, g.subject_id, g.channel_id, g.reason, g.expires_at, g.case_id
 FROM fd.member_guards g
-WHERE g.state = 'live' AND g.expires_at IS NOT NULL
+WHERE g.state = 'live' AND g.expires_at IS NOT NULL AND g.enforced_by <> 'firehose'
   AND g.expires_at >= now() AND g.expires_at < now() + %s::interval
   AND NOT EXISTS (
     SELECT 1 FROM fd.member_guard_events e

@@ -4,7 +4,7 @@
     <div class="standing">
       <p class="standing-t">Guards <span class="standing-count"><%= guards.size %></span></p>
       <% guards.each do |guard| %>
-        <% may_lift = guard.deactivation? ? may_deactivate : may_guard %>
+        <% may_lift = (guard.deactivation? ? may_deactivate : may_guard) && !guard.firehose? %>
         <div class="standing-row<%= " is-enforced" if guard.deactivation? %>"
              <%= tag.attributes(data: {
                    controller: ("deactivate" if guard.deactivation?),

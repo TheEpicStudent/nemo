@@ -272,11 +272,16 @@ def lift_guard(conn, user_id, kind, channel_id, why, by):
     guard = memberguards.active_guard(conn, user_id, kind, channel_id)
     if guard is None or guard["state"] != "live":
         return False
+    if guard.get("enforced_by") == memberguards.FIREHOSE:
+        return memberguards.FIREHOSE
     return memberguards.lift(conn, guard["id"], by, why, kind=kind)
 
 
 def unshush(conn, user_id, why, by):
-    if not lift_guard(conn, user_id, memberguards.SHUSH, None, why, by):
+    lifted = lift_guard(conn, user_id, memberguards.SHUSH, None, why, by)
+    if lifted == memberguards.FIREHOSE:
+        return f"<@{user_id}> is shushed in Firehose"
+    if not lifted:
         return f"<@{user_id}> is not shushed"
     return with_reason(f"<@{user_id}> has been unshushed", why)
 
@@ -285,7 +290,10 @@ def unban(conn, user_id, body, by):
     where, why = extract_channel(body)
     if where is None:
         return UNBAN_CHANNEL_USAGE
-    if not lift_guard(conn, user_id, memberguards.CHANNEL_BAN, where, why, by):
+    lifted = lift_guard(conn, user_id, memberguards.CHANNEL_BAN, where, why, by)
+    if lifted == memberguards.FIREHOSE:
+        return f"<@{user_id}> is banned from <#{where}> in Firehose"
+    if not lifted:
         return f"<@{user_id}> is not banned from <#{where}>"
     return with_reason(f"<@{user_id}> has been unbanned from <#{where}>", why)
 

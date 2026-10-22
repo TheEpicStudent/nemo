@@ -16,6 +16,7 @@ from bot.nemo.channel import (
     root_mark,
     unfurl_opening,
 )
+from lyla import claim
 
 log = logging.getLogger("bot.nemo")
 
@@ -52,7 +53,7 @@ SELECT card_ts FROM fd.cases WHERE id = %s FOR UPDATE
 
 CARD_MISSING = """
 SELECT 1 FROM fd.cases c
-WHERE c.id = %s AND c.card_ts IS NULL
+WHERE c.id = %s AND c.card_ts IS NULL AND c.source_app <> 'lyla'
   AND NOT EXISTS (SELECT 1 FROM fd.case_reports r WHERE r.case_id = c.id)
 """
 
@@ -112,6 +113,7 @@ def fetch_case(conn, case_id):
     }
     case["subjects"] = [one[0] for one in conn.execute(SUBJECTS, (case_id,)).fetchall()]
     case["assignees"] = [one[0] for one in conn.execute(ASSIGNEES, (case_id,)).fetchall()]
+    case["mark_held"] = claim.waiting(conn, case_id)
     opening = conn.execute(OPENING, (case_id,)).fetchone()
     case["opening_id"], case["body"] = opening if opening else (None, None)
     if case["body"]:
@@ -247,7 +249,8 @@ def refresh_card(client, conn, case_id, channel_id=None):
                 return case["card_ts"]
 
         conn.execute(SET_CARD_DIGEST, (state, case_id))
-        mark(client, case["card_channel_id"], case["card_thread_ts"], case["card_ts"], case)
+        mark(client, case["card_channel_id"], case["card_thread_ts"], case["card_ts"], case,
+             is_new=case["card_digest"] == card_state(None))
         if not case["card_thread_ts"]:
             unfurl_opening(client, conn, case["case_id"], case["card_channel_id"], case["card_ts"])
 
