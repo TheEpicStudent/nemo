@@ -57,7 +57,8 @@ class ApplicationController < ActionController::Base
     return if current_account.present?
     return head :unauthorized if request.format.json?
 
-    redirect_to login_path, alert: "Sign in to continue"
+    session[:return_to] = request.fullpath if request.get? && request.format.html?
+    redirect_to root_path
   end
 
   def may_administer?
