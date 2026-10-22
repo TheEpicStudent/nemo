@@ -146,6 +146,47 @@ def test_loop_start_app_setting_notify_starts_configured_joins(monkeypatch):
     assert started_clients == [client]
 
 
+def test_loop_start_join_mode_notify_starts_the_full_sweep(monkeypatch):
+    case_channel = SimpleNamespace(client=object())
+    swept, configured, listeners = [], [], {}
+    monkeypatch.setattr(loop, "session", lambda: session_of(Conn()))
+    for module in (loop.guards, loop.channelguards, loop.memberguards, loop.automod,
+                   loop.responses, loop.screening, loop.categories):
+        monkeypatch.setattr(module, "refresh", lambda conn: 0)
+    monkeypatch.setattr(loop.channel, "refresh_channels", lambda conn: None)
+    monkeypatch.setattr(loop.purge, "requeue_interrupted", lambda conn: [])
+    monkeypatch.setattr(loop.loops, "run_on_wake", lambda *args, **kwargs: (lambda: None))
+    monkeypatch.setattr(loop.loops, "start_listener",
+                        lambda name, names, on_notify, stopping: listeners.update(on_notify=on_notify))
+    monkeypatch.setattr(loop.loops, "run_periodically", lambda *args, **kwargs: None)
+    monkeypatch.setattr(loop.loops, "run_on_timer", lambda *args, **kwargs: (lambda: None))
+    monkeypatch.setattr(loop, "start_configured_joins", lambda target: configured.append(target))
+    monkeypatch.setattr(loop, "start_join_sweep", lambda target, stopping: swept.append(target))
+
+    loop.start(case_channel, threading.Event())
+    listeners["on_notify"](loop.APP_SETTING, loop.channels.SETTING)
+
+    assert swept == [case_channel]
+    assert configured == []
+
+
+def test_join_sweep_requested_during_a_sweep_runs_once_more(monkeypatch):
+    passes = []
+    case_channel = SimpleNamespace(client=object())
+    monkeypatch.setattr(loop.channels, "join_configured", lambda client: None)
+
+    def reconcile(client, stopping=None):
+        passes.append(len(passes))
+        if len(passes) == 1:
+            loop.join_sweep(case_channel)
+
+    monkeypatch.setattr(loop.channels, "reconcile", reconcile)
+    loop.join_sweep(case_channel)
+
+    assert passes == [0, 1]
+    assert not loop.JOIN_SWEEP_LOCK.locked()
+
+
 def live_guards(monkeypatch, *keys):
     monkeypatch.setattr(channelguards, "_guards",
                         {(*key, channelguards.CHANNEL_WIDE): channelguards.LiveGuard(1, {}, frozenset())

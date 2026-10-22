@@ -1,7 +1,7 @@
 import logging
 
 from bot.core import session, whoami
-from bot.nemo import channels
+from bot.nemo import channel, channels, internal_log
 from bot.nemo.surface import on_event
 from lib import channel_dim
 
@@ -14,6 +14,7 @@ ARCHIVE_STATE_BY_EVENT = {
     "channel_unarchive": False,
     "group_unarchive": False,
 }
+REMOVED_NOTICE = "<@{actor}> removed Nemo from <#{channel}>, attempting to rejoin!"
 
 
 def fetch_channel_info(client, channel_id, channel_type=None):
@@ -74,7 +75,23 @@ def rejoin_if_wanted(client, channel_id, by=None):
 
     log.info("nemo: put out of %s, %s", channel_id,
              "went back in" if rejoined else "could not get back in")
+    post_removed_notice(client, channel_id, by)
     return rejoined
+
+
+def post_removed_notice(client, channel_id, by):
+    if not by or by == whoami.bot_user_id(client, "nemo"):
+        return None
+    with session() as conn:
+        log_channel_id = channel.log_channel(conn)
+    if not log_channel_id:
+        return None
+    try:
+        internal_log.post_text(client, log_channel_id, REMOVED_NOTICE.format(actor=by, channel=channel_id))
+    except Exception as failure:
+        log.warning("nemo: could not post the removal from %s to the internal log: %s", channel_id, failure)
+        return None
+    return log_channel_id
 
 
 @on_event("member_left_channel", open_to_all=True)

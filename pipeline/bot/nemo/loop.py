@@ -77,10 +77,29 @@ def join_sweep_interval_seconds():
     return int(os.environ.get("NEMO_JOIN_SECONDS", DEFAULT_JOIN_SWEEP_SECONDS))
 
 
+JOIN_SWEEP_LOCK = threading.Lock()
+join_sweep_requested = threading.Event()
+
+
 def join_sweep(case_channel, stopping=None):
     client = case_channel.client
-    run_each(("joining configured channels", lambda: channels.join_configured(client)),
-             ("joining channels", lambda: channels.reconcile(client, stopping=stopping)))
+    if not JOIN_SWEEP_LOCK.acquire(blocking=False):
+        join_sweep_requested.set()
+        return
+    try:
+        while True:
+            join_sweep_requested.clear()
+            run_each(("joining configured channels", lambda: channels.join_configured(client)),
+                     ("joining channels", lambda: channels.reconcile(client, stopping=stopping)))
+            if not join_sweep_requested.is_set() or (stopping is not None and stopping.is_set()):
+                return
+    finally:
+        JOIN_SWEEP_LOCK.release()
+
+
+def start_join_sweep(case_channel, stopping):
+    threading.Thread(target=join_sweep, args=(case_channel, stopping), name="nemo-join-sweep",
+                     daemon=True).start()
 
 
 def join_configured(client):
@@ -333,7 +352,10 @@ def start(case_channel, stopping, channel_id=None):
             with session() as conn:
                 channel.refresh_channels(conn)
                 responses.refresh(conn)
-            start_configured_joins(case_channel.client)
+            if payload == channels.SETTING:
+                start_join_sweep(case_channel, stopping)
+            else:
+                start_configured_joins(case_channel.client)
         elif channel_name == AUTOMOD_WORD:
             with session() as conn:
                 automod.refresh(conn)
