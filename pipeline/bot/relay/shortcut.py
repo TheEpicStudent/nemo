@@ -113,10 +113,10 @@ def record_report(dm_channel, root_ts, reporter_id, event):
     return conversation_id, message_id
 
 
-def show_receipt(client, dm_channel, root_ts, case_id, anonymous):
+def show_receipt(client, dm_channel, root_ts, case_id, anonymous, reporter_id):
     with session() as conn:
         delayed = nemo_delayed(conn)
-    text, blocks = receipt(case_id, anonymous, delayed)
+    text, blocks = receipt(case_id, anonymous, delayed, reporter_id)
     client.chat_update(channel=dm_channel, ts=root_ts, text=text, blocks=blocks)
 
 
@@ -159,7 +159,7 @@ def file_report(body, client, respond, anonymous, on_submit):
         return tell(respond, SUBMIT_FAILED)
 
     try:
-        show_receipt(client, dm_channel, root_ts, case_id, anonymous)
+        show_receipt(client, dm_channel, root_ts, case_id, anonymous, reporter_id)
     except Exception:
         log.exception("relay: case %s has no receipt in %s", case_id, dm_channel)
 

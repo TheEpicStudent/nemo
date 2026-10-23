@@ -34,12 +34,12 @@ THREAD_HINT = "Replies arrive in this thread; reply here to add details"
 NOTE_SEPARATOR = " - "
 
 
-def receipt_text(case_id):
-    return SUBMITTED
+def receipt_text(reporter_id=None):
+    return f"<@{reporter_id}>: {SUBMITTED}" if reporter_id else SUBMITTED
 
 
-def receipt(case_id, anonymous, delayed=False):
-    text = receipt_text(case_id)
+def receipt(case_id, anonymous, delayed=False, reporter_id=None):
+    text = receipt_text(reporter_id)
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     notes = []
     if anonymous:

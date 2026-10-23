@@ -140,6 +140,7 @@ def test_report_updates_thread_root_with_receipt_and_answers_in_place(relay):
 
     assert slack.calls[1][1]["text"] == SENDING
     assert slack.updates()[0]["ts"] == ROOT_TS and slack.updates()[0]["channel"] == DM_CHANNEL
+    assert slack.updates()[0]["text"] == f"<@{REPORTER}>: Your report was sent to the Fire Department."
     assert responder.said == [shortcut.REPORTED]
 
 

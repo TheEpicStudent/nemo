@@ -13,6 +13,13 @@ def test_receipt_names_the_fire_department_and_hints_at_the_thread():
     assert blocks[1]["elements"] == [{"type": "mrkdwn", "text": reply.THREAD_HINT}]
 
 
+def test_receipt_mentions_the_reporter_first():
+    text, blocks = reply.receipt(12, anonymous=False, reporter_id="UREPORTER")
+
+    assert text == "<@UREPORTER>: Your report was sent to the Fire Department."
+    assert blocks[0]["text"]["text"] == text
+
+
 def test_receipt_lists_anonymous_and_delay_before_the_hint():
     _text, blocks = reply.receipt(12, anonymous=True, delayed=True)
 
@@ -86,7 +93,8 @@ def send_setup(monkeypatch, claimed=True, on_submit=None):
 
 
 def press(app, action, client):
-    app.actions[action](lambda: None, {"channel": {"id": DM_CHANNEL_ID}, "message": {"ts": PROMPT_TS}}, client)
+    app.actions[action](lambda: None, {"channel": {"id": DM_CHANNEL_ID}, "message": {"ts": PROMPT_TS},
+                                       "user": {"id": "UREPORTER"}}, client)
 
 
 def test_send_shows_sending_then_the_receipt_and_ticks_every_message(monkeypatch):
@@ -97,7 +105,7 @@ def test_send_shows_sending_then_the_receipt_and_ticks_every_message(monkeypatch
 
     assert [name for name, _kwargs in client.calls] == ["chat_update", "chat_update", "reactions_add", "reactions_add"]
     assert client.calls[0][1]["text"] == reply.SENDING
-    assert client.calls[1][1]["text"] == reply.SUBMITTED
+    assert client.calls[1][1]["text"] == f"<@UREPORTER>: {reply.SUBMITTED}"
     assert [kwargs["timestamp"] for _name, kwargs in client.calls[2:]] == ["1.0", "1.2"]
 
 
