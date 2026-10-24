@@ -732,7 +732,8 @@ module FdHelper
     entries = messages.map do |message|
       message_entry(message, hidden, files.fetch(message.id, []), cited.fetch(message.id, []))
     end
-    entries += chat.map { |line| chat_entry(line) }
+    relayed = Fd::CaseReport.shroud_reports_by_thread(chat)
+    entries += chat.map { |line| chat_entry(line, relayed[[line.channel_id, line.thread_ts]]) }
     entries += queued.map { |row| queued_entry(row) }
     entries.sort_by(&:at)
   end
@@ -790,12 +791,20 @@ module FdHelper
     row.mode == "signed" ? "from #{names[row.requested_by]}" : "anonymous"
   end
 
-  def chat_entry(line)
+  def chat_entry(line, report = nil)
+    return relayed_entry(line, report) if report && Fd::CaseReport.shroud_relay?(line)
+
     blocks = line.blocks unless line.deleted?
     kind = Slack::EchoCard.echo?(blocks) ? "action" : "chat"
     ChatEntry.new(key: "chat-#{line.id}", at: line.posted_at, side: "out", kind: kind,
       who: line.author_user_id, name: names[line.author_user_id], body: chat_body(line),
       blocks: blocks)
+  end
+
+  def relayed_entry(line, report)
+    ChatEntry.new(key: "chat-#{line.id}", at: line.posted_at, side: "in", kind: "them",
+      who: (report.reporter_user_id unless report.anonymous?), anon: report.anonymous?,
+      name: report.reporter_label(names), body: chat_body(line), blocks: (line.blocks unless line.deleted?))
   end
 
   def chat_body(line)

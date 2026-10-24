@@ -4,7 +4,22 @@ module Fd
 
     belongs_to :kase, class_name: "Fd::Case", foreign_key: :case_id, inverse_of: :reports
 
+    SHROUD_AUTHORS = %w[U07K4TS9HQE B07KBDVFXJP].freeze
+
     scope :oldest_first, -> { order(:received_at) }
+
+    def self.shroud_reports_by_thread(chat)
+      lines = chat.select { |line| shroud_relay?(line) }
+      return {} if lines.empty?
+
+      where(source_app: "shroud", card_channel_id: lines.map(&:channel_id).uniq,
+        forwarded_ts: lines.map(&:thread_ts).uniq)
+        .index_by { |report| [report.card_channel_id, report.forwarded_ts] }
+    end
+
+    def self.shroud_relay?(line)
+      SHROUD_AUTHORS.include?(line.author_user_id) && line.ts.present? && line.ts != line.thread_ts
+    end
 
     def anonymous?
       is_anonymous

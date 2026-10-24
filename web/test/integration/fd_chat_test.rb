@@ -530,4 +530,38 @@ class FdChatTest < ActionDispatch::IntegrationTest
 
     assert_select "p.dayrule", "Not imported yet"
   end
+
+  def shroud_thread!(anonymous:)
+    kase = make_case(source_app: "lyla", chat_imported_at: Time.current)
+    Fd::CaseReport.create!(case_id: kase.id, is_anonymous: anonymous,
+      reporter_user_id: (anonymous ? nil : "UREPORTER"), body: "they spammed",
+      received_at: 2.hours.ago, source_app: "shroud", card_channel_id: "C0FIRE",
+      forwarded_ts: "1792777296.908719")
+    Fd::CaseChat.create!(case_id: kase.id, author_user_id: "U07K4TS9HQE", body: "more detail",
+      source_app: "nemo", channel_id: "C0FIRE", ts: "1792777316.668059",
+      thread_ts: "1792777296.908719", posted_at: 1.hour.ago)
+    Fd::CaseChat.create!(case_id: kase.id, author_user_id: "UME", body: "on it",
+      source_app: "nemo", channel_id: "C0FIRE", ts: "1792777400.000001",
+      thread_ts: "1792777296.908719", posted_at: 30.minutes.ago)
+    kase
+  end
+
+  test "chat log shows a follow-up shroud relayed as the named reporter" do
+    kase = shroud_thread!(anonymous: false)
+
+    get fd_case_chat_log_path(kase)
+
+    assert_select ".msg.in[data-kind=them] .msg-who", text: "@UREPORTER"
+    assert_select ".msg.out .msg-who", text: "@UME"
+    assert_no_match(/U07K4TS9HQE/, response.body)
+  end
+
+  test "chat log shows a follow-up shroud relayed on an anonymous report as anonymous" do
+    kase = shroud_thread!(anonymous: true)
+
+    get fd_case_chat_log_path(kase)
+
+    assert_select ".msg.in[data-kind=them] .msg-who", text: "Anonymous"
+    assert_select ".msg.out .msg-who", text: "@UME"
+  end
 end
