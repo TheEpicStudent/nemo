@@ -20,6 +20,7 @@ JOIN fd.intake_messages m ON m.id = mf.message_id
 JOIN fd.intake_conversations c ON c.id = m.conversation_id
 WHERE f.reporter_notified_at IS NULL
   AND (f.fetch_state IN ('too_large', 'refused', 'failed') OR (f.fetch_state = 'skipped' AND f.is_external))
+  AND NOT mf.forwarded
   AND m.direction = 'inbound' AND c.handed_off_at IS NOT NULL AND c.closed_at IS NULL
 ORDER BY f.id, m.posted_at
 LIMIT %s

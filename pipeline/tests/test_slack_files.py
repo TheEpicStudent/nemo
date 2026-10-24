@@ -135,7 +135,7 @@ def drain_calls(monkeypatch):
 
 
 def test_drain_declared_non_media_marks_refused_without_download(drain_calls, monkeypatch):
-    drain_calls["rows"].append((1, "F1", "https://files.slack.com/a.zip", 10, "application/zip"))
+    drain_calls["rows"].append((1, "F1", "https://files.slack.com/a.zip", 10, "application/zip", False))
     monkeypatch.setattr(intake_files, "download", lambda *args: pytest.fail("no download expected"))
 
     assert intake_files.drain(TOKEN) == 0
@@ -186,8 +186,8 @@ def test_pdf_refusal_corrupt_object_stream_is_ignored():
 
 
 def test_drain_stores_clean_pdf_and_refuses_active_one(drain_calls, monkeypatch):
-    drain_calls["rows"] += [(1, "F1", "https://files.slack.com/a.pdf", 10, "application/pdf"),
-                            (2, "F2", "https://files.slack.com/b.pdf", 10, "application/pdf")]
+    drain_calls["rows"] += [(1, "F1", "https://files.slack.com/a.pdf", 10, "application/pdf", False),
+                            (2, "F2", "https://files.slack.com/b.pdf", 10, "application/pdf", True)]
     bodies = {"https://files.slack.com/a.pdf": PDF,
               "https://files.slack.com/b.pdf": pdf_with(b"/JavaScript")}
     monkeypatch.setattr(intake_files, "download", lambda url, token, limit: (bodies[url], "stored", None))
@@ -198,14 +198,39 @@ def test_drain_stores_clean_pdf_and_refuses_active_one(drain_calls, monkeypatch)
 
 
 def test_drain_stores_mimetype_detected_from_bytes(drain_calls, monkeypatch):
-    drain_calls["rows"] += [(1, "F1", "https://files.slack.com/a.jpg", 10, "image/jpeg"),
-                            (2, "F2", "https://files.slack.com/b.png", 10, "image/png")]
+    drain_calls["rows"] += [(1, "F1", "https://files.slack.com/a.jpg", 10, "image/jpeg", False),
+                            (2, "F2", "https://files.slack.com/b.png", 10, "image/png", True)]
     bodies = {"https://files.slack.com/a.jpg": PNG, "https://files.slack.com/b.png": b"<html></html>"}
     monkeypatch.setattr(intake_files, "download", lambda url, token, limit: (bodies[url], "stored", None))
 
     assert intake_files.drain(TOKEN) == 1
     assert drain_calls["stored"] == [(1, "image/png")]
     assert drain_calls["failed"] == [(2, "refused", blobs.NOT_MEDIA)]
+
+
+def test_drain_downloads_a_forwarded_file_with_nemos_token(drain_calls, monkeypatch):
+    drain_calls["rows"] += [(1, "F1", "https://files.slack.com/a.png", 10, "image/png", True),
+                            (2, "F2", "https://files.slack.com/b.png", 10, "image/png", False)]
+    used = {}
+    monkeypatch.setenv("NEMO_BOT_TOKEN", "xoxb-nemo")
+    monkeypatch.setattr(
+        intake_files, "download",
+        lambda url, token, limit: used.update({url: token}) or (PNG, "stored", None),
+    )
+
+    intake_files.drain(TOKEN)
+
+    assert used == {"https://files.slack.com/a.png": "xoxb-nemo",
+                    "https://files.slack.com/b.png": TOKEN}
+
+
+def test_drain_downloads_a_forwarded_file_with_the_relay_token_without_nemos(monkeypatch):
+    monkeypatch.delenv("NEMO_BOT_TOKEN", raising=False)
+
+    assert intake_files.drain_token(True, "xoxb-relay", None) == "xoxb-relay"
+    assert intake_files.drain_token(False, "xoxb-relay", None) == "xoxb-relay"
+    assert intake_files.drain_token(True, "xoxb-relay", "xoxb-nemo") == "xoxb-nemo"
+    assert intake_files.drain_token(False, "xoxb-relay", "xoxb-nemo") == "xoxb-relay"
 
 
 @pytest.mark.parametrize(("state", "error", "text"), [
@@ -294,6 +319,7 @@ def test_unnotified_files_filters_open_conversations_and_unnotified_inbound():
     assert "c.handed_off_at IS NOT NULL AND c.closed_at IS NULL" in sql
     assert "f.reporter_notified_at IS NULL" in sql
     assert "m.direction = 'inbound'" in sql
+    assert "NOT mf.forwarded" in sql
 
 
 @pytest.mark.parametrize(("url", "allowed"), [

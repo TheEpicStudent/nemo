@@ -130,7 +130,9 @@ EXISTS (
 """
 
 PENDING = f"""
-SELECT f.id, f.slack_file_id, f.url_private, f.size_bytes, f.mimetype
+SELECT f.id, f.slack_file_id, f.url_private, f.size_bytes, f.mimetype,
+       EXISTS (SELECT 1 FROM fd.intake_message_files mf
+               WHERE mf.file_id = f.id AND mf.forwarded)
 FROM fd.intake_files f
 WHERE f.fetch_state = 'pending' AND f.url_private IS NOT NULL
   AND {IN_SUBMITTED_CONVERSATION}

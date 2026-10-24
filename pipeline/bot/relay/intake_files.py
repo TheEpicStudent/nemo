@@ -1,4 +1,5 @@
 import logging
+import os
 
 from bot.core import blobs, session, slack_files
 
@@ -9,12 +10,17 @@ def download(url, token, limit):
     return slack_files.download(url, token, limit)
 
 
+def drain_token(forwarded, relay, nemo=None):
+    return nemo if forwarded and nemo else relay
+
+
 def drain(token, limit=20):
+    nemo = os.environ.get("NEMO_BOT_TOKEN")
     stored_count = 0
     with session() as conn:
         rows = blobs.waiting(conn, limit)
 
-    for file_id, slack_id, url, size, mimetype in rows:
+    for file_id, slack_id, url, size, mimetype, forwarded in rows:
         if not blobs.is_media_type(mimetype):
             with session() as conn:
                 blobs.mark_failed(conn, file_id, "refused", blobs.NOT_MEDIA)
@@ -28,7 +34,7 @@ def drain(token, limit=20):
             log.info("relay: %s is too large to keep", slack_id)
             continue
 
-        body, state, error = download(url, token, blobs.cap())
+        body, state, error = download(url, drain_token(forwarded, token, nemo), blobs.cap())
         detected = blobs.media_type(body) if state == "stored" else None
         if state == "stored" and detected is None:
             state, error = "refused", blobs.NOT_MEDIA
