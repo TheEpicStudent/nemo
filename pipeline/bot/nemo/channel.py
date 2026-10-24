@@ -813,6 +813,7 @@ def post_follow_up(client, conn, message_id, channel_id=None):
             views.report.escape_but_mentions(quote_text(body)), numbered
         ),
         unfurl=not (numbered and numbered["links"]),
+        summary=True,
     )
     if ts is None:
         log.info("nemo: message %s had nothing to carry", message_id)

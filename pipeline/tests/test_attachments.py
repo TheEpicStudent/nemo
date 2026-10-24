@@ -51,71 +51,14 @@ def test_build_blocks_empty_body_omits_rich_text_quote():
     assert kinds[0] == "card"
 
 
-def test_share_image_uploads_privately_and_posts_image_block(monkeypatch):
-    stub_file_body(monkeypatch, "image/png")
-    conn = Conn([(7, "shot.png", "image/png", "abc", 100)])
-    slack = Slack()
-
-    ts = attachments.share(slack, conn, 5, CHANNEL_ID, THREAD, author_fields={"username": "Anonymous"})
-
-    assert ts == "9.9"
-    assert slack.uploads[0].get("channel") is None, "a blocked file stays private"
-    message = slack.posted[0]
-    assert message["username"] == "Anonymous"
-    assert message["blocks"] == [{
-        "type": "image",
-        "slack_file": {"id": "F1"},
-        "alt_text": "Screenshot from reporter: shot.png",
-    }]
-    assert conn.written == [("F1", 5, 7)]
 
 
-def test_share_image_sleeps_file_index_delay(monkeypatch):
-    stub_file_body(monkeypatch, "image/png")
-    conn = Conn([(7, "shot.png", "image/png", "abc", 100)])
-    slack = Slack()
-    sleeps = []
-    monkeypatch.setattr(attachments.time, "sleep", lambda seconds: sleeps.append(seconds))
-
-    attachments.share(slack, conn, 5, CHANNEL_ID, THREAD, author_fields={"username": "Anonymous"})
-
-    assert sleeps == [attachments.FILE_INDEX_DELAY]
 
 
-def test_share_body_without_files_does_not_sleep(monkeypatch):
-    conn = Conn([])
-    slack = Slack()
-    sleeps = []
-    monkeypatch.setattr(attachments.time, "sleep", lambda seconds: sleeps.append(seconds))
-
-    attachments.share(slack, conn, 5, CHANNEL_ID, THREAD, author_fields={"username": "Anonymous"}, body="look")
-
-    assert sleeps == []
 
 
-def test_share_body_and_image_posts_one_message(monkeypatch):
-    stub_file_body(monkeypatch, "image/png")
-    conn = Conn([(7, "shot.png", "image/png", "abc", 100)])
-    slack = Slack()
-
-    attachments.share(slack, conn, 5, CHANNEL_ID, THREAD, author_fields={"username": "Anonymous"}, body="look")
-
-    assert len(slack.posted) == 1, "one message, not a caption and then a picture"
-    kinds = [block["type"] for block in slack.posted[0]["blocks"]]
-    assert kinds == ["section", "image"]
 
 
-def test_share_pdf_lists_file_name_and_uploads_to_channel(monkeypatch):
-    stub_file_body(monkeypatch, "application/pdf")
-    conn = Conn([(7, "notes.pdf", "application/pdf", "abc", None)])
-    slack = Slack()
-
-    ts = attachments.share(slack, conn, 5, CHANNEL_ID, THREAD, author_fields={"username": "Anonymous"})
-
-    assert ts == "9.9", "the thread still needs a message to hang the case on"
-    assert slack.posted[0]["username"] == "Anonymous"
-    assert "Files: notes.pdf" in slack.posted[0]["blocks"][0]["text"]["text"]
-    assert slack.uploads[0]["channel"] == CHANNEL_ID, "a file slack cannot block goes up on its own"
 
 
 def test_share_without_files_or_body_returns_none_and_posts_nothing(monkeypatch):
@@ -256,18 +199,6 @@ class FailingUploadSlack(Slack):
         raise RuntimeError("slack said no")
 
 
-def test_share_upload_failure_raises_and_writes_no_rows(monkeypatch):
-    stub_file_body(monkeypatch, "image/png")
-    conn = Conn([(7, "shot.png", "image/png", "abc", 100)])
-
-    try:
-        attachments.share(FailingUploadSlack(), conn, 5, CHANNEL_ID, THREAD, author_fields={"username": "Anonymous"})
-    except RuntimeError as failure:
-        assert "not settled" in str(failure)
-    else:
-        raise AssertionError("a failed upload must raise so the message is retried")
-
-    assert conn.written == [], "nothing is marked mirrored when nothing went up"
 
 
 def test_share_body_only_posts_text_with_unfurl_links(monkeypatch):
@@ -284,15 +215,6 @@ def test_share_body_only_posts_text_with_unfurl_links(monkeypatch):
     assert message["username"] == "Anonymous"
 
 
-def test_share_body_with_image_posts_section_and_image_blocks(monkeypatch):
-    stub_file_body(monkeypatch, "image/png")
-    conn = Conn([(7, "shot.png", "image/png", "abc", 100)])
-    slack = Slack()
-
-    attachments.share(slack, conn, 5, CHANNEL_ID, THREAD,
-                author_fields={"username": "Anonymous"}, body="look")
-
-    assert [b["type"] for b in slack.posted[0]["blocks"]] == ["section", "image"]
 
 
 def test_build_blocks_with_shares_omits_linked_message_body():
@@ -317,3 +239,58 @@ class FakeConn:
 def test_claim_card_sql_locks_row_and_reads_forwarded_ts():
     assert "FOR UPDATE" in channel.CLAIM_CARD, "two threads must not both post a card"
     assert "forwarded_ts" in channel.CLAIM_CARD
+
+
+def test_share_image_without_body_uploads_into_thread_and_posts_no_message(monkeypatch):
+    stub_file_body(monkeypatch, "image/png")
+    conn = Conn([(7, "shot.png", "abc")])
+    slack = Slack()
+
+    ts = attachments.share(slack, conn, 5, CHANNEL_ID, THREAD, author_fields={"username": "Anonymous"})
+
+    assert ts is None
+    assert slack.posted == []
+    assert slack.uploads[0]["channel"] == CHANNEL_ID
+    assert slack.uploads[0]["thread_ts"] == THREAD
+    assert slack.uploads[0]["filename"] == "shot.png"
+    assert conn.written == [("F1", 5, 7)]
+
+
+def test_share_body_and_image_posts_text_as_author_then_uploads_into_thread(monkeypatch):
+    stub_file_body(monkeypatch, "image/png")
+    conn = Conn([(7, "shot.png", "abc")])
+    slack = Slack()
+
+    ts = attachments.share(slack, conn, 5, CHANNEL_ID, THREAD, author_fields={"username": "Anonymous"},
+                           body="look")
+
+    assert ts == "9.9"
+    assert slack.posted == [{"channel": CHANNEL_ID, "thread_ts": THREAD, "text": "look",
+                             "unfurl_links": True, "unfurl_media": True, "username": "Anonymous"}]
+    assert slack.uploads[0]["thread_ts"] == THREAD
+    assert conn.written == [("F1", 5, 7)]
+
+
+def test_share_summary_without_body_posts_file_name_as_author(monkeypatch):
+    stub_file_body(monkeypatch, "application/pdf")
+    conn = Conn([(7, "notes.pdf", "abc")])
+    slack = Slack()
+
+    ts = attachments.share(slack, conn, 5, CHANNEL_ID, THREAD, author_fields={"username": "Anonymous"},
+                           summary=True)
+
+    assert ts == "9.9"
+    assert slack.posted[0]["text"] == "notes.pdf"
+    assert slack.posted[0]["username"] == "Anonymous"
+    assert slack.uploads[0]["channel"] == CHANNEL_ID
+
+
+def test_share_upload_failure_writes_no_rows(monkeypatch):
+    stub_file_body(monkeypatch, "image/png")
+    conn = Conn([(7, "shot.png", "abc")])
+
+    ts = attachments.share(FailingUploadSlack(), conn, 5, CHANNEL_ID, THREAD,
+                           author_fields={"username": "Anonymous"})
+
+    assert ts is None
+    assert conn.written == []
