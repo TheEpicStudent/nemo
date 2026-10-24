@@ -17,7 +17,7 @@ module Fd
         @candidates.flat_map(&:assignee_user_ids) +
         @candidates.map(&:opened_by) +
         @candidates.flat_map { |kase| kase.reports.map(&:reporter_user_id) } +
-        @cited_words.values.map(&:author))
+        @preview_user_ids)
       render "more", layout: false if @page > 1
     end
 
@@ -81,9 +81,12 @@ module Fd
       ActiveRecord::Associations::Preloader.new(records: cases,
         associations: [:reports, :assignees, { case_tags: :tag }]).call
       ids = cases.map(&:id)
-      @attachment_counts = IntakeFile.counts_for_cases(ids)
-      @cited_words = IntakeShare.first_shares_for(ids)
-      @channels = ChannelNames.for(@cited_words.values.map(&:channel))
+      previews = QueuePreviews.for(cases)
+      @attachment_counts = previews.attachment_counts
+      @cited_words = previews.cited
+      @case_roots = previews.roots
+      @preview_user_ids = previews.user_ids
+      @channels = ChannelNames.for(previews.channel_ids)
       @violations = Case.violations_for(ids)
       @priors = Case.prior_counts_for(cases.flat_map(&:subject_user_ids))
       @reachable_report_ids = IntakeConversation.open

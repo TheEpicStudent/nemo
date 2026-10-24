@@ -1,11 +1,11 @@
 require "test_helper"
 
 class Slack::RichTextTest < ActiveSupport::TestCase
-  def render(elements, names: {}, channels: {})
+  def render(elements, names: {}, channels: {}, usergroups: {})
     Slack::RichText.for(
       { "blocks" => [{ "type" => "rich_text",
                        "elements" => [{ "type" => "rich_text_section", "elements" => elements }] }] },
-      names: names, channels: channels
+      names: names, channels: channels, usergroups: usergroups
     )
   end
 
@@ -58,6 +58,22 @@ class Slack::RichTextTest < ActiveSupport::TestCase
 
   test "for renders an emoji element as its :name:" do
     assert_match(/:fear:/, render([{ "type" => "emoji", "name" => "fear" }]))
+  end
+
+  test "for with a standard emoji name renders its unicode character" do
+    assert_equal %(<p class="richtext-text"><span class="richtext-emoji-char" title=":skull:">💀</span></p>),
+      render([{ "type" => "emoji", "name" => "skull" }])
+  end
+
+  test "for with emoji unicode code points renders those code points" do
+    assert_match(/👋🏽/, render([{ "type" => "emoji", "name" => "wave", "unicode" => "1f44b-1f3fd" }]))
+  end
+
+  test "for with a usergroup mention renders the handle when known and the id otherwise" do
+    html = render([{ "type" => "usergroup", "usergroup_id" => "S1" }], usergroups: { "S1" => "fire-department" })
+
+    assert_match(/@fire-department/, html)
+    assert_match(/@S2/, render([{ "type" => "usergroup", "usergroup_id" => "S2" }]))
   end
 
   test "for renders a user mention as @name when known and as @id otherwise" do

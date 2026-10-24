@@ -6,6 +6,7 @@ module Fd
       @case = Case.find(params[:case_id])
       family = @case.family_ids
       reports = CaseReport.where(case_id: family).oldest_first.to_a
+      @root_chat = CaseChat.root_for(@case, family) if reports.empty?
       @named_reporters = reports.reject(&:anonymous?).map(&:reporter_user_id)
       @thread = reports.find { |report| report.id == params[:thread].to_i } || reports.last
       @reports = [@thread].compact

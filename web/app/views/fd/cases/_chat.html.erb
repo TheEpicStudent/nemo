@@ -7,6 +7,7 @@
 <% conversation = local_assigns.fetch(:conversation, nil) %>
 <% reachable = local_assigns.fetch(:reachable, Set.new) %>
 <% message_count = local_assigns.fetch(:message_count, messages.size) %>
+<% root = local_assigns.fetch(:root, nil) %>
 
 <div class="chatwrap" data-controller="sticky pending-flush chat-filter"
      data-chat-filter-key-value="<%= kase.id %>"
@@ -28,6 +29,15 @@
           <% end %>
         </b>
         <span><%= chat_head_line([thread], kase, count: message_count) %></span>
+      </span>
+    <% elsif root %>
+      <%= avatar(root.author_user_id) %>
+      <span class="grow two-line">
+        <b>
+          <%= link_to names[root.author_user_id], fd_member_path(root.author_user_id),
+                class: "lnk", data: { turbo_frame: "person-drawer" } %>
+        </b>
+        <span>reported it <%= on_day(root.posted_at) %></span>
       </span>
     <% else %>
       <span class="grow two-line">

@@ -23,6 +23,7 @@ module Fd
       @others = @participants.reject { |person| person.role == "subject" }
       @people = CasePeople.for(@participants, selected_user_id: params[:person])
       @reports = CaseReport.where(case_id: family).oldest_first.to_a
+      @root_chat = CaseChat.root_for(@case, family) if @reports.empty?
       @actions = Action.where(case_id: family).oldest_first.to_a
       @live_actions = @actions.reject(&:reversed?)
       @thread_guards = ThreadGuard.for_case(family).newest_first.to_a
@@ -173,6 +174,7 @@ module Fd
         @siblings.flat_map(&:subject_user_ids),
         (@notes + @standing_notes.values.flatten).flat_map { |note| Mentions.ids(note.body) },
         @reports.flat_map { |report| Mentions.ids(report.body) },
+        @root_chat&.author_user_id,
         @thread_messages.map(&:author_user_id),
         @thread_messages.map(&:purged_by),
         @threads.map(&:added_by),
@@ -247,16 +249,18 @@ module Fd
         .limit(PANE_LIMIT).to_a
       @pane_priors = Case.prior_counts_for(@pane_cases.flat_map(&:subject_user_ids))
       @pane_violations = Case.violations_for(@pane_cases.map(&:id))
-      @cited_words = IntakeShare.first_shares_for(@pane_cases.map(&:id))
-      @attachment_counts = IntakeFile.counts_for_cases(@pane_cases.map(&:id))
+      previews = QueuePreviews.for(@pane_cases)
+      @cited_words = previews.cited
+      @attachment_counts = previews.attachment_counts
+      @case_roots = previews.roots
       @pane_reachable_report_ids = IntakeConversation.open
         .where(report_id: @pane_cases.flat_map { |kase| kase.reports.map(&:id) })
         .pluck(:report_id).to_set
       @pane_people = @pane_cases.flat_map { |kase|
         kase.subject_user_ids + kase.assignee_user_ids + [kase.opened_by] +
           kase.reports.map(&:reporter_user_id)
-      } + @cited_words.values.map(&:author)
-      @pane_channels = @cited_words.values.map(&:channel)
+      } + previews.user_ids
+      @pane_channels = previews.channel_ids
     end
 
     def load_index

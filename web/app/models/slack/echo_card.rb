@@ -13,10 +13,10 @@ module Slack
       new(**rendering).render(blocks)
     end
 
-    def initialize(names: {}, channels: {}, emoji: {}, user_chip: nil, channel_chip: nil,
-                   link_chip: nil)
-      @rendering = { names: names, channels: channels, emoji: emoji, user_chip: user_chip,
-                     channel_chip: channel_chip, link_chip: link_chip }
+    def initialize(names: {}, channels: {}, emoji: {}, usergroups: {}, user_chip: nil,
+                   channel_chip: nil, link_chip: nil)
+      @rendering = { names: names, channels: channels, emoji: emoji, usergroups: usergroups,
+                     user_chip: user_chip, channel_chip: channel_chip, link_chip: link_chip }
     end
 
     def render(blocks)

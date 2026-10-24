@@ -460,6 +460,43 @@ class FdHelperTest < ActionView::TestCase
     assert_equal "look here", plain_text("<https://slack.com/x|look here>")
     assert_equal "https://slack.com/x", plain_text("<https://slack.com/x>")
   end
+
+  test "plain_text with slack markup returns names symbols and emoji" do
+    @names = Fd::Names.new(members: { "U0123ABCD" => Struct.new(:name).new("Pat") })
+    @channels = Fd::ChannelNames.new({ "C0123ABCD" => "lounge" })
+    Fd::SlackUsergroup.create!(usergroup_id: "S0123ABCD", handle: "fire-department")
+
+    assert_equal "Complaint about @Pat in #lounge: nobody asked &amp; kept going 💀 cc @fire-department",
+      plain_text("Complaint about <@U0123ABCD> in <#C0123ABCD>:\n&gt; nobody asked &amp; kept going " \
+                 ":skull:\ncc <!subteam^S0123ABCD>")
+  end
+
+  test "plain_text with an unknown user id wraps it for the client name lookup" do
+    assert_equal %(hi <span data-cachet-name="U0123ABCD">@U0123ABCD</span>), plain_text("hi <@U0123ABCD>")
+  end
+
+  def rooted_case(body:)
+    saved = make_case(subject: nil, opened_by: "UOPEN", card_channel_id: "C0FIRE",
+      card_thread_ts: "1792813878.276269")
+    Fd::CaseChat.create!(case_id: saved.id, author_user_id: "UFF", body: body, source_app: "nemo",
+      channel_id: "C0FIRE", ts: "1792813878.276269")
+    kase = Fd::Case.find(saved.id)
+    @case_roots = Fd::QueuePreviews.for([kase]).roots
+    kase
+  end
+
+  test "case_words without a report returns the root message text" do
+    kase = rooted_case(body: "got bot-kicked from <#C0123ABCD>")
+    @channels = Fd::ChannelNames.new({ "C0123ABCD" => "lounge" })
+
+    assert_equal "got bot-kicked from #lounge", case_words(kase)
+  end
+
+  test "row_reporter_label without a report returns the root message author" do
+    kase = rooted_case(body: "got bot-kicked")
+
+    assert_equal "@UFF", row_reporter_label(kase)
+  end
   def build_guard(**over)
     Fd::MemberGuard.new({ kind: "shush", subject_id: "USUB", opened_by: "UMOD",
                           reason: "being awful" }.merge(over))

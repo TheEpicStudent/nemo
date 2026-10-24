@@ -8,10 +8,10 @@ module Slack
     DEEPEST = 5
     OPENABLE = ["http://", "https://"].freeze
 
-    def self.for(message, names: {}, channels: {}, emoji: {},
+    def self.for(message, names: {}, channels: {}, emoji: {}, usergroups: {},
                  user_chip: nil, channel_chip: nil, link_chip: nil)
-      new(names, channels, emoji, user_chip: user_chip, channel_chip: channel_chip,
-        link_chip: link_chip).to_text(message || {})
+      new(names, channels, emoji, usergroups: usergroups, user_chip: user_chip,
+        channel_chip: channel_chip, link_chip: link_chip).to_text(message || {})
     end
 
     def self.emoji_names(message)
@@ -42,11 +42,12 @@ module Slack
       ids.uniq
     end
 
-    def initialize(names = {}, channels = {}, emoji = {}, user_chip: nil, channel_chip: nil,
-                   link_chip: nil)
+    def initialize(names = {}, channels = {}, emoji = {}, usergroups: {}, user_chip: nil,
+                   channel_chip: nil, link_chip: nil)
       @names = names
       @channels = channels
       @emoji = emoji
+      @usergroups = usergroups
       @user_chip = user_chip
       @channel_chip = channel_chip
       @link_chip = link_chip
@@ -65,7 +66,7 @@ module Slack
 
     private
 
-    attr_reader :names, :channels, :emoji
+    attr_reader :names, :channels, :emoji, :usergroups
 
     def block(node)
       case node["type"]
@@ -110,9 +111,9 @@ module Slack
       case node["type"]
       when "text" then lines(node["text"].to_s)
       when "link" then linked(node)
-      when "emoji" then emoji_for(node["name"])
+      when "emoji" then emoji_for(node)
       when "user" then user_mention(node["user_id"])
-      when "usergroup" then chip("@#{node['usergroup_id']}")
+      when "usergroup" then chip(usergroup_ref(node["usergroup_id"]))
       when "channel" then channel_mention(node["channel_id"])
       when "broadcast" then chip(BROADCASTS.fetch(node["range"], "@#{node['range']}"))
       when "message_mention" then linked(node.merge("text" => node["text"].presence || "a message"))
@@ -160,13 +161,24 @@ module Slack
       ERB::Util.html_escape(node["timestamp"].to_s)
     end
 
-    def emoji_for(name)
+    def emoji_for(node)
+      name = node["name"]
       text = ":#{name}:"
       url = emoji[name].presence
-      return tag.span(text, class: "richtext-emoji") if url.nil?
+      if url
+        return tag.img(src: url, class: "richtext-emoji-img", alt: text, loading: "lazy",
+          width: 20, height: 20)
+      end
 
-      tag.img(src: url, class: "richtext-emoji-img", alt: text, loading: "lazy",
-        width: 20, height: 20)
+      character = UnicodeEmoji.for(name, unicode: node["unicode"], skin_tone: node["skin_tone"])
+      return tag.span(character, class: "richtext-emoji-char", title: text) if character
+
+      tag.span(text, class: "richtext-emoji")
+    end
+
+    def usergroup_ref(usergroup_id)
+      handle = usergroups[usergroup_id].presence || usergroup_id
+      "@#{handle.to_s.delete_prefix('@')}"
     end
 
     def user_mention(user_id)

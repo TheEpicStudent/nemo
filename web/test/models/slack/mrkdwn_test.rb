@@ -51,6 +51,17 @@ class Slack::MrkdwnTest < ActiveSupport::TestCase
     assert_equal({ "type" => "emoji", "name" => "sho" }, inline("hi :sho:").last)
   end
 
+  test "blocks with a skin tone after an emoji sets skin_tone on that emoji" do
+    assert_equal [{ "type" => "emoji", "name" => "wave", "skin_tone" => 3 }], inline(":wave::skin-tone-3:")
+  end
+
+  test "blocks maps a subteam mention to a usergroup element with its id" do
+    assert_equal({ "type" => "usergroup", "usergroup_id" => "S0123ABCD" },
+      inline("cc <!subteam^S0123ABCD>").last)
+    assert_equal({ "type" => "usergroup", "usergroup_id" => "S0123ABCD" },
+      inline("<!subteam^S0123ABCD|@fire-department>").first)
+  end
+
   test "blocks unescapes gt amp and lt entities" do
     assert_equal "a > b & c < d", inline("a &gt; b &amp; c &lt; d").first["text"]
   end

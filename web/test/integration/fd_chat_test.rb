@@ -564,4 +564,50 @@ class FdChatTest < ActionDispatch::IntegrationTest
     assert_select ".msg.in[data-kind=them] .msg-who", text: "Anonymous"
     assert_select ".msg.out .msg-who", text: "@UME"
   end
+
+  test "chat log on another report tab omits the shroud relay from the first report thread" do
+    kase = shroud_thread!(anonymous: false)
+    first = kase.reports.first
+    other = Fd::CaseReport.create!(case_id: kase.id, is_anonymous: false, reporter_user_id: "UOTHER",
+      body: "same person", received_at: 90.minutes.ago, source_app: "shroud", card_channel_id: "C0FIRE",
+      forwarded_ts: "1792777420.062799")
+
+    get fd_case_chat_log_path(kase, thread: other.id)
+
+    assert_not_includes response.body, "more detail"
+    assert_includes response.body, "on it"
+
+    get fd_case_chat_log_path(kase, thread: first.id)
+
+    assert_includes response.body, "more detail"
+  end
+
+  def rooted_case!
+    kase = make_case(subject: nil, card_channel_id: "C0FIRE", card_thread_ts: "1792813878.276269",
+      chat_imported_at: Time.current)
+    Fd::CaseChat.create!(case_id: kase.id, author_user_id: "UFF", body: "got bot-kicked",
+      source_app: "nemo", channel_id: "C0FIRE", ts: "1792813878.276269", posted_at: 2.hours.ago)
+    Fd::CaseChat.create!(case_id: kase.id, author_user_id: "UME", body: "on it", source_app: "nemo",
+      channel_id: "C0FIRE", ts: "1792813900.000001", thread_ts: "1792813878.276269", posted_at: 1.hour.ago)
+    kase
+  end
+
+  test "chat log of a case without reports shows the root message as the reporter message" do
+    kase = rooted_case!
+
+    get fd_case_chat_log_path(kase)
+
+    assert_select ".msg.in[data-kind=them] .msg-who", text: "@UFF"
+    assert_select ".msg.in[data-kind=them] .msg-kind", text: "Reporter"
+    assert_select ".msg.out .msg-who", text: "@UME"
+  end
+
+  test "case show of a case without reports names the root message author in the chat head" do
+    kase = rooted_case!
+
+    get fd_case_path(kase, tab: "report")
+
+    assert_select ".chat-head .two-line b a", text: "@UFF"
+    assert_select ".chat-head .two-line span", text: /reported it/
+  end
 end

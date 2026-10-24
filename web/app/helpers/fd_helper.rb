@@ -14,6 +14,10 @@ module FdHelper
     @emoji || {}
   end
 
+  def usergroup_handles
+    @usergroup_handles ||= Fd::SlackUsergroup::Handles.new
+  end
+
   def channel_label(channel_id)
     channels[channel_id]
   end
@@ -157,7 +161,7 @@ module FdHelper
   end
 
   def rendering
-    { names: names, channels: channels, emoji: chat_emoji,
+    { names: names, channels: channels, emoji: chat_emoji, usergroups: usergroup_handles,
       user_chip: ->(id) { mention_link(id) }, channel_chip: ->(id) { channel_mention(id) },
       link_chip: ->(url, label) { linked(url, label) } }
   end
@@ -733,7 +737,12 @@ module FdHelper
       message_entry(message, hidden, files.fetch(message.id, []), cited.fetch(message.id, []))
     end
     relayed = Fd::CaseReport.shroud_reports_by_thread(chat)
-    entries += chat.map { |line| chat_entry(line, relayed[[line.channel_id, line.thread_ts]]) }
+    entries += chat.filter_map do |line|
+      report = relayed[[line.channel_id, line.thread_ts]] if Fd::CaseReport.shroud_relay?(line)
+      next if report && reports.exclude?(report)
+
+      chat_entry(line, report)
+    end
     entries += queued.map { |row| queued_entry(row) }
     entries.sort_by(&:at)
   end
@@ -793,6 +802,7 @@ module FdHelper
 
   def chat_entry(line, report = nil)
     return relayed_entry(line, report) if report && Fd::CaseReport.shroud_relay?(line)
+    return root_entry(line) if line.id == @root_chat&.id
 
     blocks = line.blocks unless line.deleted?
     kind = Slack::EchoCard.echo?(blocks) ? "action" : "chat"
@@ -805,6 +815,12 @@ module FdHelper
     ChatEntry.new(key: "chat-#{line.id}", at: line.posted_at, side: "in", kind: "them",
       who: (report.reporter_user_id unless report.anonymous?), anon: report.anonymous?,
       name: report.reporter_label(names), body: chat_body(line), blocks: (line.blocks unless line.deleted?))
+  end
+
+  def root_entry(line)
+    ChatEntry.new(key: "chat-#{line.id}", at: line.posted_at, side: "in", kind: "them",
+      who: line.author_user_id, name: names[line.author_user_id], body: chat_body(line),
+      blocks: (line.blocks unless line.deleted?))
   end
 
   def chat_body(line)
@@ -1091,10 +1107,8 @@ module FdHelper
   end
 
   def plain_text(text)
-    text.to_s
-      .gsub(/<(https?:\/\/[^\s<>|]+)\|([^>]*)>/) { Regexp.last_match(2) }
-      .gsub(/<(https?:\/\/[^\s<>]+)>/) { Regexp.last_match(1) }
-      .squish
+    named_text(Slack::PlainText.for(Slack::Mrkdwn.blocks(text), names: names, channels: channels,
+      usergroups: usergroup_handles))
   end
 
   def case_cited(kase)
@@ -1111,10 +1125,14 @@ module FdHelper
     @attachment_counts || {}
   end
 
+  def case_roots
+    @case_roots || {}
+  end
+
   def case_words(kase)
     body = case_first_report(kase)&.body.presence
     return plain_text(body) if body
-    return "No report" if kase.reports.empty?
+    return case_root_words(kase) if kase.reports.empty?
 
     attachment_count = attachment_counts[kase.id].to_i
     return pluralize(attachment_count, "attachment") if attachment_count.positive?
@@ -1122,9 +1140,14 @@ module FdHelper
     "Empty report"
   end
 
+  def case_root_words(kase)
+    body = case_roots[kase.id]&.body.presence
+    body ? plain_text(body) : "No report"
+  end
+
   def row_reporter(kase)
     reports = kase.reports.to_a
-    return kase.opened_by if reports.empty?
+    return case_roots[kase.id]&.author_user_id || kase.opened_by if reports.empty?
 
     reports.reject(&:anonymous?).first&.reporter_user_id
   end

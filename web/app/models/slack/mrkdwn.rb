@@ -9,6 +9,7 @@ module Slack
       (?<code>`(?<code_in>[^`\n]+)`)
       | (?<user><@(?<user_id>[UW][A-Z0-9]{2,})(?:\|[^>]*)?>)
       | (?<channel><\#(?<channel_id>C[A-Z0-9]{2,})(?:\|(?<channel_name>[^>]*))?>)
+      | (?<usergroup><!subteam\^(?<usergroup_id>S[A-Z0-9]{2,})(?:\|[^>]*)?>)
       | (?<link><(?<url>https?://[^|>\s]+)(?:\|(?<label>[^>]*))?>)
       | (?<bare>https?://[^\s<>]+)
       | (?<emoji>:(?<emoji_name>[a-z0-9][a-z0-9_+'\-]*):)
@@ -88,13 +89,26 @@ module Slack
       end
       remainder = text[at..].to_s
       out << text_part(remainder, style) unless remainder.empty?
-      out
+      with_skin_tones(out)
+    end
+
+    def with_skin_tones(parts)
+      parts.each_with_object([]) do |part, result|
+        tone = UnicodeEmoji.skin_tone(part["name"]) if part["type"] == "emoji"
+        previous = result.last
+        if tone && previous && previous["type"] == "emoji" && !previous.key?("skin_tone")
+          previous["skin_tone"] = tone
+        else
+          result << part
+        end
+      end
     end
 
     def parts_for(match, style)
       return [text_part(match[:code_in], style.merge("code" => true))] if match[:code]
       return [{ "type" => "user", "user_id" => match[:user_id] }] if match[:user]
       return [{ "type" => "channel", "channel_id" => match[:channel_id] }] if match[:channel]
+      return [{ "type" => "usergroup", "usergroup_id" => match[:usergroup_id] }] if match[:usergroup]
       return [link_part(match[:url], match[:label])] if match[:link]
       return [link_part(match[:bare], nil)] if match[:bare]
       return [{ "type" => "emoji", "name" => match[:emoji_name] }] if match[:emoji]
