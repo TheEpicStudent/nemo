@@ -126,7 +126,8 @@ def register(app, on_submit=None):
 
             with session() as conn:
                 message_id, inserted = intake.record(conn, event)
-                conversation_id = intake.conversation(conn, event["channel"], thread_ts)
+                conversation_id = intake.conversation(conn, event["channel"], thread_ts,
+                                                      event.get("user"))
                 intake.rename_anonymous_files(conn, conversation_id)
                 handed_off, prompt_ts, saved_choice = conn.execute(
                     CONVERSATION_STATE, (consent.SUBTYPE, conversation_id)
@@ -156,7 +157,8 @@ def register(app, on_submit=None):
     def submit_trusted(event, client):
         with session() as conn:
             message_id, inserted = intake.record(conn, event)
-            conversation_id = intake.conversation(conn, event["channel"], intake.root_ts(event))
+            conversation_id = intake.conversation(conn, event["channel"], intake.root_ts(event),
+                                                  event.get("user"))
             handed_off = conn.execute(HANDED_OFF, (conversation_id,)).fetchone()[0]
         if not inserted or handed_off:
             return None
