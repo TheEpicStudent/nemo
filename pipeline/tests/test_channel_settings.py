@@ -253,7 +253,7 @@ def test_pending_reactions_sql_coalesces_report_card_channel():
 def test_mark_outbox_results_reacts_in_pending_row_channel(split_channels, monkeypatch):
     reaction_targets = []
     monkeypatch.setattr(case_channel, "session", lambda: session_of(Conn()))
-    monkeypatch.setattr(case_channel.outbox, "pending_reactions", lambda conn: [(1, REPORTS_ID, "1.1", None, None)])
+    monkeypatch.setattr(case_channel.outbox, "pending_reactions", lambda conn: [(1, REPORTS_ID, "1.1", None, None, None)])
     monkeypatch.setattr(case_channel.outbox, "mark_reacted", lambda conn, outbox_id: None)
     monkeypatch.setattr(case_channel.CaseChannel, "add_reaction", lambda self, at, emoji: reaction_targets.append(at))
 
@@ -262,9 +262,29 @@ def test_mark_outbox_results_reacts_in_pending_row_channel(split_channels, monke
     assert reaction_targets == [(REPORTS_ID, "1.1")]
 
 
+def test_mark_outbox_results_reads_links_in_sent_replies_only(split_channels, monkeypatch):
+    read = []
+    monkeypatch.setattr(case_channel, "session", lambda: session_of(Conn()))
+    monkeypatch.setattr(case_channel.outbox, "pending_reactions", lambda conn: [
+        (1, REPORTS_ID, "1.1", None, None, 41), (2, REPORTS_ID, "1.2", "2026-10-24", "boom", 42)])
+    monkeypatch.setattr(case_channel.outbox, "mark_reacted", lambda conn, outbox_id: None)
+    monkeypatch.setattr(case_channel.CaseChannel, "add_reaction", lambda self, at, emoji: None)
+    monkeypatch.setattr(case_channel.CaseChannel, "post_refusal", lambda self, channel_id, ts, error: None)
+    monkeypatch.setattr(case_channel.channel, "read_links",
+                        lambda client, conn, message_id: read.append(message_id))
+
+    case_channel.CaseChannel(SlackUnreachable()).mark_outbox_results()
+
+    assert read == [41]
+
+
+def test_pending_reactions_sql_returns_the_sent_message():
+    assert "o.failed_at, o.error, o.message_id" in outbox.PENDING_REACTIONS
+
+
 def test_mark_outbox_results_without_channel_does_not_mark_reacted(no_channel_settings, monkeypatch):
     monkeypatch.setattr(case_channel, "session", lambda: session_of(Conn()))
-    monkeypatch.setattr(case_channel.outbox, "pending_reactions", lambda conn: [(1, None, "1.1", None, None)])
+    monkeypatch.setattr(case_channel.outbox, "pending_reactions", lambda conn: [(1, None, "1.1", None, None, None)])
     monkeypatch.setattr(case_channel.outbox, "mark_reacted", lambda conn, outbox_id: pytest.fail("ticked"))
 
     case_channel.CaseChannel(SlackUnreachable()).mark_outbox_results()

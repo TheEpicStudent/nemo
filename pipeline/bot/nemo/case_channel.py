@@ -211,7 +211,7 @@ class CaseChannel:
         with session() as conn:
             pending = outbox.pending_reactions(conn)
 
-        for outbox_id, channel_id, ts, failed_at, error in pending:
+        for outbox_id, channel_id, ts, failed_at, error, message_id in pending:
             target_channel_id = channel_id or channel.firehouse_channel()
             if not target_channel_id:
                 continue
@@ -219,6 +219,8 @@ class CaseChannel:
             if failed_at:
                 self.post_refusal(target_channel_id, ts, error)
             with session() as conn:
+                if message_id and not failed_at:
+                    channel.read_links(self.client, conn, message_id)
                 outbox.mark_reacted(conn, outbox_id)
 
         return len(pending)
