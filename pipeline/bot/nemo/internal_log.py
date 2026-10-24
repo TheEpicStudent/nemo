@@ -219,8 +219,9 @@ def advance_cursor(name, last_id):
         conn.execute(MOVE_CURSOR, (last_id, name))
 
 
-def post_text(client, log_channel_id, text):
-    client.chat_postMessage(channel=log_channel_id, text=text, unfurl_links=False, unfurl_media=False)
+def post_text(client, log_channel_id, text, thread_ts=None):
+    return client.chat_postMessage(channel=log_channel_id, text=text, thread_ts=thread_ts,
+                                   unfurl_links=False, unfurl_media=False)
 
 
 def post_lines(client, name, lines, log_channel_id):

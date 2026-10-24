@@ -314,33 +314,67 @@ def thread_message(text):
     return Ctx({"channel": CHANNEL_ID, "ts": "2.0", "thread_ts": CARD, "user": "UME", "text": text})
 
 
-def test_on_message_resolve_command_adds_check_and_marks_resolution_log_pending(thread_calls, monkeypatch):
-    monkeypatch.setattr(handlers, "resolve_and_notify",
-                        lambda conn, case_id, message, by: ("no_action", 1))
-    ctx = thread_message("!resolve")
+def test_on_message_resolve_command_deletes_the_command_and_marks_resolution_log_pending(thread_calls,
+                                                                                        monkeypatch):
+    monkeypatch.setattr(handlers, "resolve_thread",
+                        lambda conn, case_id, report_id, message, by: ("no_action", 1))
+    ctx = thread_message("?resolve")
+
+    message_handler().fn(ctx)
+
+    assert thread_calls["deleted"] == ["2.0"], "the reporter's thanks already says it"
+    assert ctx.client.calls_to("reactions_add") == []
+    assert thread_calls["after"] == [("no_action", False)], "the resolved line waits for the reporter's"
+    assert thread_calls["pending_logs"] == [(23, "UME")]
+
+
+def test_on_message_resolve_command_keeps_a_check_when_the_command_cannot_be_deleted(thread_calls, monkeypatch):
+    monkeypatch.setattr(handlers, "resolve_thread",
+                        lambda conn, case_id, report_id, message, by: ("no_action", 1))
+
+    def refuse(channel_id, ts, max_retries=2):
+        raise RuntimeError("proxy down")
+
+    monkeypatch.setattr(handlers.thread_commands.privileged, "delete_message", refuse)
+    ctx = thread_message("?resolve")
 
     message_handler().fn(ctx)
 
     assert ctx.client.calls_to("reactions_add") == [{"channel": CHANNEL_ID, "timestamp": "2.0",
                                                      "name": "check-check"}]
-    assert thread_calls["after"] == [("no_action", False)], "the resolved line waits for the reporter's"
-    assert thread_calls["pending_logs"] == [(23, "UME")]
 
 
-def test_on_message_resolve_command_on_closed_case_adds_check_without_after_resolve(thread_calls, monkeypatch):
-    monkeypatch.setattr(handlers, "resolve_and_notify",
-                        lambda conn, case_id, message, by: (None, 1))
+def test_on_message_resolve_command_on_closed_case_deletes_the_command_without_after_resolve(thread_calls,
+                                                                                            monkeypatch):
+    monkeypatch.setattr(handlers, "resolve_thread",
+                        lambda conn, case_id, report_id, message, by: (None, 1))
     ctx = thread_message("!Resolve ")
 
     message_handler().fn(ctx)
 
-    assert ctx.client.calls_to("reactions_add")[0]["name"] == "check-check"
+    assert thread_calls["deleted"] == ["2.0"]
     assert thread_calls["after"] == []
 
 
+def test_on_message_resolve_command_in_a_merged_cases_thread_resolves_the_surviving_case(thread_calls,
+                                                                                        monkeypatch):
+    resolved = []
+    monkeypatch.setattr(handlers, "family_root", lambda conn, case_id: 5055 if case_id == 23 else case_id)
+    monkeypatch.setattr(handlers.chat, "report_of_thread", lambda conn, ts: 1735)
+    monkeypatch.setattr(handlers, "resolve_thread",
+                        lambda conn, case_id, report_id, message, by: resolved.append((case_id, report_id))
+                        or ("no_action", 1))
+    ctx = thread_message("?resolve")
+
+    message_handler().fn(ctx)
+
+    assert resolved == [(5055, 1735)], "only the reporter on this thread is told"
+    assert thread_calls["pending_logs"] == [(5055, "UME")]
+
+
 def test_on_message_resolve_command_with_nothing_to_close_posts_ephemeral_and_deletes_command(thread_calls, monkeypatch):
-    monkeypatch.setattr(handlers, "resolve_and_notify",
-                        lambda conn, case_id, message, by: (None, 0))
+    monkeypatch.setattr(handlers, "resolve_thread",
+                        lambda conn, case_id, report_id, message, by: (None, 0))
     ctx = thread_message("!resolve")
 
     message_handler().fn(ctx)
@@ -355,8 +389,8 @@ def test_on_message_resolve_command_without_case_resolve_posts_denial_and_delete
     monkeypatch.setattr(handlers.access, "may",
                         lambda conn, user_id, capability, case=None: (capability != "case.resolve", "no"))
     command_calls = []
-    monkeypatch.setattr(handlers, "resolve_and_notify",
-                        lambda conn, case_id, message, by: command_calls.append(case_id) or (None, 1))
+    monkeypatch.setattr(handlers, "resolve_thread",
+                        lambda conn, case_id, report_id, message, by: command_calls.append(case_id) or (None, 1))
     ctx = thread_message("!resolve")
 
     message_handler().fn(ctx)
@@ -364,3 +398,57 @@ def test_on_message_resolve_command_without_case_resolve_posts_denial_and_delete
     assert command_calls == []
     assert ctx.client.calls_to("chat_postEphemeral")[0]["text"] == "no"
     assert thread_calls["deleted"] == ["2.0"]
+
+
+def test_family_root_follows_merges_to_the_surviving_case():
+    parents = {5053: 5055, 5055: None}
+
+    class Chain:
+        def execute(self, sql, args=None):
+            self.case_id = args[0]
+            return self
+
+        def fetchone(self):
+            return (parents[self.case_id],) if self.case_id in parents else None
+
+    assert case_actions.family_root(Chain(), 5053) == 5055
+    assert case_actions.family_root(Chain(), 5055) == 5055
+    assert case_actions.family_root(Chain(), 42) == 42
+
+
+def test_resolve_thread_resolves_the_case_and_tells_only_this_threads_reporter(monkeypatch):
+    calls = []
+    monkeypatch.setattr(case_actions, "default_resolution", lambda conn, case_id: "no_action")
+    monkeypatch.setattr(case_actions, "resolve",
+                        lambda conn, case_id, values, by: calls.append(("resolve", case_id, values)) or 0)
+    monkeypatch.setattr(case_actions, "close_report",
+                        lambda conn, report_id, message, by: calls.append(("close", report_id)) or 1)
+
+    assert case_actions.resolve_thread(None, 5055, 1735, "Thanks", "UME") == ("no_action", 1)
+    assert calls[0][:2] == ("resolve", 5055) and calls[0][2]["notify_reporter"] is False
+    assert calls[1] == ("close", 1735)
+
+
+def test_resolve_thread_on_a_resolved_case_still_tells_this_threads_reporter(monkeypatch):
+    monkeypatch.setattr(case_actions, "default_resolution", lambda conn, case_id: "no_action")
+    monkeypatch.setattr(case_actions, "resolve", lambda conn, case_id, values, by: None)
+    monkeypatch.setattr(case_actions, "close_report", lambda conn, report_id, message, by: 1)
+
+    assert case_actions.resolve_thread(None, 5055, 1736, "Thanks", "UME") == (None, 1)
+
+
+def test_resolve_thread_without_a_report_on_the_thread_tells_nobody(monkeypatch):
+    monkeypatch.setattr(case_actions, "default_resolution", lambda conn, case_id: "no_action")
+    monkeypatch.setattr(case_actions, "resolve", lambda conn, case_id, values, by: 0)
+    monkeypatch.setattr(case_actions, "close_report", lambda *args: pytest.fail("closed a report"))
+
+    assert case_actions.resolve_thread(None, 23, None, "Thanks", "UME") == ("no_action", 0)
+
+
+def test_close_report_queues_the_thanks_for_that_reporter_only(monkeypatch):
+    conn = Conn({"WHERE id = %s AND closed_at IS NULL": (5053,), "FROM fd.intake_conversations": (901,)})
+    monkeypatch.setattr(case_actions.audit, "record", lambda *args, **kwargs: None)
+
+    assert case_actions.close_report(conn, 1735, "Thanks", "UME") == 1
+    queued = [args for sql, args in conn.executed if "INSERT INTO fd.intake_outbox" in sql]
+    assert queued == [(901, "Thanks", "UME")]

@@ -1,4 +1,6 @@
 import logging
+import threading
+import time
 
 from bot.core import session, whoami
 from bot.nemo import channel, channels, internal_log
@@ -15,6 +17,10 @@ ARCHIVE_STATE_BY_EVENT = {
     "group_unarchive": False,
 }
 REMOVED_NOTICE = "<@{actor}> removed Nemo from <#{channel}>, attempting to rejoin!"
+REMOVAL_THREAD_SECONDS = 3600
+
+_removal_threads = {}
+_removal_lock = threading.Lock()
 
 
 def fetch_channel_info(client, channel_id, channel_type=None):
@@ -86,12 +92,26 @@ def post_removed_notice(client, channel_id, by):
         log_channel_id = channel.log_channel(conn)
     if not log_channel_id:
         return None
-    try:
-        internal_log.post_text(client, log_channel_id, REMOVED_NOTICE.format(actor=by, channel=channel_id))
-    except Exception as failure:
-        log.warning("nemo: could not post the removal from %s to the internal log: %s", channel_id, failure)
-        return None
+    text = REMOVED_NOTICE.format(actor=by, channel=channel_id)
+    with _removal_lock:
+        thread_ts = removal_thread(log_channel_id, channel_id)
+        try:
+            sent = internal_log.post_text(client, log_channel_id, text, thread_ts)
+        except Exception as failure:
+            log.warning("nemo: could not post the removal from %s to the internal log: %s", channel_id, failure)
+            return None
+        if thread_ts is None and sent:
+            _removal_threads[channel_id] = (log_channel_id, sent.get("ts"), time.monotonic())
     return log_channel_id
+
+
+def removal_thread(log_channel_id, channel_id):
+    known = _removal_threads.get(channel_id)
+    if not known or known[0] != log_channel_id or not known[1]:
+        return None
+    if time.monotonic() - known[2] >= REMOVAL_THREAD_SECONDS:
+        return None
+    return known[1]
 
 
 @on_event("member_left_channel", open_to_all=True)

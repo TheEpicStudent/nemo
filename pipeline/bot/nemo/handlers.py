@@ -4,11 +4,12 @@ from bot.core import access, outbox, session
 from bot.nemo import answer, views, chat, memberguards, profile, surface, thread_commands
 from bot.nemo.case_actions import (
     CASE_CATEGORY,
+    family_root,
     has_open_report,
     mark_resolution_log_pending,
     log_action,
     merge,
-    resolve_and_notify,
+    resolve_thread,
     resolve_with_action,
 )
 from bot.nemo.surface.reaction_watch import after_resolve
@@ -229,6 +230,8 @@ def register(app, on_reply=None):
             case_id = chat.case_of_thread(conn, thread_ts)
             if case_id is None:
                 return None
+            report_id = chat.report_of_thread(conn, thread_ts)
+            case_id = family_root(conn, case_id)
             for needed in ("case.reply", "case.resolve"):
                 allowed, refusal = access.may(conn, user_id, needed, case_id)
                 if not allowed:
@@ -240,8 +243,8 @@ def register(app, on_reply=None):
             return None
 
         with session() as conn:
-            resolution, notified = resolve_and_notify(
-                conn, case_id, views.resolve.default_message(), user_id
+            resolution, notified = resolve_thread(
+                conn, case_id, report_id, views.resolve.default_message(), user_id
             )
             if resolution and notified:
                 mark_resolution_log_pending(conn, case_id, user_id)
@@ -251,11 +254,12 @@ def register(app, on_reply=None):
                                   thread_commands.refused_outcome(views.lines.already_resolved(case_id)))
             return None
 
-        try:
-            client.reactions_add(channel=event["channel"], timestamp=event["ts"],
-                                 name=RESOLVED_MARK)
-        except Exception as failure:
-            log.warning("nemo: could not mark %s as done: %s", event["ts"], failure)
+        if not thread_commands.delete_command(client, event["channel"], event["ts"], False):
+            try:
+                client.reactions_add(channel=event["channel"], timestamp=event["ts"],
+                                     name=RESOLVED_MARK)
+            except Exception as failure:
+                log.warning("nemo: could not mark %s as done: %s", event["ts"], failure)
         if resolution:
             after_resolve(client, case_id, resolution, user_id, post_log=not notified)
         log.info("nemo: case %s resolved from the thread by %s, %s told", case_id, user_id, notified)

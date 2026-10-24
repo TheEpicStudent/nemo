@@ -15,6 +15,10 @@ ORDER BY priority
 LIMIT 1
 """
 
+REPORT_OF_THREAD = """
+SELECT id FROM fd.case_reports WHERE forwarded_ts = %s ORDER BY id LIMIT 1
+"""
+
 INSERT_CHAT = """
 INSERT INTO fd.case_chat
     (case_id, author_user_id, body, blocks, posted_at, channel_id, ts, thread_ts, source_app)
@@ -75,6 +79,11 @@ def is_reporter_thread(conn, thread_ts):
 
 def case_of_thread(conn, thread_ts):
     row = conn.execute(CASE_OF_THREAD, {"ts": thread_ts}).fetchone()
+    return row[0] if row else None
+
+
+def report_of_thread(conn, thread_ts):
+    row = conn.execute(REPORT_OF_THREAD, (thread_ts,)).fetchone()
     return row[0] if row else None
 
 

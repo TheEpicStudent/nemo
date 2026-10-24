@@ -135,14 +135,34 @@ WHERE case_id = %s AND closed_at IS NULL
 RETURNING id
 """
 
+CLOSE_REPORT = """
+UPDATE fd.case_reports SET closed_at = now(), closed_by = %s
+WHERE id = %s AND closed_at IS NULL
+RETURNING case_id
+"""
+
 
 OPEN_REPORT = """
 SELECT 1 FROM fd.case_reports WHERE case_id = %s AND closed_at IS NULL LIMIT 1
 """
 
+PARENT = "SELECT duplicate_of FROM fd.cases WHERE id = %s"
+
+FAMILY_HOPS = 10
+
 
 def has_open_report(conn, case_id):
     return conn.execute(OPEN_REPORT, (case_id,)).fetchone() is not None
+
+
+def family_root(conn, case_id):
+    current = case_id
+    for _ in range(FAMILY_HOPS):
+        row = conn.execute(PARENT, (current,)).fetchone()
+        if row is None or row[0] is None:
+            return current
+        current = row[0]
+    return current
 
 
 OPEN_CONVERSATION = """
@@ -291,17 +311,27 @@ def resolution_log_actions(conn, case_id):
 def close_reports(conn, case_id, values, user_id):
     notified = 0
     for row in conn.execute(CLOSE_REPORTS, (user_id, case_id)).fetchall():
-        report_id = row[0]
-        audit.record(
-            conn, "report", report_id, "closed", user_id,
-            before={"closed_at": None}, after={"closed_at": "now", "case_id": case_id},
-        )
-        open_conversation = conn.execute(OPEN_CONVERSATION, (report_id,)).fetchone()
-        if open_conversation is None:
-            continue
-        conn.execute(QUEUE_OUTCOME, (open_conversation[0], values, user_id))
-        notified += 1
+        notified += report_closed(conn, row[0], case_id, values, user_id)
     return notified
+
+
+def close_report(conn, report_id, values, user_id):
+    row = conn.execute(CLOSE_REPORT, (user_id, report_id)).fetchone()
+    if row is None:
+        return 0
+    return report_closed(conn, report_id, row[0], values, user_id)
+
+
+def report_closed(conn, report_id, case_id, values, user_id):
+    audit.record(
+        conn, "report", report_id, "closed", user_id,
+        before={"closed_at": None}, after={"closed_at": "now", "case_id": case_id},
+    )
+    open_conversation = conn.execute(OPEN_CONVERSATION, (report_id,)).fetchone()
+    if open_conversation is None:
+        return 0
+    conn.execute(QUEUE_OUTCOME, (open_conversation[0], values, user_id))
+    return 1
 
 
 def resolve(conn, case_id, values, user_id):
@@ -427,6 +457,15 @@ def close_without_notice(conn, case_id, resolution, by):
     values = {"resolution": final_resolution, "member_note": None, "message": None,
               "notify_reporter": False}
     return final_resolution if resolve(conn, case_id, values, by) is not None else None
+
+
+def resolve_thread(conn, case_id, report_id, message, by):
+    final_resolution = default_resolution(conn, case_id)
+    values = {"resolution": final_resolution, "member_note": None, "message": message,
+              "notify_reporter": False}
+    resolved = resolve(conn, case_id, values, by) is not None
+    notified = close_report(conn, report_id, message, by) if report_id else 0
+    return (final_resolution if resolved else None), notified
 
 
 def resolve_and_notify(conn, case_id, message, by):

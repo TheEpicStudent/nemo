@@ -39,7 +39,7 @@ class Slack:
 
     def chat_postMessage(self, **kwargs):
         self.posts.append(kwargs)
-        return {"ok": True}
+        return {"ok": True, "ts": f"9.{len(self.posts)}"}
 
 
 def removal(monkeypatch, wanted=True, archived=False, log_channel="C0LOGS"):
@@ -57,6 +57,7 @@ def removal(monkeypatch, wanted=True, archived=False, log_channel="C0LOGS"):
     monkeypatch.setattr(channel_watch, "fetch_channel_info", lambda client, channel_id: {"archived": archived})
     monkeypatch.setattr(channel_watch.whoami, "bot_user_id", lambda client, name: "UNEMO")
     monkeypatch.setattr(channel_watch.channel, "log_channel", lambda conn: log_channel)
+    monkeypatch.setattr(channel_watch, "_removal_threads", {})
     return Slack()
 
 
@@ -91,3 +92,44 @@ def test_removal_without_a_log_channel_still_rejoins(monkeypatch):
     slack = removal(monkeypatch, log_channel=None)
     assert channel_watch.rejoin_if_wanted(slack, "C0GEN", by="UMOD") is True
     assert slack.posts == []
+
+
+def test_removals_within_an_hour_go_in_the_thread_of_the_first(monkeypatch):
+    slack = removal(monkeypatch)
+    clock = [1000.0]
+    monkeypatch.setattr(channel_watch.time, "monotonic", lambda: clock[0])
+
+    channel_watch.rejoin_if_wanted(slack, "C0GEN", by="UMOD")
+    clock[0] += 600
+    channel_watch.rejoin_if_wanted(slack, "C0GEN", by="UMOD")
+    clock[0] += 2000
+    channel_watch.rejoin_if_wanted(slack, "C0GEN", by="UOTHER")
+
+    assert [post.get("thread_ts") for post in slack.posts] == [None, "9.1", "9.1"]
+
+
+def test_a_removal_after_the_hour_starts_a_new_thread(monkeypatch):
+    slack = removal(monkeypatch)
+    clock = [1000.0]
+    monkeypatch.setattr(channel_watch.time, "monotonic", lambda: clock[0])
+
+    channel_watch.rejoin_if_wanted(slack, "C0GEN", by="UMOD")
+    clock[0] += 3600
+    channel_watch.rejoin_if_wanted(slack, "C0GEN", by="UMOD")
+    clock[0] += 60
+    channel_watch.rejoin_if_wanted(slack, "C0GEN", by="UMOD")
+
+    assert [post.get("thread_ts") for post in slack.posts] == [None, None, "9.2"]
+
+
+def test_removals_from_different_channels_keep_their_own_threads(monkeypatch):
+    slack = removal(monkeypatch)
+    monkeypatch.setattr(channel_watch.channels, "target_channels",
+                        lambda client, conn, mode: {"C0GEN", "C0RANDOM"})
+
+    channel_watch.rejoin_if_wanted(slack, "C0GEN", by="UMOD")
+    channel_watch.rejoin_if_wanted(slack, "C0RANDOM", by="UMOD")
+    channel_watch.rejoin_if_wanted(slack, "C0GEN", by="UMOD")
+
+    assert [post.get("thread_ts") for post in slack.posts] == [None, None, "9.1"]
+
