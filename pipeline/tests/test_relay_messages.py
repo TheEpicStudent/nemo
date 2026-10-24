@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from bot.relay.messages import MessageRelay, file_share_ts
 
 CHANNEL_ID = "D123"
@@ -9,6 +11,12 @@ class Slack:
         self.info = info or {}
         self.replies = replies or {}
         self.calls = []
+        self.posted = []
+
+    def chat_postMessage(self, **kwargs):
+        self.calls.append("chat.postMessage")
+        self.posted.append(kwargs)
+        return {"ts": "2.2"}
 
     def files_info(self, file):
         self.calls.append("files.info")
@@ -63,3 +71,13 @@ def test_resolve_file_ts_without_file_id_returns_none_and_makes_no_calls():
 
 def test_file_share_ts_other_channel_returns_none():
     assert file_share_ts({"shares": {"private": {"D999": [{"ts": "9.9"}]}}}, CHANNEL_ID) is None
+
+
+def test_post_message_sends_reply_with_link_previews():
+    slack = Slack()
+    queued = SimpleNamespace(body="see https://hackclub.slack.com/archives/C1/p1792814195112529",
+                             mode="body", requested_by="UFIRE", channel_id=CHANNEL_ID,
+                             thread_ts=THREAD_TS)
+
+    assert MessageRelay(slack).post_message(queued) == "2.2"
+    assert slack.posted[0]["unfurl_links"] is True and slack.posted[0]["unfurl_media"] is True

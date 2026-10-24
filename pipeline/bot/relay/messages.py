@@ -187,8 +187,8 @@ class MessageRelay:
                     channel=queued.channel_id,
                     thread_ts=queued.thread_ts,
                     text=part,
-                    unfurl_links=False,
-                    unfurl_media=False,
+                    unfurl_links=True,
+                    unfurl_media=True,
                     **self.display_identity(queued),
                 )
             except Exception:
