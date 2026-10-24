@@ -106,6 +106,14 @@ WHERE c.source_app = 'shroud' AND c.handed_off_at IS NULL AND c.closed_at IS NUL
 ORDER BY c.id
 """
 
+MARK_FILES_POSTED = """
+UPDATE fd.intake_message_files mf
+SET mirrored_at = now(), mirrored_file_id = f.slack_file_id
+FROM fd.intake_files f
+WHERE f.id = mf.file_id AND mf.message_id = %s AND mf.mirrored_at IS NULL
+"""
+
+
 def connect():
     return psycopg.connect(os.environ[URL], options="-c default_transaction_read_only=on")
 
@@ -124,6 +132,7 @@ def dm_attachments(message, anonymous):
 def attach_dm_message(conn, conversation_id, message_id, message, anonymous):
     parts = dm_attachments(message, anonymous)
     intake.attach(conn, message_id, parts)
+    conn.execute(MARK_FILES_POSTED, (message_id,))
     if anonymous and parts["files"]:
         intake.rename_anonymous_files(conn, conversation_id)
     return parts

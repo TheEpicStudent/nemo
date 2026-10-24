@@ -247,6 +247,21 @@ def test_new_import_stores_the_shared_message_of_the_dm(monkeypatch):
     assert stored[0][0] == 601 and stored[0][6] == "UAUTHOR"
 
 
+def test_forwarded_with_dm_files_marks_files_posted(monkeypatch):
+    monkeypatch.setattr(shroud_import, "ensure_member", lambda conn, user_id: None)
+    conn = new_report_conn()
+    conn.answers["INSERT INTO fd.intake_files"] = (701,)
+    file = {"id": "F1", "name": "shot.png", "user": "UREPORTER", "mimetype": "image/png",
+            "url_private": "https://files.slack.com/files-pri/T1-F1/shot.png"}
+    identity = shroud_identity.Identity(Forwards({"username": "Pat"}),
+                                        Dms({"user": "UREPORTER", "files": [file]}))
+
+    forwarded(conn, identity)
+
+    assert conn.args_for("INSERT INTO fd.intake_message_files")
+    assert conn.args_for("mirrored_file_id = f.slack_file_id") == [(601,)]
+
+
 def test_an_existing_report_is_left_alone():
     conn = Conn({"FROM fd.cases WHERE card_thread_ts": (77, "C0FIRE", None, None),
                  "FROM fd.case_reports WHERE external_ref": (501, 77)})
