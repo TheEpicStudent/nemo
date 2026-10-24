@@ -310,7 +310,7 @@ def register(app, on_submit=None):
         with session() as conn:
             delayed = nemo_delayed(conn)
 
-        text, blocks = receipt(case_id, anonymous, delayed, (body.get("user") or {}).get("id"))
+        text, blocks = receipt(case_id, anonymous, delayed)
         client.chat_update(channel=channel_id, ts=prompt_ts, text=text, blocks=blocks)
         react_submitted_messages(client, conversation_id)
 

@@ -105,7 +105,7 @@ def test_send_shows_sending_then_the_receipt_and_ticks_every_message(monkeypatch
 
     assert [name for name, _kwargs in client.calls] == ["chat_update", "chat_update", "reactions_add", "reactions_add"]
     assert client.calls[0][1]["text"] == reply.SENDING
-    assert client.calls[1][1]["text"] == f"<@UREPORTER>: {reply.SUBMITTED}"
+    assert client.calls[1][1]["text"] == reply.SUBMITTED
     assert [kwargs["timestamp"] for _name, kwargs in client.calls[2:]] == ["1.0", "1.2"]
 
 
