@@ -38,6 +38,8 @@ nemo <role> [args]
                  (in the bot.nemo container)
   shroud-import  Shroud reports (--since for a delta, --takeover after the switch)
                  (in the bot.relay container)
+  import-repair identity|reports|chat [--apply]
+                 fix imported reports and chat, a dry run unless --apply
   doctor <role>  report the env this role needs and what is missing
 
 the role may also come from NEMO_ROLE when no argument is given.
@@ -103,6 +105,9 @@ case "$ROLE" in
     ;;
   lyla)
     py -m lyla "$@"
+    ;;
+  import-repair)
+    py -m jobs.import_repair "$@"
     ;;
   shroud-import)
     py -m jobs.shroud_import "$@"

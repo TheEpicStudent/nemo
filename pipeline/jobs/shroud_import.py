@@ -14,6 +14,7 @@ from bot.core import intake, parse, session, shutdown
 from bot.core.identity import ensure_member
 from bot.nemo.channel import card_mark, card_state
 from bot.relay import consent, dm
+from jobs import shroud_identity
 from lib.paths import ENV_FILE
 from lib.slack_client import RETRY_HANDLERS
 from lyla import store
@@ -113,21 +114,9 @@ def slack_time(ts):
     return parse.posted_at(ts) if ts else None
 
 
-class Reporters:
-    def __init__(self, client):
-        self.client = client
-
-    def author(self, channel_id, ts):
-        response = self.client.conversations_history(channel=channel_id, oldest=ts, latest=ts,
-                                                     inclusive=True, limit=1)
-        time.sleep(PACE_SECONDS)
-        message = next((one for one in response.get("messages") or [] if one.get("ts") == ts), None)
-        return (message or {}).get("user")
-
-
 class Import:
-    def __init__(self, reporters):
-        self.reporters = reporters
+    def __init__(self, identity):
+        self.identity = identity
         self.summary = collections.Counter()
 
     def run(self, rows):
@@ -144,7 +133,7 @@ class Import:
     def one(self, conn, report_id, dm_ts, dm_channel, forwarded_ts, selection_ts, selection, content,
             reply_time, auto_forward, created_at, _updated_at):
         if forwarded_ts:
-            self.forwarded(conn, report_id, dm_ts, dm_channel, forwarded_ts, selection, content,
+            self.forwarded(conn, report_id, dm_ts, dm_channel, forwarded_ts, selection_ts, content,
                            reply_time, auto_forward, created_at)
         else:
             self.unsent(conn, dm_ts, dm_channel, selection_ts, selection, content, created_at)
@@ -168,7 +157,7 @@ class Import:
         if row and row[1]:
             conn.execute(INSERT_REVISION, (row[0], content, parse.digest(content, None, None)))
 
-    def forwarded(self, conn, report_id, dm_ts, dm_channel, forwarded_ts, selection, content,
+    def forwarded(self, conn, report_id, dm_ts, dm_channel, forwarded_ts, selection_ts, content,
                   reply_time, auto_forward, created_at):
         ref = f"shroud:report:{report_id}"
         case = conn.execute(CASE_FOR_THREAD, {"ts": forwarded_ts}).fetchone()
@@ -177,16 +166,16 @@ class Import:
             self.summary["no_case"] += 1
             return
         case_id, channel_id, resolved_at, resolution = case
-        existing = conn.execute(REPORT_BY_REF, (ref,)).fetchone()
-        if existing:
+        if conn.execute(REPORT_BY_REF, (ref,)).fetchone():
             self.summary["already"] += 1
             return
 
-        named = auto_forward or selection == NAMED
-        reporter = self.reporters.author(dm_channel, dm_ts) if named else None
-        if named and not reporter:
-            log.info("shroud import: report %s is named but its first message is gone", report_id)
-            named = False
+        kind = shroud_identity.kind_of(auto_forward, selection_ts)
+        forward = self.identity.forwards.one(channel_id, forwarded_ts)
+        choice, reporter = self.identity.decide(kind, forward, dm_channel, dm_ts)
+        if choice == shroud_identity.UNKNOWN:
+            log.info("shroud import: report %s shows no reporter, it stays anonymous", report_id)
+        named = choice == shroud_identity.NAMED
         closed_by = intake.TRUSTED_SENDER if auto_forward else None
         conversation_id, attached = self.conversation(
             conn, dm_channel, dm_ts, reporter, consent.NAMED if named else consent.ANONYMOUS,
@@ -219,7 +208,7 @@ class Import:
         if conn.execute(CONVERSATION, (dm_channel, dm_ts)).fetchone():
             self.summary["already"] += 1
             return
-        member = self.reporters.author(dm_channel, dm_ts)
+        member = self.identity.dm_author(dm_channel, dm_ts)
         if not member:
             self.summary["unsent_gone"] += 1
             return
@@ -265,6 +254,8 @@ def main(argv=None):
         print("shroud import: RELAY_BOT_TOKEN is not set", file=sys.stderr)
         return 78
     client = WebClient(token=os.environ["RELAY_BOT_TOKEN"], retry_handlers=RETRY_HANDLERS)
+    nemo = (WebClient(token=os.environ["NEMO_BOT_TOKEN"], retry_handlers=RETRY_HANDLERS)
+            if os.environ.get("NEMO_BOT_TOKEN") else None)
     try:
         if args.takeover:
             redrawn, prompts = takeover(client)
@@ -276,7 +267,9 @@ def main(argv=None):
         since = args.since or dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
         with connect() as shroud:
             rows = shroud.execute(REPORTS, (since,)).fetchall()
-        summary = Import(Reporters(client)).run(rows)
+        identity = shroud_identity.Identity(shroud_identity.Messages([client, nemo]),
+                                            shroud_identity.Messages([client]))
+        summary = Import(identity).run(rows)
         for key, count in sorted(summary.items()):
             print(f"shroud import: {key} {count}")
         print(f"shroud import: {len(rows)} Shroud row(s) read")

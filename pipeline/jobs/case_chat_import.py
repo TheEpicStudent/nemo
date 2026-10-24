@@ -5,6 +5,7 @@ from slack_sdk.errors import SlackApiError
 
 from bot.core import session
 from bot.nemo import chat
+from jobs import imported_chat
 from lyla import link, status
 
 log = logging.getLogger("chat_import")
@@ -35,8 +36,6 @@ SELECT card_channel_id, forwarded_ts FROM fd.case_reports
 WHERE case_id = %(case_id)s AND forwarded_ts IS NOT NULL AND card_channel_id IS NOT NULL
 """
 
-REPORT_ROOTS = "SELECT forwarded_ts FROM fd.case_reports WHERE case_id = %s AND forwarded_ts IS NOT NULL"
-
 DONE = "UPDATE fd.cases SET chat_imported_at = now() WHERE id = %s AND chat_imported_at IS NULL"
 
 
@@ -63,21 +62,30 @@ def event_of(channel_id, message):
     }
 
 
+_own = {}
+
+
+def own_ids(client):
+    if "ids" not in _own:
+        identity = client.auth_test()
+        _own["ids"] = {one for one in (identity.get("user_id"), identity.get("bot_id")) if one}
+    return _own["ids"]
+
+
 def import_case(client, case_id):
     with session() as conn:
         threads = conn.execute(THREADS, {"case_id": case_id}).fetchall()
-        roots = {row[0] for row in conn.execute(REPORT_ROOTS, (case_id,)).fetchall()}
+    own = own_ids(client)
     stored = 0
     for channel_id, thread_ts in threads:
         messages = replies(client, channel_id, thread_ts)
         with session() as conn:
+            report_id = imported_chat.report_for_thread(conn, channel_id, thread_ts)
+            mirrors = imported_chat.known_mirrors(conn, [one["ts"] for one in messages if one.get("ts")])
             for message in messages:
-                if not message.get("ts") or message["ts"] in roots:
-                    continue
-                if not (message.get("text") or message.get("blocks")):
-                    continue
-                _chat_id, inserted = chat.insert(conn, case_id, event_of(channel_id, message))
-                stored += int(bool(inserted))
+                if imported_chat.classify(message, thread_ts, report_id, mirrors, own) == imported_chat.CHAT:
+                    _chat_id, inserted = chat.insert(conn, case_id, event_of(channel_id, message))
+                    stored += int(bool(inserted))
     with session() as conn:
         conn.execute(DONE, (case_id,))
     return stored
