@@ -425,7 +425,8 @@ def sync_header(client, conn, case, card_channel_id):
     return target_ts
 
 
-def read_linked(client, channel_id, ts, thread_ts=None):
+def read_linked(client, conn, channel_id, ts, thread_ts=None):
+    channels.join_public(client, conn, channel_id)
     try:
         if thread_ts and thread_ts != ts:
             response = client.conversations_replies(
@@ -453,17 +454,40 @@ def read_linked(client, channel_id, ts, thread_ts=None):
     }
 
 
-def linked_shares(client, text):
+def linked_shares(client, conn, text):
     shares, visited = [], set()
     for one in views.linked.occurrences(text):
         key = (one["channel_id"], one["ts"])
         if key in visited:
             continue
         visited.add(key)
-        share = read_linked(client, one["channel_id"], one["ts"], one["thread_ts"])
+        share = read_linked(client, conn, one["channel_id"], one["ts"], one["thread_ts"])
         if share:
             shares.append(share)
     return shares
+
+
+UNREAD_LINKS = """
+SELECT id, source_channel_id, source_ts, source_thread_ts
+FROM fd.intake_shares
+WHERE message_id = %s AND kind = 'link' AND NOT is_reachable
+ORDER BY id
+"""
+
+SET_LINK_READ = """
+UPDATE fd.intake_shares
+SET source_author_user_id = %s, source_body = %s, is_reachable = true
+WHERE id = %s
+"""
+
+
+def read_links(client, conn, message_id):
+    unread = conn.execute(UNREAD_LINKS, (message_id,)).fetchall()
+    for share_id, channel_id, ts, thread_ts in unread:
+        linked_message = read_linked(client, conn, channel_id, ts, thread_ts)
+        if linked_message and linked_message["is_reachable"]:
+            conn.execute(SET_LINK_READ, (linked_message["source_author_user_id"],
+                                         linked_message["source_body"], share_id))
 
 
 OPENING_TO_UNFURL = """
@@ -483,7 +507,7 @@ def unfurl_opening(client, conn, case_id, channel_id, thread_ts):
     numbered = views.linked.numbering(body, [], 1)
     if not numbered["links"]:
         return None
-    items = views.linked.items(numbered, linked_shares(client, body))
+    items = views.linked.items(numbered, linked_shares(client, conn, body))
     try:
         sent = client.chat_postMessage(
             channel=channel_id,
@@ -651,6 +675,8 @@ def unfurl(client, conn, message_id, channel_id, thread_ts):
     conversation_id, posted, digest, handled = row
     if handled and not posted:
         return None
+    if not posted:
+        read_links(client, conn, message_id)
 
     items = views.linked.items(
         message_numbering(conn, conversation_id).get(message_id), shares_for(conn, message_id)

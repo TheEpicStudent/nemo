@@ -231,6 +231,14 @@ def join(client, conn, channel_id, by=None, verb="joined"):
     return True
 
 
+def join_public(client, conn, channel_id, by=None):
+    if not channel_id or channel_id[:1] != "C":
+        return False
+    if is_inside(conn, channel_id) or not joinable(conn, channel_id):
+        return False
+    return join(client, conn, channel_id, by=by)
+
+
 def waits_for_invite(conn, channel_id):
     row = conn.execute(LATEST_JOIN, (channel_id,)).fetchone()
     return bool(row) and tuple(row) == ("refused", NEEDS_INVITE)

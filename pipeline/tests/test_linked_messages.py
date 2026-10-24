@@ -160,11 +160,22 @@ class Conn:
 
 
 class Slack:
-    def __init__(self):
+    def __init__(self, messages=()):
+        self.messages = list(messages)
+        self.calls = []
         self.posted = []
         self.updated = []
 
+    def conversations_join(self, **kwargs):
+        self.calls.append(("join", kwargs["channel"]))
+        return {"ok": True}
+
+    def conversations_history(self, **kwargs):
+        self.calls.append(("history", kwargs["channel"]))
+        return {"messages": self.messages}
+
     def chat_postMessage(self, **kwargs):
+        self.calls.append(("post", kwargs["channel"]))
         self.posted.append(kwargs)
         return {"ts": "9.9"}
 
@@ -237,6 +248,54 @@ def test_unfurl_message_without_links_marks_settled_without_reply():
     assert channel.unfurl(slack, conn, 1, CHANNEL_ID, CARD) is None
     assert slack.posted == []
     assert conn.args_for("SET unfurl_ts") == [(None, None, 1)]
+
+
+LINKED_TS = "1786970526.885769"
+LINKED_MESSAGE = {"ts": LINKED_TS, "text": "the linked message", "user": "UAUTHOR"}
+
+
+def link_message(state, inside=True):
+    conn = unfurl_setup(state, (1, f"<{LINK}>", at(-5), CARD, None))
+    conn.answers["kind = 'link' AND NOT is_reachable"] = [(40, "C0BNYU3JK3Q", LINKED_TS, None)]
+    conn.answers["FROM fd.channel_membership WHERE channel_id"] = [(inside,)]
+    return conn
+
+
+def test_unfurl_reads_unread_link_before_first_post():
+    conn, slack = link_message((7, None, None, None)), Slack([LINKED_MESSAGE])
+
+    assert channel.unfurl(slack, conn, 1, CHANNEL_ID, CARD) == "9.9"
+
+    assert slack.calls == [("history", "C0BNYU3JK3Q"), ("post", CHANNEL_ID)]
+    assert conn.args_for("SET source_author_user_id") == [("UAUTHOR", "the linked message", 40)]
+
+
+def test_unfurl_joins_public_channel_before_reading_link():
+    conn, slack = link_message((7, None, None, None), inside=False), Slack([LINKED_MESSAGE])
+
+    channel.unfurl(slack, conn, 1, CHANNEL_ID, CARD)
+
+    assert [name for name, _ in slack.calls] == ["join", "history", "post"]
+    assert slack.calls[0] == ("join", "C0BNYU3JK3Q")
+
+
+def test_unfurl_does_not_join_known_private_channel():
+    conn, slack = link_message((7, None, None, None), inside=False), Slack()
+    conn.answers["FROM raw.channel_dim"] = [(1,)]
+
+    channel.unfurl(slack, conn, 1, CHANNEL_ID, CARD)
+
+    assert [name for name, _ in slack.calls] == ["history", "post"]
+    assert conn.args_for("SET source_author_user_id") == []
+
+
+def test_unfurl_existing_reply_reads_no_links():
+    conn, slack = link_message((7, "9.9", "stale", at(0))), Slack([LINKED_MESSAGE])
+
+    channel.unfurl(slack, conn, 1, CHANNEL_ID, CARD)
+
+    assert conn.args_for("NOT is_reachable") == []
+    assert slack.calls == [] and slack.updated[0]["ts"] == "9.9"
 
 
 def test_has_unmirrored_content_sql_includes_forward_kind():

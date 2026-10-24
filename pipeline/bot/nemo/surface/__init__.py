@@ -131,9 +131,7 @@ class Ctx:
             return
         try:
             with session() as conn:
-                if channels.is_inside(conn, channel_id) or not channels.joinable(conn, channel_id):
-                    return
-                channels.join(self.client, conn, channel_id, by=self.user_id)
+                channels.join_public(self.client, conn, channel_id, by=self.user_id)
         except Exception as failure:
             log.info("nemo: could not join %s before answering: %s", channel_id, failure)
 

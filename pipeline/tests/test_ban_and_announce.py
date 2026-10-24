@@ -180,16 +180,25 @@ class Reader:
         self.calls.append(("history", kwargs))
         return {"messages": self.messages}
 
+    def conversations_join(self, **kwargs):
+        self.calls.append(("join", kwargs))
+        return {"ok": True}
+
     def chat_postMessage(self, **kwargs):
         self.posted.append(kwargs)
         return {"ts": "9.9"}
+
+
+def inside():
+    return Conn({"FROM fd.channel_membership WHERE channel_id": (True,)})
 
 
 def test_read_linked_reply_in_thread_returns_source_message():
     reader = Reader([{"ts": "1791725791.702509", "text": "root"},
                      {"ts": "1791730046.580269", "text": "the reply", "user": "UA"}])
 
-    linked_message = channel.read_linked(reader, "C0BSBP62C3U", "1791730046.580269", "1791725791.702509")
+    linked_message = channel.read_linked(reader, inside(), "C0BSBP62C3U", "1791730046.580269",
+                                         "1791725791.702509")
 
     assert reader.calls[0][0] == "replies"
     assert linked_message["source_body"] == "the reply" and linked_message["is_reachable"]
@@ -197,7 +206,23 @@ def test_read_linked_reply_in_thread_returns_source_message():
 
 
 def test_read_linked_missing_message_returns_none():
-    assert channel.read_linked(Reader([]), "C1", "1.0") is None
+    assert channel.read_linked(Reader([]), inside(), "C1", "1.0") is None
+
+
+def test_read_linked_joins_public_channel_before_reading():
+    reader = Reader([{"ts": "1.0", "text": "hi", "user": "UA"}])
+    conn = Conn()
+
+    assert channel.read_linked(reader, conn, "C1", "1.0")["source_body"] == "hi"
+    assert [name for name, _ in reader.calls] == ["join", "history"]
+    assert conn.args_for("INSERT INTO fd.channel_membership") == [("C1", True)]
+
+
+def test_read_linked_does_not_join_private_channel():
+    reader = Reader([])
+
+    assert channel.read_linked(reader, Conn(), "G1", "1.0") is None
+    assert [name for name, _ in reader.calls] == ["history"]
 
 
 def test_unfurl_opening_posts_link_once():
