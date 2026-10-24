@@ -26,6 +26,13 @@ module Fd
         .newest_first.limit(limit).to_a.reverse
     end
 
+    def self.before(conversation_ids, message)
+      return [] if conversation_ids.blank? || message.nil?
+
+      where(conversation_id: conversation_ids).human_authored
+        .where("(posted_at, id) < (?, ?)", message.posted_at, message.id).oldest_first.to_a
+    end
+
     def theirs?
       direction == "inbound"
     end

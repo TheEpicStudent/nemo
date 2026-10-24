@@ -16,6 +16,12 @@ module Fd
       [where(case_id: case_id).count - visible_count, 0].max
     end
 
+    def self.before(case_id, line)
+      return [] if line.nil?
+
+      where(case_id: case_id).where("(posted_at, id) < (?, ?)", line.posted_at, line.id).oldest_first.to_a
+    end
+
     def self.roots_for(cases)
       rooted = cases.select { |kase| kase.card_channel_id.present? && kase.card_thread_ts.present? }
       return {} if rooted.empty?

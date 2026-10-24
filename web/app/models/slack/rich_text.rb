@@ -42,6 +42,20 @@ module Slack
       ids.uniq
     end
 
+    def self.user_ids(message)
+      ids = []
+      walk = lambda do |node|
+        case node
+        when Hash
+          ids << node["user_id"] if node["type"] == "user" && node["user_id"].present?
+          node["elements"]&.each { |child| walk.call(child) }
+        when Array then node.each { |child| walk.call(child) }
+        end
+      end
+      walk.call((message || {})["blocks"])
+      ids.uniq
+    end
+
     def initialize(names = {}, channels = {}, emoji = {}, usergroups: {}, user_chip: nil,
                    channel_chip: nil, link_chip: nil)
       @names = names

@@ -119,7 +119,7 @@
 
   <div class="<%= @tab == "report" ? "card report-solo" : "case-tab-body" %>">
     <% if @tab == "report" %>
-      <%= render "chat", kase: @case, reports: @reports, chat: @chat, earlier: @earlier_chat,
+      <%= render "chat", kase: @case, reports: @reports, chat: @chat, earlier: @earlier_count,
             messages: @conversation_messages, queued: @queued_replies, thread: @thread,
             conversation: @thread_conversation, message_count: @conversation_count,
             reachable: @reachable_report_ids, root: @root_chat %>

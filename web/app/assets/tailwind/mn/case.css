@@ -359,6 +359,9 @@
     font-weight: 500;
   }
   .dayrule::before, .dayrule::after { content: ""; height: 1px; flex: 1 1 auto; background: var(--line-soft); }
+  .chatfold > summary { display: flex; width: fit-content; margin: var(--s-sm) auto var(--s-2xs); list-style: none; }
+  .chatfold > summary::-webkit-details-marker { display: none; }
+  .chatfold[open] > summary { display: none; }
 
   .chat-picks { display: flex; align-items: center; gap: 4px; padding: 6px var(--s-md) 0; overflow-x: auto; scrollbar-width: none; flex: none; }
   .chat-picks::-webkit-scrollbar { display: none; }

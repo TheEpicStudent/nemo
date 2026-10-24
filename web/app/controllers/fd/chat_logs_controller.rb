@@ -5,25 +5,17 @@ module Fd
     def show
       @case = Case.find(params[:case_id])
       family = @case.family_ids
-      reports = CaseReport.where(case_id: family).oldest_first.to_a
-      @root_chat = CaseChat.root_for(@case, family) if reports.empty?
-      @named_reporters = reports.reject(&:anonymous?).map(&:reporter_user_id)
-      @thread = reports.find { |report| report.id == params[:thread].to_i } || reports.last
-      @reports = [@thread].compact
-      @conversation = IntakeConversation.for_case(family).find_by(report_id: @thread&.id)
-      @conversation_messages = IntakeMessage.tail([@conversation&.id].compact)
+      load_thread(family)
+      @conversation_messages = IntakeMessage.tail(conversation_ids)
       @queued_replies = if @conversation
         IntakeOutbox.where(conversation_id: @conversation.id, sent_at: nil).oldest_first.to_a
       else
         []
       end
       @chat = CaseChat.tail(family)
-      @earlier_chat = CaseChat.earlier_than(family, @chat.size)
-      @cited_shares = IntakeShare.for_messages(@conversation_messages.map(&:id))
-      @channels = ChannelNames.for(cited.map(&:source_channel_id).compact +
-        ChatChannels.ids(@chat, @conversation_messages, @queued_replies, @reports))
-      @names = Names.for(people_ids)
-      @emoji = ChatEmoji.for(@chat, @conversation_messages, @queued_replies, @reports)
+      @earlier_count = CaseChat.earlier_than(family, @chat.size) +
+        [IntakeMessage.count_for(conversation_ids) - @conversation_messages.size, 0].max
+      load_rendering
 
       respond_to do |format|
         format.html { render layout: false }
@@ -31,7 +23,41 @@ module Fd
       end
     end
 
+    def earlier
+      @case = Case.find(params[:case_id])
+      family = @case.family_ids
+      load_thread(family)
+      @conversation_messages = IntakeMessage.before(conversation_ids,
+        IntakeMessage.find_by(id: params[:message_before], conversation_id: conversation_ids))
+      @queued_replies = []
+      @chat = CaseChat.before(family, CaseChat.find_by(id: params[:chat_before], case_id: family))
+      load_rendering
+
+      render layout: false
+    end
+
     private
+
+    def load_thread(family)
+      reports = CaseReport.where(case_id: family).oldest_first.to_a
+      @root_chat = CaseChat.root_for(@case, family) if reports.empty?
+      @named_reporters = reports.reject(&:anonymous?).map(&:reporter_user_id)
+      @thread = reports.find { |report| report.id == params[:thread].to_i } || reports.last
+      @reports = [@thread].compact
+      @conversation = IntakeConversation.for_case(family).find_by(report_id: @thread&.id)
+    end
+
+    def conversation_ids
+      [@conversation&.id].compact
+    end
+
+    def load_rendering
+      @cited_shares = IntakeShare.for_messages(@conversation_messages.map(&:id))
+      @channels = ChannelNames.for(cited.map(&:source_channel_id).compact +
+        ChatChannels.ids(@chat, @conversation_messages, @queued_replies, @reports))
+      @names = Names.for(people_ids)
+      @emoji = ChatEmoji.for(@chat, @conversation_messages, @queued_replies, @reports)
+    end
 
     def cited
       (@cited_shares || {}).values.flatten
@@ -40,7 +66,8 @@ module Fd
     def people_ids
       user_ids = @named_reporters + @reports.map(&:closed_by) +
         @conversation_messages.map(&:sent_by) + cited.map(&:source_author_user_id) +
-        @queued_replies.map(&:requested_by) + @chat.map(&:author_user_id) + [@case.opened_by]
+        @queued_replies.map(&:requested_by) + @chat.map(&:author_user_id) + [@case.opened_by] +
+        ChatPeople.ids(@chat, @conversation_messages, @queued_replies, @reports)
       return user_ids if @reports.any?(&:anonymous?)
 
       user_ids + @conversation_messages.map(&:author_user_id)

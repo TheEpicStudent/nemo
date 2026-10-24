@@ -1,27 +1,26 @@
 <% entries = chat_entries(reports, chat, messages, queued) %>
+<% opening, recent = earlier.positive? ? entries.partition { |entry| entry.key.start_with?("open-") } : [[], entries] %>
 
 <%= turbo_frame_tag chat_log_id(kase),
       data: { src: fd_case_chat_log_path(kase, thread: reports.first&.id) } do %>
 <div id="chat-messages-<%= kase.id %>" class="chatscroll" data-version="<%= Fd::ChatVersion.for(kase.id) %>">
-  <% if earlier.positive? %>
-    <p class="dayrule" data-earlier><%= pluralize(earlier, "earlier message") %></p>
-  <% end %>
   <% if kase.chat_import_pending? && entries.any? %>
     <p class="dayrule">Not imported yet</p>
   <% end %>
 
-  <% last_day = nil %>
-  <% last_entry = nil %>
-  <% entries.each do |entry| %>
-    <% day = entry.at.to_date %>
-    <% if day != last_day %>
-      <p class="dayrule"><%= day.strftime("%-d %B %Y") %></p>
-      <% last_day = day %>
-      <% last_entry = nil %>
-    <% end %>
-    <%= render "fd/cases/message", entry: entry, grouped: grouped_with?(entry, last_entry) %>
-    <% last_entry = entry %>
+  <%= render "fd/cases/chat_entries", entries: opening %>
+  <% if earlier.positive? %>
+    <details class="chatfold" data-earlier>
+      <summary class="btn btn-sm">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+        Show <%= pluralize(earlier, "earlier message") %>
+      </summary>
+      <%= turbo_frame_tag "earlier-chat-#{kase.id}", loading: "lazy",
+            src: earlier_fd_case_chat_log_path(kase, thread: reports.first&.id,
+              chat_before: chat.first&.id, message_before: messages.first&.id) %>
+    </details>
   <% end %>
+  <%= render "fd/cases/chat_entries", entries: recent %>
 
   <p class="dayrule" data-nothing hidden>No messages sent to reporter</p>
 

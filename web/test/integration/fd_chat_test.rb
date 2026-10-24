@@ -107,6 +107,87 @@ class FdChatTest < ActionDispatch::IntegrationTest
     assert_select "a.mention[href=?]", fd_member_path("UTHEM")
   end
 
+  test "chat log names a member mentioned only inside chat" do
+    member = Fd::Member.first
+    Fd::CaseChat.create!(case_id: @kase.id, author_user_id: "UME", body: "<@#{member.user_id}> look",
+      source_app: "nemo", channel_id: "CLOG", ts: "1.5",
+      blocks: rich([{ "type" => "user", "user_id" => member.user_id }]))
+    label = Fd::Names.for([member.user_id])[member.user_id]
+
+    get fd_case_chat_log_path(@kase, thread: @kase.reports.first&.id)
+
+    assert_select "a.mention[href=?]", fd_member_path(member.user_id), text: "@#{label.delete_prefix('@')}"
+  end
+
+  test "case show names a member mentioned only inside chat" do
+    member = Fd::Member.first
+    Fd::CaseChat.create!(case_id: @kase.id, author_user_id: "UME", body: "ask <@#{member.user_id}>",
+      source_app: "fire_engine")
+    label = Fd::Names.for([member.user_id])[member.user_id]
+
+    get fd_case_path(@kase, tab: "report")
+
+    assert_select "a.mention[href=?]", fd_member_path(member.user_id), text: "@#{label.delete_prefix('@')}"
+  end
+
+  def chat_lines(count)
+    count.times.map do |at|
+      Fd::CaseChat.create!(case_id: @kase.id, author_user_id: "UME", body: "line #{at}",
+        source_app: "fire_engine", posted_at: 3.hours.ago + at.minutes)
+    end
+  end
+
+  test "chat log over the tail limit shows a closed fold for earlier messages" do
+    lines = chat_lines(Fd::CaseChat::TAIL_LIMIT + 3)
+
+    get fd_case_chat_log_path(@kase, thread: @kase.reports.first&.id)
+
+    assert_select "details.chatfold[data-earlier]:not([open]) > summary.btn", /Show 3 earlier messages/
+    assert_select "details.chatfold turbo-frame#earlier-chat-#{@kase.id}[loading=lazy][src=?]",
+      earlier_fd_case_chat_log_path(@kase, chat_before: lines[3].id)
+    assert_not_includes response.body, "line 2<"
+  end
+
+  test "chat log within the tail limit shows no earlier fold" do
+    chat_lines(3)
+
+    get fd_case_chat_log_path(@kase, thread: @kase.reports.first&.id)
+
+    assert_select "details.chatfold", 0
+  end
+
+  test "earlier chat log renders only lines before the given line" do
+    lines = chat_lines(6)
+
+    get earlier_fd_case_chat_log_path(@kase, chat_before: lines[3].id)
+
+    assert_response :success
+    assert_select "turbo-frame#earlier-chat-#{@kase.id} .msg", 3
+    assert_includes response.body, "line 0"
+    assert_includes response.body, "line 2"
+    assert_not_includes response.body, "line 3"
+  end
+
+  test "earlier chat log without a cutoff renders no lines" do
+    chat_lines(2)
+
+    get earlier_fd_case_chat_log_path(@kase)
+
+    assert_response :success
+    assert_select "turbo-frame#earlier-chat-#{@kase.id} .msg", 0
+  end
+
+  test "earlier chat log ignores a cutoff from another case" do
+    other = make_case
+    elsewhere = Fd::CaseChat.create!(case_id: other.id, author_user_id: "UME", body: "elsewhere",
+      source_app: "fire_engine")
+    chat_lines(2)
+
+    get earlier_fd_case_chat_log_path(@kase, chat_before: elsewhere.id)
+
+    assert_select "turbo-frame#earlier-chat-#{@kase.id} .msg", 0
+  end
+
   def stub_emoji(urls)
     original_for = Slack::Emoji.method(:for)
     Slack::Emoji.define_singleton_method(:for) { |names| urls.slice(*Array(names)) }

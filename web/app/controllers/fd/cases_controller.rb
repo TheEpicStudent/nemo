@@ -50,7 +50,8 @@ module Fd
         []
       end
       @chat = CaseChat.tail(family)
-      @earlier_chat = CaseChat.earlier_than(family, @chat.size)
+      @earlier_count = CaseChat.earlier_than(family, @chat.size) +
+        [@conversation_count - @conversation_messages.size, 0].max
       @standing_notes = Note.for_subjects(@participants.map(&:user_id)).visible.recent_first
         .group_by(&:subject_user_id)
       @thread_messages = ThreadMessage.for_threads(@threads).to_a
@@ -175,6 +176,7 @@ module Fd
         (@notes + @standing_notes.values.flatten).flat_map { |note| Mentions.ids(note.body) },
         @reports.flat_map { |report| Mentions.ids(report.body) },
         @root_chat&.author_user_id,
+        ChatPeople.ids(@chat, @conversation_messages, @queued_replies, @reports),
         @thread_messages.map(&:author_user_id),
         @thread_messages.map(&:purged_by),
         @threads.map(&:added_by),

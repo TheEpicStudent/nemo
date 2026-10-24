@@ -1,0 +1,4 @@
+<%= turbo_frame_tag "earlier-chat-#{@case.id}" do %>
+  <%= render "fd/cases/chat_entries",
+        entries: changed_chat_entries(@reports, @chat, @conversation_messages, @queued_replies) %>
+<% end %>

@@ -37,7 +37,9 @@ export default class extends Controller {
     this.followBottom = distanceFromBottom < BOTTOM_THRESHOLD
   }
 
-  onLoad() {
+  onLoad(event) {
+    if (event.target.closest?.("[data-earlier]")) return
+
     this.followBottom = true
     this.scrollToBottomAfterRender()
   }
