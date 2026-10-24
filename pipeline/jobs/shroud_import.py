@@ -113,6 +113,13 @@ FROM fd.intake_files f
 WHERE f.id = mf.file_id AND mf.message_id = %s AND mf.mirrored_at IS NULL
 """
 
+MARK_FILES_NOTIFIED = """
+UPDATE fd.intake_files f
+SET reporter_notified_at = now()
+FROM fd.intake_message_files mf
+WHERE mf.file_id = f.id AND mf.message_id = %s AND f.reporter_notified_at IS NULL
+"""
+
 
 def connect():
     return psycopg.connect(os.environ[URL], options="-c default_transaction_read_only=on")
@@ -133,6 +140,7 @@ def attach_dm_message(conn, conversation_id, message_id, message, anonymous):
     parts = dm_attachments(message, anonymous)
     intake.attach(conn, message_id, parts)
     conn.execute(MARK_FILES_POSTED, (message_id,))
+    conn.execute(MARK_FILES_NOTIFIED, (message_id,))
     if anonymous and parts["files"]:
         intake.rename_anonymous_files(conn, conversation_id)
     return parts

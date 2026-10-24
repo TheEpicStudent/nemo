@@ -270,9 +270,11 @@ def test_apply_attachments_with_anonymous_report_stores_file_without_uploader(mo
 
     file_args = next(args for sql, args in conn.executed if "INSERT INTO fd.intake_files" in sql)
     assert file_args["uploaded_by"] is None
-    assert any("UPDATE fd.intake_files f" in sql for sql, _args in conn.executed)
+    assert any("SET name =" in sql for sql, _args in conn.executed)
     marked = [args for sql, args in conn.executed if "mirrored_file_id = f.slack_file_id" in sql]
     assert marked == [(601,)]
+    notified = [args for sql, args in conn.executed if "SET reporter_notified_at = now()" in sql]
+    assert notified == [(601,)]
     assert done == {"attached": 1, "files_stored": 1}
     assert drained == ["xoxb-relay"]
 

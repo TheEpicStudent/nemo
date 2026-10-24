@@ -247,7 +247,7 @@ def test_new_import_stores_the_shared_message_of_the_dm(monkeypatch):
     assert stored[0][0] == 601 and stored[0][6] == "UAUTHOR"
 
 
-def test_forwarded_with_dm_files_marks_files_posted(monkeypatch):
+def test_forwarded_with_dm_files_marks_files_posted_and_notified(monkeypatch):
     monkeypatch.setattr(shroud_import, "ensure_member", lambda conn, user_id: None)
     conn = new_report_conn()
     conn.answers["INSERT INTO fd.intake_files"] = (701,)
@@ -260,6 +260,7 @@ def test_forwarded_with_dm_files_marks_files_posted(monkeypatch):
 
     assert conn.args_for("INSERT INTO fd.intake_message_files")
     assert conn.args_for("mirrored_file_id = f.slack_file_id") == [(601,)]
+    assert conn.args_for("SET reporter_notified_at = now()") == [(601,)]
 
 
 def test_an_existing_report_is_left_alone():
