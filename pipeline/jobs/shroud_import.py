@@ -114,6 +114,21 @@ def slack_time(ts):
     return parse.posted_at(ts) if ts else None
 
 
+def dm_attachments(message, anonymous):
+    files = message.get("files") or []
+    if anonymous:
+        files = [{key: value for key, value in entry.items() if key != "user"} for entry in files]
+    return {"attachments": message.get("attachments") or [], "files": files}
+
+
+def attach_dm_message(conn, conversation_id, message_id, message, anonymous):
+    parts = dm_attachments(message, anonymous)
+    intake.attach(conn, message_id, parts)
+    if anonymous and parts["files"]:
+        intake.rename_anonymous_files(conn, conversation_id)
+    return parts
+
+
 class Import:
     def __init__(self, identity):
         self.identity = identity
@@ -156,6 +171,12 @@ class Import:
         )).fetchone()
         if row and row[1]:
             conn.execute(INSERT_REVISION, (row[0], content, parse.digest(content, None, None)))
+        return row[0] if row else None
+
+    def attach(self, conn, conversation_id, message_id, dm_channel, dm_ts, anonymous):
+        message = self.identity.dms.one(dm_channel, dm_ts) if message_id and dm_channel and dm_ts else None
+        if message:
+            attach_dm_message(conn, conversation_id, message_id, message, anonymous)
 
     def forwarded(self, conn, report_id, dm_ts, dm_channel, forwarded_ts, selection_ts, content,
                   reply_time, auto_forward, created_at):
@@ -200,8 +221,9 @@ class Import:
             self.summary["already"] += 1
             return
         conn.execute(HAND_OFF, (row[0], created_at, conversation_id))
-        self.first_message(conn, conversation_id, dm_channel, dm_ts, reporter, content, forwarded_ts,
-                           created_at)
+        message_id = self.first_message(conn, conversation_id, dm_channel, dm_ts, reporter, content,
+                                        forwarded_ts, created_at)
+        self.attach(conn, conversation_id, message_id, dm_channel, dm_ts, not named)
         self.summary["reports"] += 1
 
     def unsent(self, conn, dm_ts, dm_channel, selection_ts, selection, content, created_at):
@@ -216,7 +238,9 @@ class Import:
         conversation_id, attached = self.conversation(conn, dm_channel, dm_ts, member, choice, created_at)
         if attached:
             return
-        self.first_message(conn, conversation_id, dm_channel, dm_ts, member, content, None, created_at)
+        message_id = self.first_message(conn, conversation_id, dm_channel, dm_ts, member, content, None,
+                                        created_at)
+        self.attach(conn, conversation_id, message_id, dm_channel, dm_ts, choice != consent.NAMED)
         if selection_ts:
             conn.execute(INSERT_MESSAGE, (
                 conversation_id, dm_channel, selection_ts, dm_ts, "outbound", None, consent.SUBTYPE,

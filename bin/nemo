@@ -38,7 +38,7 @@ nemo <role> [args]
                  (in the bot.nemo container)
   shroud-import  Shroud reports (--since for a delta, --takeover after the switch)
                  (in the bot.relay container)
-  import-repair identity|reports|chat [--apply]
+  import-repair identity|reports|chat|attachments [--all] [--apply]
                  fix imported reports and chat, a dry run unless --apply
   doctor <role>  report the env this role needs and what is missing
 

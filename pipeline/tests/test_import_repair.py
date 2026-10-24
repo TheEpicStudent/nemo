@@ -225,3 +225,62 @@ def test_apply_chat_deletes_copies_and_lyla_lines_in_batches(monkeypatch):
 
     assert done == {"mirror_copies": 3, "lyla_messages": 1}
     assert [args[0] for _sql, args in conn.executed] == [[1, 2], [3], [4]]
+
+
+SHARE = {"is_share": True, "channel_id": "C1", "ts": "1.1", "author_id": "UAUTHOR", "text": "spam",
+         "from_url": "https://hackclub.slack.com/archives/C1/p1000000001100000"}
+FILE = {"id": "F1", "name": "shot.png", "user": "UREPORTER", "mimetype": "image/png",
+        "url_private": "https://files.slack.com/files-pri/T1-F1/shot.png"}
+
+
+class DmMessages:
+    def __init__(self, messages, unreadable=()):
+        self.messages = messages
+        self.unreadable = set(unreadable)
+
+    def one(self, channel_id, ts):
+        return self.messages.get(ts)
+
+
+def test_plan_attachments_sorts_reports_by_what_their_dm_carried():
+    rows = [(1, True, 31, 601, "D1", "1.0"), (2, False, 32, 602, "D2", "2.0"),
+            (3, True, 33, 603, "D3", "3.0"), (4, True, 34, 604, "DGONE", "4.0")]
+    dms = DmMessages({"1.0": {"attachments": [SHARE]}, "2.0": {"files": [FILE]},
+                      "3.0": {"text": "see <https://hackclub.slack.com/archives/C1/p1000000001100000>"}},
+                     unreadable={"DGONE"})
+
+    plan = import_repair.plan_attachments(rows, dms)
+
+    assert [entry["report_id"] for entry in plan["to_attach"]] == [1, 2]
+    assert plan["with_shared_message"] == [1]
+    assert plan["with_files"] == [2]
+    assert plan["nothing_attached"] == [3]
+    assert plan["unreadable_channel"] == [4]
+
+
+def test_apply_attachments_with_anonymous_report_stores_file_without_uploader(monkeypatch):
+    conn = Conn({"INSERT INTO fd.intake_files": [(701,)], "UPDATE fd.intake_files f": [(701,)]})
+    monkeypatch.setattr(import_repair, "session", lambda: fake_session(conn))
+    drained = []
+    monkeypatch.setattr(import_repair, "drain_files", lambda token: drained.append(token) or 1)
+    entry = {"report_id": 1, "anonymous": True, "conversation_id": 31, "message_id": 601,
+             "message": {"user": "UREPORTER", "files": [FILE]}}
+
+    done = import_repair.apply_attachments({"to_attach": [entry]}, "xoxb-relay")
+
+    file_args = next(args for sql, args in conn.executed if "INSERT INTO fd.intake_files" in sql)
+    assert file_args["uploaded_by"] is None
+    assert any("UPDATE fd.intake_files f" in sql for sql, _args in conn.executed)
+    assert done == {"attached": 1, "files_stored": 1}
+    assert drained == ["xoxb-relay"]
+
+
+def test_drain_files_downloads_until_no_file_is_waiting(monkeypatch):
+    waiting = [[(1,)], [(2,)], []]
+    conn = Conn({"FROM fd.intake_files f": lambda args: waiting.pop(0)})
+    monkeypatch.setattr(import_repair, "session", lambda: fake_session(conn))
+    calls = []
+    monkeypatch.setattr(import_repair.intake_files, "drain", lambda token, limit: calls.append(limit) or 1)
+
+    assert import_repair.drain_files("xoxb-relay") == 2
+    assert calls == [import_repair.FILE_BATCH, import_repair.FILE_BATCH]

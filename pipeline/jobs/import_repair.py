@@ -11,9 +11,10 @@ from dotenv import load_dotenv
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from bot.core import session, shutdown
+from bot.core import blobs, parse, session, shutdown
 from bot.core.identity import ensure_member
-from jobs import shroud_identity
+from bot.relay import intake_files
+from jobs import shroud_identity, shroud_import
 from lib.paths import ENV_FILE
 from lib.slack_client import RETRY_HANDLERS
 from lyla import store
@@ -116,6 +117,21 @@ ORDER BY c.id
 """
 
 DELETE_CHAT = "DELETE FROM fd.case_chat WHERE id = ANY(%s)"
+
+FIRST_MESSAGES = """
+SELECT r.id, r.is_anonymous, v.id, m.id, m.channel_id, m.ts
+FROM fd.case_reports r
+JOIN fd.intake_conversations v ON v.report_id = r.id
+JOIN fd.intake_messages m ON m.conversation_id = v.id AND m.channel_id = v.channel_id
+ AND m.ts = v.thread_ts AND m.direction = 'inbound'
+WHERE r.source_app = 'shroud'
+  AND (%(all_reports)s OR btrim(coalesce(r.body, '')) = '')
+  AND NOT EXISTS (SELECT 1 FROM fd.intake_shares s WHERE s.message_id = m.id)
+  AND NOT EXISTS (SELECT 1 FROM fd.intake_message_files mf WHERE mf.message_id = m.id)
+ORDER BY r.id
+"""
+
+FILE_BATCH = 20
 
 
 def sample(items):
@@ -272,6 +288,52 @@ def apply_chat(plan, batch=500):
     return done
 
 
+def first_messages(conn, all_reports=False):
+    return conn.execute(FIRST_MESSAGES, {"all_reports": all_reports}).fetchall()
+
+
+def plan_attachments(rows, dms):
+    plan = collections.defaultdict(list)
+    for report_id, anonymous, conversation_id, message_id, dm_channel, dm_ts in rows:
+        message = dms.one(dm_channel, dm_ts)
+        if message is None:
+            plan["unreadable_channel" if dm_channel in dms.unreadable else "missing_message"].append(report_id)
+            continue
+        parts = shroud_import.dm_attachments(message, anonymous)
+        shares, files = parse.shares(parts), parse.files(parts)
+        if not shares and not files:
+            plan["nothing_attached"].append(report_id)
+            continue
+        plan["to_attach"].append({"report_id": report_id, "anonymous": anonymous,
+                                  "conversation_id": conversation_id, "message_id": message_id,
+                                  "message": message})
+        if shares:
+            plan["with_shared_message"].append(report_id)
+        if files:
+            plan["with_files"].append(report_id)
+    return plan
+
+
+def drain_files(token):
+    stored_count = 0
+    while True:
+        with session() as conn:
+            if not blobs.waiting(conn, 1):
+                return stored_count
+        stored_count += intake_files.drain(token, FILE_BATCH)
+
+
+def apply_attachments(plan, token):
+    done = collections.Counter()
+    for entry in plan.get("to_attach", []):
+        with session() as conn:
+            shroud_import.attach_dm_message(conn, entry["conversation_id"], entry["message_id"],
+                                            entry["message"], entry["anonymous"])
+        done["attached"] += 1
+    done["files_stored"] = drain_files(token)
+    return done
+
+
 def print_plan(step, plan):
     for key in sorted(plan):
         items = plan[key]
@@ -286,7 +348,7 @@ def clients():
     return relay, nemo
 
 
-def run_identity(apply):
+def run_identity(apply, all_reports=False):
     relay, nemo = clients()
     identity = shroud_identity.Identity(shroud_identity.Messages([relay, nemo]),
                                         shroud_identity.Messages([relay]))
@@ -297,7 +359,7 @@ def run_identity(apply):
     return apply_identity(plan) if apply else {}
 
 
-def run_reports(apply):
+def run_reports(apply, all_reports=False):
     relay, nemo = clients()
     with session() as conn:
         plan = plan_reports(conn, Threads([nemo, relay]))
@@ -305,15 +367,26 @@ def run_reports(apply):
     return apply_reports(plan) if apply else {}
 
 
-def run_chat(apply):
+def run_chat(apply, all_reports=False):
     with session() as conn:
         plan = plan_chat(conn)
     print_plan("chat", plan)
     return apply_chat(plan) if apply else {}
 
 
-STEPS = {"identity": run_identity, "reports": run_reports, "chat": run_chat}
-NEEDS = {"identity": ("RELAY_BOT_TOKEN", SHROUD_URL), "reports": ("RELAY_BOT_TOKEN",), "chat": ()}
+def run_attachments(apply, all_reports=False):
+    relay, _nemo = clients()
+    with session() as conn:
+        rows = first_messages(conn, all_reports)
+    plan = plan_attachments(rows, shroud_identity.Messages([relay]))
+    print_plan("attachments", plan)
+    return apply_attachments(plan, relay.token) if apply else {}
+
+
+STEPS = {"identity": run_identity, "reports": run_reports, "chat": run_chat,
+         "attachments": run_attachments}
+NEEDS = {"identity": ("RELAY_BOT_TOKEN", SHROUD_URL), "reports": ("RELAY_BOT_TOKEN",), "chat": (),
+         "attachments": ("RELAY_BOT_TOKEN",)}
 
 
 def main(argv=None):
@@ -323,13 +396,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="nemo import-repair")
     parser.add_argument("step", choices=sorted(STEPS))
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--all", action="store_true", dest="all_reports")
     args = parser.parse_args(argv)
     missing = [name for name in NEEDS[args.step] if not os.environ.get(name)]
     if missing:
         print(f"import repair: {', '.join(missing)} not set", file=sys.stderr)
         return 78
     try:
-        done = STEPS[args.step](args.apply)
+        done = STEPS[args.step](args.apply, args.all_reports)
     finally:
         shutdown()
     for key, count in sorted(done.items()):

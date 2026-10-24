@@ -230,7 +230,21 @@ def test_new_import_keeps_a_plain_forward_anonymous(monkeypatch):
     report = conn.args_for("INSERT INTO fd.case_reports")[0]
     assert report[1:3] == (None, True)
     assert report[5:7] == (None, None)
-    assert dms.calls == 0
+    assert conn.args_for("INSERT INTO fd.intake_conversations")[0][2] is None
+
+
+def test_new_import_stores_the_shared_message_of_the_dm(monkeypatch):
+    monkeypatch.setattr(shroud_import, "ensure_member", lambda conn, user_id: None)
+    conn = new_report_conn()
+    share = {"is_share": True, "channel_id": "C1", "ts": "1.1", "author_id": "UAUTHOR", "text": "spam"}
+    identity = shroud_identity.Identity(Forwards({"bot_id": "B1", "text": "hi"}),
+                                        Dms({"user": "UREPORTER", "attachments": [share]}))
+
+    forwarded(conn, identity)
+
+    stored = conn.args_for("INSERT INTO fd.intake_shares")
+    assert len(stored) == 1
+    assert stored[0][0] == 601 and stored[0][6] == "UAUTHOR"
 
 
 def test_an_existing_report_is_left_alone():
