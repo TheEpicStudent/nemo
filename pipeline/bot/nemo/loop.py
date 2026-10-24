@@ -7,6 +7,7 @@ from bot.nemo import automod, channel, channelguards, channels, chat, guards, gu
 from bot.nemo import enforcement, guard_notices, guard_removals, memberguards, case_queue
 from bot.nemo import (
     bot_kicks, categories, internal_log, join_requests, missed_reactions, public_log, responses, screening,
+    usergroups,
 )
 from bot.nemo.enforcement import purge, slowmode, sweep
 
@@ -393,4 +394,6 @@ def start(case_channel, stopping, channel_id=None):
         loops.run_periodically(NAME, sweep_interval_seconds(), lambda: sweep_once(case_channel, channel_id), stopping),
         loops.run_periodically(f"{NAME}-joins", join_sweep_interval_seconds(), lambda: join_sweep(case_channel, stopping),
                        stopping),
+        loops.run_periodically(f"{NAME}-usergroups", usergroups.REFRESH_SECONDS,
+                               lambda: usergroups.refresh(case_channel.client), stopping),
     )
